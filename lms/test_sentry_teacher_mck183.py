@@ -201,14 +201,21 @@ class PureHelperTests(unittest.TestCase):
         self.assertEqual(action_for("staff_classes", "POST"), "Roster edited")
         self.assertIsNone(action_for("api_student_state", "GET"))
 
-    def test_before_send_log_keeps_action_lines_only(self) -> None:
-        """Ordinary Python logging never becomes a Sentry log."""
-        self.assertIsNone(before_send_log({"body": "joined", "attributes": {}}))
-        line = {"body": "Publish", "attributes": {ACTION_LOG_ATTRIBUTE: "Publish"}}
+    def test_before_send_log_keeps_warnings_and_action_lines(self) -> None:
+        """INFO is dropped. WARNING and MCK-183 action lines are sent."""
+        self.assertIsNone(before_send_log({"body": "joined", "attributes": {}, "severity_text": "info"}))
+        warning = {"body": "disk full", "attributes": {}, "severity_text": "warn", "severity_number": 13}
+        self.assertEqual(before_send_log(warning)["body"], "disk full")
+        line = {"body": "Publish", "attributes": {ACTION_LOG_ATTRIBUTE: "Publish"}, "severity_text": "info"}
         self.assertIs(before_send_log(line), line)
+        self.assertIsNone(before_send_log({
+            "body": "live artifact mint failed",
+            "severity_text": "error",
+            "attributes": {"lloves_sentry_skip": True},
+        }))
 
     def test_init_turns_on_logs_and_keeps_replay_off(self) -> None:
-        """enable_logs with the filter. No replay or PII options."""
+        """enable_logs with the WARNING filter. No replay or PII options."""
         with patch.dict(
             os.environ, {"SENTRY_DSN": "https://public@o0.ingest.sentry.io/1"}, clear=False
         ):
@@ -515,13 +522,19 @@ class RequestScopeTests(unittest.TestCase):
         bodies = [row["body"] for row in _items(self.transport, "log")]
         self.assertEqual(bodies.count("Dashboard opened"), 1, bodies)
 
-    def test_python_logging_does_not_become_sentry_logs(self) -> None:
-        """App logger lines are filtered out of Sentry Logs."""
+    def test_warning_logs_are_sent_without_the_student_name(self) -> None:
+        """MCK-135: WARNING reaches Sentry Logs. The roster name does not."""
         import logging
 
+        logging.getLogger("lloves.test").info("joined as %s", ROSTER[0])
         logging.getLogger("lloves.test").warning("joined as %s", ROSTER[0])
         sentry_sdk.flush()
-        self.assertEqual(_items(self.transport, "log"), [])
+        rows = _items(self.transport, "log")
+        self.assertEqual(len(rows), 1, rows)
+        blob = json.dumps(rows)
+        self.assertNotIn(ROSTER[0], blob)
+        self.assertIn("[redacted]", blob)
+        self.assertIn("joined as", rows[0]["body"])
 
 
 class BrowserMetaTests(unittest.TestCase):

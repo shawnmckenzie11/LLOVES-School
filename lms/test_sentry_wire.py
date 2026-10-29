@@ -66,7 +66,10 @@ class SentryWireTests(unittest.TestCase):
         self.assertEqual(kwargs["max_request_body_size"], "never")
         self.assertIs(kwargs["traces_sampler"], traces_sampler)
         self.assertIs(kwargs["before_send"], before_send)
-        self.assertNotIn("integrations", kwargs)
+        integrations = kwargs["integrations"]
+        self.assertEqual(integrations[0].identifier, "logging")
+        self.assertEqual(integrations[0]._sentry_logs_handler.level, __import__("logging").WARNING)
+        self.assertIsNone(integrations[0]._handler)
 
     def test_environment_override_and_release_fallback(self) -> None:
         """SENTRY_ENVIRONMENT and SENTRY_RELEASE override the deploy tags."""
@@ -344,6 +347,11 @@ const paint = {
   breadcrumbs: [{ category: "fetch", data: { url: "/api/student/state", status_code: 200 } }],
 };
 if (opts.beforeSend(paint) !== paint) throw new Error("dropped paint");
+const paintBusy = {
+  exception: { values: [{ type: "TypeError", value: "Cannot read properties of undefined (reading 'map'): unavailable" }] },
+  breadcrumbs: [{ category: "fetch", data: { url: "/api/student/state", status_code: 200 } }],
+};
+if (opts.beforeSend(paintBusy) !== paintBusy) throw new Error("dropped paint that mentions unavailable");
 const slides = {
   exception: { values: [{ type: "TypeError", value: "Failed to fetch" }] },
   breadcrumbs: [

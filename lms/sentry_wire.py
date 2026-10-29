@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -346,11 +348,216 @@ def _mask_event_tokens(event: dict[str, Any]) -> None:
 
 
 _IDENTITY_KEYS = frozenset({"email", "confirm_email", "login_hint"})
+# Structured fields that hold a join code, catch-up code, PIN, or student name.
+# Dropped entirely before send. ``course_code`` is not in this set.
+_DROPPED_KEYS = _IDENTITY_KEYS | frozenset(
+    {
+        "pin",
+        "course_pin",
+        "student_pin",
+        "catchup_pin",
+        "catch_up_pin",
+        "default_pin",
+        "pin_hash",
+        "join_code",
+        "session_code",
+        "portal_join_code",
+        "catchup_code",
+        "catch_up_code",
+        "live_access_code",
+        "access_code",
+        "name",
+        "student_name",
+        "first_name",
+        "last_name",
+        "display_name",
+        "full_name",
+        "preferred_name",
+        "roster_name",
+        "given_name",
+        "family_name",
+        "codename",
+        "last_display",
+        "username",
+    }
+)
 _EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# "PIN 4321" / "pin=4321". A bare 4-digit year or status is left alone.
+_PIN_TEXT_RE = re.compile(r"(?i)\b(pin)\b(\s*[:=]?\s*)\d{4}\b")
+# Labeled join / catch-up / session codes. "course code MCF3M" is not a label.
+_CODE_TEXT_RE = re.compile(
+    r"(?i)\b((?:join|catch-?up|session|portal|access)\s+code"
+    r"|session_code|portal_join_code|join_code|live_access_code|catch-?up_code)"
+    r"\b(\s*[:=]?\s*)[A-Za-z0-9]{4,8}\b"
+)
+# "name=Maple" / "first_name: Maple". Requires a separator so "name Maple" in
+# prose is handled by the student-label pattern instead.
+_NAME_TEXT_RE = re.compile(
+    r"(?i)\b(student(?:'s)?\s+name|first_name|last_name|full_name|display_name"
+    r"|codename|roster_name|name)\b(\s*[:=]\s*)([^\s,;\"'&=]{1,80})"
+)
+# The name must be capitalized. ``(?i)`` would turn "Roster edited" into a
+# redacted name, because "edited" would match.
+_STUDENT_LABEL_RE = re.compile(
+    r"\b([Ss]tudent|[Rr]oster)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"
+)
+_PERSON_NAME_RE = re.compile(r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?$")
+# Words that follow "student" and are the product, not a person.
+_NOT_A_STUDENT_NAME = frozenset(
+    {
+        "portal",
+        "state",
+        "home",
+        "join",
+        "code",
+        "pin",
+        "live",
+        "class",
+        "session",
+        "error",
+        "failed",
+        "page",
+        "view",
+        "tab",
+        "board",
+        "phone",
+        "card",
+    }
+)
+# OTel severity number for warn. WARNING and above are at least this.
+_LOG_WARNING_NUMBER = 13
+_LOG_WARNING_TEXT = frozenset({"warn", "warning", "error", "fatal", "critical"})
+# One sampled busy-shed line per action per minute, not one per student tap.
+_SHED_INTERVAL_S = 60.0
+_shed_lock = threading.Lock()
+_shed_counts: dict[str, int] = {}
+_shed_logged_at: dict[str, float] = {}
+# Healthy month vs one noisy 75-minute period at the step-rejection cap.
+# Confirm the org's log quota before production; this is the expected volume.
+EXPECTED_MONTHLY_LOG_LINES = (
+    "about 1,000 lines in a healthy month; under 15,000 in a noisy week"
+)
+
+
+# Product words that share the shape of a capitalized name.
+_NOT_A_PERSON = frozenset(
+    {
+        "error",
+        "warning",
+        "failed",
+        "false",
+        "true",
+        "none",
+        "null",
+        "graph",
+        "publish",
+        "roster",
+        "student",
+        "portal",
+        "class",
+        "dashboard",
+        "attendance",
+    }
+)
+
+
+def _looks_like_person_name(value: str) -> bool:
+    """True for one or two capitalized words, such as a roster codename.
+
+    Args:
+        value: One logging argument or field.
+
+    Returns:
+        Whether the value should be treated as a student name.
+    """
+    text = str(value or "").strip()
+    if text.lower() in _NOT_A_PERSON:
+        return False
+    return bool(_PERSON_NAME_RE.fullmatch(text))
+
+
+def _redact_secret_argument(text: str, argument: str) -> str:
+    """Replace one secret argument wherever it stands as its own word.
+
+    Args:
+        text: Message that may contain the argument.
+        argument: The raw argument.
+
+    Returns:
+        ``text`` with that argument replaced by ``[redacted]``.
+    """
+    if not argument or argument not in text:
+        return text
+    return re.sub(rf"\b{re.escape(argument)}\b", "[redacted]", text)
+
+
+def _looks_like_join_code(value: str) -> bool:
+    """True when a string is shaped like a live join or catch-up code.
+
+    Lengths are 4, 5, 6, or 8, alphanumeric, with a letter. Underscored
+    error slugs (``pin_not_set``) and all-digit PINs are not codes. Course
+    codes such as ``MCF3M`` share this shape; they belong on ``course_code``,
+    not on a ``code`` field.
+
+    Args:
+        value: Field value.
+
+    Returns:
+        Whether the value should be treated as a join or catch-up secret.
+    """
+    text = str(value or "").strip().upper().replace(" ", "")
+    if len(text) not in (4, 5, 6, 8):
+        return False
+    if not text.isalnum() or text.isdigit():
+        return False
+    return any(ch.isalpha() for ch in text)
+
+
+def _scrub_student_label(match: re.Match[str]) -> str:
+    """Replace ``student Maple`` and leave ``student portal`` in place."""
+    name = match.group(2)
+    if name.lower() in _NOT_A_STUDENT_NAME:
+        return match.group(0)
+    return f"{match.group(1)} [redacted]"
+
+
+def _scrub_text(value: str) -> str:
+    """Redact emails, labeled PINs, join codes, and student names in text.
+
+    Args:
+        value: One string from an event or a log.
+
+    Returns:
+        The same text with those secrets replaced by ``[redacted]``.
+    """
+    value = _EMAIL_TEXT_RE.sub("[redacted]", value)
+    value = mask_path_tokens(value)
+    value = _PIN_TEXT_RE.sub(r"\1\2[redacted]", value)
+    value = _CODE_TEXT_RE.sub(r"\1\2[redacted]", value)
+    value = _NAME_TEXT_RE.sub(r"\1\2[redacted]", value)
+    return _STUDENT_LABEL_RE.sub(_scrub_student_label, value)
+
+
+def _drop_secret_field(key: str, child: Any) -> bool:
+    """True when this field must not be sent to Sentry.
+
+    Args:
+        key: Dict key.
+        child: Field value.
+
+    Returns:
+        Whether to omit the field.
+    """
+    lowered = str(key).lower()
+    if lowered in _DROPPED_KEYS or lowered.endswith("_pin"):
+        return True
+    if lowered == "code" and isinstance(child, str) and _looks_like_join_code(child):
+        return True
+    return False
 
 
 def _scrub_identity(value: Any) -> Any:
-    """Drop address and confirm fields and redact address text.
+    """Drop address, PIN, code, and name fields and redact them in text.
 
     Walks every nested dict and list with an explicit stack, so a deep
     payload is still scrubbed. A cycle raises and the caller drops the
@@ -366,7 +573,7 @@ def _scrub_identity(value: Any) -> Any:
         ValueError: The payload contains a cycle.
     """
     if isinstance(value, str):
-        return _EMAIL_TEXT_RE.sub("[redacted]", value)
+        return _scrub_text(value)
     if not isinstance(value, (dict, list)):
         return value
 
@@ -378,7 +585,7 @@ def _scrub_identity(value: Any) -> Any:
         """Yield kept children. Address and confirm keys are skipped."""
         if isinstance(node, dict):
             for key, child in node.items():
-                if str(key).lower() in _IDENTITY_KEYS:
+                if _drop_secret_field(str(key), child):
                     continue
                 yield str(key), child
             return
@@ -402,7 +609,7 @@ def _scrub_identity(value: Any) -> Any:
             stack.pop()
             continue
         if isinstance(child, str):
-            put(clones[id(node)], key, _EMAIL_TEXT_RE.sub("[redacted]", child))
+            put(clones[id(node)], key, _scrub_text(child))
             continue
         if isinstance(child, (dict, list)):
             child_id = id(child)
@@ -550,7 +757,8 @@ def before_send_transaction(
             _strip_span_queries(span)
         return event
     except Exception:  # noqa: BLE001
-        return event
+        # Same as before_send: a scrub error must not ship the transaction.
+        return None
 
 
 def sentry_init_options(dsn: str) -> dict[str, Any]:
@@ -562,6 +770,15 @@ def sentry_init_options(dsn: str) -> dict[str, Any]:
     Returns:
         Keyword arguments for ``sentry_sdk.init``.
     """
+    # WARNING and above become Sentry Logs. INFO stays out, including the
+    # per-poll ``live /state`` line, so a class does not pay a log per beat.
+    # Issues come from ``capture_exception`` (swallowed faults), not from
+    # every ``logger.exception`` that already logs and continues.
+    # An explicit LoggingIntegration replaces only the default logging one;
+    # Flask and the other defaults still auto-enable.
+    import logging as py_logging
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
     options: dict[str, Any] = {
         "dsn": dsn,
         "environment": environment_name(),
@@ -570,12 +787,17 @@ def sentry_init_options(dsn: str) -> dict[str, Any]:
         "max_request_body_size": "never",
         "traces_sampler": traces_sampler,
         "before_send": before_send,
-        # MCK-183 S3: Sentry Logs carry one line per key teacher action.
-        # ``before_send_log`` keeps those lines only, so ordinary Python
-        # logging (which can mention anything) never becomes a Sentry log.
         "enable_logs": True,
         "before_send_log": before_send_log,
         "before_send_transaction": before_send_transaction,
+        "integrations": [
+            LoggingIntegration(
+                level=py_logging.WARNING,
+                event_level=None,
+                sentry_logs_level=py_logging.WARNING,
+            )
+        ],
+        "before_breadcrumb": before_breadcrumb,
     }
     release = release_name()
     if release:
@@ -889,23 +1111,217 @@ def make_event_processor(
     return processor
 
 
+def before_breadcrumb(
+    crumb: dict[str, Any], hint: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Scrub a breadcrumb. Drop it when scrubbing fails.
+
+    Logging arguments that are emails, PINs, join codes, or names are
+    removed from the message. The breadcrumb level is WARNING and above,
+    so an INFO poll line never becomes one.
+
+    Args:
+        crumb: Sentry breadcrumb.
+        hint: SDK hint, sometimes including the log record.
+
+    Returns:
+        The scrubbed breadcrumb, or ``None`` to drop it.
+    """
+    try:
+        if not isinstance(crumb, dict):
+            return crumb
+        message = crumb.get("message")
+        record = (hint or {}).get("log_record") if isinstance(hint, dict) else None
+        args = getattr(record, "args", None) if record is not None else None
+        if isinstance(message, str):
+            if isinstance(args, tuple):
+                for arg in args:
+                    if not isinstance(arg, str):
+                        continue
+                    mentions_code = bool(
+                        re.search(r"\bcode\b|join|catch-?up", message, re.I)
+                    )
+                    secret = (
+                        _looks_like_person_name(arg)
+                        or bool(_EMAIL_TEXT_RE.search(arg))
+                        or (mentions_code and _looks_like_join_code(arg))
+                        or (
+                            bool(re.fullmatch(r"\d{4}", arg.strip()))
+                            and bool(re.search(r"\bpin\b", message, re.I))
+                        )
+                    )
+                    if secret:
+                        message = _redact_secret_argument(message, arg)
+            crumb["message"] = _scrub_text(message)
+        data = crumb.get("data")
+        if isinstance(data, dict):
+            cleaned = _scrub_identity(data)
+            if isinstance(cleaned, dict):
+                crumb["data"] = cleaned
+        return crumb
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _log_is_warning_or_above(log: dict[str, Any]) -> bool:
+    """True when a Sentry log is WARNING, ERROR, or FATAL.
+
+    Args:
+        log: Sentry log payload.
+
+    Returns:
+        Whether the severity is warning or higher.
+    """
+    text = str(log.get("severity_text") or log.get("level") or "").strip().lower()
+    if text in _LOG_WARNING_TEXT:
+        return True
+    number = log.get("severity_number")
+    return isinstance(number, (int, float)) and number >= _LOG_WARNING_NUMBER
+
+
+def _scrub_log_parameters(log: dict[str, Any]) -> None:
+    """Redact stdlib logging arguments when the line is about a secret.
+
+    Sentry copies ``logger.warning("pin %s", pin)`` into
+    ``sentry.message.parameter.*`` as well as the formatted body. The body
+    is already scrubbed. Arguments that are emails, or that sit on a line
+    about a PIN, join code, or student name, are replaced here.
+
+    Args:
+        log: Sentry log payload, mutated in place.
+    """
+    attributes = log.get("attributes")
+    if not isinstance(attributes, dict):
+        return
+    template = str(attributes.get("sentry.message.template") or "")
+    body = str(log.get("body") or "")
+    haystack = f"{template}\n{body}".lower()
+    mentions_pin = bool(re.search(r"\bpin\b", haystack))
+    mentions_code = bool(
+        re.search(r"\bcode\b|join|catch-?up|session_code|portal_join", haystack)
+    )
+    mentions_name = bool(re.search(r"\bname\b|\bstudent\b|\broster\b", haystack))
+    for key, value in list(attributes.items()):
+        if not str(key).startswith("sentry.message.parameter."):
+            continue
+        if not isinstance(value, str):
+            continue
+        secret = bool(_EMAIL_TEXT_RE.search(value)) or _looks_like_person_name(value)
+        if mentions_pin and re.fullmatch(r"\d{4}", value.strip()):
+            secret = True
+        if mentions_code and _looks_like_join_code(value):
+            secret = True
+        if mentions_name:
+            secret = True
+        if secret:
+            attributes[key] = "[redacted]"
+            body = _redact_secret_argument(body, value)
+    if body != log.get("body"):
+        log["body"] = body
+
+
+def _apply_scrub(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Scrub one event or log in place. ``None`` when scrubbing fails closed.
+
+    Args:
+        payload: Mutable Sentry payload.
+
+    Returns:
+        The same dict, or ``None`` when the payload must not be sent.
+    """
+    cleaned = _scrub_identity(payload)
+    if not isinstance(cleaned, dict):
+        return None
+    payload.clear()
+    payload.update(cleaned)
+    return payload
+
+
 def before_send_log(log: dict[str, Any], _hint: Any = None) -> dict[str, Any] | None:
-    """Keep only MCK-183 action lines in Sentry Logs.
+    """Send WARNING and above, plus MCK-183 action lines, after scrubbing.
+
+    INFO python logs are dropped. A log marked ``lloves_sentry_skip`` is
+    the per-request busy traceback; the sampled shed counter is the line
+    that ships. Secrets are removed first. A scrub error drops the log.
 
     Args:
         log: Sentry log payload.
         _hint: SDK hint.
 
     Returns:
-        The log, or ``None`` for anything that is not an action line.
+        The scrubbed log, or ``None`` when it must not be sent.
     """
     try:
         attributes = log.get("attributes") or {}
-        if ACTION_LOG_ATTRIBUTE in attributes:
-            return log
+        if isinstance(attributes, dict) and attributes.get("lloves_sentry_skip"):
+            return None
+        scrubbed = _apply_scrub(log)
+        if scrubbed is None:
+            return None
+        _scrub_log_parameters(scrubbed)
+        attributes = scrubbed.get("attributes") or {}
+        if isinstance(attributes, dict) and ACTION_LOG_ATTRIBUTE in attributes:
+            return scrubbed
+        if _log_is_warning_or_above(scrubbed):
+            return scrubbed
     except Exception:  # noqa: BLE001
         return None
     return None
+
+
+def report_swallowed(where: str) -> None:
+    """Report an exception a handler would otherwise hide.
+
+    Call from the ``except`` block. Writes one error log (Sentry Logs keep
+    WARNING and above) and, when the SDK is active, one issue. ``where`` is
+    a short static label, never request data. Blocks that already log and
+    continue should not call this. Never raises, including when Sentry is off.
+
+    Args:
+        where: Static handler name, such as ``json api``.
+    """
+    label = str(where or "handler")[:80]
+    logger.exception("swallowed error in %s", label)
+    try:
+        import sentry_sdk
+
+        if sentry_sdk.get_client().is_active():
+            sentry_sdk.capture_exception(tags={"lloves.swallowed": label})
+    except Exception:  # noqa: BLE001
+        return
+
+
+def note_busy_shed(action: str) -> None:
+    """Count a busy/503 shed and emit at most one WARNING a minute.
+
+    The caller's per-request ``logger.exception`` should set
+    ``extra={"lloves_sentry_skip": True}`` so Sentry does not store one
+    traceback per student. This line carries the action and the count only.
+
+    Args:
+        action: Short label such as ``mint`` or ``preview``.
+    """
+    label = str(action or "busy")[:40]
+    now = time.monotonic()
+    emit = False
+    count = 0
+    with _shed_lock:
+        _shed_counts[label] = _shed_counts.get(label, 0) + 1
+        last = _shed_logged_at.get(label, 0.0)
+        if now - last >= _SHED_INTERVAL_S:
+            _shed_logged_at[label] = now
+            count = _shed_counts[label]
+            _shed_counts[label] = 0
+            emit = True
+    if emit:
+        logger.warning("live busy shed action=%s count=%s", label, count)
+
+
+def reset_busy_shed_counts() -> None:
+    """Clear the in-process busy-shed counter. Used by tests."""
+    with _shed_lock:
+        _shed_counts.clear()
+        _shed_logged_at.clear()
 
 
 def action_for(endpoint: str | None, method: str) -> str | None:

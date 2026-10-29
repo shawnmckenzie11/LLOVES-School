@@ -1836,6 +1836,81 @@ def _budget_close(fx: dict[str, Any], item: dict[str, Any]) -> None:
     )
 
 
+def _budget_enable_sentry() -> Any:
+    """Install production Sentry options with traces forced off.
+
+    Polls are already unsampled. This gate also forces every other route
+    to 0 so a 5% transaction roll cannot fail the run. The load signal is
+    how many ``/state`` payloads a tap rebuilds, with the client active.
+
+    Returns:
+        A transport with ``events`` and ``logs`` counters. Transactions
+        are not counted.
+    """
+    import sentry_sdk
+    from sentry_sdk.transport import Transport
+    from sentry_wire import sentry_init_options
+
+    class _CountingTransport(Transport):
+        """Keep envelopes in memory and count errors and logs."""
+
+        def __init__(self, options: Any = None) -> None:
+            """Start the counters at zero."""
+            super().__init__(options)
+            self.events = 0
+            self.logs = 0
+
+        def capture_envelope(self, envelope: Any) -> None:
+            """Count error events and log items. Do not send them."""
+            for item in envelope.items:
+                kind = item.headers.get("type")
+                if kind == "event":
+                    self.events += 1
+                elif kind == "log":
+                    self.logs += 1
+
+    transport = _CountingTransport()
+    options = sentry_init_options("https://public@o0.ingest.sentry.io/1")
+    options["traces_sampler"] = lambda _sampling_context: 0.0
+    sentry_sdk.init(transport=transport, **options)
+    return transport
+
+
+def _budget_sentry_mark(transport: Any) -> tuple[int, int]:
+    """Flush and return the current event and log counts.
+
+    Args:
+        transport: Counter installed for this budget run.
+    """
+    import sentry_sdk
+
+    sentry_sdk.flush(timeout=2)
+    return transport.events, transport.logs
+
+
+def _budget_sentry_delta(
+    transport: Any, before: tuple[int, int], label: str
+) -> str | None:
+    """Return an error string when the tap emitted a Sentry event or log.
+
+    Args:
+        transport: Counter installed for this budget run.
+        before: Counts from :func:`_budget_sentry_mark` before the tap.
+        label: ``group pick`` or ``rank tap``.
+    """
+    import sentry_sdk
+
+    sentry_sdk.flush(timeout=2)
+    event_delta = transport.events - before[0]
+    log_delta = transport.logs - before[1]
+    if event_delta or log_delta:
+        return (
+            f"sentry per-tap load on {label}: "
+            f"events {event_delta} logs {log_delta}"
+        )
+    return None
+
+
 def run_sqlite_budget(students: int, out: Path) -> int:
     """Group multiple-choice pick and one rank tap on sqlite.
 
@@ -1850,7 +1925,8 @@ def run_sqlite_budget(students: int, out: Path) -> int:
         out: Directory for the one-line summary.
 
     Returns:
-        0 when both taps stay inside the cap, 1 otherwise.
+        0 when both taps stay inside the cap and Sentry emitted nothing
+        for either tap, 1 otherwise.
     """
     data = Path(tempfile.mkdtemp(prefix="load-budget-"))
     out.mkdir(parents=True, exist_ok=True)
@@ -1864,7 +1940,14 @@ def run_sqlite_budget(students: int, out: Path) -> int:
         retain=True,
     )
     errors: list[str] = []
-    summary: dict[str, Any] = {"students": int(students)}
+    summary: dict[str, Any] = {
+        "students": int(students),
+        "sentry_enabled": True,
+        "sentry_traces": "forced_off",
+        "sentry_tap_events": 0,
+        "sentry_tap_logs": 0,
+    }
+    transport = _budget_enable_sentry()
     try:
         fx = fixtures[0]
         school = app.config["SCHOOL_DB"]
@@ -1879,6 +1962,7 @@ def run_sqlite_budget(students: int, out: Path) -> int:
             _budget_warmup(fx)
             team = int(fx["students"][0]["team"])
             members = [row for row in fx["students"] if int(row["team"]) == team]
+            before_sentry = _budget_sentry_mark(transport)
             rv = members[0]["client"].post(
                 f"/api/student/live-items/{mc['live_item_id']}/group-pick",
                 json={"choice": mc.get("choice") or "Graph"},
@@ -1893,6 +1977,11 @@ def run_sqlite_budget(students: int, out: Path) -> int:
                     errors.append(
                         f"group pick rebuilt {builds}, budget {summary['group_pick_budget']}"
                     )
+            shed = _budget_sentry_delta(transport, before_sentry, "group pick")
+            if shed:
+                errors.append(shed)
+            summary["sentry_tap_events"] += transport.events - before_sentry[0]
+            summary["sentry_tap_logs"] += transport.logs - before_sentry[1]
         _budget_close(fx, mc)
         rank_stages = _budget_publish_timed(school, fx, rank)
         summary["push_latency"] = {"mc": mc_stages, "rank": rank_stages}
@@ -1909,6 +1998,7 @@ def run_sqlite_budget(students: int, out: Path) -> int:
             else:
                 team = int(actor["team"])
                 members = [row for row in fx["students"] if int(row["team"]) == team]
+                before_sentry = _budget_sentry_mark(transport)
                 rv = actor["client"].post(
                     f"/api/student/live-items/{rank['live_item_id']}/rank-turn",
                     json={"option_id": rank["options"][0]},
@@ -1923,6 +2013,11 @@ def run_sqlite_budget(students: int, out: Path) -> int:
                         errors.append(
                             f"rank tap rebuilt {builds}, budget {summary['rank_budget']}"
                         )
+                shed = _budget_sentry_delta(transport, before_sentry, "rank tap")
+                if shed:
+                    errors.append(shed)
+                summary["sentry_tap_events"] += transport.events - before_sentry[0]
+                summary["sentry_tap_logs"] += transport.logs - before_sentry[1]
         state_p95 = _budget_state_p95_ms(fx)
         summary["state_p95_ms"] = round(state_p95, 1)
         if state_p95 >= 800:
@@ -1941,9 +2036,17 @@ def run_sqlite_budget(students: int, out: Path) -> int:
             f" push_to_visible_ms mc={latency.get('mc', {}).get('push_to_visible_ms')}"
             f" rank={latency.get('rank', {}).get('push_to_visible_ms')}"
             f" state_p95_ms={summary.get('state_p95_ms')}"
+            f" sentry_tap_events={summary.get('sentry_tap_events')}"
+            f" sentry_tap_logs={summary.get('sentry_tap_logs')}"
         )
         return 0
     finally:
+        try:
+            import sentry_sdk
+
+            sentry_sdk.get_client().close()
+        except Exception:  # noqa: BLE001
+            pass
         app.config["SCHOOL_DB"].close()
 
 

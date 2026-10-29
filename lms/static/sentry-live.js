@@ -18,7 +18,9 @@
  * Busy / 503 / reconnect / heartbeat failures stay on the soft strip in
  * ``staff_ap.js`` and ``student-portal.js``. This file drops that same
  * class of event if one escapes as an unhandled rejection. A script
- * exception while painting a poll response still reports.
+ * exception still reports when the message mentions 500, unavailable, or
+ * busy. The vendored browser SDK (11.1.0) has no ``enableLogs``, so
+ * WARNING and above are sent from the server.
  */
 (function () {
   var POLL_URL =
@@ -72,24 +74,6 @@
   }
 
   /**
-   * Fetch and XHR breadcrumb URLs, oldest first.
-   * @param {object} event
-   * @returns {string[]}
-   */
-  function breadcrumbUrls(event) {
-    var crumbs = (event && event.breadcrumbs) || [];
-    var urls = [];
-    if (!Array.isArray(crumbs)) return urls;
-    crumbs.forEach(function (crumb) {
-      if (!crumb) return;
-      if (crumb.category !== "fetch" && crumb.category !== "xhr") return;
-      var data = crumb.data || {};
-      urls.push(String(data.url || data.to || crumb.message || ""));
-    });
-    return urls;
-  }
-
-  /**
    * Newest fetch/XHR URL on the event, or an empty string.
    * @param {object} event
    * @returns {string}
@@ -108,17 +92,38 @@
   }
 
   /**
+   * True for a programming error (paint, undefined, and so on).
+   * A TypeError whose text is only "Failed to fetch" is a network failure.
+   * @param {object} event
+   * @returns {boolean}
+   */
+  function isProgrammingFault(event) {
+    var values = event && event.exception && event.exception.values;
+    if (!Array.isArray(values) || !values.length) return false;
+    var network = /failed to fetch|networkerror|network request failed|load failed|aborterror|the operation was aborted|the user aborted|request aborted|^HTTP\s+\d{3}\b/i;
+    return values.every(function (value) {
+      var type = String((value && value.type) || "");
+      var text = String((value && value.value) || "");
+      if (!type || network.test(text)) return false;
+      return /Error$/.test(type);
+    });
+  }
+
+  /**
    * True when a soft poll/heartbeat failure should not become a fatal event.
+   * A script exception still reports when its text mentions 500, unavailable,
+   * or busy. An older poll breadcrumb does not hide that exception.
    * @param {object} event
    * @returns {boolean}
    */
   function shouldDropLivePollEvent(event) {
     if (!event || !SOFT_POLL_TEXT.test(eventText(event))) return false;
+    if (isProgrammingFault(event)) return false;
     var requestUrl = event.request && event.request.url ? String(event.request.url) : "";
     var newest = newestFetchUrl(event);
     if (newest) return isLivePollUrl(newest);
     if (requestUrl && isLivePollUrl(requestUrl)) return true;
-    return breadcrumbUrls(event).some(isLivePollUrl);
+    return false;
   }
 
   /**
