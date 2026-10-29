@@ -153,13 +153,18 @@ class AuthTests(unittest.TestCase):
         )
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
-        self.assertIn(
+        self.assertNotIn(
             "Thanks, your request is in. We'll email you when your invite is ready.",
             body,
         )
         self.assertNotIn("Request received", body)
         self.assertIn(
             "A person on our team reviews every request. We will reply by email as soon as we can.",
+            body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
             body,
         )
         self.assertIsNone(self.school.get_user_by_email("pat@example.com"))
@@ -240,13 +245,18 @@ class AuthTests(unittest.TestCase):
         timed = self.client.post("/request-access", data=payload, follow_redirects=False)
         timed_body = timed.get_data(as_text=True)
         self.assertEqual(timed.status_code, 200)
-        self.assertIn(
+        self.assertNotIn(
             "Thanks, your request is in. We'll email you when your invite is ready.",
             timed_body,
         )
         self.assertNotIn("Request received", timed_body)
         self.assertIn(
             "A person on our team reviews every request. We will reply by email as soon as we can.",
+            timed_body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
             timed_body,
         )
         self.assertNotIn("allowlists", timed_body.lower())
@@ -275,12 +285,17 @@ class AuthTests(unittest.TestCase):
             follow_redirects=False,
         )
         noted_body = with_note.get_data(as_text=True)
-        self.assertIn(
+        self.assertNotIn(
             "Thanks, your request is in. We'll email you when your invite is ready.",
             noted_body,
         )
         self.assertIn(
             "A person on our team reviews every request. We will reply by email as soon as we can.",
+            noted_body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
             noted_body,
         )
         saved = next(
@@ -377,12 +392,17 @@ class AuthTests(unittest.TestCase):
         )
         body = rv.get_data(as_text=True)
         self.assertEqual(rv.status_code, 200)
-        self.assertIn(
+        self.assertNotIn(
             "Thanks, your request is in. We'll email you when your invite is ready.",
             body,
         )
         self.assertIn(
             "A person on our team reviews every request. We will reply by email as soon as we can.",
+            body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
             body,
         )
         self.assertIn('id="request-access-confirmed"', body)
@@ -428,7 +448,11 @@ class AuthTests(unittest.TestCase):
         """Unknown Google accounts are not auto-created."""
         rv = self._callback("stranger@gmail.com", "staff")
         self.assertEqual(rv.status_code, 403)
-        self.assertIn("isn't set up for ALC yet", html.unescape(rv.get_data(as_text=True)))
+        self.assertIn(
+            "This Google account is not registered with ALC yet. "
+            "Request access below and we will get back to you.",
+            html.unescape(rv.get_data(as_text=True)),
+        )
         self.assertIsNone(self.school.get_user_by_email("stranger@gmail.com"))
 
     def test_unknown_google_account_links_request_access(self) -> None:
@@ -447,8 +471,12 @@ class AuthTests(unittest.TestCase):
         self.assertGreater(request_at, -1)
         self.assertLess(request_at, home_at)
         self.assertNotIn("from the home page", body)
-        self.assertIn("This account isn't set up for ALC yet.", html.unescape(body))
-        self.assertIn("to join the pilot.", body)
+        self.assertIn(
+            "This Google account is not registered with ALC yet. "
+            "Request access below and we will get back to you.",
+            html.unescape(body),
+        )
+        self.assertNotIn("to join the pilot.", body)
 
     def test_forbidden_without_flag_has_no_primary_cta(self) -> None:
         """Other forbidden pages do not show the request-access button."""

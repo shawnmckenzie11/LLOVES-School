@@ -125,7 +125,8 @@ class WelcomeGateTests(unittest.TestCase):
         rv = self.client.get("/auth/google/callback?email=stranger@gmail.com&name=S")
         self.assertEqual(rv.status_code, 403)
         self.assertIn(
-            "This account isn't set up for ALC yet.",
+            "This Google account is not registered with ALC yet. "
+            "Request access below and we will get back to you.",
             html.unescape(rv.get_data(as_text=True)),
         )
 

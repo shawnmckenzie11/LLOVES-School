@@ -83,7 +83,11 @@ class LocalDevSeedTests(unittest.TestCase):
             "/auth/google/callback?portal=staff&email=stranger@gmail.com&name=X"
         )
         self.assertEqual(rv.status_code, 403)
-        self.assertIn("isn't set up for alc yet", html.unescape(rv.get_data(as_text=True)).lower())
+        self.assertIn(
+            "this google account is not registered with alc yet. "
+            "request access below and we will get back to you.",
+            html.unescape(rv.get_data(as_text=True)).lower(),
+        )
 
     def test_one_click_skips_2sv(self) -> None:
         """Picker click lands in the portal with no verify-email hop."""
