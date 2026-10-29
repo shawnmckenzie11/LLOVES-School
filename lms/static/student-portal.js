@@ -1888,11 +1888,14 @@ function applyStudentGoogleSlide(card) {
   if (card.rev != null) lastSlideRev = Number(card.rev) || 0;
   const docked = dockedLiveCardKeys.has("surface:slides");
   const url = String(card.image_url || "");
-  if (!url && !docked) {
+  if (!url) {
     showUnsharedSlidePlaceholder();
+    if (docked && slidesPane && !paneIsBeingGrabbed(slidesPane)) {
+      slidesPane.hidden = true;
+    }
     return;
   }
-  const show = Boolean(url) && !docked;
+  const show = !docked;
   if (slidesPane && !paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = !show;
   if (show) paintStudentSlides({ google_slide: card });
   else clearStudentGoogleSlide();
@@ -1904,6 +1907,10 @@ function paintStudentSlides(payload) {
   if (card && card.rev != null) lastSlideRev = Number(card.rev) || 0;
   if (card) {
     const url = String(card.image_url || "");
+    if (!url) {
+      showUnsharedSlidePlaceholder();
+      return;
+    }
     if (slidesFrame instanceof HTMLIFrameElement) {
       slidesFrame.hidden = true;
       slidesFrame.removeAttribute("src");
@@ -2254,10 +2261,17 @@ function applyTeacherProjection(payload) {
     const card = googleSlideCard(payload);
     if (card) {
       const docked = dockedLiveCardKeys.has("surface:slides");
-      const show = Boolean(card.image_url) && !docked;
-      if (!paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = !show;
-      if (show) paintStudentSlides(payload);
-      else clearStudentGoogleSlide();
+      const url = String(card.image_url || "");
+      if (!url) {
+        // Unpublished current slide: waiting line, not a blank iframe.
+        showUnsharedSlidePlaceholder();
+        if (docked && !paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = true;
+      } else {
+        const show = !docked;
+        if (!paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = !show;
+        if (show) paintStudentSlides(payload);
+        else clearStudentGoogleSlide();
+      }
     } else {
       slidesPane.classList.remove("is-google-slide");
       if (!paneIsBeingGrabbed(slidesPane)) {
