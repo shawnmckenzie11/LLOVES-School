@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import sys
 import tempfile
@@ -123,7 +124,10 @@ class WelcomeGateTests(unittest.TestCase):
         self.client.get("/auth/google?portal=staff&next=/staff/welcome")
         rv = self.client.get("/auth/google/callback?email=stranger@gmail.com&name=S")
         self.assertEqual(rv.status_code, 403)
-        self.assertIn("This Google account is not registered with ALC yet.", rv.get_data(as_text=True))
+        self.assertIn(
+            "This account isn't set up for ALC yet.",
+            html.unescape(rv.get_data(as_text=True)),
+        )
 
     def test_signed_in_teacher_link_goes_straight_to_welcome(self) -> None:
         """Already signed in: /welcome and /auth/google honour next."""

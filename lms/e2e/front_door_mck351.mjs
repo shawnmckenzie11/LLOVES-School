@@ -95,7 +95,7 @@ try {
       await page.click(clickId);
       await page.waitForURL("**/request-access");
       const landingH1 = (await page.locator("h1").innerText()).trim();
-      if (landingH1 !== "Request access") {
+      if (landingH1 !== "Request access to ALC") {
         throw new Error(`${label} landing click landed on ${landingH1}`);
       }
       result.steps.push({ name: `${label}-landing`, ok: true, clicked: clickId });
@@ -114,15 +114,24 @@ try {
       await page.click("#forbidden-request-access");
       await page.waitForURL("**/request-access");
       const deniedH1 = (await page.locator("h1").innerText()).trim();
-      if (deniedH1 !== "Request access") {
+      if (deniedH1 !== "Request access to ALC") {
         throw new Error(`${label} unknown-account click landed on ${deniedH1}`);
       }
       result.steps.push({ name: `${label}-403`, ok: true });
 
       await page.goto(`${BASE}/request-access`, { waitUntil: "domcontentloaded" });
+      if (viewport.mobile && !(await noHorizontalScroll(page))) {
+        throw new Error(`${label} request form scrolls sideways`);
+      }
+      const formShot = path.join(outDir, `p0-6-form-${label}.png`);
+      await page.screenshot({ path: formShot, fullPage: true });
+      result.shots.push(formShot);
       await page.fill("#name", S.applicant.name);
       await page.fill("#email", S.applicant.email);
       await page.selectOption("#role", "teacher");
+      await page.locator('input[name="grade_band"][value="6-12"]').check();
+      await page.fill("#subject", "Mathematics");
+      await page.selectOption("#live_classes_per_week", "2-4");
       await page.fill("#context", S.applicant.context);
       await page.click('button[type="submit"]');
       await page.locator("#request-access-confirmed").waitFor({ state: "visible" });

@@ -38,7 +38,7 @@
       <a href="{{ teacher_href }}">Teacher login</a>
       <a href="{{ url_for('auth_google', portal='it') }}">Admin login</a>
       <a class="btn landing-request-access" id="landing-request-access"
-         href="{{ url_for('request_access') }}">Request access</a>
+         href="{{ url_for('request_access', **access_utm) }}">Request access</a>
     </nav>
   </header>
   <main class="wrap landing-wrap join-card" id="sign-in">
@@ -64,7 +64,7 @@
       <button type="submit">Join</button>
     </form>
     <p class="hint landing-request-hint">New to ALC?
-      <a href="{{ url_for('request_access') }}" id="landing-request-access-inline">Request access</a></p>
+      <a href="{{ url_for('request_access', **access_utm) }}" id="landing-request-access-inline">Request access</a></p>
   </main>
   <section class="wrap calc-wrap" id="celebrations" hidden>
     <p class="landing-hash-nav"><a href="#sign-in">Back to sign-in</a></p>

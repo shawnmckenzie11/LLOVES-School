@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import sys
 import tempfile
@@ -82,7 +83,7 @@ class LocalDevSeedTests(unittest.TestCase):
             "/auth/google/callback?portal=staff&email=stranger@gmail.com&name=X"
         )
         self.assertEqual(rv.status_code, 403)
-        self.assertIn("not registered", rv.get_data(as_text=True).lower())
+        self.assertIn("isn't set up for alc yet", html.unescape(rv.get_data(as_text=True)).lower())
 
     def test_one_click_skips_2sv(self) -> None:
         """Picker click lands in the portal with no verify-email hop."""

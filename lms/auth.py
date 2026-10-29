@@ -24,6 +24,7 @@ from google.oauth2 import id_token as google_id_token
 from flask import (
     Flask,
     current_app,
+    has_request_context,
     jsonify,
     make_response,
     redirect,
@@ -46,6 +47,7 @@ from school_db import (
     STAFF_2FA_DAILY,
     STAFF_2FA_EVERY_SIGN_IN,
     SchoolDB,
+    access_campaign_tags,
 )
 from local_dev_seed import local_dev_login_enabled
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT, public_brand
@@ -433,9 +435,28 @@ def landing_kwargs(**extra: Any) -> dict[str, Any]:
             "coming_soon_line": WONDER_COPY["coming_soon_line"],
             "coming_soon_sub": WONDER_COPY["coming_soon_sub"],
         },
+        "access_utm": _landing_access_utm(),
     }
     ctx.update(extra)
     return ctx
+
+
+def _landing_access_utm() -> dict[str, str]:
+    """Campaign tags to keep on the landing request-access links.
+
+    Blank tags are omitted so a visit with no campaign still links to
+    ``/request-access``. Unknown query keys are ignored. Values are not logged.
+
+    Returns:
+        Non-empty ``utm_*`` tags from the current request, or an empty dict.
+    """
+    if not has_request_context():
+        return {}
+    return {
+        key: value
+        for key, value in access_campaign_tags(request.args).items()
+        if value
+    }
 
 
 def it_emails() -> set[str]:
@@ -1377,10 +1398,7 @@ def _finish_google_identity(
         session.pop("google_oauth_next", None)
         return render_template(
             "forbidden.html",
-            message=(
-                "This Google account is not registered with ALC yet. "
-                "Request access below and we will get back to you."
-            ),
+            message="This account isn't set up for ALC yet.",
             show_request_access=True,
         ), 403
     if user.get("archived_at"):
