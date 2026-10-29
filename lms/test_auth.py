@@ -152,9 +152,15 @@ class AuthTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(rv.status_code, 200)
+        body = rv.get_data(as_text=True)
         self.assertIn(
             "Thanks, your request is in. We'll email you when your invite is ready.",
-            rv.get_data(as_text=True),
+            body,
+        )
+        self.assertNotIn("Request received", body)
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            body,
         )
         self.assertIsNone(self.school.get_user_by_email("pat@example.com"))
         rows = self.school.list_access_requests(status="pending")
@@ -238,6 +244,11 @@ class AuthTests(unittest.TestCase):
             "Thanks, your request is in. We'll email you when your invite is ready.",
             timed_body,
         )
+        self.assertNotIn("Request received", timed_body)
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            timed_body,
+        )
         self.assertNotIn("allowlists", timed_body.lower())
         self.assertEqual(self._count_rows("users"), before_users)
         self.assertEqual(self._count_rows("access_requests"), before_requests + 1)
@@ -263,9 +274,14 @@ class AuthTests(unittest.TestCase):
             },
             follow_redirects=False,
         )
+        noted_body = with_note.get_data(as_text=True)
         self.assertIn(
             "Thanks, your request is in. We'll email you when your invite is ready.",
-            with_note.get_data(as_text=True),
+            noted_body,
+        )
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            noted_body,
         )
         saved = next(
             item
@@ -365,6 +381,10 @@ class AuthTests(unittest.TestCase):
             "Thanks, your request is in. We'll email you when your invite is ready.",
             body,
         )
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            body,
+        )
         self.assertIn('id="request-access-confirmed"', body)
         self.assertEqual(self._count_rows("access_requests"), before_requests)
         self.assertIsNone(self.school.get_user_by_email("applicant-three@example.com"))
@@ -422,6 +442,10 @@ class AuthTests(unittest.TestCase):
             'class="btn" id="forbidden-request-access" href="/request-access"',
             body,
         )
+        request_at = body.find('id="forbidden-request-access"')
+        home_at = body.find("Return to school home")
+        self.assertGreater(request_at, -1)
+        self.assertLess(request_at, home_at)
         self.assertNotIn("from the home page", body)
         self.assertIn("This account isn't set up for ALC yet.", html.unescape(body))
         self.assertIn("to join the pilot.", body)
