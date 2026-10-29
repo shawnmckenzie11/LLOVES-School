@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Decide whether a pull request needs the live-class load jobs.
 
-Copy-only diffs (templates, text, CSS, docs, markdown) skip the fan-out
-guard, the 30-seat load budget, and the slide-forward load. Anything else
-runs them. Live-class state, polling, news/postcards, sessions, auth, and
-DB paths run them even when the file also looks like a template or a
-stylesheet.
+Copy-only diffs skip the fan-out guard, the 30-seat load budget, and the
+slide-forward load. Copy-only means markdown, CSS, text, or HTML that is
+not under a templates directory. ``lms/templates/**/*.html`` always runs
+the load jobs. Anything else runs them too, including live-class state,
+polling, news/postcards, sessions, auth, and DB code.
 
 Push events, an empty diff, and a failed classification run the load jobs.
-The lists below are the path globs. A path that matches none of
-``SAFE_GLOBS`` is heavy.
+``SAFE_GLOBS`` does not include ``**/*.html`` or ``**/*.htm``.
 """
 
 from __future__ import annotations
@@ -18,16 +17,16 @@ import fnmatch
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-# A pull request skips the load jobs only when every changed path matches
-# one of these and none of HEAVY_GLOBS.
+# A pull request skips the load jobs only when every changed path is
+# copy-only. HTML is not in this list; non-template html is handled apart
+# from these globs. HEAVY_GLOBS wins over a safe match.
 SAFE_GLOBS: tuple[str, ...] = (
     "**/*.md",
     "**/*.markdown",
     "**/*.rst",
     "**/*.css",
-    "**/*.html",
-    "**/*.htm",
     "**/*.txt",
 )
 
@@ -52,6 +51,10 @@ HEAVY_GLOBS: tuple[str, ...] = (
     "lms/static/**/*poll*",
     "lms/static/**/*session*",
     "lms/static/**/*news*",
+    "lms/templates/**/*.html",
+    "lms/templates/**/*.htm",
+    "**/templates/**/*.html",
+    "**/templates/**/*.htm",
     "lms/templates/google_*.html",
     "lms/templates/verify.html",
     "lms/templates/invite.html",
@@ -80,14 +83,32 @@ def heavy_checks_required(paths: list[str]) -> bool:
     """Return True unless every path is copy-only.
 
     An empty list runs the load jobs. A heavy glob forces them even when
-    the same path matches a safe glob.
+    the same path matches a safe glob. HTML under a templates directory is
+    heavy. HTML anywhere else is copy-only, along with markdown, CSS, and text.
     """
     if not paths:
         return True
     for path in paths:
-        if matches_any(path, HEAVY_GLOBS) or not matches_any(path, SAFE_GLOBS):
+        if matches_any(path, HEAVY_GLOBS):
             return True
+        if matches_any(path, SAFE_GLOBS) or _is_non_template_html(path):
+            continue
+        return True
     return False
+
+
+def _is_non_template_html(path: str) -> bool:
+    """Return True for html or htm that is not inside a templates directory.
+
+    ``lms/templates/**/*.html`` is not copy-only. Static and doc HTML is.
+    """
+    parts = _parts(path)
+    if not parts:
+        return False
+    name = parts[-1].lower()
+    if not (name.endswith(".html") or name.endswith(".htm")):
+        return False
+    return not any(part.lower() == "templates" for part in parts)
 
 
 def heavy_for_event(event_name: str, paths: list[str] | None) -> bool:
@@ -202,8 +223,11 @@ def _unquote(field: str) -> str:
 
 def _self_test() -> None:
     """Fail if a known path is classified on the wrong side of the line."""
+    if "**/*.html" in SAFE_GLOBS or "**/*.htm" in SAFE_GLOBS:
+        raise SystemExit("blanket html globs must not be safe")
+    if "lms/templates/**/*.html" not in HEAVY_GLOBS:
+        raise SystemExit("lms/templates/**/*.html must be a heavy glob")
     safe = [
-        "lms/templates/staff/home.html",
         "lms/static/lloves.css",
         "lms/static/whiteboard_formative.css",
         "README.md",
@@ -212,10 +236,20 @@ def _self_test() -> None:
         "agents/semester-context.md",
         "content-builder/docs/pipeline-readiness.md",
         "lms/static/live-media/m1c1-c1-real-slice.html",
+        "lms/static/portfolio/MCF3M-M1.html",
+        "content-builder/docs/MCF3M-builder-onboarding-implementation-plan.html",
         "content-builder/packages/MCF3M-builder-input/sources/overall-A-extracted.txt",
-        "lms/templates/staff/_whats_new.html",
     ]
     heavy = [
+        "lms/templates/staff/course.html",
+        "lms/templates/landing.html",
+        "lms/templates/student/home.html",
+        "lms/templates/student/waiting.html",
+        "lms/templates/staff/participation.html",
+        "lms/templates/partials/question_editor.html",
+        "lms/templates/staff/home.html",
+        "lms/templates/staff/_whats_new.html",
+        "tools/math-game-show/templates/home.html",
         "lms/school_db.py",
         "lms/live_teacher_state.py",
         "lms/live_news_wire.py",
@@ -263,6 +297,38 @@ def _self_test() -> None:
         raise SystemExit("session glob missed student-live-session.js")
     if glob_match("lms/templates/staff/_whats_new.html", "lms/**/*news*"):
         raise SystemExit("whats_new must not match the news glob")
+    _assert_lms_templates_are_heavy()
+
+
+def _assert_lms_templates_are_heavy() -> None:
+    """Fail unless every LMS template html file runs the load jobs.
+
+    The named screens are checked on disk so a rename cannot leave the
+    self-test pointing at a path the tree no longer has.
+    """
+    root = Path(__file__).resolve().parents[2]
+    required = (
+        "lms/templates/staff/course.html",
+        "lms/templates/landing.html",
+        "lms/templates/student/home.html",
+        "lms/templates/student/waiting.html",
+        "lms/templates/staff/participation.html",
+        "lms/templates/partials/question_editor.html",
+    )
+    found = {
+        path.relative_to(root).as_posix()
+        for path in (root / "lms" / "templates").rglob("*.html")
+    }
+    if not found:
+        raise SystemExit("lms/templates html files were not found")
+    missing = [path for path in required if path not in found]
+    if missing:
+        raise SystemExit(f"named templates missing from the tree: {missing}")
+    for rel in sorted(found):
+        if not glob_match(rel, "lms/templates/**/*.html"):
+            raise SystemExit(f"template glob missed {rel}")
+        if not heavy_checks_required([rel]):
+            raise SystemExit(f"expected heavy template: {rel}")
 
 
 if __name__ == "__main__":
