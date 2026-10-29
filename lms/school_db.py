@@ -485,7 +485,16 @@ CREATE TABLE IF NOT EXISTS users (
     verification_attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     last_login_at TEXT,
-    archived_at TEXT
+    archived_at TEXT,
+    plan TEXT NOT NULL DEFAULT 'basic'
+);
+
+CREATE TABLE IF NOT EXISTS user_features (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    feature_key TEXT NOT NULL,
+    enabled INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (user_id, feature_key)
 );
 
 CREATE TABLE IF NOT EXISTS semesters (
@@ -2368,6 +2377,7 @@ class LovesDB:
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
             self._ensure_staff_invite_schema()
+            self._ensure_feature_access_schema()
             self._ensure_observation_history_shape()
             self._seed()
             self._seed_live_class_features()
@@ -3963,6 +3973,19 @@ class LovesDB:
         except ImportError:
             from lms.staff_invites import ensure_schema
         ensure_schema(self.conn)
+
+    def _ensure_feature_access_schema(self) -> None:
+        """Add ``users.plan`` and ``user_features`` (MCK-345).
+
+        Fresh files already have both from ``SCHEMA``. Older sqlite files
+        gain the column here. The one-time grant of every feature to
+        existing staff runs from application boot, after local seed.
+        """
+        try:
+            from features import ensure_feature_schema
+        except ImportError:
+            from lms.features import ensure_feature_schema
+        ensure_feature_schema(self.conn)
 
     def _ensure_slide_import_started_at(self) -> None:
         """Add the slot-start clock on slide import jobs.

@@ -1498,6 +1498,13 @@ def create_app(
             seed_local_dev_school(school)
         except Exception:  # noqa: BLE001 - empty school is worse than a log
             app.logger.exception("LOCAL_DEV_LOGIN seed failed")
+    # MCK-345: one grant for whoever already has an account. Later boots
+    # leave the table alone, so a teacher who joins after this stays basic.
+    try:
+        from features import grandfather_features_once
+    except ImportError:
+        from lms.features import grandfather_features_once
+    grandfather_features_once(school)
 
     register_auth_routes(app)
     register_local_test_login(app)
