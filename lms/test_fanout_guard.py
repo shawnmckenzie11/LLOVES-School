@@ -839,6 +839,96 @@ class FanoutGuardTests(unittest.TestCase):
         self._ok_status(hidden, 200)
         _same("slide unpublish")
 
+    def test_unpublish_current_slide_does_not_fan_out(self) -> None:
+        """Unpublish hides only the current page and does not reload every phone.
+
+        The other page stays published. Students get one slide postcard
+        with an empty image, which paints the waiting line and hides the
+        iframe. Group pick and rank stay on their own guards.
+        """
+        import fitz
+
+        pngs: list[bytes] = []
+        document = fitz.open()
+        try:
+            for label in ("A", "B"):
+                page = document.new_page(width=64, height=36)
+                page.insert_text((8, 24), label)
+                pngs.append(page.get_pixmap(alpha=False).tobytes("png"))
+        finally:
+            document.close()
+        self.school.import_google_slides_pages(
+            self.session_id,
+            presentation_id="DeckFanoutUnpublish",
+            page_pngs=pngs,
+        )
+        for index in (0, 1):
+            published = self.staff.post(
+                f"/api/live-sessions/{self.session_id}/google-slides/pages/{index}/publish"
+            )
+            self._ok_status(published, 200)
+        shown = self._full(0).get("google_slide") or {}
+        self.assertTrue(shown.get("image_url"))
+        self.assertEqual(int(shown.get("index") or 0), 1)
+
+        before = {index: self._snap(index) for index in sorted(self.present)}
+        time.sleep(GAP_S)
+        tip = self._news_tip()
+        hidden = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/google-slides/pages/1/unpublish"
+        )
+        self._ok_status(hidden, 200)
+        for index, snap in before.items():
+            self._assert_same(index, snap, "current slide unpublish")
+        from live_news_wire import log_for
+
+        rows = list(log_for(self.school.data_dir).since(self.session_id, tip))
+        self.assertEqual([row.get("type") for row in rows], ["google_slide"])
+        self.assertLess(len(rows), len(self.present))
+        deck = (hidden.get_json() or {}).get("google_slides") or {}
+        pages = deck.get("pages") or []
+        self.assertEqual(int(deck.get("current_index") or 0), 1)
+        self.assertTrue(pages[0].get("published"))
+        self.assertFalse(pages[1].get("published"))
+        card = (hidden.get_json() or {}).get("google_slide") or {}
+        self.assertEqual(card.get("image_url"), "")
+        self.assertFalse(card.get("shared"))
+        student = self._full(0).get("google_slide") or {}
+        self.assertEqual(student.get("image_url"), "")
+        self.assertFalse(student.get("shared"))
+
+        page = self.staff.get(f"/staff/class/{self.class_id}?tab=live")
+        self._ok_status(page, 200)
+        html = page.get_data(as_text=True)
+        self.assertEqual(html.count('id="live-slides-unpublish"'), 1)
+        self.assertIn(">Unpublish<", html)
+        self.assertNotIn("unpublish-all", html)
+        self.assertNotIn("Unpublish deck", html)
+
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        fn = staff_js.split("async function unpublishCurrentSlide")[1].split(
+            "function slidesReadConnectUrl"
+        )[0]
+        self.assertIn('postGoogleSlideAction("unpublish", index)', fn)
+        self.assertIn("current_index", fn)
+        self.assertNotIn("unpublish-all", fn)
+        self.assertNotIn("pages.forEach", fn)
+
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        placeholder = portal.split("function showUnsharedSlidePlaceholder")[1].split(
+            "function applyStudentGoogleSlide"
+        )[0]
+        self.assertIn("slidesFrame.hidden = true", placeholder)
+        self.assertIn('removeAttribute("src")', placeholder)
+        self.assertIn("SLIDES_WAITING_COPY", placeholder)
+        projection = portal.split("if (slidesPane)")[1].split("syncTeamDrawChrome")[0]
+        self.assertIn("showUnsharedSlidePlaceholder()", projection)
+        paint = portal.split("function paintStudentSlides")[1].split(
+            "function paneIsBeingGrabbed"
+        )[0]
+        self.assertIn("if (!url)", paint)
+        self.assertIn("showUnsharedSlidePlaceholder()", paint)
+
     def test_teacher_actions_update_everyone(self) -> None:
         """Publish, close, and end each rebuild every joined phone."""
         self._enter(2)
