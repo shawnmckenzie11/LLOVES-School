@@ -46,6 +46,7 @@ STAFF_FUNCTIONS = (
     "requestArtifactGroupQ",
     "applyHeldArtifactGroupQ",
     "mintArtifactFromMedia",
+    "scheduleQuietTeacherPoll",
 )
 
 
@@ -106,6 +107,8 @@ const tick = async (n = 12) => { for (let i = 0; i < n; i += 1) await new Promis
     artifactGroupQPending: false,
     artifactMintInFlight: false,
     mediaPushTimer: 0,
+    teacherDeckEpoch: 0,
+    staffStateNeedsFull: false,
     liveSessionId: 5,
     lastLiveItems: [mediaRow],
     groupModeIntent: new Map(),
