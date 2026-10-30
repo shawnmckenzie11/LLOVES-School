@@ -6530,6 +6530,41 @@ document.addEventListener("keydown", (event) => {
 });
 
 /**
+ * Active-question rows to paint right after Publish.
+ *
+ * A body that includes ``active_questions`` replaces the cache. A body
+ * that omits the list still carries the published item, so that item is
+ * upserted and the previous cache is not painted as if Publish never ran.
+ *
+ * @param {any[]} previous
+ * @param {any} result
+ * @returns {any[]}
+ */
+function activeQuestionsAfterPublish(previous, result) {
+  if (Array.isArray(result?.active_questions)) return result.active_questions;
+  const prev = Array.isArray(previous) ? previous : [];
+  const item = result?.item;
+  const id = Number(item?.id) || 0;
+  if (!id) return prev.slice();
+  const itemKey = String(item.item_id || item?.item?.id || "").trim();
+  const kept = prev.filter((row) => {
+    if (Number(row?.id) === id) return false;
+    const key = String(row?.payload?.item_id || row?.item_id || "").trim();
+    return !(itemKey && key === itemKey);
+  });
+  return [
+    ...kept,
+    {
+      ...item,
+      payload: {
+        ...(item.payload && typeof item.payload === "object" ? item.payload : {}),
+        ...(itemKey ? { item_id: itemKey } : {}),
+      },
+    },
+  ];
+}
+
+/**
  * Publish one inactive question using its selected supported mode.
  * @param {number} liveItemId
  */
@@ -6563,11 +6598,11 @@ async function publishLifecycleItem(liveItemId) {
     }
   );
   adoptLiveItem(result?.item);
-  lastActiveQuestions = Array.isArray(result?.active_questions)
-    ? result.active_questions
-    : lastActiveQuestions;
-  await refreshLifecycleResults();
+  lastActiveQuestions = activeQuestionsAfterPublish(lastActiveQuestions, result);
+  // The publish body already has the item. Paint before /results so a
+  // simple MC push is not stuck behind every other question on the stage.
   paintLiveQuestionCards();
+  await refreshLifecycleResults();
 }
 
 /**
