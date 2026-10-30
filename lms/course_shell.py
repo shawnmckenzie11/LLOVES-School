@@ -389,9 +389,10 @@ def _ensure_default_banks(school: Any, library_id: int) -> None:
         for number in range(1, SHELL_MODULE_COUNT + 1)
     ]
     specs.append(("shell-course", "Course", 0))
+    changed = False
     with school._lock:  # noqa: SLF001 - shared connection lock
         for import_key, title, module_number in specs:
-            school.conn.execute(
+            cur = school.conn.execute(
                 """
                 INSERT INTO question_banks (
                     library_id, import_key, title, settings_json, created_at
@@ -400,6 +401,8 @@ def _ensure_default_banks(school: Any, library_id: int) -> None:
                 """,
                 (int(library_id), import_key, title, stamp),
             )
+            if int(cur.rowcount or 0) > 0:
+                changed = True
             row = school.conn.execute(
                 """
                 SELECT id FROM question_banks
@@ -409,7 +412,7 @@ def _ensure_default_banks(school: Any, library_id: int) -> None:
             ).fetchone()
             if row is None:
                 continue
-            school.conn.execute(
+            cur = school.conn.execute(
                 """
                 INSERT INTO course_module_bank_links (
                     library_id, module_number, bank_id, confirmed_at
@@ -418,7 +421,15 @@ def _ensure_default_banks(school: Any, library_id: int) -> None:
                 """,
                 (int(library_id), int(module_number), int(row["id"]), stamp),
             )
+            if int(cur.rowcount or 0) > 0:
+                changed = True
         school.conn.commit()
+    # A second call on an existing shell inserts nothing. A missing bank
+    # or link on a library that already has a cache must drop that cache.
+    if changed:
+        invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+        if callable(invalidate):
+            invalidate(int(library_id))
 
 
 def backfill_module_pack(

@@ -27,7 +27,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from school_db import _now  # noqa: E402
+from school_db import SchoolDB, _now  # noqa: E402
 
 TIMING_ROWS = 250
 
@@ -142,7 +142,9 @@ class ModuleBankMcCacheTests(unittest.TestCase):
 
     def test_second_search_hits_and_filters_the_cached_list(self) -> None:
         """A different keyword does not rebuild; it filters the cached rows."""
-        first = self._search("")
+        with self.assertLogs("school_db", level="DEBUG") as logs:
+            first = self._search("")
+        self.assertTrue(any("module bank mc cache miss" in line for line in logs.output))
         misses_after_first = self.school._module_bank_mc_cache_misses
         hits_after_first = self.school._module_bank_mc_cache_hits
         self.assertGreaterEqual(misses_after_first, 1)
@@ -283,21 +285,59 @@ class ModuleBankMcCacheTests(unittest.TestCase):
             _signature(self._search("ttl refresh")),
         )
 
-    def test_store_drops_a_rebuild_when_the_generation_moved(self) -> None:
+    def test_other_connection_drops_a_cached_list_after_a_write(self) -> None:
+        """A write through one SchoolDB misses the other connection's cache."""
+        self._search("")
+        other = SchoolDB(self.school.db_path, self.school.data_dir)
+        try:
+            warm = other.search_module_bank_mcs(self.library_id, 1, "", limit=500)
+            self.assertGreater(warm["total"], 0)
+            again = other.search_module_bank_mcs(self.library_id, 1, "cache stem 01", limit=500)
+            self.assertGreater(other._module_bank_mc_cache_hits, 0)
+            target = self.question_ids[0]
+            row = self.school.get_library_question(self.library_id, target)
+            assert row is not None
+            payload = dict(row["payload"])
+            payload["stem_html"] = "Edited on the other connection"
+            misses = other._module_bank_mc_cache_misses
+            self.school.update_library_question_payload(
+                self.library_id,
+                target,
+                title="Edited on the other connection",
+                payload=payload,
+            )
+            fresh = other.search_module_bank_mcs(
+                self.library_id, 1, "edited on the other", limit=500
+            )
+            self.assertGreater(other._module_bank_mc_cache_misses, misses)
+            self.assertIn(target, {int(item["question_id"]) for item in fresh["items"]})
+            stale = other.search_module_bank_mcs(
+                self.library_id, 1, "cache stem 00", limit=500
+            )
+            self.assertNotIn(target, {int(item["question_id"]) for item in stale["items"]})
+            self.assertEqual(again["total"], warm["total"])
+        finally:
+            other.close()
+
+    def test_store_drops_a_rebuild_when_the_stamp_moved(self) -> None:
         """An edit during a rebuild must not put the old list back."""
         key = (int(self.library_id), 1, "module", False, True, 0)
-        self.school._module_bank_mc_generation[int(self.library_id)] = 4
-        self.school._store_module_bank_mc_cache(key, [{"text": "stale"}], 3)
-        self.assertNotIn(key, self.school._module_bank_mc_cache)
-        self.school._store_module_bank_mc_cache(key, [{"text": "fresh"}], 4)
+        with self.school._lock:
+            stamp = self.school._read_module_bank_mc_db_stamp(int(self.library_id))
+        self.school._store_module_bank_mc_cache(key, [{"text": "fresh"}], stamp)
         self.assertIn(key, self.school._module_bank_mc_cache)
+        self.school.invalidate_module_bank_mc_cache(self.library_id)
+        self.school._store_module_bank_mc_cache(key, [{"text": "stale"}], stamp)
+        self.assertNotIn(key, self.school._module_bank_mc_cache)
 
     def test_cache_stays_within_its_cap(self) -> None:
         """The process keeps a bounded number of rebuilt lists."""
         lib = int(self.library_id)
+        with self.school._lock:
+            stamp = self.school._read_module_bank_mc_db_stamp(lib)
         for index in range(self.school.MODULE_BANK_MC_CACHE_MAX + 12):
             key = (lib, 100 + index, "module", False, True, 0)
-            self.school._store_module_bank_mc_cache(key, [{"n": index}], 0)
+            self.school._store_module_bank_mc_cache(key, [{"n": index}], stamp)
         self.assertLessEqual(
             len(self.school._module_bank_mc_cache),
             self.school.MODULE_BANK_MC_CACHE_MAX,
@@ -314,8 +354,12 @@ class ModuleBankMcCacheTests(unittest.TestCase):
     def _expire_cache(self) -> None:
         """Mark every cached list for this library as older than the TTL."""
         ttl = float(self.school._module_bank_mc_cache_ttl)
-        for key, (_stamp, items) in list(self._school_cache_for_library().items()):
-            self.school._module_bank_mc_cache[key] = (time.monotonic() - ttl - 1.0, items)
+        for key, (_stored_at, db_stamp, items) in list(self._school_cache_for_library().items()):
+            self.school._module_bank_mc_cache[key] = (
+                time.monotonic() - ttl - 1.0,
+                db_stamp,
+                items,
+            )
 
 
 class ModuleBankMcCacheTimingTests(unittest.TestCase):

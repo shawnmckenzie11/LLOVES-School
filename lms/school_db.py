@@ -11602,8 +11602,8 @@ def short_display_names(names: list[str], context: list[str] | None = None) -> l
 class SchoolDB(LovesDB):
     """LLOVES facade: school tables plus a GameShowDB on the same sqlite file."""
 
-    #: MCK-436: rebuilt bank lists expire so another Fly worker or machine
-    #: cannot serve a stale picker. Correctness never depends on the cache.
+    #: MCK-436: rebuilt lists also expire, so a write that never bumps
+    #: the shared stamp cannot stick. The stamp is what other workers see.
     MODULE_BANK_MC_CACHE_TTL_SECONDS = 15.0
     #: Cap on rebuilt lists kept in this process (library × module × variant).
     MODULE_BANK_MC_CACHE_MAX = 48
@@ -11672,11 +11672,11 @@ class SchoolDB(LovesDB):
             tuple[int, str, str, str, str], dict[str, Any]
         ] = {}
         # MCK-436: rebuilt module-bank questions. Keyed by library and
-        # module (plus scope discriminators). Not shared across workers.
+        # module (plus scope discriminators). Each entry also stores the
+        # school_settings stamp so another gunicorn worker's write misses.
         self._module_bank_mc_cache: dict[
-            tuple[Any, ...], tuple[float, list[dict[str, Any]]]
+            tuple[Any, ...], tuple[float, int, list[dict[str, Any]]]
         ] = {}
-        self._module_bank_mc_generation: dict[int, int] = {}
         self._module_bank_mc_cache_hits = 0
         self._module_bank_mc_cache_misses = 0
         self._module_bank_mc_cache_enabled = True
@@ -12454,32 +12454,101 @@ class SchoolDB(LovesDB):
             item["kind"] = problem_kind
         return item
 
+    @staticmethod
+    def _module_bank_mc_setting_key(library_id: int) -> str:
+        """``school_settings`` key for one library's bank-cache stamp.
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        return f"module-bank-mc-v:{int(library_id)}"
+
+    def _read_module_bank_mc_db_stamp(self, library_id: int) -> int:
+        """Return the shared bank-cache stamp for one library.
+
+        The caller holds ``self._lock``. Missing row is generation 0.
+        This is one primary-key read of ``school_settings``, not a
+        schema change and not ``PRAGMA data_version`` (that moves on
+        every student write and would drop the list during class).
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        row = self.conn.execute(
+            "SELECT value FROM school_settings WHERE key = ?",
+            (self._module_bank_mc_setting_key(library_id),),
+        ).fetchone()
+        if row is None:
+            return 0
+        try:
+            return int(row["value"])
+        except (TypeError, ValueError):
+            return 0
+
+    def _bump_module_bank_mc_db_stamp(self, library_id: int) -> int:
+        """Advance the shared bank-cache stamp and return the new value.
+
+        The caller holds ``self._lock``. Other processes see the new
+        value on their next cache read.
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        current = self._read_module_bank_mc_db_stamp(int(library_id))
+        nxt = current + 1
+        self.conn.execute(
+            """
+            INSERT INTO school_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (self._module_bank_mc_setting_key(library_id), str(nxt), _now()),
+        )
+        self.conn.commit()
+        return nxt
+
     def invalidate_module_bank_mc_cache(self, library_id: int | None = None) -> None:
         """Drop rebuilt module-bank question lists.
 
-        A library id drops every module and variant for that library.
-        ``None`` drops the whole process cache. Bank edits, imports,
-        deletes, and scope changes (a question promoted to Course Wide
-        or moved between modules) call this. Other Fly workers keep
-        their own copy until ``MODULE_BANK_MC_CACHE_TTL_SECONDS``. A
-        search rebuilds when the entry is missing or older than that,
-        so a missed invalidation cannot stick.
+        A library id drops every module and variant for that library
+        and advances the shared ``school_settings`` stamp, so another
+        gunicorn worker's next read misses. ``None`` drops only this
+        process's cache. A search also rebuilds when the entry is older
+        than ``MODULE_BANK_MC_CACHE_TTL_SECONDS``.
 
         Args:
-            library_id: ``content_libraries.id``, or None for every library.
+            library_id: ``content_libraries.id``, or None for every library
+                in this process only.
         """
         with self._lock:
             if library_id is None:
                 self._module_bank_mc_cache.clear()
-                self._module_bank_mc_generation.clear()
                 return
             lib = int(library_id)
-            self._module_bank_mc_generation[lib] = (
-                int(self._module_bank_mc_generation.get(lib, 0)) + 1
-            )
             for key in list(self._module_bank_mc_cache):
                 if int(key[0]) == lib:
                     self._module_bank_mc_cache.pop(key, None)
+            self._bump_module_bank_mc_db_stamp(lib)
+
+    def _log_module_bank_mc_cache(self, key: tuple[Any, ...], event: str) -> None:
+        """Log running hit and miss counts for one cache read.
+
+        Args:
+            key: Value from ``_module_bank_mc_cache_key``.
+            event: ``hit``, ``miss``, ``expired``, or ``stale``.
+        """
+        library_id = int(key[0]) if key else 0
+        module_number = int(key[1]) if len(key) > 1 else 0
+        logger.debug(
+            "module bank mc cache %s library=%s module=%s hits=%s misses=%s",
+            event,
+            library_id,
+            module_number,
+            self._module_bank_mc_cache_hits,
+            self._module_bank_mc_cache_misses,
+        )
 
     def _module_bank_mc_cache_key(
         self,
@@ -12545,10 +12614,10 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]] | None:
         """Return a copy of a fresh rebuilt list, or None on a miss.
 
-        A miss is an empty slot or an entry older than the TTL. The TTL
-        is what keeps another Fly worker honest: this process cannot see
-        that worker's edits, and a search never treats an expired entry
-        as the source of truth.
+        A miss is an empty slot, an entry older than the TTL, or an
+        entry whose stamp is behind ``school_settings``. The stamp is
+        how another gunicorn worker's edit, delete, or import is seen
+        on the next read.
 
         Args:
             key: Value from ``_module_bank_mc_cache_key``.
@@ -12560,16 +12629,25 @@ class SchoolDB(LovesDB):
             entry = self._module_bank_mc_cache.get(key)
             if entry is None:
                 self._module_bank_mc_cache_misses += 1
+                self._log_module_bank_mc_cache(key, "miss")
                 return None
-            stored_at, items = entry
+            stored_at, stamp, items = entry
             if now - float(stored_at) > float(self._module_bank_mc_cache_ttl):
                 self._module_bank_mc_cache.pop(key, None)
                 self._module_bank_mc_cache_misses += 1
+                self._log_module_bank_mc_cache(key, "expired")
                 return None
-            # Refresh recency without changing the stored timestamp.
+            current = self._read_module_bank_mc_db_stamp(int(key[0]))
+            if int(stamp) != current:
+                self._module_bank_mc_cache.pop(key, None)
+                self._module_bank_mc_cache_misses += 1
+                self._log_module_bank_mc_cache(key, "stale")
+                return None
+            # Refresh recency without changing the stored timestamp or stamp.
             self._module_bank_mc_cache.pop(key, None)
             self._module_bank_mc_cache[key] = entry
             self._module_bank_mc_cache_hits += 1
+            self._log_module_bank_mc_cache(key, "hit")
             snapshot = items
         return self._copy_module_bank_mc_items(snapshot)
 
@@ -12577,22 +12655,22 @@ class SchoolDB(LovesDB):
         self,
         key: tuple[Any, ...],
         items: list[dict[str, Any]],
-        generation: int,
+        stamp: int,
     ) -> None:
         """Remember a rebuild unless a bank edit landed while it ran.
 
         Args:
             key: Value from ``_module_bank_mc_cache_key``.
             items: Rebuilt rows, before keyword, Kind, type, and sort.
-            generation: Library generation captured when the rows were read.
+            stamp: Shared stamp captured when the rows were read.
         """
         if not self._module_bank_mc_cache_enabled:
             return
         lib = int(key[0])
         with self._lock:
-            if int(self._module_bank_mc_generation.get(lib, 0)) != int(generation):
+            if self._read_module_bank_mc_db_stamp(lib) != int(stamp):
                 return
-            self._module_bank_mc_cache[key] = (time.monotonic(), items)
+            self._module_bank_mc_cache[key] = (time.monotonic(), int(stamp), items)
             while len(self._module_bank_mc_cache) > int(self.MODULE_BANK_MC_CACHE_MAX):
                 oldest = next(iter(self._module_bank_mc_cache))
                 self._module_bank_mc_cache.pop(oldest, None)
@@ -12611,8 +12689,8 @@ class SchoolDB(LovesDB):
         """Parse and rebuild one module's importable bank rows.
 
         Keyword, Kind, type, and sort stay with the caller so they can run
-        on this list or on a cached copy. The generation is the library's
-        cache generation at the moment the rows were read.
+        on this list or on a cached copy. The stamp is the shared
+        ``school_settings`` value at the moment the rows were read.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -12624,7 +12702,7 @@ class SchoolDB(LovesDB):
             class_id: Class id for image URL resolution.
 
         Returns:
-            Rebuilt rows before filters, and the library cache generation.
+            Rebuilt rows before filters, and the shared stamp from the read.
         """
         try:
             from bank_mc_normalize import (
@@ -12706,7 +12784,7 @@ class SchoolDB(LovesDB):
             ORDER BY b.title, q.id
         """
         with self._lock:
-            generation = int(self._module_bank_mc_generation.get(int(library_id), 0))
+            stamp = self._read_module_bank_mc_db_stamp(int(library_id))
             rows = self.conn.execute(sql, params).fetchall()
         all_items: list[dict[str, Any]] = []
         try:
@@ -12892,7 +12970,7 @@ class SchoolDB(LovesDB):
             from lms.bank_dedupe import select_canonical_questions
 
         all_items, _dropped = select_canonical_questions(all_items)
-        return all_items, generation
+        return all_items, stamp
 
     def search_module_bank_mcs(
         self,
@@ -12922,9 +13000,10 @@ class SchoolDB(LovesDB):
 
         The rebuilt list is cached in this process by library and module
         (MCK-436). Keyword, Kind, type, and sort run on that list. A bank
-        edit, import, delete, or scope change drops the library. Entries
-        also expire after a short TTL so another Fly machine cannot leave
-        this one showing stale rows. The cache is never the source of truth.
+        edit, import, delete, or scope change drops the library and
+        advances a ``school_settings`` stamp, so another worker's next
+        read misses. Entries also expire after a short TTL. The cache is
+        never the source of truth.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -12976,7 +13055,7 @@ class SchoolDB(LovesDB):
         )
         all_items = self._take_module_bank_mc_cache(cache_key)
         if all_items is None:
-            all_items, generation = self._load_module_bank_mc_items(
+            all_items, stamp = self._load_module_bank_mc_items(
                 library_id=int(library_id),
                 bank_ids=bank_ids,
                 module_token=module_token,
@@ -12985,7 +13064,7 @@ class SchoolDB(LovesDB):
                 include_course_placed=bool(include_course_placed),
                 class_id=class_id,
             )
-            self._store_module_bank_mc_cache(cache_key, all_items, generation)
+            self._store_module_bank_mc_cache(cache_key, all_items, stamp)
             all_items = self._copy_module_bank_mc_items(all_items)
         kind_token = str(kind or "").strip().lower()
         if kind_token not in {"any", "*"}:

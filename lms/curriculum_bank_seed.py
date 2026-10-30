@@ -260,7 +260,12 @@ def _upsert_curriculum_bank(
                 )
                 question_ids.append(int(found["id"]))
         school.conn.commit()
+    # Reseeds an existing library, not only a new one. The link helper
+    # drops the bank cache; say so here so a later edit does not drop it.
     school._ensure_module_bank_link(int(library_id), int(module_number), bank_id)
+    invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+    if callable(invalidate):
+        invalidate(int(library_id))
     return {
         "bank_id": bank_id,
         "module_number": int(module_number),
@@ -319,6 +324,10 @@ def seed_library_import_banks(
             )
         )
     retagged = retag_module2_teaching_today(school, int(library_id))
+    # Runs on every local library, including ones that already have banks.
+    invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+    if callable(invalidate):
+        invalidate(int(library_id))
     return {
         "course_code": code,
         "library_id": int(library_id),
