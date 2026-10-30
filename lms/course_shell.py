@@ -699,6 +699,9 @@ def _merge_library(
         except Exception:
             conn.execute("ROLLBACK")
             raise
+    invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+    if callable(invalidate):
+        invalidate(int(target_id))
 
 
 def _protected_snapshot_unlocked(conn: sqlite3.Connection) -> dict[str, str]:

@@ -184,4 +184,8 @@ def retag_module2_teaching_today(school: Any, library_id: int) -> int:
             updated += 1
         if updated:
             school.conn.commit()
+    if updated:
+        invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+        if callable(invalidate):
+            invalidate(int(library_id))
     return updated

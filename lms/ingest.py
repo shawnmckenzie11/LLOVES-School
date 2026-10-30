@@ -1399,4 +1399,7 @@ def ingest_library(db: Any, data_dir: Path, library_id: int, unpacked: Path) -> 
     lint = safe_lint_library(db, int(library_id))
     if lint is not None:
         result["lint"] = {"flagged": lint.get("flagged", 0), "by_code": lint.get("by_code", {})}
+    invalidate = getattr(db, "invalidate_module_bank_mc_cache", None)
+    if callable(invalidate):
+        invalidate(int(library_id))
     return result
