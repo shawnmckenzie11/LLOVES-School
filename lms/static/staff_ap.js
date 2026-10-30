@@ -4661,17 +4661,27 @@ function advanceLivePage(delta) {
 
 /**
  * Pull merged lesson-deck metadata (seed + bank imports) for the active module/slot.
+ *
+ * The epoch is captured when the GET starts. A later teacher write bumps
+ * ``teacherDeckEpoch``, and this response is dropped so a slow first fetch
+ * cannot wipe the question that landed second.
+ *
+ * @returns {Promise<boolean>} True when the response was applied.
  */
 async function refreshLessonDeckMetadata() {
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
-  if (!classId) return;
+  if (!classId) return false;
+  const epochAtFetch = teacherDeckEpoch;
   const payload = await api(
     `/api/staff/class/${classId}/live-lessons/${module}/${slot}/deck?fresh=1`
   );
+  if (!staffPollMayApplyDeck(epochAtFetch, teacherDeckEpoch)) return false;
   if (payload?.live_metadata) {
     lastLiveMetadata = payload.live_metadata;
+    return true;
   }
+  return false;
 }
 
 /**
@@ -4728,6 +4738,42 @@ function staffPollShowsPendingStrip(opts) {
 }
 
 /**
+ * Quiet only when this request and every request already waiting are quiet.
+ *
+ * A later quiet write must not silence a loud forced poll or a news tick
+ * that is already in the one queue slot. An empty queue keeps this
+ * request's own flag, so a quiet light poll can still carry quiet onto
+ * its full follow-up.
+ *
+ * @param {{quiet?: boolean}} [opts]
+ * @param {{quiet?: boolean}|null|undefined} [queued]
+ * @returns {boolean}
+ */
+function staffPollQueueIsQuiet(opts, queued) {
+  if (!opts?.quiet) return false;
+  if (!queued) return true;
+  return Boolean(queued.quiet);
+}
+
+/**
+ * True when a tick that found a poll already in flight should arm the strip.
+ *
+ * Interval ticks are dropped and news ticks only queue. Either one must
+ * start the ~800ms Reconnecting timer, or a quiet poll that is hung on a
+ * down server hides the outage until the 15s abort. A quiet coalesced
+ * write stays silent.
+ *
+ * @param {{quiet?: boolean, fromNews?: boolean, force?: boolean, full?: boolean, retryGesture?: boolean}} [opts]
+ * @returns {boolean}
+ */
+function staffPollCoalesceArmsStrip(opts) {
+  if (opts?.quiet) return false;
+  if (opts?.retryGesture) return false;
+  if (opts?.fromNews) return true;
+  return !opts?.force && !opts?.full;
+}
+
+/**
  * True when a /state body may replace the deck painted by a teacher write.
  *
  * The epoch is captured when the poll starts. A playlist write that lands
@@ -4772,15 +4818,16 @@ function scheduleQuietTeacherPoll() {
  * @returns {void}
  */
 function settleTeacherDeckFollowUp(payload) {
+  scheduleQuietTeacherPoll();
   if (!payload?.live_metadata) {
     void refreshLessonDeckMetadata()
-      .then(() => {
+      .then((applied) => {
+        if (!applied) return;
         paintLiveQuestionCards();
         paintQuestionArtifact();
       })
       .catch(() => {});
   }
-  scheduleQuietTeacherPoll();
 }
 
 /**
@@ -8102,18 +8149,22 @@ async function pollLiveSessionAttendees(opts = {}) {
   if (sessionPollInFlight) {
     // A Retry tap does not queue a second /state. News coalesces to one
     // light follow-up. A full snapshot is only when state_seq moved.
+    // Interval and news still arm the strip so a quiet poll cannot hide
+    // a down server until the 15s abort.
+    if (staffPollCoalesceArmsStrip(opts)) armStaffPendingFeel();
     if (opts.fromNews) {
       sessionPollQueued = {
         full: Boolean(sessionPollQueued?.full),
         force: true,
         fromNews: true,
         board: Boolean(opts.board) || Boolean(sessionPollQueued?.board),
+        quiet: false,
       };
     } else if (!opts.retryGesture && (opts.force || opts.full)) {
       sessionPollQueued = {
         full: Boolean(opts.full) || Boolean(sessionPollQueued?.full),
         force: true,
-        quiet: Boolean(opts.quiet),
+        quiet: staffPollQueueIsQuiet(opts, sessionPollQueued),
       };
     }
     return;
@@ -8283,7 +8334,11 @@ async function pollLiveSessionAttendees(opts = {}) {
     paintGroupPollFeel("ok");
     setLiveReconnectBanner(false);
     if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
-      sessionPollQueued = { full: true, force: true };
+      sessionPollQueued = {
+        full: true,
+        force: true,
+        quiet: staffPollQueueIsQuiet(opts, sessionPollQueued),
+      };
     }
   } catch (err) {
     if (statePainting) window.llovesSentryReport?.(err, "staff-state-paint");
