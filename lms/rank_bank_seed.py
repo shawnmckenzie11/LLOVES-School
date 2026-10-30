@@ -291,6 +291,9 @@ def seed_rank_bank(
             if own and conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise
+    invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+    if callable(invalidate):
+        invalidate(int(library_id))
     return summary
 
 

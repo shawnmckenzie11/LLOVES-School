@@ -11602,6 +11602,12 @@ def short_display_names(names: list[str], context: list[str] | None = None) -> l
 class SchoolDB(LovesDB):
     """LLOVES facade: school tables plus a GameShowDB on the same sqlite file."""
 
+    #: MCK-436: rebuilt lists also expire, so a write that never bumps
+    #: the shared stamp cannot stick. The stamp is what other workers see.
+    MODULE_BANK_MC_CACHE_TTL_SECONDS = 15.0
+    #: Cap on rebuilt lists kept in this process (library × module × variant).
+    MODULE_BANK_MC_CACHE_MAX = 48
+
     def __init__(
         self,
         db_path: Path | None = None,
@@ -11665,6 +11671,16 @@ class SchoolDB(LovesDB):
         self._live_metadata_cache: dict[
             tuple[int, str, str, str, str], dict[str, Any]
         ] = {}
+        # MCK-436: rebuilt module-bank questions. Keyed by library and
+        # module (plus scope discriminators). Each entry also stores the
+        # school_settings stamp so another gunicorn worker's write misses.
+        self._module_bank_mc_cache: dict[
+            tuple[Any, ...], tuple[float, int, list[dict[str, Any]]]
+        ] = {}
+        self._module_bank_mc_cache_hits = 0
+        self._module_bank_mc_cache_misses = 0
+        self._module_bank_mc_cache_enabled = True
+        self._module_bank_mc_cache_ttl = float(self.MODULE_BANK_MC_CACHE_TTL_SECONDS)
 
     def close(self) -> None:
         """Close both sqlite connections."""
@@ -12277,6 +12293,7 @@ class SchoolDB(LovesDB):
                     (int(library_id), int(module_number), int(bank_id), stamp),
                 )
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
         return self.list_module_bank_links(int(library_id), int(module_number))
 
     @staticmethod
@@ -12437,55 +12454,261 @@ class SchoolDB(LovesDB):
             item["kind"] = problem_kind
         return item
 
-    def search_module_bank_mcs(
+    @staticmethod
+    def _module_bank_mc_setting_key(library_id: int) -> str:
+        """``school_settings`` key for one library's bank-cache stamp.
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        return f"module-bank-mc-v:{int(library_id)}"
+
+    def _read_module_bank_mc_db_stamp(self, library_id: int) -> int:
+        """Return the shared bank-cache stamp for one library.
+
+        The caller holds ``self._lock``. Missing row is generation 0.
+        This is one primary-key read of ``school_settings``, not a
+        schema change and not ``PRAGMA data_version`` (that moves on
+        every student write and would drop the list during class).
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        row = self.conn.execute(
+            "SELECT value FROM school_settings WHERE key = ?",
+            (self._module_bank_mc_setting_key(library_id),),
+        ).fetchone()
+        if row is None:
+            return 0
+        try:
+            return int(row["value"])
+        except (TypeError, ValueError):
+            return 0
+
+    def _bump_module_bank_mc_db_stamp(self, library_id: int) -> int:
+        """Advance the shared bank-cache stamp and return the new value.
+
+        One statement, so two writers cannot both store N+1. The caller
+        holds ``self._lock``. This does not ``commit``. Outside a
+        transaction the statement autocommits. Inside the caller's
+        ``BEGIN`` it stays in that transaction and becomes visible when
+        the caller commits.
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        row = self.conn.execute(
+            """
+            INSERT INTO school_settings (key, value, updated_at)
+            VALUES (?, '1', ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = CAST(value AS INTEGER) + 1,
+                updated_at = excluded.updated_at
+            RETURNING value
+            """,
+            (self._module_bank_mc_setting_key(library_id), _now()),
+        ).fetchone()
+        try:
+            return int(row["value"]) if row is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def invalidate_module_bank_mc_cache(self, library_id: int | None = None) -> None:
+        """Drop rebuilt module-bank question lists.
+
+        A library id drops every module and variant for that library
+        and advances the shared ``school_settings`` stamp in one
+        statement, so another gunicorn worker's next read misses.
+        ``None`` drops only this process's cache. The bump does not
+        commit; a caller that already has a transaction open keeps the
+        new stamp inside it. A search also rebuilds when the entry is
+        older than ``MODULE_BANK_MC_CACHE_TTL_SECONDS``.
+
+        Args:
+            library_id: ``content_libraries.id``, or None for every library
+                in this process only.
+        """
+        with self._lock:
+            if library_id is None:
+                self._module_bank_mc_cache.clear()
+                return
+            lib = int(library_id)
+            for key in list(self._module_bank_mc_cache):
+                if int(key[0]) == lib:
+                    self._module_bank_mc_cache.pop(key, None)
+            self._bump_module_bank_mc_db_stamp(lib)
+
+    def _log_module_bank_mc_cache(self, key: tuple[Any, ...], event: str) -> None:
+        """Log running hit and miss counts for one cache read.
+
+        Args:
+            key: Value from ``_module_bank_mc_cache_key``.
+            event: ``hit``, ``miss``, ``expired``, or ``stale``.
+        """
+        library_id = int(key[0]) if key else 0
+        module_number = int(key[1]) if len(key) > 1 else 0
+        logger.debug(
+            "module bank mc cache %s library=%s module=%s hits=%s misses=%s",
+            event,
+            library_id,
+            module_number,
+            self._module_bank_mc_cache_hits,
+            self._module_bank_mc_cache_misses,
+        )
+
+    def _module_bank_mc_cache_key(
         self,
+        *,
         library_id: int,
         module_number: int,
-        query: str = "",
-        *,
-        limit: int = 200,
-        class_id: int | None = None,
-        kind: str | None = None,
-        question_type: str | None = None,
-        scope_policy: str = "module",
-        staff_types: bool = False,
-        include_course_placed: bool = True,
-        sort: str | None = None,
-    ) -> dict[str, Any]:
-        """Search normalized MCs scoped to confirmed module banks only.
+        scope_policy: str,
+        staff_types: bool,
+        include_course_placed: bool,
+        class_id: int | None,
+    ) -> tuple[Any, ...]:
+        """Identity of one rebuilt module-bank list.
 
-        Rank items (``essay_question`` with payload ``type: rank``) are
-        included too (MCK-169). Staff polls stored as ``essay_question``
-        stay out unless ``staff_types`` is set (the question-bank grid).
-
-        A module pin shows only on that module. A Course Wide pin stays
-        importable from every linked module, and the bank's module tabs
-        hide it. A null scope stays on every module its bank is linked
-        to, which is how rows imported before MCK-254 behave.
+        Library and module name the list. Policy, staff rows, course-pin
+        visibility, and class id stay in the key so two different rebuilds
+        never share it. Image URLs include the class id.
 
         Args:
             library_id: ``content_libraries.id``.
             module_number: One-based module index.
-            query: Optional stem/options substring filter.
-            limit: Maximum rows to return (capped at 500).
+            scope_policy: ``module`` or ``course_only``.
+            staff_types: When true, numeric and poll rows are in the list.
+            include_course_placed: When false, course pins are left out.
+            class_id: Class id baked into image URLs, or None.
+        """
+        try:
+            class_token = int(class_id) if class_id else 0
+        except (TypeError, ValueError):
+            class_token = 0
+        return (
+            int(library_id),
+            int(module_number),
+            str(scope_policy or "module").strip().lower(),
+            bool(staff_types),
+            bool(include_course_placed),
+            class_token,
+        )
+
+    @staticmethod
+    def _copy_module_bank_mc_items(
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Copy rebuilt rows so a later filter cannot rewrite the cache.
+
+        Args:
+            items: Normalized bank search rows stored in the cache.
+        """
+        copied: list[dict[str, Any]] = []
+        for item in items:
+            row = dict(item)
+            for field in ("options", "options_html", "options_image_urls", "rank_options"):
+                value = row.get(field)
+                if isinstance(value, list):
+                    row[field] = [
+                        dict(entry) if isinstance(entry, dict) else entry
+                        for entry in value
+                    ]
+            copied.append(row)
+        return copied
+
+    def _take_module_bank_mc_cache(
+        self, key: tuple[Any, ...]
+    ) -> list[dict[str, Any]] | None:
+        """Return a copy of a fresh rebuilt list, or None on a miss.
+
+        A miss is an empty slot, an entry older than the TTL, or an
+        entry whose stamp is behind ``school_settings``. The stamp is
+        how another gunicorn worker's edit, delete, or import is seen
+        on the next read.
+
+        Args:
+            key: Value from ``_module_bank_mc_cache_key``.
+        """
+        if not self._module_bank_mc_cache_enabled:
+            return None
+        now = time.monotonic()
+        with self._lock:
+            entry = self._module_bank_mc_cache.get(key)
+            if entry is None:
+                self._module_bank_mc_cache_misses += 1
+                self._log_module_bank_mc_cache(key, "miss")
+                return None
+            stored_at, stamp, items = entry
+            if now - float(stored_at) > float(self._module_bank_mc_cache_ttl):
+                self._module_bank_mc_cache.pop(key, None)
+                self._module_bank_mc_cache_misses += 1
+                self._log_module_bank_mc_cache(key, "expired")
+                return None
+            current = self._read_module_bank_mc_db_stamp(int(key[0]))
+            if int(stamp) != current:
+                self._module_bank_mc_cache.pop(key, None)
+                self._module_bank_mc_cache_misses += 1
+                self._log_module_bank_mc_cache(key, "stale")
+                return None
+            # Refresh recency without changing the stored timestamp or stamp.
+            self._module_bank_mc_cache.pop(key, None)
+            self._module_bank_mc_cache[key] = entry
+            self._module_bank_mc_cache_hits += 1
+            self._log_module_bank_mc_cache(key, "hit")
+            snapshot = items
+        return self._copy_module_bank_mc_items(snapshot)
+
+    def _store_module_bank_mc_cache(
+        self,
+        key: tuple[Any, ...],
+        items: list[dict[str, Any]],
+        stamp: int,
+    ) -> None:
+        """Remember a rebuild unless a bank edit landed while it ran.
+
+        Args:
+            key: Value from ``_module_bank_mc_cache_key``.
+            items: Rebuilt rows, before keyword, Kind, type, and sort.
+            stamp: Shared stamp captured when the rows were read.
+        """
+        if not self._module_bank_mc_cache_enabled:
+            return
+        lib = int(key[0])
+        with self._lock:
+            if self._read_module_bank_mc_db_stamp(lib) != int(stamp):
+                return
+            self._module_bank_mc_cache[key] = (time.monotonic(), int(stamp), items)
+            while len(self._module_bank_mc_cache) > int(self.MODULE_BANK_MC_CACHE_MAX):
+                oldest = next(iter(self._module_bank_mc_cache))
+                self._module_bank_mc_cache.pop(oldest, None)
+
+    def _load_module_bank_mc_items(
+        self,
+        *,
+        library_id: int,
+        bank_ids: list[int],
+        module_token: str,
+        policy: str,
+        staff_types: bool,
+        include_course_placed: bool,
+        class_id: int | None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Parse and rebuild one module's importable bank rows.
+
+        Keyword, Kind, type, and sort stay with the caller so they can run
+        on this list or on a cached copy. The stamp is the shared
+        ``school_settings`` value at the moment the rows were read.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            bank_ids: Confirmed banks for this module.
+            module_token: ``M1`` style scope token.
+            policy: ``module`` or ``course_only``.
+            staff_types: Include staff numeric and poll rows.
+            include_course_placed: Keep questions pinned to Course Wide.
             class_id: Class id for image URL resolution.
-            kind: ``standard`` (Custom), ``contest``, or ``warmup``. Empty
-                is Core Math: untagged and contest rows, not warmup or Custom.
-            question_type: MCK-170 canonical type (``rank``, ``mc``, ...).
-                Empty keeps every type, as before.
-            scope_policy: ``module`` (this module) or ``course_only``
-                (questions explicitly saved as Course Wide).
-            staff_types: When true, also return staff numeric and poll rows.
-            include_course_placed: When false, hide questions pinned to
-                Course Wide. Import keeps them so a course-wide save is
-                still found from another module.
-            sort: ``bank`` (question id), ``edited`` (LMS edits first),
-                or ``type``. Omitted keeps rank rows first for Import.
 
         Returns:
-            Dict with ``items``, ``total`` (importable MC count),
-            ``filtered`` (count after keyword and type filters), and
-            ``type_counts`` (per type after Kind and keyword filters).
+            Rebuilt rows before filters, and the shared stamp from the read.
         """
         try:
             from bank_mc_normalize import (
@@ -12500,22 +12723,6 @@ class SchoolDB(LovesDB):
                 normalize_bank_rank,
             )
 
-        # MCK-169: reviewed rank items live in per-module banks. Cheap when
-        # current (memo, then one small query); seeds only when stale.
-        self.ensure_rank_bank(int(library_id))
-        if int(module_number) == 2:
-            try:
-                from bank_kinds import retag_module2_teaching_today
-            except ImportError:
-                from lms.bank_kinds import retag_module2_teaching_today
-
-            retag_module2_teaching_today(self, int(library_id))
-        confirmed = self.list_module_bank_links(int(library_id), int(module_number))
-        bank_ids = [int(row["bank_id"]) for row in confirmed]
-        needle = str(query or "").strip().lower()
-        cap = max(1, min(int(limit), 500))
-        module_token = f"M{int(module_number)}"
-        policy = str(scope_policy or "module").strip().lower()
         type_sql = """
                 q.item_type = 'multiple_choice_question'
                 OR (
@@ -12583,6 +12790,7 @@ class SchoolDB(LovesDB):
             ORDER BY b.title, q.id
         """
         with self._lock:
+            stamp = self._read_module_bank_mc_db_stamp(int(library_id))
             rows = self.conn.execute(sql, params).fetchall()
         all_items: list[dict[str, Any]] = []
         try:
@@ -12768,6 +12976,102 @@ class SchoolDB(LovesDB):
             from lms.bank_dedupe import select_canonical_questions
 
         all_items, _dropped = select_canonical_questions(all_items)
+        return all_items, stamp
+
+    def search_module_bank_mcs(
+        self,
+        library_id: int,
+        module_number: int,
+        query: str = "",
+        *,
+        limit: int = 200,
+        class_id: int | None = None,
+        kind: str | None = None,
+        question_type: str | None = None,
+        scope_policy: str = "module",
+        staff_types: bool = False,
+        include_course_placed: bool = True,
+        sort: str | None = None,
+    ) -> dict[str, Any]:
+        """Search normalized MCs scoped to confirmed module banks only.
+
+        Rank items (``essay_question`` with payload ``type: rank``) are
+        included too (MCK-169). Staff polls stored as ``essay_question``
+        stay out unless ``staff_types`` is set (the question-bank grid).
+
+        A module pin shows only on that module. A Course Wide pin stays
+        importable from every linked module, and the bank's module tabs
+        hide it. A null scope stays on every module its bank is linked
+        to, which is how rows imported before MCK-254 behave.
+
+        The rebuilt list is cached in this process by library and module
+        (MCK-436). Keyword, Kind, type, and sort run on that list. A bank
+        edit, import, delete, or scope change drops the library and
+        advances a ``school_settings`` stamp, so another worker's next
+        read misses. Entries also expire after a short TTL. The cache is
+        never the source of truth.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            module_number: One-based module index.
+            query: Optional stem/options substring filter.
+            limit: Maximum rows to return (capped at 500).
+            class_id: Class id for image URL resolution.
+            kind: ``standard`` (Custom), ``contest``, or ``warmup``. Empty
+                is Core Math: untagged and contest rows, not warmup or Custom.
+            question_type: MCK-170 canonical type (``rank``, ``mc``, ...).
+                Empty keeps every type, as before.
+            scope_policy: ``module`` (this module) or ``course_only``
+                (questions explicitly saved as Course Wide).
+            staff_types: When true, also return staff numeric and poll rows.
+            include_course_placed: When false, hide questions pinned to
+                Course Wide. Import keeps them so a course-wide save is
+                still found from another module.
+            sort: ``bank`` (question id), ``edited`` (LMS edits first),
+                or ``type``. Omitted keeps rank rows first for Import.
+
+        Returns:
+            Dict with ``items``, ``total`` (importable MC count),
+            ``filtered`` (count after keyword and type filters), and
+            ``type_counts`` (per type after Kind and keyword filters).
+        """
+        # MCK-169: reviewed rank items live in per-module banks. Cheap when
+        # current (memo, then one small query); seeds only when stale.
+        self.ensure_rank_bank(int(library_id))
+        if int(module_number) == 2:
+            try:
+                from bank_kinds import retag_module2_teaching_today
+            except ImportError:
+                from lms.bank_kinds import retag_module2_teaching_today
+
+            retag_module2_teaching_today(self, int(library_id))
+        confirmed = self.list_module_bank_links(int(library_id), int(module_number))
+        bank_ids = [int(row["bank_id"]) for row in confirmed]
+        needle = str(query or "").strip().lower()
+        cap = max(1, min(int(limit), 500))
+        module_token = f"M{int(module_number)}"
+        policy = str(scope_policy or "module").strip().lower()
+        cache_key = self._module_bank_mc_cache_key(
+            library_id=int(library_id),
+            module_number=int(module_number),
+            scope_policy=policy,
+            staff_types=bool(staff_types),
+            include_course_placed=bool(include_course_placed),
+            class_id=class_id,
+        )
+        all_items = self._take_module_bank_mc_cache(cache_key)
+        if all_items is None:
+            all_items, stamp = self._load_module_bank_mc_items(
+                library_id=int(library_id),
+                bank_ids=bank_ids,
+                module_token=module_token,
+                policy=policy,
+                staff_types=bool(staff_types),
+                include_course_placed=bool(include_course_placed),
+                class_id=class_id,
+            )
+            self._store_module_bank_mc_cache(cache_key, all_items, stamp)
+            all_items = self._copy_module_bank_mc_items(all_items)
         kind_token = str(kind or "").strip().lower()
         if kind_token not in {"any", "*"}:
             all_items = [
@@ -12990,6 +13294,7 @@ class SchoolDB(LovesDB):
                     (int(library_id), int(module_number), bank_id, _now()),
                 )
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
         return {
             "bank_id": bank_id,
             "question_ids": question_ids,
@@ -13107,6 +13412,7 @@ class SchoolDB(LovesDB):
                         (int(library_id), int(module_number), bank_id, _now()),
                     )
                 self.conn.commit()
+            self.invalidate_module_bank_mc_cache(int(library_id))
         return {"count": len(have), "refreshed": False}
 
     def _course_wide_warmup_items(
@@ -17141,6 +17447,7 @@ class SchoolDB(LovesDB):
                 """,
                 (int(library_id), int(question_id)),
             ).fetchone()
+        self.invalidate_module_bank_mc_cache(int(library_id))
         return dict(row) if row else {}
 
     def get_library_question(
@@ -17270,6 +17577,7 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
             new_id = int(cur.lastrowid)
+        self.invalidate_module_bank_mc_cache(int(library_id))
         _safe_lint_questions(self, [new_id])
         return new_id
 
@@ -17332,6 +17640,7 @@ class SchoolDB(LovesDB):
                     ),
                 )
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
 
     def set_question_live_defaults(
         self,
@@ -17386,6 +17695,7 @@ class SchoolDB(LovesDB):
             if cur.rowcount == 0:
                 raise KeyError(f"question {question_id}")
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
         return self.question_live_defaults(int(library_id), int(question_id))
 
     def set_question_bank_scope(
@@ -17425,6 +17735,7 @@ class SchoolDB(LovesDB):
             if cur.rowcount == 0:
                 raise KeyError(f"question {question_id}")
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
         return token
 
     def question_live_defaults(
@@ -17483,6 +17794,7 @@ class SchoolDB(LovesDB):
                 (int(question_id),),
             )
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
 
     def delete_library_bank_questions(
         self, library_id: int, rows: list[tuple[int, int]]
@@ -17526,6 +17838,7 @@ class SchoolDB(LovesDB):
                 if started and self.conn.in_transaction:
                     self.conn.execute("ROLLBACK")
                 raise
+        self.invalidate_module_bank_mc_cache(int(library_id))
 
     def import_mc_to_class_playlist(
         self,
@@ -17837,6 +18150,7 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
+        self.invalidate_module_bank_mc_cache(int(library_id))
 
     def _ensure_staff_authored_bank(self, library_id: int) -> int:
         """Return the library's staff-authored bank, creating it when missing.
@@ -17921,6 +18235,7 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
             question_id = int(cur.lastrowid)
+        self.invalidate_module_bank_mc_cache(int(library_id))
         if question_type == "mc":
             self.upsert_library_question_overlay(
                 int(library_id),

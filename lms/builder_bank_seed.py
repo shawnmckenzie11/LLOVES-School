@@ -268,6 +268,9 @@ def seed_builder_module_bank(
                 )
                 question_ids.append(int(existing_q["id"]))
         school.conn.commit()
+    invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+    if callable(invalidate):
+        invalidate(int(library_id))
     return {
         "bank_id": bank_id,
         "question_ids": question_ids,

@@ -493,17 +493,47 @@ export async function mountBankMcPicker(opts) {
       statusEl.hidden = false;
       statusEl.textContent = "Searching…";
     }
+    /** @type {Promise<ModuleMcSearchResult> | null} */
+    let searchPromise = null;
     try {
-      const bankStatus =
+      const queryValue =
+        queryEl instanceof HTMLInputElement ? queryEl.value : "";
+      const kindValue =
+        kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter;
+      const typeValue = typeChips ? typeChips.value() : "";
+      // MCK-436: bank status and the first search start together. Confirm
+      // still waits for status, then searches again, because linking banks
+      // changes which rows belong.
+      const statusPromise =
         moduleNumber === "course"
-          ? null
-          : await loadModuleBankStatus(classId, moduleNumber);
+          ? Promise.resolve(null)
+          : loadModuleBankStatus(classId, moduleNumber);
+      searchPromise = searchModuleMcs(
+        classId,
+        moduleNumber,
+        queryValue,
+        kindValue,
+        typeValue
+      );
+      const bankStatus = await statusPromise;
+      let confirmedNow = false;
       if (mode === "import" && bankStatus?.needs_confirmation) {
         const ids = moduleBankConfirmIds(bankStatus);
         if (ids.length) {
           await confirmModuleBanks(classId, moduleNumber, ids);
+          confirmedNow = true;
         }
       }
+      const search = confirmedNow
+        ? await searchModuleMcs(
+            classId,
+            moduleNumber,
+            queryValue,
+            kindValue,
+            typeValue
+          )
+        : await searchPromise;
+      if (confirmedNow) searchPromise.catch(() => {});
       const linkedStatus =
         mode === "import" && bankStatus?.needs_confirmation
           ? await loadModuleBankStatus(classId, moduleNumber)
@@ -540,18 +570,6 @@ export async function mountBankMcPicker(opts) {
         statusEl.hidden = true;
         statusEl.textContent = "";
       }
-      const queryValue =
-        queryEl instanceof HTMLInputElement ? queryEl.value : "";
-      const kindValue =
-        kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter;
-      const typeValue = typeChips ? typeChips.value() : "";
-      const search = await searchModuleMcs(
-        classId,
-        moduleNumber,
-        queryValue,
-        kindValue,
-        typeValue
-      );
       typeChips?.update(search.typeCounts);
       const typeLabel = typeValue
         ? String(typeHost?.querySelector('[aria-pressed="true"] .bank-type-chip-label')?.textContent || "")
@@ -572,6 +590,7 @@ export async function mountBankMcPicker(opts) {
       }
       paintList(rows, hints.noneKeyed);
     } catch (err) {
+      searchPromise?.catch(() => {});
       if (statusEl instanceof HTMLElement) {
         statusEl.hidden = false;
         statusEl.textContent =
