@@ -270,6 +270,11 @@ const GROUP_POLL_PENDING_MS = 800;
 /** Fail + Retry when a staff /state poll is still out after this. */
 const GROUP_POLL_FAIL_MS = 4000;
 let staffStateNeedsFull = true;
+/**
+ * Bumped when the teacher writes the deck. An in-flight /state that
+ * started earlier must not paint over the card that just appeared.
+ */
+let teacherDeckEpoch = 0;
 
 /**
  * After a hard refresh or bfcache restore, refetch full /state and /results
@@ -4442,11 +4447,8 @@ async function submitAddLiveLessonPage(name, kind) {
       stage: String(land.stage || "play"),
       page_id: String(land.id || ""),
     });
-  }
-  staffStateNeedsFull = true;
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (sessionId) {
-    await pollLiveSessionAttendees({ full: true, force: true });
+  } else {
+    scheduleQuietTeacherPoll();
   }
 }
 
@@ -4508,11 +4510,8 @@ async function confirmDeleteLiveLessonPage() {
       stage: String(land.stage || teacherState.stage || "play"),
       page_id: String(land.id || ""),
     });
-  }
-  staffStateNeedsFull = true;
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (sessionId) {
-    await pollLiveSessionAttendees({ full: true, force: true });
+  } else {
+    scheduleQuietTeacherPoll();
   }
 }
 
@@ -4661,22 +4660,28 @@ function advanceLivePage(delta) {
 }
 
 /**
- * POST one module-bank MC import and refresh lifecycle cards.
- * @param {Record<string, unknown>} item
- */
-/**
  * Pull merged lesson-deck metadata (seed + bank imports) for the active module/slot.
+ *
+ * The epoch is captured when the GET starts. A later teacher write bumps
+ * ``teacherDeckEpoch``, and this response is dropped so a slow first fetch
+ * cannot wipe the question that landed second.
+ *
+ * @returns {Promise<boolean>} True when the response was applied.
  */
 async function refreshLessonDeckMetadata() {
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
-  if (!classId) return;
+  if (!classId) return false;
+  const epochAtFetch = teacherDeckEpoch;
   const payload = await api(
     `/api/staff/class/${classId}/live-lessons/${module}/${slot}/deck?fresh=1`
   );
+  if (!staffPollMayApplyDeck(epochAtFetch, teacherDeckEpoch)) return false;
   if (payload?.live_metadata) {
     lastLiveMetadata = payload.live_metadata;
+    return true;
   }
+  return false;
 }
 
 /**
@@ -4695,6 +4700,140 @@ function applyLiveMcImportPayload(payload) {
   }
 }
 
+/**
+ * Keep a just-imported bank item on the local deck when the snapshot's
+ * question list has not caught the placement row yet.
+ * @param {any} payload
+ * @returns {void}
+ */
+function absorbImportedPlacement(payload) {
+  const placementItem = payload?.placement?.item;
+  if (!placementItem || typeof placementItem !== "object") return;
+  const meta = lastLiveMetadata && typeof lastLiveMetadata === "object"
+    ? { ...lastLiveMetadata }
+    : { questions: [], items: [] };
+  const questions = Array.isArray(meta.questions) ? [...meta.questions] : [];
+  const items = Array.isArray(meta.items) ? [...meta.items] : [];
+  const token = String(placementItem.id || payload.placement?.item_id || "").trim();
+  if (!token || questions.some((row) => String(row?.id || "") === token)) return;
+  questions.push({ ...placementItem, id: token, item_type: "question" });
+  items.push({ ...placementItem, id: token, item_type: "question" });
+  meta.questions = questions;
+  meta.items = items;
+  lastLiveMetadata = meta;
+}
+
+/**
+ * Whether this staff /state should arm the pending Reconnecting strip.
+ *
+ * Teacher clicks pass ``quiet: true`` and stay silent for that poll.
+ * Interval polls and news-wire polls omit ``quiet`` and still arm the
+ * strip after 800ms.
+ *
+ * @param {{quiet?: boolean}} [opts]
+ * @returns {boolean}
+ */
+function staffPollShowsPendingStrip(opts) {
+  return !opts?.quiet;
+}
+
+/**
+ * Quiet only when this request and every request already waiting are quiet.
+ *
+ * A later quiet write must not silence a loud forced poll or a news tick
+ * that is already in the one queue slot. An empty queue keeps this
+ * request's own flag, so a quiet light poll can still carry quiet onto
+ * its full follow-up.
+ *
+ * @param {{quiet?: boolean}} [opts]
+ * @param {{quiet?: boolean}|null|undefined} [queued]
+ * @returns {boolean}
+ */
+function staffPollQueueIsQuiet(opts, queued) {
+  if (!opts?.quiet) return false;
+  if (!queued) return true;
+  return Boolean(queued.quiet);
+}
+
+/**
+ * True when a tick that found a poll already in flight should arm the strip.
+ *
+ * Interval ticks are dropped and news ticks only queue. Either one must
+ * start the ~800ms Reconnecting timer, or a quiet poll that is hung on a
+ * down server hides the outage until the 15s abort. A quiet coalesced
+ * write stays silent.
+ *
+ * @param {{quiet?: boolean, fromNews?: boolean, force?: boolean, full?: boolean, retryGesture?: boolean}} [opts]
+ * @returns {boolean}
+ */
+function staffPollCoalesceArmsStrip(opts) {
+  if (opts?.quiet) return false;
+  if (opts?.retryGesture) return false;
+  if (opts?.fromNews) return true;
+  return !opts?.force && !opts?.full;
+}
+
+/**
+ * True when a /state body may replace the deck painted by a teacher write.
+ *
+ * The epoch is captured when the poll starts. A playlist write that lands
+ * while the request is out bumps the epoch, and that older body is ignored
+ * for deck fields only. Attendees and other live fields still apply.
+ *
+ * @param {number} epochAtFetch
+ * @param {number} epochNow
+ * @returns {boolean}
+ */
+function staffPollMayApplyDeck(epochAtFetch, epochNow) {
+  return epochAtFetch === epochNow;
+}
+
+/**
+ * Ask for a full teacher /state without blocking the panel.
+ *
+ * ``quiet`` keeps the pending Reconnecting strip down. This is the staff
+ * session poll only. It does not request student /state and does not
+ * reload any student tab.
+ *
+ * @returns {void}
+ */
+function scheduleQuietTeacherPoll() {
+  teacherDeckEpoch += 1;
+  staffStateNeedsFull = true;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  void pollLiveSessionAttendees({ full: true, force: true, quiet: true });
+}
+
+/**
+ * Follow a playlist write with a deck refresh and a teacher poll.
+ *
+ * The content panel is already painted from the write response. When that
+ * response includes ``live_metadata``, the deck GET is skipped (it would
+ * rebuild the same deck and run the rank-bank check). Otherwise the deck
+ * GET runs in the background and repaints when it returns. The teacher
+ * poll is always background and quiet.
+ *
+ * @param {any} payload
+ * @returns {void}
+ */
+function settleTeacherDeckFollowUp(payload) {
+  scheduleQuietTeacherPoll();
+  if (!payload?.live_metadata) {
+    void refreshLessonDeckMetadata()
+      .then((applied) => {
+        if (!applied) return;
+        paintLiveQuestionCards();
+        paintQuestionArtifact();
+      })
+      .catch(() => {});
+  }
+}
+
+/**
+ * POST one module-bank MC import and paint the content panel at once.
+ * @param {Record<string, unknown>} item
+ */
 async function importLiveMcFromBank(item) {
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
@@ -4714,32 +4853,10 @@ async function importLiveMcFromBank(item) {
     }
   );
   applyLiveMcImportPayload(payload);
-  const placementItem = payload?.placement?.item;
-  if (placementItem && typeof placementItem === "object") {
-    const meta = lastLiveMetadata && typeof lastLiveMetadata === "object"
-      ? { ...lastLiveMetadata }
-      : { questions: [], items: [] };
-    const questions = Array.isArray(meta.questions) ? [...meta.questions] : [];
-    const items = Array.isArray(meta.items) ? [...meta.items] : [];
-    const token = String(placementItem.id || payload.placement?.item_id || "").trim();
-    if (token && !questions.some((row) => String(row?.id || "") === token)) {
-      questions.push({ ...placementItem, id: token, item_type: "question" });
-      items.push({ ...placementItem, id: token, item_type: "question" });
-      meta.questions = questions;
-      meta.items = items;
-      lastLiveMetadata = meta;
-    }
-  }
-  await refreshLessonDeckMetadata();
+  absorbImportedPlacement(payload);
   paintLiveQuestionCards();
   paintQuestionArtifact();
-  staffStateNeedsFull = true;
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (sessionId) {
-    await pollLiveSessionAttendees({ full: true, force: true });
-    paintLiveQuestionCards();
-    paintQuestionArtifact();
-  }
+  settleTeacherDeckFollowUp(payload);
 }
 
 /**
@@ -4761,7 +4878,7 @@ function plainPromptHtml(raw) {
 /**
  * MCK-79: import picked Contest Questions (any module) onto the current page.
  * Uses the deck's Add New path server-side (one all-or-nothing batch), then
- * refreshes the deck like a single bank import.
+ * paints from that response. Deck refresh and the teacher poll stay in the background.
  * @param {Array<{question_id: number, module: string}>} picks
  * @returns {Promise<number>} Imported count.
  */
@@ -4783,16 +4900,9 @@ async function importLiveContentQuestions(picks) {
     }
   );
   applyLiveMcImportPayload(payload);
-  await refreshLessonDeckMetadata();
   paintLiveQuestionCards();
   paintQuestionArtifact();
-  staffStateNeedsFull = true;
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (sessionId) {
-    await pollLiveSessionAttendees({ full: true, force: true });
-    paintLiveQuestionCards();
-    paintQuestionArtifact();
-  }
+  settleTeacherDeckFollowUp(payload);
   return Number(payload?.imported) || picks.length;
 }
 
@@ -4998,18 +5108,12 @@ async function relocatePlaylistItem(itemId, payload) {
   if (!result?.live_metadata) {
     applyLocalPlaylistCardChange(token);
   }
-  await refreshLessonDeckMetadata();
   lastQuestionCards = questionCardsFromMetadata(
     Array.isArray(result?.question_cards) ? result.question_cards : lastQuestionCards
   );
   paintLiveQuestionCards();
   paintQuestionArtifact();
-  staffStateNeedsFull = true;
-  try {
-    await refreshLiveQuestionCards();
-  } catch {
-    await pollLiveSessionAttendees({ full: true, force: true });
-  }
+  settleTeacherDeckFollowUp(result);
 }
 
 /** @type {{ itemId: string, label: string }} */
@@ -8035,7 +8139,9 @@ function armGroupPollFeel() {
  * they patch group cards in place. Full ``refreshLifecycleResults`` runs
  * on a full snapshot (publish, close, reveal, or a state_seq that needs
  * the item set). A failed full snapshot retries once with ``?light=1``.
- * @param {{full?: boolean, force?: boolean}} [opts]
+ * @param {{full?: boolean, force?: boolean, quiet?: boolean}} [opts]
+ * ``quiet`` is a poll the teacher's own click started. It does not arm
+ * the pending Reconnecting strip. Interval and news polls still do.
  */
 async function pollLiveSessionAttendees(opts = {}) {
   const id = liveSessionId || readLiveSessionId();
@@ -8043,17 +8149,22 @@ async function pollLiveSessionAttendees(opts = {}) {
   if (sessionPollInFlight) {
     // A Retry tap does not queue a second /state. News coalesces to one
     // light follow-up. A full snapshot is only when state_seq moved.
+    // Interval and news still arm the strip so a quiet poll cannot hide
+    // a down server until the 15s abort.
+    if (staffPollCoalesceArmsStrip(opts)) armStaffPendingFeel();
     if (opts.fromNews) {
       sessionPollQueued = {
         full: Boolean(sessionPollQueued?.full),
         force: true,
         fromNews: true,
         board: Boolean(opts.board) || Boolean(sessionPollQueued?.board),
+        quiet: false,
       };
     } else if (!opts.retryGesture && (opts.force || opts.full)) {
       sessionPollQueued = {
         full: Boolean(opts.full) || Boolean(sessionPollQueued?.full),
         force: true,
+        quiet: staffPollQueueIsQuiet(opts, sessionPollQueued),
       };
     }
     return;
@@ -8063,8 +8174,9 @@ async function pollLiveSessionAttendees(opts = {}) {
   if (opts.fromNews) staffNewsFetch = true;
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
   const prevSeq = Number(teacherState.state_seq) || lastGoodStateSeq;
+  const deckEpochAtFetch = teacherDeckEpoch;
   staffPollAwaitingNetwork = true;
-  armStaffPendingFeel();
+  if (staffPollShowsPendingStrip(opts)) armStaffPendingFeel();
   // MCK-183: a throw after /state answered is a paint bug. Report it.
   let statePainting = false;
   const pollAbort = typeof AbortController === "function" ? new AbortController() : null;
@@ -8129,10 +8241,11 @@ async function pollLiveSessionAttendees(opts = {}) {
         overlayState.scoreboard = lastScoreboard;
       }
     }
-    if (Array.isArray(payload?.live_items)) {
+    const applyDeck = staffPollMayApplyDeck(deckEpochAtFetch, teacherDeckEpoch);
+    if (applyDeck && Array.isArray(payload?.live_items)) {
       adoptLiveItemsSnapshot(payload.live_items);
     }
-    if (Array.isArray(payload?.active_questions)) {
+    if (applyDeck && Array.isArray(payload?.active_questions)) {
       lastActiveQuestions = payload.active_questions;
     }
     if (payload?.teams_spark !== undefined) {
@@ -8144,8 +8257,8 @@ async function pollLiveSessionAttendees(opts = {}) {
     if (payload?.active_prompt !== undefined) {
       lastActivePrompt = payload.active_prompt || null;
     }
-    if (payload?.live_metadata) lastLiveMetadata = payload.live_metadata;
-    if (Array.isArray(payload?.question_cards)) {
+    if (applyDeck && payload?.live_metadata) lastLiveMetadata = payload.live_metadata;
+    if (applyDeck && Array.isArray(payload?.question_cards)) {
       lastQuestionCards = questionCardsFromMetadata(payload.question_cards);
     }
     paintStageRail();
@@ -8221,7 +8334,11 @@ async function pollLiveSessionAttendees(opts = {}) {
     paintGroupPollFeel("ok");
     setLiveReconnectBanner(false);
     if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
-      sessionPollQueued = { full: true, force: true };
+      sessionPollQueued = {
+        full: true,
+        force: true,
+        quiet: staffPollQueueIsQuiet(opts, sessionPollQueued),
+      };
     }
   } catch (err) {
     if (statePainting) window.llovesSentryReport?.(err, "staff-state-paint");
@@ -8956,9 +9073,7 @@ async function mintArtifactFromMedia(data) {
     applyLiveMcImportPayload(res);
     paintLiveQuestionCards();
     paintQuestionArtifact(res.active_media);
-    staffStateNeedsFull = true;
-    await pollLiveSessionAttendees({ full: true, force: true });
-    paintLiveQuestionCards();
+    scheduleQuietTeacherPoll();
     if (res?.first_mint && res?.toast) {
       showStaffMintToast(String(res.toast));
     }
@@ -11679,7 +11794,7 @@ async function startTeamsForCurrentStage() {
     assign,
     scoreboard_visible: scoreboardOn,
   });
-  await pollLiveSessionAttendees();
+  await pollLiveSessionAttendees({ quiet: true });
   renderAttendanceList();
 }
 
@@ -12851,8 +12966,7 @@ async function patchTeacherState(body, opts = {}) {
       renderAttendanceList();
     }
     if (teacherStateNeedsQuestionRefresh(body)) {
-      staffStateNeedsFull = true;
-      void pollLiveSessionAttendees({ full: true, force: true });
+      scheduleQuietTeacherPoll();
     }
     return teacherState;
   } catch (err) {
@@ -14520,12 +14634,7 @@ configureQuestionEditor({
     applyLiveMcImportPayload(payload);
     paintLiveQuestionCards();
     paintQuestionArtifact();
-    staffStateNeedsFull = true;
-    const sessionId = liveSessionId || readLiveSessionId();
-    if (sessionId) {
-      await pollLiveSessionAttendees({ full: true, force: true });
-      paintLiveQuestionCards();
-    }
+    scheduleQuietTeacherPoll();
   },
 });
 

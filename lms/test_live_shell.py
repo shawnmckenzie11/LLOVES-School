@@ -2924,7 +2924,8 @@ class LiveShellTests(unittest.TestCase):
             '$("mc-reveal-btn")'
         )[0]
         self.assertIn("teacherStateNeedsQuestionRefresh(body)", patch)
-        self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", patch)
+        self.assertIn("scheduleQuietTeacherPoll()", patch)
+        self.assertNotIn("await pollLiveSessionAttendees", patch)
         poll = js.split("async function pollLiveSessionAttendees(")[1].split(
             "function startLiveSessionPolling("
         )[0]
@@ -3093,7 +3094,14 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("applyLiveMcImportPayload(result)", body)
         self.assertIn("if (!result?.live_metadata)", body)
-        self.assertIn("refreshLessonDeckMetadata()", body)
+        self.assertIn("settleTeacherDeckFollowUp(result)", body)
+        self.assertNotIn("await refreshLessonDeckMetadata()", body)
+        self.assertNotIn("await pollLiveSessionAttendees", body)
+        self.assertIn("paintLiveQuestionCards()", body)
+        self.assertLess(
+            body.index("paintLiveQuestionCards()"),
+            body.index("settleTeacherDeckFollowUp(result)"),
+        )
         self.assertIn("questionCardsFromMetadata(", js)
 
     def test_current_page_rows_honor_overlay_page_number(self) -> None:
