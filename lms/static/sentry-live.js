@@ -13,6 +13,11 @@
  *
  * Failed live fetches (HTTP 500 and other non-shed 5xx) and exceptions a
  * poll loop would otherwise swallow (``window.llovesSentryReport``) report.
+ * ``window.llovesSentryStaffReconnect`` sends one teacher-strip episode.
+ * Its payload is only cause, duration_ms, timestamp, and class_id. The
+ * allowlisted cause pattern is ``LLOVES_STAFF_RECONNECT_CAUSE_SOURCE``,
+ * set by ``staff_reconnect_log.js``. The poll filter does not drop that
+ * tagged event. Scrubbing still runs.
  *
  * The page renders ``lloves-sentry-*`` meta tags from ``SENTRY_DSN_LIVE``.
  * No DSN is stored in this file. When the meta tag is absent the script
@@ -34,6 +39,8 @@
   // Busy / shed / proxy flaps. Those stay on the soft reconnect strip.
   var SOFT_HTTP_STATUS = { 502: true, 503: true, 504: true };
   var FETCH_FAILURE_TAG = "lloves.fetch_failed";
+  var STAFF_RECONNECT_TAG = "lloves.staff_reconnect";
+  var STAFF_RECONNECT_KEYS = ["cause", "duration_ms", "timestamp", "class_id"];
   var reportedFetchFailures = {};
 
   /**
@@ -748,6 +755,27 @@
     return Boolean(event && event.tags && event.tags[FETCH_FAILURE_TAG]);
   }
 
+  /**
+   * True for a teacher yellow-strip episode this file sends on purpose.
+   * @param {object} event
+   * @returns {boolean}
+   */
+  function isStaffReconnectEvent(event) {
+    return Boolean(event && event.tags && event.tags[STAFF_RECONNECT_TAG]);
+  }
+
+  /**
+   * The cause allowlist lives in staff_reconnect_log.js. This sender
+   * refuses a cause until that module has published the pattern.
+   * @param {unknown} cause
+   * @returns {boolean}
+   */
+  function staffReconnectCauseAllowed(cause) {
+    var source = globalThis.LLOVES_STAFF_RECONNECT_CAUSE_SOURCE;
+    if (typeof source !== "string" || !source) return false;
+    return new RegExp(source).test(String(cause || ""));
+  }
+
   var sentryClient = window.Sentry;
   if ((!sentryClient || typeof sentryClient.init !== "function") && typeof Sentry !== "undefined") {
     sentryClient = Sentry;
@@ -771,7 +799,13 @@
     integrations: withPollAwareTracing,
     beforeSend: function (event) {
       try {
-        if (!isOwnFetchFailure(event) && shouldDropLivePollEvent(event)) return null;
+        if (
+          !isOwnFetchFailure(event) &&
+          !isStaffReconnectEvent(event) &&
+          shouldDropLivePollEvent(event)
+        ) {
+          return null;
+        }
         return scrubEvent(event);
       } catch (_err) {
         // Fail closed. The event can hold a name, a PIN, or a join code.
@@ -825,6 +859,43 @@
       reportsSent += 1;
       sentryClient.captureException(err, { tags: { "lloves.where": String(where || "") } });
     } catch (_err) {
+      /* never break the page */
+    }
+  };
+
+  /**
+   * Send one teacher reconnect episode. Only the four allowlisted keys are
+   * copied. A free-text cause, a missing key, or a non-numeric field is
+   * dropped. Capped so a flickering strip cannot flood the project.
+   * @param {object} payload
+   */
+  var MAX_RECONNECT_REPORTS = 50;
+  var reconnectReportsSent = 0;
+  window.llovesSentryStaffReconnect = function (payload) {
+    try {
+      if (!payload || typeof payload !== "object") return;
+      if (typeof sentryClient.captureMessage !== "function") return;
+      if (reconnectReportsSent >= MAX_RECONNECT_REPORTS) return;
+      var extra = {};
+      for (var i = 0; i < STAFF_RECONNECT_KEYS.length; i += 1) {
+        var key = STAFF_RECONNECT_KEYS[i];
+        if (!Object.prototype.hasOwnProperty.call(payload, key)) return;
+        extra[key] = payload[key];
+      }
+      if (!staffReconnectCauseAllowed(extra.cause)) return;
+      if (typeof extra.duration_ms !== "number") return;
+      if (typeof extra.timestamp !== "number") return;
+      if (typeof extra.class_id !== "number") return;
+      var tags = {};
+      tags[STAFF_RECONNECT_TAG] = "1";
+      reconnectReportsSent += 1;
+      sentryClient.captureMessage("Teacher live strip", {
+        level: "warning",
+        tags: tags,
+        extra: extra,
+        fingerprint: ["lloves-staff-reconnect", String(extra.cause)],
+      });
+    } catch (_err2) {
       /* never break the page */
     }
   };

@@ -213,7 +213,7 @@ export function newsArtifactAction(mountedKey, event, role = "") {
  * ``retry:`` field. ``stop`` closes it so a quit cannot leave the socket up.
  *
  * @param {number} sessionId
- * @param {{onNews?: (event: any) => void, onBusy?: (event: any) => void, onHello?: (event: any) => void}} handlers
+ * @param {{onNews?: (event: any) => void, onBusy?: (event: any) => void, onHello?: (event: any) => void, onUp?: () => void, onDown?: () => void}} handlers
  * @returns {{stop: () => void, noteSeq: (seq: number) => void, sessionId: number}}
  */
 export function connectLiveNewsWire(sessionId, handlers) {
@@ -231,6 +231,7 @@ export function connectLiveNewsWire(sessionId, handlers) {
    */
   function onFrame(message) {
     if (stopped) return;
+    handlers.onUp?.();
     let event = null;
     try {
       event = JSON.parse(String(message.data || ""));
@@ -285,6 +286,7 @@ export function connectLiveNewsWire(sessionId, handlers) {
     names.forEach((name) => stream.addEventListener(name, onFrame));
     stream.onerror = () => {
       // The browser reconnects with Last-Event-ID. Do not reload.
+      handlers.onDown?.();
     };
   }
 
