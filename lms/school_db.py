@@ -12488,35 +12488,41 @@ class SchoolDB(LovesDB):
     def _bump_module_bank_mc_db_stamp(self, library_id: int) -> int:
         """Advance the shared bank-cache stamp and return the new value.
 
-        The caller holds ``self._lock``. Other processes see the new
-        value on their next cache read.
+        One statement, so two writers cannot both store N+1. The caller
+        holds ``self._lock``. This does not ``commit``. Outside a
+        transaction the statement autocommits. Inside the caller's
+        ``BEGIN`` it stays in that transaction and becomes visible when
+        the caller commits.
 
         Args:
             library_id: ``content_libraries.id``.
         """
-        current = self._read_module_bank_mc_db_stamp(int(library_id))
-        nxt = current + 1
-        self.conn.execute(
+        row = self.conn.execute(
             """
             INSERT INTO school_settings (key, value, updated_at)
-            VALUES (?, ?, ?)
+            VALUES (?, '1', ?)
             ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
+                value = CAST(value AS INTEGER) + 1,
                 updated_at = excluded.updated_at
+            RETURNING value
             """,
-            (self._module_bank_mc_setting_key(library_id), str(nxt), _now()),
-        )
-        self.conn.commit()
-        return nxt
+            (self._module_bank_mc_setting_key(library_id), _now()),
+        ).fetchone()
+        try:
+            return int(row["value"]) if row is not None else 0
+        except (TypeError, ValueError):
+            return 0
 
     def invalidate_module_bank_mc_cache(self, library_id: int | None = None) -> None:
         """Drop rebuilt module-bank question lists.
 
         A library id drops every module and variant for that library
-        and advances the shared ``school_settings`` stamp, so another
-        gunicorn worker's next read misses. ``None`` drops only this
-        process's cache. A search also rebuilds when the entry is older
-        than ``MODULE_BANK_MC_CACHE_TTL_SECONDS``.
+        and advances the shared ``school_settings`` stamp in one
+        statement, so another gunicorn worker's next read misses.
+        ``None`` drops only this process's cache. The bump does not
+        commit; a caller that already has a transaction open keeps the
+        new stamp inside it. A search also rebuilds when the entry is
+        older than ``MODULE_BANK_MC_CACHE_TTL_SECONDS``.
 
         Args:
             library_id: ``content_libraries.id``, or None for every library

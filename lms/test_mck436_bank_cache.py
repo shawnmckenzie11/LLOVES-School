@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -190,9 +191,11 @@ class ModuleBankMcCacheTests(unittest.TestCase):
 
     def test_edit_import_delete_and_promote_drop_the_cache(self) -> None:
         """A bank edit, insert, delete, or scope change is visible on the next search."""
-        self._search("")
+        before = self._search("")
+        old_stem = "Cache stem 00"
+        old = next(item for item in before["items"] if item.get("text") == old_stem)
+        target = int(old["question_id"])
         misses = self.school._module_bank_mc_cache_misses
-        target = self.question_ids[0]
         row = self.school.get_library_question(self.library_id, target)
         assert row is not None
         payload = dict(row["payload"])
@@ -204,13 +207,11 @@ class ModuleBankMcCacheTests(unittest.TestCase):
             payload=payload,
         )
         self.assertEqual(self._school_cache_for_library(), {})
-        edited = self._search("edited cache")
+        edited = self._search("")
         self.assertGreater(self.school._module_bank_mc_cache_misses, misses)
-        self.assertIn(target, {int(item["question_id"]) for item in edited["items"]})
-        self.assertNotIn(
-            target,
-            {int(item["question_id"]) for item in self._search("cache stem 00")["items"]},
-        )
+        by_id = {int(item["question_id"]): str(item.get("text") or "") for item in edited["items"]}
+        self.assertEqual(by_id.get(target), "Edited cache stem")
+        self.assertNotIn(old_stem, by_id.values())
 
         misses = self.school._module_bank_mc_cache_misses
         new_id = self.school.insert_library_bank_question(
@@ -292,9 +293,15 @@ class ModuleBankMcCacheTests(unittest.TestCase):
         try:
             warm = other.search_module_bank_mcs(self.library_id, 1, "", limit=500)
             self.assertGreater(warm["total"], 0)
-            again = other.search_module_bank_mcs(self.library_id, 1, "cache stem 01", limit=500)
+            old_stem = "Cache stem 00"
+            old = next(item for item in warm["items"] if item.get("text") == old_stem)
+            target = int(old["question_id"])
+            again = other.search_module_bank_mcs(self.library_id, 1, old_stem, limit=500)
             self.assertGreater(other._module_bank_mc_cache_hits, 0)
-            target = self.question_ids[0]
+            self.assertEqual(
+                next(item.get("text") for item in again["items"] if int(item["question_id"]) == target),
+                old_stem,
+            )
             row = self.school.get_library_question(self.library_id, target)
             assert row is not None
             payload = dict(row["payload"])
@@ -306,18 +313,53 @@ class ModuleBankMcCacheTests(unittest.TestCase):
                 title="Edited on the other connection",
                 payload=payload,
             )
-            fresh = other.search_module_bank_mcs(
-                self.library_id, 1, "edited on the other", limit=500
-            )
+            fresh = other.search_module_bank_mcs(self.library_id, 1, "", limit=500)
             self.assertGreater(other._module_bank_mc_cache_misses, misses)
-            self.assertIn(target, {int(item["question_id"]) for item in fresh["items"]})
-            stale = other.search_module_bank_mcs(
-                self.library_id, 1, "cache stem 00", limit=500
-            )
-            self.assertNotIn(target, {int(item["question_id"]) for item in stale["items"]})
+            by_id = {
+                int(item["question_id"]): str(item.get("text") or "") for item in fresh["items"]
+            }
+            self.assertEqual(by_id.get(target), "Edited on the other connection")
+            self.assertNotIn(old_stem, by_id.values())
             self.assertEqual(again["total"], warm["total"])
         finally:
             other.close()
+
+    def test_two_concurrent_bumps_end_two_ahead(self) -> None:
+        """Two writers each add one. The stamp ends at N+2, not N+1."""
+        path = self.school.db_path
+        data = self.school.data_dir
+        left = SchoolDB(path, data)
+        right = SchoolDB(path, data)
+        try:
+            with left._lock:
+                start = left._read_module_bank_mc_db_stamp(int(self.library_id))
+            barrier = threading.Barrier(2)
+            errors: list[BaseException] = []
+
+            def bump(db: SchoolDB) -> None:
+                """Wait, then advance this connection's stamp once."""
+                try:
+                    barrier.wait(timeout=10)
+                    db.invalidate_module_bank_mc_cache(int(self.library_id))
+                except BaseException as exc:  # noqa: BLE001 - recorded for the assertion
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=bump, args=(left,)),
+                threading.Thread(target=bump, args=(right,)),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=20)
+            self.assertEqual(errors, [])
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            with left._lock:
+                end = left._read_module_bank_mc_db_stamp(int(self.library_id))
+            self.assertEqual(end, start + 2)
+        finally:
+            left.close()
+            right.close()
 
     def test_store_drops_a_rebuild_when_the_stamp_moved(self) -> None:
         """An edit during a rebuild must not put the old list back."""
