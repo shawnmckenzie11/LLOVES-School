@@ -787,7 +787,7 @@ assert(JSON.stringify(ev.user) === '{"id":"7"}', "event user");
         student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn('window.llovesSentryReport?.(_err, "student-state-paint")', student)
-        self.assertIn('window.llovesSentryReport?.(_, "staff-state-paint")', staff)
+        self.assertIn('window.llovesSentryReport?.(err, "staff-state-paint")', staff)
 
 
 if __name__ == "__main__":

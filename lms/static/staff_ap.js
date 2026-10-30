@@ -63,6 +63,10 @@ import {
   shouldApplyLiveSnapshot,
 } from "/static/live_poll_feel.js";
 import {
+  classifyStaffReconnectCause,
+  createStaffReconnectLog,
+} from "/static/staff_reconnect_log.js";
+import {
   CATCHING_UP_COPY,
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
@@ -209,6 +213,49 @@ let staffNewsWire = null;
 let sessionPollStopped = true;
 /** Epoch ms when the current outage started. ``0`` when the frame is calm. */
 let staffOutageStartedAt = 0;
+/** Allowlisted cause for the next yellow-strip paint. Empty keeps the open episode. */
+let staffReconnectNextCause = "";
+/** ``timeout`` when the 15s abort fired, ``retry`` when the teacher cut a hung poll. */
+let staffPollAbortReason = "";
+/**
+ * Set by the stream-drop commit when an open EventSource has just closed.
+ * Stays false until that wiring runs, so logging does not invent a drop.
+ */
+let staffStreamClosedHint = false;
+/** Epoch ms when this tab last went to the background. */
+let staffHiddenAt = 0;
+/** Epoch ms when this tab woke or returned from the back-forward cache. */
+let staffResumedAt = 0;
+/** How long a wake still explains a strip. */
+const STAFF_VISIBILITY_RESUME_MS = 5000;
+
+const staffReconnectLog = createStaffReconnectLog({
+  /**
+   * Hand the allowlisted episode to the page Sentry hook.
+   * @param {{cause: string, duration_ms: number, timestamp: number, class_id: number}} payload
+   */
+  log(payload) {
+    window.llovesSentryStaffReconnect?.(payload);
+  },
+  /**
+   * @returns {number}
+   */
+  now: () => Date.now(),
+  /**
+   * @param {number} ms
+   * @param {() => void} fn
+   * @returns {number}
+   */
+  after(ms, fn) {
+    return window.setTimeout(fn, ms);
+  },
+  /**
+   * @param {number} id
+   */
+  cancel(id) {
+    window.clearTimeout(id);
+  },
+});
 let reconnectPendingTimer = 0;
 let reconnectStuckTimer = 0;
 /** Last ``state_seq`` that painted. Older snapshots are ignored. */
@@ -4829,6 +4876,7 @@ async function refreshLiveQuestionCards() {
   try {
     const snapshot = await api(`/api/live-sessions/${id}/state`);
     if (snapshot?.error === "state unavailable" || isLiveStateBusy(snapshot)) {
+      staffReconnectNextCause = staffReconnectCause(null, { busy: true });
       setLiveReconnectBanner(true);
       noteStaffPollBusy();
       return;
@@ -4847,7 +4895,8 @@ async function refreshLiveQuestionCards() {
     }
     paintLiveQuestionCards();
     setLiveReconnectBanner(false);
-  } catch (_) {
+  } catch (err) {
+    staffReconnectNextCause = staffReconnectCause(err, {});
     setLiveReconnectBanner(true);
     noteStaffPollBusy();
   }
@@ -7674,7 +7723,34 @@ function setRetryControlVisible(retry, visible) {
 }
 
 /**
+ * True for a short window after the tab wakes or returns from bfcache.
+ * @returns {boolean}
+ */
+function staffVisibilityResumedRecently() {
+  return staffResumedAt > 0 && Date.now() - staffResumedAt < STAFF_VISIBILITY_RESUME_MS;
+}
+
+/**
+ * Allowlisted reason for the strip that is about to paint.
+ * Error text is not copied onto the episode.
+ * @param {unknown} err
+ * @param {{timeout?: boolean, busy?: boolean, slowPoll?: boolean}} [extra]
+ * @returns {string}
+ */
+function staffReconnectCause(err, extra) {
+  const hint = extra && typeof extra === "object" ? extra : {};
+  return classifyStaffReconnectCause(err, {
+    timeout: Boolean(hint.timeout),
+    busy: Boolean(hint.busy),
+    slowPoll: Boolean(hint.slowPoll),
+    streamClosed: staffStreamClosedHint,
+    visibilityResume: staffVisibilityResumedRecently(),
+  });
+}
+
+/**
  * Paint the one soft strip. Does not touch the question stack or reload.
+ * A visible strip opens one Sentry episode. Hiding it logs that episode.
  * @param {"ok"|"pending"|"busy"|"stuck"} mode
  * @param {string} message
  * @param {boolean} showRetry
@@ -7687,11 +7763,23 @@ function paintStaffReconnect(mode, message, showRetry) {
     if (el instanceof HTMLElement) el.hidden = true;
     if (copy) copy.textContent = "Reconnecting…";
     setRetryControlVisible(retry, false);
+    if (el instanceof HTMLElement) staffReconnectLog.hidden();
+    staffReconnectNextCause = "";
     return;
   }
   if (el instanceof HTMLElement) el.hidden = false;
   if (copy) copy.textContent = message;
   setRetryControlVisible(retry, showRetry);
+  if (!(el instanceof HTMLElement)) {
+    staffReconnectNextCause = "";
+    return;
+  }
+  if (!staffReconnectNextCause && mode === "pending") {
+    staffReconnectNextCause = staffReconnectCause(null, { slowPoll: true });
+  }
+  const cause = staffReconnectNextCause;
+  staffReconnectNextCause = "";
+  staffReconnectLog.shown(cause, classId);
 }
 
 /**
@@ -7742,6 +7830,13 @@ function setLiveReconnectBanner(visible, message) {
     return;
   }
   const text = String(message || "").trim();
+  const alreadyShowing = $("live-reconnect") instanceof HTMLElement && !$("live-reconnect").hidden;
+  if (!staffReconnectNextCause && !alreadyShowing) {
+    staffReconnectNextCause = staffReconnectCause(null, {
+      slowPoll: text === reconnectCopy("pending"),
+      busy: text !== reconnectCopy("pending"),
+    });
+  }
   const soft = new Set([
     "",
     reconnectCopy("pending"),
@@ -7797,6 +7892,7 @@ function reissueLiveStateOnce() {
     // MCK-192 (b): Retry while a /state hangs cuts it and asks again at once.
     if (sessionPollAbort) {
       sessionPollQueued = { full: Boolean(sessionPollQueued?.full), retryGesture: true };
+      staffPollAbortReason = "retry";
       sessionPollAbort.abort();
     }
     return;
@@ -7903,7 +7999,10 @@ async function pollLiveSessionAttendees(opts = {}) {
   const pollAbort = typeof AbortController === "function" ? new AbortController() : null;
   sessionPollAbort = pollAbort;
   const pollTimeout = pollAbort
-    ? window.setTimeout(() => pollAbort.abort(), STAFF_STATE_TIMEOUT_MS)
+    ? window.setTimeout(() => {
+        staffPollAbortReason = "timeout";
+        pollAbort.abort();
+      }, STAFF_STATE_TIMEOUT_MS)
     : 0;
   const fetchOpts = pollAbort ? { signal: pollAbort.signal } : {};
   try {
@@ -7924,6 +8023,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       clearGroupPollFeelTimers();
       paintGroupPollFeel("ok");
       sessionPollQueued = null;
+      if (fault) staffReconnectNextCause = staffReconnectCause(null, { busy: true });
       setLiveReconnectBanner(Boolean(fault), fault);
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
@@ -7936,6 +8036,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     ) {
       clearGroupPollFeelTimers();
       paintGroupPollFeel("ok");
+      staffReconnectNextCause = staffReconnectCause(null, { busy: true });
       setLiveReconnectBanner(true);
       noteStaffPollBusy();
       return;
@@ -8050,10 +8151,15 @@ async function pollLiveSessionAttendees(opts = {}) {
     if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
       sessionPollQueued = { full: true, force: true };
     }
-  } catch (_) {
-    if (statePainting) window.llovesSentryReport?.(_, "staff-state-paint");
+  } catch (err) {
+    if (statePainting) window.llovesSentryReport?.(err, "staff-state-paint");
     clearGroupPollFeelTimers();
     paintGroupPollFeel("ok");
+    if (staffPollAbortReason !== "retry") {
+      staffReconnectNextCause = staffReconnectCause(err, {
+        timeout: staffPollAbortReason === "timeout",
+      });
+    }
     setLiveReconnectBanner(true);
     noteStaffPollBusy();
   } finally {
@@ -8096,6 +8202,7 @@ function startStaffNewsWire(sessionId) {
     },
     onBusy() {
       // Soft strip only. A wire shed must not white-wipe or reload.
+      staffReconnectNextCause = staffReconnectCause(null, { busy: true });
       setLiveReconnectBanner(true);
     },
   });
@@ -14053,10 +14160,19 @@ selectTrackMode("individual");
 setSessionTimerMinutes(3);
 
 window.addEventListener("pageshow", (event) => {
+  if (event.persisted) staffResumedAt = Date.now();
   window.setTimeout(() => {
     if (event.persisted) paintGroupResultsInPlace(true);
     refetchLiveClassSnapshotAfterNavigation();
   }, 0);
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    staffHiddenAt = Date.now();
+    return;
+  }
+  if (staffHiddenAt) staffResumedAt = Date.now();
 });
 
 if (root?.dataset.apView === "live") {

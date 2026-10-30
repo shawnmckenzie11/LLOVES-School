@@ -747,7 +747,10 @@ class Mck192StaffPollTests(unittest.TestCase):
 
     def test_state_poll_has_a_timeout_and_retry_cuts_a_hung_poll(self) -> None:
         self.assertIn("const STAFF_STATE_TIMEOUT_MS = 15000;", self.src)
-        self.assertIn("window.setTimeout(() => pollAbort.abort(), STAFF_STATE_TIMEOUT_MS)", self.src)
+        timer = self.src.split("const pollTimeout = pollAbort", 1)[1].split(": 0;", 1)[0]
+        self.assertIn('staffPollAbortReason = "timeout"', timer)
+        self.assertIn("pollAbort.abort()", timer)
+        self.assertIn("STAFF_STATE_TIMEOUT_MS", timer)
         self.assertIn("api(`/api/live-sessions/${id}/state${qs}`, fetchOpts)", self.src)
         retry = self.src[self.src.index("function reissueLiveStateOnce()"):]
         retry = retry[: retry.index("\n}\n")]
