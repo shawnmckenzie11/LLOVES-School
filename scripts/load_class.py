@@ -869,15 +869,20 @@ def start_phone_threads(
                             break
                         if line is None:
                             continue
-                    if line == "":
-                        if etype == "google_slide" and data:
-                            _fetch_slide_image(sess, data)
-                        elif etype in _PHONE_LIGHT and not st.get("want"):
-                            st["want"] = True
-                            st["want_at"] = time.monotonic() + 0.04
-                        etype = ""
-                        data = ""
-                        continue
+                        if line == "":
+                            # A slide postcard is the image only. A light
+                            # event still asks for /state. Parsing has to
+                            # stay inside this loop; a handler after the
+                            # read never sees the event, and every phone
+                            # then falls back together.
+                            if etype == "google_slide" and data:
+                                _fetch_slide_image(sess, data)
+                            elif etype in _PHONE_LIGHT and not st.get("want"):
+                                st["want"] = True
+                                st["want_at"] = time.monotonic() + 0.04
+                            etype = ""
+                            data = ""
+                            continue
                         if line.startswith("id:"):
                             last = line[3:].strip()
                         elif line.startswith("event:"):
@@ -893,7 +898,11 @@ def start_phone_threads(
     def phone_state(st: dict[str, Any]) -> None:
         """Debounced ``/state``, the safety poll, the post-tap resync, heartbeats."""
         sess = student_session(st)
-        next_fallback = time.monotonic() + random.random()
+        # Spread the safety poll across the interval. A 0–1 s offset
+        # keeps every phone in one second, so a Forward that lands there
+        # looks like a class-wide /state even when the postcard did not
+        # ask for one.
+        next_fallback = time.monotonic() + random.uniform(0, 20)
         next_hb = time.monotonic() + random.random() * 2
         hb_out = False
         fetch_state(sess, st)
