@@ -8250,6 +8250,40 @@ async function pollLiveSessionAttendees(opts = {}) {
 /**
  * Begin polling session joins until End Game / cancel.
  */
+/** True after this tab has received a live-stream frame. */
+let staffStreamWasOpen = false;
+/** Clears ``staffStreamClosedHint`` once the drop is no longer recent. */
+let staffStreamHintTimer = 0;
+/** How long a stream drop still explains the strip. */
+const STAFF_STREAM_CLOSED_MS = 15000;
+
+/**
+ * A live-stream frame arrived, so a previous drop no longer explains the strip.
+ */
+function noteStaffStreamOpen() {
+  staffStreamWasOpen = true;
+  staffStreamClosedHint = false;
+  if (staffStreamHintTimer) {
+    window.clearTimeout(staffStreamHintTimer);
+    staffStreamHintTimer = 0;
+  }
+}
+
+/**
+ * The EventSource dropped after it had been open.
+ * A stream that never opened does not count as closed.
+ */
+function noteStaffStreamDown() {
+  if (!staffStreamWasOpen) return;
+  staffStreamWasOpen = false;
+  staffStreamClosedHint = true;
+  if (staffStreamHintTimer) window.clearTimeout(staffStreamHintTimer);
+  staffStreamHintTimer = window.setTimeout(() => {
+    staffStreamHintTimer = 0;
+    staffStreamClosedHint = false;
+  }, STAFF_STREAM_CLOSED_MS);
+}
+
 /**
  * Open the session SSE tap. Events light-fetch; they do not reload.
  * @param {number} sessionId
@@ -8261,6 +8295,7 @@ function startStaffNewsWire(sessionId) {
   if (staffNewsWire) staffNewsWire.stop();
   staffNewsWire = connectLiveNewsWire(sid, {
     onNews(event) {
+      noteStaffStreamOpen();
       if (event && event.type === "google_slide") return;
       if (event && event.type === "board_ink") {
         if (teacherBoardPoll && typeof teacherBoardPoll.kick === "function") {
@@ -8277,6 +8312,12 @@ function startStaffNewsWire(sessionId) {
       // Soft strip only. A wire shed must not white-wipe or reload.
       staffReconnectNextCause = staffReconnectCause(null, { busy: true });
       setLiveReconnectBanner(true);
+    },
+    onUp() {
+      noteStaffStreamOpen();
+    },
+    onDown() {
+      noteStaffStreamDown();
     },
   });
 }
