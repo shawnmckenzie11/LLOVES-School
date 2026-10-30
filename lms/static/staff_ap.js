@@ -201,6 +201,8 @@ let sessionPollInFlight = false;
 let sessionPollAbort = null;
 /** A hung staff /state is cut after this long, so polling never freezes. */
 const STAFF_STATE_TIMEOUT_MS = 15000;
+/** True only while this poll's /state fetch has not returned. */
+let staffPollAwaitingNetwork = false;
 /** @type {{full?: boolean, force?: boolean}|null} */
 let sessionPollQueued = null;
 /** Automatic delay after a busy/503. ``0`` means the slow fallback poll. */
@@ -7865,6 +7867,31 @@ function noteStaffPollBusy() {
 }
 
 /**
+ * True when a staff /state that is still waiting on the network should
+ * raise the yellow strip. Painting and /results after the response are
+ * not a reconnect. ``outageStartedAt`` means the strip is already up.
+ * @param {boolean} inFlight
+ * @param {boolean} awaitingNetwork
+ * @param {number} outageStartedAt
+ * @returns {boolean}
+ */
+function shouldShowStaffReconnectPending(inFlight, awaitingNetwork, outageStartedAt) {
+  return Boolean(inFlight) && Boolean(awaitingNetwork) && !outageStartedAt;
+}
+
+/**
+ * The /state fetch settled. Drawing the snapshot is not a reconnect.
+ * A strip that is already up stays up until a calm frame clears it.
+ */
+function settleStaffPollNetwork() {
+  staffPollAwaitingNetwork = false;
+  if (reconnectPendingTimer && !staffOutageStartedAt) {
+    window.clearTimeout(reconnectPendingTimer);
+    reconnectPendingTimer = 0;
+  }
+}
+
+/**
  * Arm "Reconnecting…" only if this poll is still out after ~800ms.
  * Does not clear a busy line already on screen.
  */
@@ -7876,7 +7903,15 @@ function armStaffPendingFeel() {
   }
   reconnectPendingTimer = window.setTimeout(() => {
     reconnectPendingTimer = 0;
-    if (!sessionPollInFlight || staffOutageStartedAt) return;
+    if (
+      !shouldShowStaffReconnectPending(
+        sessionPollInFlight,
+        staffPollAwaitingNetwork,
+        staffOutageStartedAt
+      )
+    ) {
+      return;
+    }
     staffOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
     const pendingCopy = staffNewsFetch ? CATCHING_UP_COPY : reconnectCopy("pending");
     paintStaffReconnect("pending", pendingCopy, false);
@@ -7993,6 +8028,7 @@ async function pollLiveSessionAttendees(opts = {}) {
   if (opts.fromNews) staffNewsFetch = true;
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
   const prevSeq = Number(teacherState.state_seq) || lastGoodStateSeq;
+  staffPollAwaitingNetwork = true;
   armStaffPendingFeel();
   // MCK-183: a throw after /state answered is a paint bug. Report it.
   let statePainting = false;
@@ -8016,6 +8052,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       if (/busy|503|unavailable|overloaded|locked/i.test(message)) throw err;
       payload = await api(`/api/live-sessions/${id}/state?light=1`, fetchOpts);
     }
+    settleStaffPollNetwork();
     statePainting = true;
     // Shed / busy / 503 stays on this document. Do not reload.
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
@@ -8163,6 +8200,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     setLiveReconnectBanner(true);
     noteStaffPollBusy();
   } finally {
+    settleStaffPollNetwork();
     if (pollTimeout) window.clearTimeout(pollTimeout);
     if (sessionPollAbort === pollAbort) sessionPollAbort = null;
     sessionPollInFlight = false;
