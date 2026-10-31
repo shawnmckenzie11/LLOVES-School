@@ -22,14 +22,14 @@
       <div class="ob-btns"><span></span><form method="post" action="{{ retry_url }}" class="ob-inline-form"><button type="submit" class="btn">Use another Google account</button></form></div>
       {% elif state == 'expired' %}
       <h1 id="ob-title">This invite has expired</h1>
-      <p class="ob-body">Invite links last 7 days. Ask Shawn to send you a new one.</p>
+      <p class="ob-body">Invite links last 7 days. Ask your ALC admin to send you a new one.</p>
       {% elif state == 'used' %}
       <h1 id="ob-title">You've already joined</h1>
       <p class="ob-body">This invite has been used. Sign in to get to your classes.</p>
       <div class="ob-btns"><span></span><a class="btn" href="{{ signin_url }}">Sign in</a></div>
       {% else %}
       <h1 id="ob-title">This invite link doesn't work</h1>
-      <p class="ob-body">It may have been replaced or cancelled. Ask Shawn for a new one.</p>
+      <p class="ob-body">It may have been replaced or cancelled. Ask your ALC admin for a new one.</p>
       {% endif %}
     </section>
   </main>

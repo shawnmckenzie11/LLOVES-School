@@ -1848,7 +1848,7 @@ def register_auth_routes(app: Flask) -> None:
         if not is_slides_operator_email(user.get("email")):
             return render_template(
                 "forbidden.html",
-                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+                message="Google Slides connect is limited to ALC admin accounts.",
             ), 403
         next_url = _safe_next_url(request.args.get("next")) or url_for("staff_home")
         session["slides_oauth_next"] = next_url
@@ -1891,7 +1891,7 @@ def register_auth_routes(app: Flask) -> None:
         if not is_slides_operator_email(user.get("email")):
             return render_template(
                 "forbidden.html",
-                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+                message="Google Slides connect is limited to ALC admin accounts.",
             ), 403
         next_url = _safe_next_url(session.pop("slides_oauth_next", None)) or url_for(
             "staff_home"
@@ -1963,7 +1963,7 @@ def register_auth_routes(app: Flask) -> None:
         if not is_slides_operator_email(user.get("email")):
             return render_template(
                 "forbidden.html",
-                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+                message="Google Slides connect is limited to ALC admin accounts.",
             ), 403
         next_url = _safe_next_url(request.args.get("next")) or url_for("staff_home")
         session["slides_read_oauth_next"] = next_url
@@ -2006,7 +2006,7 @@ def register_auth_routes(app: Flask) -> None:
         if not is_slides_operator_email(user.get("email")):
             return render_template(
                 "forbidden.html",
-                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+                message="Google Slides connect is limited to ALC admin accounts.",
             ), 403
         next_url = _safe_next_url(session.pop("slides_read_oauth_next", None)) or url_for(
             "staff_home"

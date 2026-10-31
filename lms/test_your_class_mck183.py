@@ -48,7 +48,7 @@ class YourClassTests(unittest.TestCase):
         for label in ("Course code", "Days", "Start time", "+ Add another class", "Next", "Back"):
             self.assertIn(label, html)
         self.assertEqual(html.count('<option value="">Choose…</option>'), 3)
-        self.assertIn("Don't see your course? Ask Shawn to add it.", html)
+        self.assertIn("Don't see your course? Ask your ALC admin to add it.", html)
         self.assertIn(ERROR, html)
         self.assertIn('<option value="M/W/F">MWF</option>', html)
         self.assertIn('<option value="2:00pm">2:00pm</option>', html)

@@ -89,7 +89,7 @@ class TourPageTests(unittest.TestCase):
         self.assertIn("data-staff-help", html)
         self.assertIn('href="/staff?tour=1"', html)
         self.assertIn("data-help-whats-new", html)
-        self.assertIn('href="mailto:solutions@mckenzian.com?subject=ALC%20help">Ask Shawn for help', html)
+        self.assertIn('href="mailto:solutions@mckenzian.com?subject=ALC%20help">Get help', html)
 
     def test_help_contact_env(self) -> None:
         self._teacher_with_class()
@@ -155,7 +155,7 @@ class TourPageTests(unittest.TestCase):
         self.assertIn('data-tour-offer="0"', self._body(html))
         self.assertNotIn('id="onb-tour"', html)
         self.assertNotIn("Take the tour again", html)
-        self.assertIn("Ask Shawn for help", html)
+        self.assertIn("Get help", html)
 
     def test_run_type_helper_degrades_until_mck269(self) -> None:
         """Missing Test/Live field is unknown. A real value is passed through."""

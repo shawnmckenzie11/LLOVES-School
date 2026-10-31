@@ -271,12 +271,12 @@ def send_access_request_notice(request_row: dict) -> bool:
     return send_email(DEFAULT_IT_EMAIL, subject, text, html)
 
 
-INVITE_FROM_NAME = "Shawn McKenzie via ALC"
-INVITE_SUBJECT = "Shawn invited you to ALC"
+INVITE_FROM_NAME = "ALC"
+INVITE_SUBJECT = "You're invited to ALC"
 
 
 def build_staff_invite(first_name: str, email: str, link: str) -> Tuple[str, str, str]:
-    """Subject, plain text and HTML for an invite (Wonder v1.4, word for word).
+    """Subject, plain text and HTML for a teacher invite.
 
     Every inserted value is HTML-escaped. No student data.
 
@@ -290,7 +290,7 @@ def build_staff_invite(first_name: str, email: str, link: str) -> Tuple[str, str
     """
     first = (first_name or "").strip() or "there"
     body = (
-        f"Hi {first}, Shawn McKenzie invited you to ALC, a simple way to take "
+        f"Hi {first}, your ALC admin invited you to ALC, a simple way to take "
         "attendance and track participation in your live classes. "
         "Setup takes about 3 minutes."
     )
@@ -317,13 +317,13 @@ def build_staff_invite(first_name: str, email: str, link: str) -> Tuple[str, str
 def send_staff_invite(
     recipient_email: str, first_name: str, link: str, *, reply_to: str | None
 ) -> bool:
-    """Email a teacher invite from "Shawn McKenzie via ALC", Reply-To Shawn.
+    """Email a teacher invite from ALC. Replies go to ``reply_to``.
 
     Args:
         recipient_email: Invited Google email.
         first_name: Teacher first name.
         link: Absolute invite URL.
-        reply_to: Address replies go to (Shawn).
+        reply_to: Address replies go to.
 
     Returns:
         True when Resend or SMTP accepted the message.

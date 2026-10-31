@@ -12,6 +12,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
+import staff_invites  # noqa: E402
 from app import create_app  # noqa: E402
 
 LEGAL_HREFS = ('href="/privacy"', 'href="/terms"', 'href="/support"')
@@ -94,7 +96,10 @@ class LegalPageTests(unittest.TestCase):
         self.assertIn("The only student identifier ALC stores is the student's first name", privacy)
         self.assertIn("whiteboard work", privacy)
         self.assertIn("kept with no automatic deletion", privacy)
-        self.assertIn("Privacy contact: Shawn McKenzie", privacy)
+        self.assertIn(
+            'Privacy contact: <a href="mailto:solutions@mckenzian.com">solutions@mckenzian.com</a>',
+            privacy,
+        )
         self.assertNotIn("not ALC's privacy notice", privacy)
         self.assertIn("Teachers run classes with whiteboards", terms)
         self.assertIn("Prices include applicable taxes.", terms)
@@ -170,6 +175,47 @@ class LegalPageTests(unittest.TestCase):
         page = self.client.get("/staff", follow_redirects=True)
         self.assertEqual(page.status_code, 200)
         self._assert_footer(page.get_data(as_text=True))
+
+    def test_public_pages_omit_the_owner_name(self) -> None:
+        """Legal, landing, invite, and forbidden pages omit the owner's name.
+
+        The company name and the solutions@ address stay. The surname check
+        is the word followed by a space, so "McKenzian" is not a hit.
+        """
+        bodies: list[str] = []
+        for path in ("/privacy", "/terms", "/support", "/"):
+            rv = self.client.get(path)
+            self.assertEqual(rv.status_code, 200, path)
+            bodies.append(rv.get_data(as_text=True))
+
+        unknown = self.client.get("/invite/not-a-token")
+        self.assertEqual(unknown.status_code, 200)
+        bodies.append(unknown.get_data(as_text=True))
+
+        self.school.activate_from_semester_json()
+        _invite, token = staff_invites.create_or_refresh_invite(
+            self.school, email="guest@example.com", first_name="Guest",
+        )
+        past = (datetime.now() - timedelta(minutes=1)).isoformat()
+        self.school.conn.execute("UPDATE staff_invites SET expires_at = ?", (past,))
+        expired = self.client.get(f"/invite/{token}")
+        self.assertEqual(expired.status_code, 200)
+        expired_html = expired.get_data(as_text=True)
+        self.assertIn("This invite has expired", expired_html)
+        bodies.append(expired_html)
+
+        with patch("email_service.send_verification_email", return_value=True):
+            self.client.get("/auth/google?portal=staff")
+            forbidden = self.client.get(
+                "/auth/google/callback?email=visitor@example.com&portal=staff",
+                follow_redirects=False,
+            )
+        self.assertEqual(forbidden.status_code, 403)
+        bodies.append(forbidden.get_data(as_text=True))
+
+        for body in bodies:
+            self.assertNotIn("Shawn", body)
+            self.assertNotIn("McKenzie ", body)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 {# MCK-183 slice D: Help menu (Dashboard corner and the course page top bar).
    Copy: Wonder v1.2 help.tour / help.whatsnew / help.contact. On the Dashboard
    "What's new" opens the panel in place; elsewhere it opens the Dashboard's.
-   While a class is live (help_hold) only "Ask Shawn for help" shows: no
+   While a class is live (help_hold) only "Get help" shows: no
    tour and no What's new over a projected screen. #}
 <details class="staff-help" data-staff-help>
   <summary class="{{ help_summary_class|default('staff-corner-link') }}">Help</summary>
@@ -14,6 +14,6 @@
     <a class="staff-help-item" href="{{ url_for('staff_home', whats_new=1) }}">What's new</a>
     {% endif %}
     {% endif %}
-    <a class="staff-help-item" href="mailto:{{ help_contact_email }}?subject=ALC%20help">Ask Shawn for help</a>
+    <a class="staff-help-item" href="mailto:{{ help_contact_email }}?subject=ALC%20help">Get help</a>
   </div>
 </details>

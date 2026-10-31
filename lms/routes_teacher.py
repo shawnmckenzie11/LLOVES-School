@@ -1910,7 +1910,7 @@ def register_teacher(app, school, shared):
         error = "Pick a course, days and a start time to continue."
         active = school.get_active_semester()
         if not active:
-            return jsonify({"ok": False, "error": "No semester is active yet. Ask Shawn."}), 409
+            return jsonify({"ok": False, "error": "No semester is active yet. Ask your ALC admin."}), 409
         offerings, classes = _teacher_setup(user)
         if classes:
             return jsonify({"ok": False, "error": "Your classes are already set up."}), 409
