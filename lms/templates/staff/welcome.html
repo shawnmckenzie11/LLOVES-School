@@ -57,7 +57,7 @@
               <option value="">Choose…</option>
               {% for c in presets.courses %}<option value="{{ c.code }}"{% if c.code == row.code %} selected{% endif %}>{{ c.code }} · {{ c.title }}</option>{% endfor %}
             </select>
-            <p class="ob-help">Don't see your course? Ask Shawn to add it.</p>
+            <p class="ob-help">Don't see your course? Ask your ALC admin to add it.</p>
             <label class="ob-field" for="ob-days-{{ loop.index }}">Days</label>
             <select class="ob-select" id="ob-days-{{ loop.index }}" name="live_days" data-ob-field="live_days">
               <option value="">Choose…</option>

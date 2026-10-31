@@ -1828,7 +1828,7 @@ def _close_live_poll_connection(response):
     return response
 
 def _help_contact_email() -> str:
-    """Help → "Ask Shawn for help" mailto target."""
+    """Help menu "Get help" mailto target."""
     for key in ("HELP_CONTACT_EMAIL", "INVITE_REPLY_TO"):
         value = (os.getenv(key) or "").strip()
         if value:

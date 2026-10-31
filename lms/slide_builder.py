@@ -1357,7 +1357,7 @@ def generate_lesson_slides(
     email = str(user.get("email") or "")
     if not is_slides_operator_email(email):
         raise SlidesOperatorDenied(
-            "Google Slides connect is limited to solutions@ and Shawn's Gmail."
+            "Google Slides connect is limited to ALC admin accounts."
         )
     cls = school.enrich_class(school.game.get_class(class_id))
     offering_id = cls.get("offering_id")

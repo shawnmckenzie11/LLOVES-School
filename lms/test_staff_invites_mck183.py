@@ -165,12 +165,12 @@ class InviteFormTests(_Base):
         self.assertEqual((invite["preset_code"], invite["preset_days"], invite["preset_time"]), ("SBI4U", "M/W/F", "2:00pm"))
         self.assertEqual(invite["send_count"], 1)
         self.assertEqual(sent["to"], NEW)
-        self.assertEqual(sent["subject"], "Shawn invited you to ALC")
-        self.assertEqual(sent["from_name"], "Shawn McKenzie via ALC")
+        self.assertEqual(sent["subject"], "You're invited to ALC")
+        self.assertEqual(sent["from_name"], "ALC")
         self.assertEqual(sent["reply_to"], "solutions@mckenzian.com")
         self.assertIn("https://alc.mckenzian.com/invite/", sent["text"])
         self.assertIn("Accept invite:\nhttps://alc.mckenzian.com/invite/", sent["text"])
-        self.assertIn("Hi Rae, Shawn McKenzie invited you to ALC, a simple way to take attendance and track participation in your live classes. Setup takes about 3 minutes.", sent["text"])
+        self.assertIn("Hi Rae, your ALC admin invited you to ALC, a simple way to take attendance and track participation in your live classes. Setup takes about 3 minutes.", sent["text"])
         self.assertIn(f"This link works for 7 days and only for {NEW}. Questions? Just reply to this email.", sent["text"])
         self.assertIn(">Accept invite</a>", sent["html"])
         # No offering is created until she presses Next on Your class.
@@ -258,7 +258,7 @@ class EmailServiceTests(unittest.TestCase):
                 ok = email_service.send_staff_invite(NEW, "Rae", "https://x/invite/t", reply_to="shawn@example.com")
         self.assertTrue(ok)
         self.assertEqual(captured["reply_to"], "shawn@example.com")
-        self.assertEqual(captured["from"], "Shawn McKenzie via ALC <noreply@mckenzian.com>")
+        self.assertEqual(captured["from"], "ALC <noreply@mckenzian.com>")
 
     def test_smtp_sets_reply_to_header(self) -> None:
         """SMTP message has Reply-To."""

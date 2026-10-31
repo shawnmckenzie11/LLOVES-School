@@ -5727,7 +5727,7 @@ def register_live(app, school, shared):
                 {
                     "ok": False,
                     "skipped": True,
-                    "error": "Slides connect is limited to solutions@ and Shawn's Gmail.",
+                    "error": "Slides connect is limited to ALC admin accounts.",
                 }
             ), 403
         try:
@@ -5811,7 +5811,7 @@ def register_live(app, school, shared):
                 {
                     "ok": False,
                     "skipped": True,
-                    "error": "Slides connect is limited to solutions@ and Shawn's Gmail.",
+                    "error": "Slides connect is limited to ALC admin accounts.",
                 }
             ), 403
         body = request.get_json(silent=True) or {}
