@@ -928,6 +928,28 @@
         ],
         "dismissible": true
       }
+    },
+    "live-class/MCR3U/M4/C2/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M4",
+      "live_class": "C2",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcr3u-m4c2-parent-transformations.html",
+      "title": "Exploratory media: parent transformations with exponential",
+      "pack_role": "exploratory_media",
+      "pack_label": "Exploratory media: transformations on parent functions (exponential)",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
     }
   }
 }

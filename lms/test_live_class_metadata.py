@@ -20,6 +20,7 @@ from lms.live_class_metadata import (
     normalize_live_class_metadata,
     questions_for_stage,
 )
+from lms.live_media import ALLOWED_SEED_MEDIA_URLS, apply_active_media_update
 from scripts.generate_live_class_metadata import COURSES, LIVE_CLASSES, MODULES
 
 SEEDS_ROOT = Path(__file__).resolve().parent / "seeds"
@@ -728,6 +729,77 @@ class LiveClassMetadataTests(unittest.TestCase):
         )
         self.assertIn("MCR3U", html)
         self.assertNotIn("MCF3M", html)
+
+    def test_mcr3u_m4_c2_exponential_parent_media_resolves(self) -> None:
+        """M4 C2 play page resolves the exponential parent media on the seed allowlist."""
+
+        url = "/static/live-media/mcr3u-m4c2-parent-transformations.html"
+        self.assertIn(url, ALLOWED_SEED_MEDIA_URLS)
+        locked = apply_active_media_update(None, url=url, allow_url_swap=False)
+        assert locked is not None
+        self.assertEqual(locked["url"], url)
+        meta = load_live_class_metadata("MCR3U", "M4", "C2")
+        media_rows = [
+            row for row in meta["items"] if row.get("item_type") == "media"
+        ]
+        self.assertEqual(len(media_rows), 1)
+        placement = media_rows[0]
+        self.assertEqual(
+            placement["ref"],
+            "live-class/MCR3U/M4/C2/media/parent-transformations",
+        )
+        self.assertEqual(placement["file"], url)
+        self.assertEqual(placement["stage"], "play")
+        self.assertEqual(placement["page_number"], 5)
+        self.assertEqual(placement["order"], 1)
+        self.assertEqual(placement["default_status"], "inactive")
+        self.assertEqual(placement["publish_modes"], ["individual"])
+        self.assertEqual(placement["response_mode"], "individual")
+        self.assertEqual(meta["media"]["file"], url)
+        self.assertEqual(meta["media"]["stage"], "play")
+        self.assertEqual(meta["media"]["page_number"], 5)
+        rows = {
+            row["live_class"]: row
+            for row in list_live_lesson_summaries("MCR3U")
+            if row["module"] == "M4"
+        }
+        self.assertEqual(
+            rows["C2"]["media_file"],
+            "mcr3u-m4c2-parent-transformations.html",
+        )
+        self.assertIn("exponential", rows["C2"]["media_label"])
+        media_dir = Path(__file__).resolve().parent / "static" / "live-media"
+        html = (media_dir / "mcr3u-m4c2-parent-transformations.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(html.count("> Exponential<"), 2)
+        self.assertIn(
+            '<label><input type="radio" name="parent" value="exponential"> Exponential</label>',
+            html,
+        )
+        self.assertIn(
+            '<label><input type="checkbox" name="parents" value="exponential"> Exponential</label>',
+            html,
+        )
+        self.assertIn('<label for="p-base">base</label>', html)
+        self.assertRegex(
+            html,
+            r'<input id="p-base" type="number"[^>]*value="2"',
+        )
+        self.assertRegex(html, r'id="base-field"[^>]*hidden')
+        self.assertIn("Base must be positive and not 1.", html)
+        self.assertIn('return "y = a·" + formatBase(state.base) + "^(k(x−d)) + c";', html)
+        self.assertIn("state.base", html)
+        self.assertIn("Math.abs(exponent) > 80", html)
+        self.assertIn("y < Y_MIN - Y_PLOT_PAD || y > Y_MAX + Y_PLOT_PAD", html)
+        for name in (
+            "mcr3u-m1c2-parent-transformations.html",
+            "mcr3u-m1c3-parent-transformations.html",
+            "mcr3u-m1c4-parent-transformations.html",
+        ):
+            original = (media_dir / name).read_text(encoding="utf-8")
+            self.assertNotIn("Exponential", original)
+            self.assertNotIn("p-base", original)
 
 
 if __name__ == "__main__":
