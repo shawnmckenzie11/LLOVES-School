@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MCR3U M4 C2 · parent transformations</title>
+  <title>Transformations of Parent Functions</title>
   <style>
     :root {
       --bg: #070b14;
@@ -216,7 +216,7 @@
         <label><input type="checkbox" name="parents" value="exponential"> Exponential</label>
       </div>
       <div class="base-field" id="base-field" hidden>
-        <label for="p-base">base</label>
+        <label for="p-base">Base</label>
         <input id="p-base" type="number" inputmode="decimal" step="any" value="2" aria-describedby="base-msg">
         <p class="base-msg" id="base-msg" hidden></p>
       </div>
@@ -262,7 +262,7 @@
   // Points outside this pad around the window are not stroked, so a steep
   // exponential (large k) cannot draw an overflowing ray.
   const Y_PLOT_PAD = 2;
-  const BASE_INVALID_MSG = "Base must be positive and not 1.";
+  const BASE_INVALID_MSG = "The base must be greater than 0 and can't be 1.";
   const PARENTS = {
     linear: { label: "Linear", symbol: "x", color: GOLD },
     quadratic: { label: "Quadratic", symbol: "x²", color: "#7ec8ff" },

@@ -781,13 +781,16 @@ class LiveClassMetadataTests(unittest.TestCase):
             '<label><input type="checkbox" name="parents" value="exponential"> Exponential</label>',
             html,
         )
-        self.assertIn('<label for="p-base">base</label>', html)
+        self.assertIn("<title>Transformations of Parent Functions</title>", html)
+        self.assertNotIn("MCR3U", html)
+        self.assertNotIn("MCF3M", html)
+        self.assertIn('<label for="p-base">Base</label>', html)
         self.assertRegex(
             html,
             r'<input id="p-base" type="number"[^>]*value="2"',
         )
         self.assertRegex(html, r'id="base-field"[^>]*hidden')
-        self.assertIn("Base must be positive and not 1.", html)
+        self.assertIn("The base must be greater than 0 and can't be 1.", html)
         self.assertIn('return "y = a·" + formatBase(state.base) + "^(k(x−d)) + c";', html)
         self.assertIn("state.base", html)
         self.assertIn("Math.abs(exponent) > 80", html)
