@@ -15,6 +15,7 @@ import sentry_sdk
 from app import create_app
 from sentry_wire import (
     DEFAULT_TRACES_SAMPLE_RATE,
+    LIVE_TRACE_SAMPLE_RATE,
     SENTRY_CONNECT_SRC,
     before_send,
     environment_name,
@@ -94,14 +95,14 @@ class SentryWireTests(unittest.TestCase):
             self.assertIsNone(release_name())
 
     def test_sampler_skips_polls_even_when_parent_sampled(self) -> None:
-        """Health and live polls stay at 0. Other routes use the small rate."""
+        """Health stays at 0. Live /state and teacher writes use the low rate."""
         self.assertEqual(
             traces_sampler({"wsgi_environ": {"PATH_INFO": "/health"}}),
             0.0,
         )
         self.assertEqual(
             traces_sampler({"wsgi_environ": {"PATH_INFO": "/api/student/state"}}),
-            0.0,
+            LIVE_TRACE_SAMPLE_RATE,
         )
         self.assertEqual(
             traces_sampler(
@@ -113,7 +114,7 @@ class SentryWireTests(unittest.TestCase):
             traces_sampler(
                 {"wsgi_environ": {"PATH_INFO": "/api/live-sessions/12/state"}}
             ),
-            0.0,
+            LIVE_TRACE_SAMPLE_RATE,
         )
         self.assertEqual(
             traces_sampler(
@@ -122,8 +123,26 @@ class SentryWireTests(unittest.TestCase):
                     "parent_sampled": True,
                 }
             ),
-            0.0,
+            LIVE_TRACE_SAMPLE_RATE,
         )
+        self.assertEqual(
+            traces_sampler(
+                {"wsgi_environ": {"PATH_INFO": "/api/student/board/mine"}}
+            ),
+            LIVE_TRACE_SAMPLE_RATE,
+        )
+        self.assertEqual(
+            traces_sampler(
+                {
+                    "wsgi_environ": {
+                        "PATH_INFO": "/api/live-sessions/4/teacher-state",
+                    }
+                }
+            ),
+            LIVE_TRACE_SAMPLE_RATE,
+        )
+        self.assertLessEqual(LIVE_TRACE_SAMPLE_RATE, 0.1)
+        self.assertGreaterEqual(LIVE_TRACE_SAMPLE_RATE, 0.05)
         self.assertEqual(
             traces_sampler({"transaction_context": {"name": "GET /health"}}),
             0.0,

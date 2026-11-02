@@ -3966,7 +3966,6 @@ def register_live(app, school, shared):
                 school,
                 session_id,
                 [
-                    {"type": "state_seq", "state_seq": seq},
                     active_media_event(media if isinstance(media, dict) else None, seq),
                 ],
             )
@@ -4136,14 +4135,13 @@ def register_live(app, school, shared):
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        seq = teacher_state_seq(school, session_id)
+        from live_news_wire import surface_show_event
+
+        mode = "student" if str(body.get("mode") or "").strip() == "student" else "none"
         emit_session_news(
             school,
             session_id,
-            [
-                {"type": "state_seq", "state_seq": seq},
-                flag_work_event("visibility", seq),
-            ],
+            [surface_show_event("questions", mode, question_id)],
         )
         return jsonify({"ok": True, **result})
 
@@ -4184,13 +4182,21 @@ def register_live(app, school, shared):
                 card = None
         card_ms = (time.perf_counter() - card_started) * 1000
         prompt_id = item.get("prompt_id") if isinstance(item, dict) else None
+        from live_news_wire import surface_show_for_item
+
         emit_started = time.perf_counter()
+        # A question card paints the stem. A whiteboard (no card) is a
+        # surface postcard. Neither bumps every phone onto /state at once.
+        student_news = (
+            prompt_event(prompt_id, seq, card)
+            if isinstance(card, dict)
+            else surface_show_for_item(item if isinstance(item, dict) else None)
+        )
         emit_session_news(
             school,
             session_id,
             [
-                {"type": "state_seq", "state_seq": seq},
-                prompt_event(prompt_id, seq, card),
+                student_news,
                 flag_work_event("publish", seq),
             ],
         )
@@ -4228,11 +4234,15 @@ def register_live(app, school, shared):
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         seq = teacher_state_seq(school, session_id)
+        from live_news_wire import surface_show_for_item
+
         emit_session_news(
             school,
             session_id,
             [
-                {"type": "state_seq", "state_seq": seq},
+                surface_show_for_item(
+                    item if isinstance(item, dict) else None, hidden=True
+                ),
                 flag_work_event("close", seq),
             ],
         )

@@ -838,13 +838,15 @@ console.log(JSON.stringify(out));
         self.assertEqual(done.returncode, 0, done.stderr)
         got = json.loads(done.stdout.strip().splitlines()[-1])
         self.assertEqual(got["zero"], 0)
-        self.assertEqual(got["full"], 1450)
-        self.assertEqual(got["almost"], 1450)
-        self.assertEqual(got["spread"], 1450)
+        self.assertEqual(got["full"], 3000)
+        self.assertEqual(got["almost"], 3000)
+        self.assertEqual(got["spread"], 3000)
         self.assertEqual(got["distinct"], 30)
         self.assertEqual(got["min"], 0)
-        self.assertEqual(got["max"], 1450)
-        self.assertEqual(got["buckets"], [i * 50 for i in range(30)])
+        self.assertEqual(got["max"], 3000)
+        self.assertEqual(got["buckets"][0], 0)
+        self.assertEqual(got["buckets"][-1], 3000)
+        self.assertEqual(sorted(got["buckets"]), got["buckets"])
 
     def test_prompt_card_paints_before_the_jittered_state_fetch(self) -> None:
         """The stem is painted from the postcard. /state waits in a bucket."""

@@ -1305,3 +1305,60 @@ def apply_teacher_state_update(
     base["updated_at"] = _now_iso()
     base["state_seq"] = _clean_state_seq(base.get("state_seq")) + 1
     return base
+
+
+# Posted keys that can show or hide the question frame or the whiteboard
+# without moving the page, the stage, or the media/slides surfaces.
+_SURFACE_SHOW_POSTED = frozenset({"student_view", "question_views", "prompt_ref"})
+# Fields a show/hide is allowed to rewrite. ``apply_unlock_frames`` derives
+# unlocks, frames, and canvas alignment from the view.
+_SURFACE_SHOW_DERIVED = frozenset(
+    {
+        "state_seq",
+        "updated_at",
+        "student_view",
+        "question_views",
+        "unlocks",
+        "canvas_align",
+        "student_frames",
+        "prompt_ref",
+        "mc_ui",
+    }
+)
+
+
+def surface_show_keeps_seq(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    posted: Any,
+) -> bool:
+    """True when a teacher patch only shows or hides questions or the board.
+
+    Those writes must not increment ``state_seq``. Phones paint the
+    targeted postcard and leave ``/state`` on the slow poll. A change to
+    media, slides, stage, or a reveal blob still bumps the sequence.
+
+    Args:
+        before: Teacher state before the patch.
+        after: Teacher state ``apply_teacher_state_update`` returned.
+        posted: Keys the caller sent. A stage or reveal key is not a show.
+    """
+    keys = {str(key) for key in (posted or [])}
+    if not keys or not keys.issubset(_SURFACE_SHOW_POSTED):
+        return False
+    prev = before if isinstance(before, dict) else {}
+    nxt = after if isinstance(after, dict) else {}
+    for key in set(prev) | set(nxt):
+        if key in _SURFACE_SHOW_DERIVED:
+            continue
+        if prev.get(key) != nxt.get(key):
+            return False
+    prev_view = prev.get("student_view") if isinstance(prev.get("student_view"), dict) else {}
+    next_view = nxt.get("student_view") if isinstance(nxt.get("student_view"), dict) else {}
+    for surface in ("media", "slides"):
+        if str(prev_view.get(surface) or "none") != str(next_view.get(surface) or "none"):
+            return False
+    revealed = nxt.get("mc_ui")
+    if isinstance(revealed, dict) and revealed != prev.get("mc_ui"):
+        return False
+    return True

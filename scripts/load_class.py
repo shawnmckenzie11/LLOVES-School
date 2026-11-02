@@ -1920,6 +1920,129 @@ def _budget_sentry_delta(
     return None
 
 
+def _budget_news_tip(school: Any, session_id: int) -> int:
+    """Highest postcard id for one session, or 0.
+
+    Args:
+        school: Open school database. Only ``data_dir`` is read.
+        session_id: ``live_class_sessions.id``.
+    """
+    from live_news_wire import log_for  # noqa: PLC0415
+
+    rows = log_for(school.data_dir).since(int(session_id), 0)
+    if not rows:
+        return 0
+    return int(rows[-1]["id"])
+
+
+def _budget_state_burst(school: Any, session_id: int, after: int, students: int) -> int:
+    """How many phones one write would send to ``/state`` inside 40ms.
+
+    A student-visible ``state_seq``, ``stage``, ``slide``, or
+    ``active_media`` postcard is that burst. ``surface_show`` is not.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        after: Postcard id already seen.
+        students: Joined phones.
+    """
+    from live_news_wire import NewsAudience, event_visible, log_for  # noqa: PLC0415
+
+    immediate = {"state_seq", "stage", "slide", "active_media"}
+    audience = NewsAudience("student", student_id=1)
+    for row in log_for(school.data_dir).since(int(session_id), int(after)):
+        if row.get("type") in immediate and event_visible(row, audience):
+            return int(students)
+    return 0
+
+
+def _budget_teacher_writes(school: Any, fx: dict[str, Any]) -> dict[str, Any]:
+    """Time repeated show/hide taps plus one add and one remove.
+
+    Args:
+        school: Open school database.
+        fx: One retained class fixture.
+
+    Returns:
+        ``p95_ms``, ``burst_max``, and one row per write. No roster text.
+    """
+    sid = int(fx["session_id"])
+    staff = fx["staff_client"]
+    students = len(fx["students"])
+    staff.post(
+        f"/api/live-sessions/{sid}/teacher-state",
+        json={"stage": "play", "page_id": "play"},
+    )
+    view = {"questions": "none", "media": "none", "canvas": "none", "slides": "none"}
+    rows: list[dict[str, Any]] = []
+
+    def one(kind: str, call: Any) -> Any:
+        """Time one teacher write and count the /state burst it would cause."""
+        after = _budget_news_tip(school, sid)
+        started = time.perf_counter()
+        rv = call()
+        ms = (time.perf_counter() - started) * 1000
+        status = int(getattr(rv, "status_code", 0) or 0)
+        burst = _budget_state_burst(school, sid, after, students)
+        rows.append({"kind": kind, "ms": round(ms, 1), "status": status, "burst": burst})
+        return rv
+
+    for index in range(8):
+        nxt = dict(view)
+        nxt["questions"] = "student" if index % 2 == 0 else "none"
+        nxt["canvas"] = "student" if index % 2 else "none"
+
+        def post(body: dict[str, str] = nxt) -> Any:
+            """Post one surface toggle."""
+            return staff.post(
+                f"/api/live-sessions/{sid}/teacher-state",
+                json={"student_view": body},
+            )
+
+        one("toggle", post)
+    added = one(
+        "add",
+        lambda: staff.post(
+            f"/api/staff/class/{int(fx['class_id'])}/live-lessons/M1/C2/add-question",
+            json={
+                "page_number": 6,
+                "stage": "play",
+                "type": "mc",
+                "text": "Load check",
+                "options": ["A", "B", "C", "D"],
+                "correct_index": 0,
+            },
+        ),
+    )
+    item_id = ""
+    body = added.get_json(silent=True) if hasattr(added, "get_json") else {}
+    if isinstance(body, dict):
+        placement = body.get("placement") if isinstance(body.get("placement"), dict) else {}
+        item = placement.get("item") if isinstance(placement.get("item"), dict) else {}
+        item_id = str(item.get("id") or placement.get("item_id") or "")
+    if item_id:
+        one(
+            "remove",
+            lambda: staff.post(
+                f"/api/staff/class/{int(fx['class_id'])}/live-lessons/M1/C2/playlist-item",
+                json={"action": "remove", "item_id": item_id},
+            ),
+        )
+    ok = [float(row["ms"]) for row in rows if int(row["status"]) == 200]
+    ok.sort()
+    if not ok:
+        p95 = 0.0
+    else:
+        index = min(len(ok) - 1, max(0, ((len(ok) * 95 + 99) // 100) - 1))
+        p95 = float(ok[index])
+    return {
+        "p95_ms": round(p95, 1),
+        "burst_max": max((int(row["burst"]) for row in rows), default=0),
+        "rows": rows,
+    }
+
+
 def run_sqlite_budget(students: int, out: Path) -> int:
     """Group multiple-choice pick and one rank tap on sqlite.
 
@@ -2027,6 +2150,18 @@ def run_sqlite_budget(students: int, out: Path) -> int:
                     errors.append(shed)
                 summary["sentry_tap_events"] += transport.events - before_sentry[0]
                 summary["sentry_tap_logs"] += transport.logs - before_sentry[1]
+        writes = _budget_teacher_writes(school, fx)
+        summary["teacher_write_p95_ms"] = writes["p95_ms"]
+        summary["teacher_write_burst_max"] = writes["burst_max"]
+        summary["teacher_writes"] = writes["rows"]
+        if int(writes["burst_max"]) > 0:
+            errors.append(
+                f"teacher write /state burst {writes['burst_max']}, want 0"
+            )
+        if float(writes["p95_ms"]) >= 300:
+            errors.append(
+                f"teacher write p95 {writes['p95_ms']:.1f} ms, want < 300"
+            )
         state_p95 = _budget_state_p95_ms(fx)
         summary["state_p95_ms"] = round(state_p95, 1)
         if state_p95 >= 800:
@@ -2045,6 +2180,8 @@ def run_sqlite_budget(students: int, out: Path) -> int:
             f" push_to_visible_ms mc={latency.get('mc', {}).get('push_to_visible_ms')}"
             f" rank={latency.get('rank', {}).get('push_to_visible_ms')}"
             f" state_p95_ms={summary.get('state_p95_ms')}"
+            f" teacher_write_p95_ms={summary.get('teacher_write_p95_ms')}"
+            f" teacher_write_burst_max={summary.get('teacher_write_burst_max')}"
             f" sentry_tap_events={summary.get('sentry_tap_events')}"
             f" sentry_tap_logs={summary.get('sentry_tap_logs')}"
         )
