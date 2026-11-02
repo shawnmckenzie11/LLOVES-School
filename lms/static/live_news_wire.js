@@ -81,11 +81,12 @@ export function studentFallbackPollMs(wire, over, rand = Math.random()) {
  * The question itself is already on the postcard; this delay is only the
  * full snapshot (team turn, drafts).
  */
-export const NEWS_STATE_SPREAD_MS = 1450;
+export const NEWS_STATE_SPREAD_MS = 3000;
 
 /**
  * Delay before one tab's full ``/state`` after a push postcard.
  * ``rand`` 0 waits 0 ms. ``rand`` just under 1 waits ``NEWS_STATE_SPREAD_MS``.
+ * Thirty phones land in different buckets across 0–3s (MCK-441).
  * Equal inputs stay equal so a test can prove the buckets do not collapse.
  * @param {number} [rand] Unit interval. Defaults to ``Math.random``.
  * @returns {number}
@@ -93,7 +94,7 @@ export const NEWS_STATE_SPREAD_MS = 1450;
 export function newsStateDelayMs(rand = Math.random()) {
   const unit = Math.min(1, Math.max(0, Number(rand) || 0));
   const bucket = Math.min(29, Math.floor(unit * 30));
-  return bucket * 50;
+  return Math.round((bucket * NEWS_STATE_SPREAD_MS) / 29);
 }
 
 /** Soft line when a news-driven fetch is still out after ~800ms. */
@@ -110,6 +111,7 @@ const LIGHT_TYPES = new Set([
   "flag_work",
   "board_ink",
   "board_show",
+  "surface_show",
   "google_slide",
 ]);
 
@@ -145,6 +147,25 @@ export function isStaleNews(event, lastSeq) {
 export function newsSkipsReload(event) {
   if (!event || typeof event !== "object") return false;
   return event.type === "busy" || event.retry === true;
+}
+
+/**
+ * True when the postcard paints in place and must not be collapsed by
+ * the 40ms debounce. A later ``state_seq`` used to drop the question card.
+ * @param {any} event
+ * @returns {boolean}
+ */
+export function newsPaintsImmediately(event) {
+  const type = String(event?.type || "");
+  if (
+    type === "board_ink" ||
+    type === "board_show" ||
+    type === "google_slide" ||
+    type === "surface_show"
+  ) {
+    return true;
+  }
+  return type === "prompt" && event?.card && typeof event.card === "object";
 }
 
 /**
@@ -254,6 +275,10 @@ export function connectLiveNewsWire(sessionId, handlers) {
       return;
     }
     if (!newsWantsLightFetch(event)) return;
+    if (newsPaintsImmediately(event)) {
+      handlers.onNews?.(event);
+      return;
+    }
     pending = event;
     if (debounce) return;
     debounce = window.setTimeout(() => {
@@ -280,6 +305,9 @@ export function connectLiveNewsWire(sessionId, handlers) {
       "response_landed",
       "flag_work",
       "board_ink",
+      "board_show",
+      "surface_show",
+      "google_slide",
       "busy",
       "ping",
     ];

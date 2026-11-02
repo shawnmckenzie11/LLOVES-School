@@ -6,7 +6,7 @@
  */
 
 /** Show "Reconnecting…" only after the poll has already waited this long. */
-export const RECONNECT_PENDING_MS = 800;
+export const RECONNECT_PENDING_MS = 2000;
 /** User-tap Retry appears only after the outage has lasted this long. */
 export const RECONNECT_STUCK_MS = 4000;
 /** First automatic delay after a busy/503 response. Never zero. */
@@ -78,7 +78,7 @@ export function reconnectCopy(mode) {
 /**
  * Which soft strip to paint for an outage that began at ``startedAt``.
  *
- * ``inflight`` stays blank until 800ms, then "Reconnecting…".
+ * ``inflight`` stays blank until the pending delay, then "Reconnecting…".
  * ``busy`` shows the busy line immediately, then Retry after 4s.
  *
  * @param {number} startedAt Epoch ms, or 0 when there is no outage.

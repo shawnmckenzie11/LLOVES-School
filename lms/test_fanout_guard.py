@@ -1205,6 +1205,87 @@ class FanoutGuardTests(unittest.TestCase):
             sentry_sdk.init()
 
 
+    def test_teacher_toggle_add_remove_do_not_refetch_every_phone(self) -> None:
+        """One show/hide, add, or remove does not emit a class-wide state_seq.
+
+        Phones paint ``surface_show`` in place. Remaining structural
+        postcards wait in ``scheduleNewsState`` instead of ``tick()``.
+        """
+        from live_news_wire import NewsAudience, event_visible, log_for
+
+        def tip() -> int:
+            """Highest postcard id, or 0."""
+            rows = log_for(self.school.data_dir).since(self.session_id, 0)
+            return int(rows[-1]["id"]) if rows else 0
+
+        def immediate(after: int) -> list[str]:
+            """Student-visible types that used to refetch every phone at once."""
+            burst = {"state_seq", "stage", "slide", "active_media"}
+            found: list[str] = []
+            audience = NewsAudience("student", student_id=self.ids[0])
+            for row in log_for(self.school.data_dir).since(self.session_id, after):
+                if row.get("type") in burst and event_visible(row, audience):
+                    found.append(str(row.get("type")))
+            return found
+
+        opened = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play", "page_id": "play"},
+        )
+        self._ok_status(opened, 200)
+        before = {index: self._snap(index) for index in sorted(self.present)}
+        seq = int(
+            self.school.live_session_teacher_state_payload(self.session_id).get("state_seq")
+            or 0
+        )
+        cursor = tip()
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"student_view": {"questions": "student", "canvas": "student"}},
+        )
+        self._ok_status(shown, 200)
+        body = shown.get_json() or {}
+        teacher = body.get("teacher_state") or {}
+        self.assertEqual(int(teacher.get("state_seq") or 0), seq)
+        self.assertEqual(immediate(cursor), [])
+        cards = [
+            row
+            for row in log_for(self.school.data_dir).since(self.session_id, cursor)
+            if row.get("type") == "surface_show"
+        ]
+        self.assertTrue(cards, "show/hide did not emit a targeted postcard")
+        watcher = NewsAudience("student", student_id=self.ids[3])
+        self.assertTrue(event_visible(cards[-1], watcher))
+        self.assertFalse(event_visible(cards[-1], NewsAudience("staff")))
+        for index, snap in before.items():
+            self._assert_same(index, snap, "question/board toggle")
+
+        cursor = tip()
+        added = self._add("mc", False)
+        self.assertEqual(immediate(cursor), [])
+        removed = self.staff.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C2/playlist-item",
+            json={"action": "remove", "item_id": added.get("item_id") or added.get("id")},
+        )
+        self._ok_status(removed, 200)
+        self.assertEqual(immediate(cursor), [])
+
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        on_news = portal.split("onNews(event)")[1].split("onBusy")[0]
+        show = on_news.split('event.type === "surface_show"')[1].split("prompt")[0]
+        self.assertIn("applySurfaceShow(event)", show)
+        self.assertIn("return;", show)
+        self.assertNotIn("void tick()", show)
+        self.assertNotIn("scheduleNewsState()", show)
+        spread = on_news.split('spread === "state_seq"')[1].split("studentNewsFetch = true")[0]
+        self.assertIn("scheduleNewsState()", spread)
+        self.assertNotIn("void tick()", spread)
+
+        wire = (LMS_DIR / "static" / "live_news_wire.js").read_text(encoding="utf-8")
+        self.assertIn("NEWS_STATE_SPREAD_MS = 3000", wire)
+        self.assertIn("surface_show", wire.split("const names = [")[1].split("];")[0])
+
+
 class FanoutGuardTableTests(unittest.TestCase):
     """The action table and the required CI job names."""
 

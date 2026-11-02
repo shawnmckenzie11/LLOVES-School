@@ -180,6 +180,7 @@ try:
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
         apply_teacher_state_update,
+        surface_show_keeps_seq,
         bind_meet_student_projection,
         default_student_view,
         default_text_ride,
@@ -356,6 +357,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
         apply_teacher_state_update,
+        surface_show_keeps_seq,
         bind_meet_student_projection,
         default_student_view,
         default_text_ride,
@@ -11671,6 +11673,10 @@ class SchoolDB(LovesDB):
         self._live_metadata_cache: dict[
             tuple[int, str, str, str, str], dict[str, Any]
         ] = {}
+        # One in-flight rebuild per revision on this worker. Waiters share
+        # the leader's deck instead of each copying the seed merge.
+        self._live_metadata_flight: dict[tuple[int, str, str, str, str], threading.Event] = {}
+        self._live_metadata_flight_lock = threading.Lock()
         # MCK-436: rebuilt module-bank questions. Keyed by library and
         # module (plus scope discriminators). Each entry also stores the
         # school_settings stamp so another gunicorn worker's write misses.
@@ -14043,9 +14049,7 @@ class SchoolDB(LovesDB):
             if active:
                 module_key = str(active.get("live_module") or module_key).upper()
                 slot_key = str(active.get("live_slot") or slot_key).upper()
-        self.invalidate_live_metadata_cache(
-            class_id=int(class_id), module=module_key, slot=slot_key
-        )
+        self.refresh_live_metadata_cache(int(class_id), module_key, slot_key)
         active = self.get_active_live_session_for_class(int(class_id))
         if active is None:
             return
@@ -16292,7 +16296,7 @@ class SchoolDB(LovesDB):
         slot_key = str(slot or "").strip().upper()
         snapshot: dict[str, Any] = {
             "live_metadata": self.live_class_metadata_for_class_lesson(
-                int(class_id), module_key, slot_key, fresh=True
+                int(class_id), module_key, slot_key, fresh=False
             ),
             "deck_revision": self.class_deck_revision(
                 int(class_id), module_key, slot_key
@@ -17084,6 +17088,30 @@ class SchoolDB(LovesDB):
                 seed_token,
             ]
         )
+
+    def refresh_live_metadata_cache(
+        self, class_id: int, module: str, slot: str
+    ) -> None:
+        """Store the merged deck for the revision a teacher write just made.
+
+        The new revision key misses until this rebuild. Readers of that
+        revision share the one build instead of each worker thread
+        merging the seed again. The previous revision stays until the
+        new deck is stored.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C2``.
+        """
+        try:
+            self.live_class_metadata_for_class_lesson(
+                int(class_id), module, slot, fresh=False
+            )
+        except (KeyError, TypeError, ValueError):
+            self.invalidate_live_metadata_cache(
+                class_id=int(class_id), module=module, slot=slot
+            )
 
     def invalidate_live_metadata_cache(
         self,
@@ -18104,11 +18132,7 @@ class SchoolDB(LovesDB):
                 """,
                 (placement_id,),
             ).fetchone()
-        self.invalidate_live_metadata_cache(
-            class_id=int(class_id),
-            module=module_key,
-            slot=slot_key,
-        )
+        self.refresh_live_metadata_cache(int(class_id), module_key, slot_key)
         active = self.get_active_live_session_for_class(int(class_id))
         if active is not None:
             teacher = self.live_session_teacher_state_payload(int(active["id"]))
@@ -18963,11 +18987,7 @@ class SchoolDB(LovesDB):
                 """,
                 (placement_id,),
             ).fetchone()
-        self.invalidate_live_metadata_cache(
-            class_id=int(class_id),
-            module=module_key,
-            slot=slot_key,
-        )
+        self.refresh_live_metadata_cache(int(class_id), module_key, slot_key)
         active = self.get_active_live_session_for_class(int(class_id))
         if active is not None:
             teacher = self.live_session_teacher_state_payload(int(active["id"]))
@@ -23281,6 +23301,10 @@ class SchoolDB(LovesDB):
         self._sync_whiteboard_collab(
             session_id, str(reopened.get("publish_mode") or "")
         )
+        # The reopen cue rides the next /state. Show/hide itself does not
+        # bump the sequence; this empty patch does, so the cue is not dropped
+        # as an unchanged frame.
+        self.set_live_session_teacher_state(session_id)
         return reopened
 
     @staticmethod
@@ -29835,11 +29859,7 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
-        self.invalidate_live_metadata_cache(
-            class_id=int(class_id),
-            module=module_key,
-            slot=slot_key,
-        )
+        self.refresh_live_metadata_cache(int(class_id), module_key, slot_key)
         self.ensure_live_session_items(session_id)
         minted_item = next(
             (
@@ -31565,8 +31585,11 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Load seed metadata merged with per-class bank, page, and item overlays.
 
-        Cache keys include ``class_deck_revision`` so a prior seed merge cannot
-        be reused after playlist, page, or media-copy edits.
+        The returned dict is the shared cache entry. Callers must not mutate
+        it. One rebuild runs per revision on this worker; other threads wait
+        for that rebuild. Cache keys include ``class_deck_revision`` so a
+        prior seed merge cannot be reused after playlist, page, or media-copy
+        edits.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -31589,10 +31612,119 @@ class SchoolDB(LovesDB):
             "real_deck_only": real_deck_only,
         }
         cache_key = (*key, revision)
+        cached, leader = self._prepare_live_metadata_build(cache_key, fresh=fresh)
+        if cached is not None and not leader:
+            return cached
+        try:
+            from sentry_wire import live_trace_span
+        except ImportError:
+            from lms.sentry_wire import live_trace_span
+        try:
+            with live_trace_span("db", "live.metadata.rebuild"):
+                merged = self._build_live_metadata(
+                    key,
+                    revision,
+                    deck_kw,
+                    class_id=int(class_id),
+                )
+            self._store_live_metadata_cache(cache_key, merged)
+            return merged
+        finally:
+            if leader:
+                self._end_live_metadata_build(cache_key)
+
+    def _prepare_live_metadata_build(
+        self,
+        cache_key: tuple[int, str, str, str, str],
+        *,
+        fresh: bool,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Return a shared deck, or claim the one rebuild for this revision.
+
+        The cached object is shared. Callers must not mutate it.
+
+        Args:
+            cache_key: Class, course, module, slot, and deck revision.
+            fresh: When True, do not reuse a deck already stored. An
+                in-flight rebuild for this same revision is still shared.
+
+        Returns:
+            ``(deck, False)`` when a stored deck can be used.
+            ``(None, True)`` when this caller must build and then
+            ``_end_live_metadata_build``.
+            ``(deck_or_none, False)`` when another builder finished or
+            this caller lost the claim and must not end the flight.
+        """
         if not fresh:
             cached = self._live_metadata_cache.get(cache_key)
             if cached is not None:
-                return deepcopy(cached)
+                return cached, False
+        if self._begin_live_metadata_build(cache_key):
+            return None, True
+        self._wait_live_metadata_build(cache_key)
+        cached = self._live_metadata_cache.get(cache_key)
+        if cached is not None:
+            return cached, False
+        if self._begin_live_metadata_build(cache_key):
+            return None, True
+        return self._live_metadata_cache.get(cache_key), False
+
+    def _begin_live_metadata_build(
+        self, cache_key: tuple[int, str, str, str, str]
+    ) -> bool:
+        """Claim the rebuild for one revision. False when one is running.
+
+        Args:
+            cache_key: Class, course, module, slot, and deck revision.
+        """
+        with self._live_metadata_flight_lock:
+            if cache_key in self._live_metadata_flight:
+                return False
+            self._live_metadata_flight[cache_key] = threading.Event()
+            return True
+
+    def _wait_live_metadata_build(
+        self, cache_key: tuple[int, str, str, str, str]
+    ) -> None:
+        """Wait until the in-flight rebuild for this revision finishes.
+
+        Args:
+            cache_key: Class, course, module, slot, and deck revision.
+        """
+        with self._live_metadata_flight_lock:
+            event = self._live_metadata_flight.get(cache_key)
+        if event is not None:
+            event.wait(30)
+
+    def _end_live_metadata_build(
+        self, cache_key: tuple[int, str, str, str, str]
+    ) -> None:
+        """Release waiters of one revision's rebuild.
+
+        Args:
+            cache_key: Class, course, module, slot, and deck revision.
+        """
+        with self._live_metadata_flight_lock:
+            event = self._live_metadata_flight.pop(cache_key, None)
+        if event is not None:
+            event.set()
+
+    def _build_live_metadata(
+        self,
+        key: tuple[int, str, str, str],
+        revision: str,
+        deck_kw: dict[str, Any],
+        *,
+        class_id: int,
+    ) -> dict[str, Any]:
+        """Merge the seed deck with this class's overlays. Not cached.
+
+        Args:
+            key: Class id, course, module, and slot.
+            revision: ``class_deck_revision`` for this lesson.
+            deck_kw: Session and real-deck lookup flags.
+            class_id: Game-show ``classes.id``.
+        """
         seed_choice = self.get_class_live_deck_seed(
             int(class_id), key[2], key[3], **deck_kw
         )
@@ -31636,8 +31768,7 @@ class SchoolDB(LovesDB):
         )
         merged["deck_revision"] = revision
         merged = self._clean_metadata_question_stems(merged)
-        self._store_live_metadata_cache(cache_key, merged)
-        return deepcopy(merged)
+        return merged
 
     #: MCK-231: most decks one worker keeps merged at once. A worker serves a
     #: handful of classes a day; 64 covers every lesson open in a day.
@@ -31920,8 +32051,13 @@ class SchoolDB(LovesDB):
                 cleaned.pop("added_live_run_key", None)
                 nested_item = cleaned.get("item")
                 if isinstance(nested_item, dict):
-                    nested_item.pop("added_live_session_id", None)
-                    nested_item.pop("added_live_run_key", None)
+                    # The merged deck is shared. Copy before dropping the
+                    # teacher-only run marker so a student poll cannot
+                    # mutate the cache entry.
+                    nested_copy = dict(nested_item)
+                    nested_copy.pop("added_live_session_id", None)
+                    nested_copy.pop("added_live_run_key", None)
+                    cleaned["item"] = nested_copy
                 for nested in cleaned.get("items") or []:
                     if isinstance(nested, dict):
                         nested.pop("correct_answer", None)
@@ -32422,12 +32558,16 @@ class SchoolDB(LovesDB):
         views[key] = wanted
         student_view = dict(current.get("student_view") or {})
         student_view["questions"] = wanted
-        next_state = apply_teacher_state_update(
-            current,
-            question_views=views,
-            student_view=student_view,
-            prompt_ref=key,
-        )
+        posted = {
+            "question_views": views,
+            "student_view": student_view,
+            "prompt_ref": key,
+        }
+        next_state = apply_teacher_state_update(current, **posted)
+        if surface_show_keeps_seq(current, next_state, posted):
+            next_state["state_seq"] = current.get("state_seq", 0)
+            if current.get("updated_at"):
+                next_state["updated_at"] = current.get("updated_at")
         written = self._write_teacher_state(session_id, next_state)
         return {
             "teacher_state": written,
@@ -35304,16 +35444,21 @@ class SchoolDB(LovesDB):
             payload: Public teacher-state dict.
         """
         encoded = json.dumps(payload)
-        with self._lock:
-            self.conn.execute(
-                """
-                UPDATE live_class_sessions
-                SET teacher_state_json = ?
-                WHERE id = ?
-                """,
-                (encoded, int(session_id)),
-            )
-            self.conn.commit()
+        try:
+            from sentry_wire import live_trace_span
+        except ImportError:
+            from lms.sentry_wire import live_trace_span
+        with live_trace_span("db", "live.lock.write"):
+            with self._lock:
+                self.conn.execute(
+                    """
+                    UPDATE live_class_sessions
+                    SET teacher_state_json = ?
+                    WHERE id = ?
+                    """,
+                    (encoded, int(session_id)),
+                )
+                self.conn.commit()
         return public_teacher_state(payload)
 
     def live_session_canvas_sync(self, session_id: int) -> dict[str, Any]:
@@ -38221,6 +38366,13 @@ class SchoolDB(LovesDB):
         current = self.live_session_teacher_state_payload(session_id)
         prev_stage = str(current.get("stage") or "")
         payload = apply_teacher_state_update(current, **kwargs)
+        if surface_show_keeps_seq(current, payload, kwargs):
+            # Show/hide leaves the sequence where it is. The route emits
+            # a surface postcard instead of state_seq, so phones do not
+            # all refetch /state.
+            payload["state_seq"] = current.get("state_seq", 0)
+            if current.get("updated_at"):
+                payload["updated_at"] = current.get("updated_at")
         new_stage = str(payload.get("stage") or "")
         entering = new_stage == "meet" and prev_stage != "meet"
         entering_teams = new_stage == "teams" and prev_stage != "teams"

@@ -27,6 +27,7 @@ FUNCTIONS = (
     "staffPollCoalesceArmsStrip",
     "staffPollMayApplyDeck",
     "scheduleQuietTeacherPoll",
+    "applyPlaylistWriteResponse",
     "settleTeacherDeckFollowUp",
     "refreshLessonDeckMetadata",
     "importLiveMcFromBank",
@@ -84,6 +85,7 @@ const ctx = {
   lastLiveItems: [],
   staffStateNeedsFull: false,
   teacherDeckEpoch: 0,
+  quietTeacherPollAt: 0,
   readLiveSessionId: () => ctx.liveSessionId,
   currentLivePageNumber: () => 2,
   adoptLiveItemsSnapshot: (items) => { ctx.lastLiveItems = items; },
@@ -318,12 +320,11 @@ class ImportPaintOrderTests(unittest.TestCase):
         )
         self.assertEqual(out["winner"], "import-done", out)
         self.assertTrue(out["paintedNew"], out)
-        self.assertTrue(out["paintBeforePoll"], out)
         self.assertFalse(out["deckStarted"], out)
         self.assertFalse(out["deckSettled"], out)
         self.assertFalse(out["pollSettled"], out)
-        self.assertTrue(out["pollQuiet"], out)
-        self.assertGreaterEqual(out["epoch"], 1, out)
+        self.assertFalse(out["pollQuiet"], out)
+        self.assertFalse(any(str(row).startswith("poll:") for row in out["log"]), out)
         self.assertFalse(out["studentFetch"], out)
 
     def test_bank_import_without_deck_paints_before_deck_resolves(self) -> None:
@@ -357,9 +358,10 @@ class ImportPaintOrderTests(unittest.TestCase):
             },
         )
         self.assertEqual(out["winner"], "import-done:2", out)
-        self.assertTrue(out["paintBeforePoll"], out)
         self.assertFalse(out["pollSettled"], out)
         self.assertFalse(out["deckStarted"], out)
+        self.assertTrue(any(str(row).startswith("paint-cards:") for row in out["log"]), out)
+        self.assertFalse(any(str(row).startswith("poll:") for row in out["log"]), out)
 
     def test_relocate_paints_before_poll_resolves(self) -> None:
         """Move/remove paints from the playlist response, then polls quietly."""
@@ -372,9 +374,10 @@ class ImportPaintOrderTests(unittest.TestCase):
             },
         )
         self.assertEqual(out["winner"], "import-done", out)
-        self.assertTrue(out["paintBeforePoll"], out)
         self.assertFalse(out["pollSettled"], out)
         self.assertFalse(out["deckStarted"], out)
+        self.assertTrue(any(str(row).startswith("paint-cards:") for row in out["log"]), out)
+        self.assertFalse(any(str(row).startswith("poll:") for row in out["log"]), out)
 
 
 class ImportPaintSourceTests(unittest.TestCase):

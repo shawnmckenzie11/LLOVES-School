@@ -1015,7 +1015,9 @@ function studentProjection(payload) {
     return !["media", "whiteboard", "slides"].includes(kind);
   });
   const questionsMode = String(
-    hasLifecycleQuestions
+    payload && payload.surface_questions_mode
+      ? payload.surface_questions_mode
+      : hasLifecycleQuestions
       ? "student"
       : view.questions || payload.question_view || (frames.questions === false ? "none" : "student")
   );
@@ -1025,7 +1027,9 @@ function studentProjection(payload) {
   const mediaMode = mediaItem
     ? mediaItem.publish_mode === "group_shared" ? "team" : "student"
     : String(view.media || (unlocks.media ? "student" : "none"));
-  const canvasMode = whiteboardItem
+  const canvasMode = payload && payload.surface_canvas_mode
+    ? String(payload.surface_canvas_mode)
+    : whiteboardItem
     ? whiteboardItem.publish_mode === "group_shared" ? "team" : "student"
     : String(view.canvas || (unlocks.canvas ? "student" : "none"));
   const slidesMode = slidesItem
@@ -6012,6 +6016,45 @@ function applyPushedQuestionCard(card) {
 }
 
 /**
+ * Paint a question or whiteboard show/hide from the postcard.
+ * Does not fetch ``/state``. A later full snapshot drops the override.
+ * @param {any} event
+ */
+function applySurfaceShow(event) {
+  const surface = String(event?.surface || "");
+  const mode = String(event?.mode || "none");
+  const itemId = String(event?.item_id || "");
+  if (surface !== "questions" && surface !== "canvas") return;
+  const prior =
+    lastStudentPayload && typeof lastStudentPayload === "object"
+      ? lastStudentPayload
+      : {};
+  /** @type {any} */
+  const next = { ...prior };
+  const teacher = { ...(prior.teacher_state || {}) };
+  const view = { ...(teacher.student_view || {}) };
+  if (!itemId) view[surface] = mode;
+  teacher.student_view = view;
+  next.teacher_state = teacher;
+  if (surface === "questions") {
+    if (!itemId) next.surface_questions_mode = mode;
+    if (itemId && mode === "none") {
+      const active = Array.isArray(prior.active_questions) ? prior.active_questions : [];
+      next.active_questions = active.filter((row) => {
+        const id = String(row?.id || "");
+        const key = String(row?.item_id || row?.payload?.item_id || "");
+        return id !== itemId && key !== itemId;
+      });
+      if (!next.active_questions.length) next.surface_questions_mode = "none";
+    }
+  }
+  if (surface === "canvas") next.surface_canvas_mode = mode;
+  lastStudentPayload = next;
+  applyTeacherProjection(next);
+  if (surface === "canvas") kickStudentBoardDelta(true);
+}
+
+/**
  * Full ``/state`` after a push, in this tab's bucket.
  * Thirty phones do not share one instant. A timer already waiting is kept.
  */
@@ -6052,10 +6095,27 @@ function ensureStudentNewsWire(sessionId) {
         kickStudentBoardDelta(true);
         return;
       }
+      if (event && event.type === "surface_show") {
+        applySurfaceShow(event);
+        return;
+      }
       // The postcard already has the stem. Full /state is spread so one
       // push does not rebuild every phone in the same instant (MCK-283).
       if (event && event.type === "prompt" && event.card) {
         applyPushedQuestionCard(event.card);
+        scheduleNewsState();
+        return;
+      }
+      // Class-wide structural postcards wait in this tab's 0–3s bucket
+      // instead of every phone calling /state inside the 40ms debounce.
+      const spread = String(event?.type || "");
+      if (
+        spread === "state_seq" ||
+        spread === "stage" ||
+        spread === "slide" ||
+        spread === "active_media" ||
+        spread === "flags"
+      ) {
         scheduleNewsState();
         return;
       }
@@ -6085,8 +6145,18 @@ function setStudentReconnectBanner(visible) {
 }
 
 /**
- * "Reconnecting…" only after this /state has already waited ~800ms.
+ * True when this tab has no open news stream.
+ * A slow poll while the stream is up is not a reconnect.
+ * @returns {boolean}
  */
+function studentStreamIsDown() {
+  return !(
+    studentNewsWire &&
+    typeof studentNewsWire.hasStream === "function" &&
+    studentNewsWire.hasStream()
+  );
+}
+
 function armStudentPendingFeel() {
   if (studentPendingTimer) window.clearTimeout(studentPendingTimer);
   if (studentOutageStartedAt) {
@@ -6096,6 +6166,7 @@ function armStudentPendingFeel() {
   studentPendingTimer = window.setTimeout(() => {
     studentPendingTimer = 0;
     if (!studentPollInFlight || studentOutageStartedAt) return;
+    if (!studentStreamIsDown()) return;
     studentOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
     paintStudentReconnect("pending");
     armStudentStuckTimer();

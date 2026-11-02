@@ -60,14 +60,18 @@ if (jitterPollDelay(4000, 0) < 250 || jitterPollDelay(4000, 1) > 4800) {
 }
 
 if (reconnectMode(1_000, 1_100, "inflight") !== "ok") {
-  console.error("pending chrome must wait ~800ms");
+  console.error("pending chrome must wait ~2000ms");
   process.exit(1);
 }
-if (reconnectMode(1_000, 1_900, "inflight") !== "pending") {
+if (reconnectMode(1_000, 2_900, "inflight") !== "ok") {
+  console.error("pending chrome must wait ~2000ms");
+  process.exit(1);
+}
+if (reconnectMode(1_000, 3_100, "inflight") !== "pending") {
   console.error("slow poll should say Reconnecting");
   process.exit(1);
 }
-if (reconnectCopy(reconnectMode(1_000, 1_900, "inflight")) !== "Reconnecting…") {
+if (reconnectCopy(reconnectMode(1_000, 3_100, "inflight")) !== "Reconnecting…") {
   console.error("pending copy");
   process.exit(1);
 }

@@ -4447,7 +4447,7 @@ async function submitAddLiveLessonPage(name, kind) {
       stage: String(land.stage || "play"),
       page_id: String(land.id || ""),
     });
-  } else {
+  } else if (!payload?.live_metadata && !payload?.teacher_state) {
     scheduleQuietTeacherPoll();
   }
 }
@@ -4510,7 +4510,7 @@ async function confirmDeleteLiveLessonPage() {
       stage: String(land.stage || teacherState.stage || "play"),
       page_id: String(land.id || ""),
     });
-  } else {
+  } else if (!payload?.live_metadata && !payload?.teacher_state) {
     scheduleQuietTeacherPoll();
   }
 }
@@ -4806,6 +4806,20 @@ function scheduleQuietTeacherPoll() {
 }
 
 /**
+ * Paint a playlist write from its ``playlist_staff_snapshot`` body.
+ * Skips the forced teacher ``/state`` when the deck is already in the response.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function applyPlaylistWriteResponse(payload) {
+  if (!payload || typeof payload !== "object" || !payload.live_metadata) return false;
+  applyLiveMcImportPayload(payload);
+  paintLiveQuestionCards();
+  paintQuestionArtifact();
+  return true;
+}
+
+/**
  * Follow a playlist write with a deck refresh and a teacher poll.
  *
  * The content panel is already painted from the write response. When that
@@ -4818,6 +4832,7 @@ function scheduleQuietTeacherPoll() {
  * @returns {void}
  */
 function settleTeacherDeckFollowUp(payload) {
+  if (applyPlaylistWriteResponse(payload)) return;
   scheduleQuietTeacherPoll();
   if (!payload?.live_metadata) {
     void refreshLessonDeckMetadata()
@@ -8031,8 +8046,8 @@ function settleStaffPollNetwork() {
 }
 
 /**
- * Arm "Reconnecting…" only if this poll is still out after ~800ms.
- * Does not clear a busy line already on screen.
+ * Arm "Reconnecting…" only if this poll is still out and the news stream is down.
+ * A slow poll while the stream is open stays quiet. Does not clear a busy line.
  */
 function armStaffPendingFeel() {
   if (reconnectPendingTimer) window.clearTimeout(reconnectPendingTimer);
@@ -8051,6 +8066,13 @@ function armStaffPendingFeel() {
     ) {
       return;
     }
+    const wireOpen = Boolean(
+      typeof staffNewsWire !== "undefined" &&
+        staffNewsWire &&
+        typeof staffNewsWire.hasStream === "function" &&
+        staffNewsWire.hasStream()
+    );
+    if (wireOpen) return;
     staffOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
     const pendingCopy = staffNewsFetch ? CATCHING_UP_COPY : reconnectCopy("pending");
     paintStaffReconnect("pending", pendingCopy, false);
@@ -8421,6 +8443,7 @@ function startStaffNewsWire(sessionId) {
         return;
       }
       if (event && event.type === "board_show") return;
+      if (event && event.type === "surface_show") return;
       staffNewsFetch = true;
       const board = newsPaintsBoardInPlace(event);
       void pollLiveSessionAttendees({ fromNews: true, board: board });
@@ -9073,7 +9096,9 @@ async function mintArtifactFromMedia(data) {
     applyLiveMcImportPayload(res);
     paintLiveQuestionCards();
     paintQuestionArtifact(res.active_media);
-    scheduleQuietTeacherPoll();
+    if (!res?.live_items && !res?.question_cards && !res?.live_metadata) {
+      scheduleQuietTeacherPoll();
+    }
     if (res?.first_mint && res?.toast) {
       showStaffMintToast(String(res.toast));
     }
@@ -12936,6 +12961,10 @@ async function patchTeacherState(body, opts = {}) {
     );
     return teacherState;
   }
+  if (teacherPatchIsSurfaceToggle(body) && teacherStateInFlight) {
+    surfaceTogglePending = body;
+    return teacherState;
+  }
   if (teacherStateInFlight && opts.silent) return teacherState;
   if (teacherStateInFlight && opts.flip) {
     throw new Error("page flip already in flight");
@@ -12977,8 +13006,28 @@ async function patchTeacherState(body, opts = {}) {
     return teacherState;
   } finally {
     teacherStateInFlight = false;
+    if (surfaceTogglePending) {
+      const queued = surfaceTogglePending;
+      surfaceTogglePending = null;
+      void patchTeacherState(queued, opts);
+    }
   }
 }
+
+/**
+ * True when the patch only shows or hides a student surface.
+ * Repeated taps collapse onto the latest body.
+ * @param {Record<string, unknown>} body
+ * @returns {boolean}
+ */
+function teacherPatchIsSurfaceToggle(body) {
+  if (!body || typeof body !== "object") return false;
+  const keys = Object.keys(body);
+  return keys.length === 1 && keys[0] === "student_view";
+}
+
+/** Latest surface toggle waiting for the in-flight teacher-state write. */
+let surfaceTogglePending = null;
 
 /**
  * Paint the header Eyes up toggle from ``teacherState.eyes_up`` (MCK-26).
@@ -14634,7 +14683,7 @@ configureQuestionEditor({
     applyLiveMcImportPayload(payload);
     paintLiveQuestionCards();
     paintQuestionArtifact();
-    scheduleQuietTeacherPoll();
+    if (!payload?.live_metadata) scheduleQuietTeacherPoll();
   },
 });
 

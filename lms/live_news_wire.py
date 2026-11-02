@@ -73,6 +73,7 @@ NEWS_TYPES = frozenset(
         "flag_work",
         "board_ink",
         "board_show",
+        "surface_show",
         "google_slide",
         "busy",
         "ping",
@@ -100,6 +101,8 @@ _FIELDS: dict[str, frozenset[str]] = {
     "board_ink": frozenset({"type", "board_key"}),
     # Shown-board key only. Empty means the projection stopped. No names.
     "board_show": frozenset({"type", "board_key"}),
+    # Question or whiteboard show/hide. No stem, no roster, no state_seq.
+    "surface_show": frozenset({"type", "surface", "mode", "item_id"}),
     # Current slide only. No roster. image_url is empty until the page is shared.
     "google_slide": frozenset(
         {"type", "index", "shared", "page_count", "image_url", "rev"}
@@ -698,6 +701,20 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         event["board_key"] = key
     if kind == "board_show":
         event["board_key"] = str(event.get("board_key") or "").strip()[:80]
+    if kind == "surface_show":
+        surface = str(event.get("surface") or "").strip()
+        if surface not in {"questions", "canvas"}:
+            return None
+        mode = str(event.get("mode") or "none").strip()
+        if mode not in {"none", "student", "team"}:
+            mode = "none"
+        event["surface"] = surface
+        event["mode"] = mode
+        item = str(event.get("item_id") or "").strip()
+        if item:
+            event["item_id"] = item[:80]
+        else:
+            event.pop("item_id", None)
     if kind == "google_slide":
         event["index"] = max(0, min(40, _as_int(event.get("index"))))
         event["page_count"] = max(0, min(40, _as_int(event.get("page_count"))))
@@ -1115,6 +1132,101 @@ def flag_mask(state: dict[str, Any] | None) -> str:
     return "".join(bits)
 
 
+def surface_show_event(
+    surface: str,
+    mode: str,
+    item_id: Any = None,
+) -> dict[str, Any]:
+    """Postcard for showing or hiding questions or the whiteboard.
+
+    The body is the surface and the mode. It does not carry ``state_seq``,
+    question text, or a roster. Phones paint the frame they already have.
+
+    Args:
+        surface: ``questions`` or ``canvas``.
+        mode: ``none``, ``student``, or ``team``.
+        item_id: Optional lifecycle id. Not a person's name.
+    """
+    token = str(surface or "").strip()
+    if token not in {"questions", "canvas"}:
+        token = "questions"
+    shown = str(mode or "none").strip()
+    if shown not in {"none", "student", "team"}:
+        shown = "none"
+    event: dict[str, Any] = {
+        "type": "surface_show",
+        "surface": token,
+        "mode": shown,
+    }
+    item = str(item_id or "").strip()
+    if item:
+        event["item_id"] = item[:80]
+    return event
+
+
+def surface_show_for_item(
+    item: dict[str, Any] | None,
+    *,
+    hidden: bool = False,
+) -> dict[str, Any]:
+    """Show or hide postcard for one lifecycle row.
+
+    A whiteboard uses the canvas surface. Every other row uses questions.
+    Group whiteboard publish is ``team``. Hiding is always ``none``.
+
+    Args:
+        item: Lifecycle row from publish or close.
+        hidden: True when the row was just closed.
+    """
+    body = item if isinstance(item, dict) else {}
+    nested = body.get("item") if isinstance(body.get("item"), dict) else {}
+    kind = str(
+        body.get("kind") or body.get("item_type") or nested.get("item_type") or nested.get("kind") or ""
+    ).strip().lower()
+    surface = "canvas" if kind in {"whiteboard", "canvas"} else "questions"
+    if hidden:
+        mode = "none"
+    elif surface == "canvas" and str(body.get("publish_mode") or "") == "group_shared":
+        mode = "team"
+    else:
+        mode = "student"
+    return surface_show_event(surface, mode, body.get("id"))
+
+
+def surface_show_events(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Show/hide postcards when questions or the board changed and seq did not.
+
+    One postcard per surface whose mode changed, plus one per question
+    id whose visibility changed. No stem and no roster.
+
+    Args:
+        before: Teacher state before the write.
+        after: Teacher state after the write.
+    """
+    prev = before if isinstance(before, dict) else {}
+    nxt = after if isinstance(after, dict) else {}
+    prev_view = prev.get("student_view") if isinstance(prev.get("student_view"), dict) else {}
+    next_view = nxt.get("student_view") if isinstance(nxt.get("student_view"), dict) else {}
+    events: list[dict[str, Any]] = []
+    for surface in ("questions", "canvas"):
+        old = str(prev_view.get(surface) or "none")
+        new = str(next_view.get(surface) or "none")
+        if old != new:
+            events.append(surface_show_event(surface, new))
+    prev_questions = prev.get("question_views") if isinstance(prev.get("question_views"), dict) else {}
+    next_questions = nxt.get("question_views") if isinstance(nxt.get("question_views"), dict) else {}
+    for question_id in sorted(set(prev_questions) | set(next_questions)):
+        old = str(prev_questions.get(question_id) or "none")
+        new = str(next_questions.get(question_id) or "none")
+        if old == new:
+            continue
+        events.append(surface_show_event("questions", new, question_id))
+    return events
+
+
 def events_for_teacher_patch(
     before: dict[str, Any] | None,
     after: dict[str, Any] | None,
@@ -1131,6 +1243,8 @@ def events_for_teacher_patch(
     events: list[dict[str, Any]] = []
     if _as_int(prev.get("state_seq"), 0) != seq:
         events.append({"type": "state_seq", "state_seq": seq})
+    elif _as_int(prev.get("state_seq"), 0) == seq:
+        events.extend(surface_show_events(prev, nxt))
     if str(prev.get("stage") or "") != str(nxt.get("stage") or ""):
         events.append(
             {
@@ -1586,6 +1700,10 @@ def event_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
         # Every joined student paints the shown board. The postcard is
         # the key only, and the client fetches that board instead of
         # reloading /state. Staff already painted from the Show POST.
+        return audience.role == "student"
+    if kind == "surface_show":
+        # Question and whiteboard show/hide. Students paint the frame.
+        # Staff already painted from the write response.
         return audience.role == "student"
     if audience.role == "staff":
         return True

@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -32,6 +33,9 @@ SENTRY_CONNECT_SRC = "https://*.ingest.sentry.io https://*.ingest.us.sentry.io"
 
 # Non-poll transactions. Live polls are excluded in :func:`traces_sampler`.
 DEFAULT_TRACES_SAMPLE_RATE = 0.05
+# Live /state, board reads, and teacher writes. Low enough that a full
+# class does not trace every beat (MCK-441).
+LIVE_TRACE_SAMPLE_RATE = 0.05
 
 # Client-gone during a poll. These are not application faults.
 _DISCONNECT_TYPES = frozenset(
@@ -212,12 +216,45 @@ def before_send(
     return event
 
 
+def is_live_trace_path(path: str) -> bool:
+    """True for the live routes that keep a low trace sample.
+
+    ``/state``, board reads, and teacher show/hide, publish, close, and
+    playlist writes. Health and heartbeats are not included.
+
+    Args:
+        path: URL path or transaction name. Query strings are ignored.
+    """
+    cleaned = _path_only(path)
+    if cleaned in {"/api/student/state"} or is_live_state_poll(cleaned):
+        return True
+    if cleaned == "/api/student/board/mine" or cleaned.startswith("/api/student/board/"):
+        return True
+    parts = [part for part in cleaned.split("/") if part]
+    if len(parts) >= 3 and parts[0] == "api" and parts[1] == "live-sessions":
+        if parts[-1] in {
+            "teacher-state",
+            "publish",
+            "close",
+            "reopen",
+            "active-media",
+            "visibility",
+            "state",
+        }:
+            return True
+    if cleaned.endswith(("/add-question", "/playlist-item", "/import-mc")):
+        return True
+    return False
+
+
 def traces_sampler(sampling_context: dict[str, Any]) -> float:
-    """Sample lightly, and never sample health or live-shell polls.
+    """Sample lightly. Live class routes stay at a low fixed rate.
 
     A sampled browser pageload can still attach a ``sentry-trace`` header.
-    Quiet paths return 0 even when the parent was sampled, so a class poll
-    cannot open a transaction on every beat.
+    Health and heartbeats return 0 even when the parent was sampled.
+    ``/state``, board reads, and teacher writes use ``LIVE_TRACE_SAMPLE_RATE``
+    and do not jump to 1 when the parent page was sampled, so a class
+    does not trace every beat.
 
     Args:
         sampling_context: Sentry context with ``wsgi_environ``,
@@ -235,6 +272,8 @@ def traces_sampler(sampling_context: dict[str, Any]) -> float:
             ctx = sampling_context.get("transaction_context") or {}
             if isinstance(ctx, dict):
                 path = str(ctx.get("name") or "")
+        if is_live_trace_path(path):
+            return LIVE_TRACE_SAMPLE_RATE
         if is_quiet_telemetry_path(path):
             return 0.0
         parent = sampling_context.get("parent_sampled")
@@ -246,6 +285,32 @@ def traces_sampler(sampling_context: dict[str, Any]) -> float:
         logger.exception("Sentry traces_sampler failed open")
         return DEFAULT_TRACES_SAMPLE_RATE
     return DEFAULT_TRACES_SAMPLE_RATE
+
+
+@contextmanager
+def live_trace_span(op: str, name: str) -> Any:
+    """Open a child span around a lock or a metadata rebuild.
+
+    The name is a static label. This does not attach the request URL,
+    query string, body, token, code, or a person's name. With no active
+    Sentry transaction the span is a no-op.
+
+    Args:
+        op: Short span operation, such as ``db``.
+        name: Static span name, such as ``live.metadata.rebuild``.
+
+    Yields:
+        None.
+    """
+    try:
+        import sentry_sdk
+
+        ctx = sentry_sdk.start_span(op=str(op)[:40], name=str(name)[:80])
+    except Exception:
+        yield
+        return
+    with ctx:
+        yield
 
 
 def init_flask_sentry() -> bool:
