@@ -17092,12 +17092,12 @@ class SchoolDB(LovesDB):
     def refresh_live_metadata_cache(
         self, class_id: int, module: str, slot: str
     ) -> None:
-        """Store the merged deck for the revision a teacher write just made.
+        """Rebuild and store the merged deck after a teacher write.
 
-        The new revision key misses until this rebuild. Readers of that
-        revision share the one build instead of each worker thread
-        merging the seed again. The previous revision stays until the
-        new deck is stored.
+        A move can keep the same ``class_deck_revision`` (placement count
+        and max id do not change), so this does not reuse the stored deck.
+        Other threads share this one rebuild. The previous object is
+        replaced when the new deck is stored.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -17106,7 +17106,7 @@ class SchoolDB(LovesDB):
         """
         try:
             self.live_class_metadata_for_class_lesson(
-                int(class_id), module, slot, fresh=False
+                int(class_id), module, slot, fresh=True
             )
         except (KeyError, TypeError, ValueError):
             self.invalidate_live_metadata_cache(
