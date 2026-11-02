@@ -39,6 +39,7 @@ import {
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
   newsStateDelayMs,
+  newsStreamOpen,
   studentFallbackPollMs,
   studentSessionOver,
 } from "/static/live_news_wire.js";
@@ -6150,11 +6151,7 @@ function setStudentReconnectBanner(visible) {
  * @returns {boolean}
  */
 function studentStreamIsDown() {
-  return !(
-    studentNewsWire &&
-    typeof studentNewsWire.hasStream === "function" &&
-    studentNewsWire.hasStream()
-  );
+  return !newsStreamOpen(studentNewsWire);
 }
 
 function armStudentPendingFeel() {

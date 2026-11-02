@@ -21,6 +21,18 @@ export const FALLBACK_POLL_MS = 20000;
 export const NO_STREAM_POLL_MS = 4000;
 
 /**
+ * True when this tab's news stream is open.
+ *
+ * The reconnect strip uses this. The shared board poll does not: a shown
+ * board keeps polling whether or not a stream is open.
+ * @param {{hasStream?: () => boolean}|null|undefined} wire
+ * @returns {boolean}
+ */
+export function newsStreamOpen(wire) {
+  return Boolean(wire) && typeof wire.hasStream === "function" && wire.hasStream();
+}
+
+/**
  * Fallback /state delay for one tab.
  * A tab holding an open stream is told about every change, so it polls
  * on the slow safety net. Any other tab polls at ``NO_STREAM_POLL_MS``.
@@ -28,9 +40,7 @@ export const NO_STREAM_POLL_MS = 4000;
  * @returns {number}
  */
 export function fallbackPollMs(wire) {
-  const streaming =
-    Boolean(wire) && typeof wire.hasStream === "function" && wire.hasStream();
-  return streaming ? FALLBACK_POLL_MS : NO_STREAM_POLL_MS;
+  return newsStreamOpen(wire) ? FALLBACK_POLL_MS : NO_STREAM_POLL_MS;
 }
 
 /**

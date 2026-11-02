@@ -72,6 +72,7 @@ import {
   connectLiveNewsWire,
   fallbackPollMs,
   newsPaintsBoardInPlace,
+  newsStreamOpen,
 } from "/static/live_news_wire.js";
 import {
   DECK_COPY_PLACEHOLDER,
@@ -8066,12 +8067,8 @@ function armStaffPendingFeel() {
     ) {
       return;
     }
-    const wireOpen = Boolean(
-      typeof staffNewsWire !== "undefined" &&
-        staffNewsWire &&
-        typeof staffNewsWire.hasStream === "function" &&
-        staffNewsWire.hasStream()
-    );
+    const wireOpen =
+      typeof staffNewsWire !== "undefined" && newsStreamOpen(staffNewsWire);
     if (wireOpen) return;
     staffOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
     const pendingCopy = staffNewsFetch ? CATCHING_UP_COPY : reconnectCopy("pending");
