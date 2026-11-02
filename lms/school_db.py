@@ -16997,14 +16997,40 @@ class SchoolDB(LovesDB):
             "teacher_state": teacher_state,
         }
 
+    @staticmethod
+    def _overlay_order_token(rows: list[Any], columns: tuple[str, ...]) -> str:
+        """Hash overlay rows so a move changes the deck revision.
+
+        Count and max id stay put when a row only changes stage, page, or
+        sort order. Those fields are in the hash, so another worker on the
+        same file misses its cache and rebuilds. No new column is required.
+
+        Args:
+            rows: Sqlite rows already in a stable order.
+            columns: Fields included in the hash, in that order.
+
+        Returns:
+            A short hex digest. An empty list still has a stable digest.
+        """
+        digest = hashlib.sha256()
+        for row in rows:
+            parts = [
+                "" if row[column] is None else str(row[column]) for column in columns
+            ]
+            digest.update("\t".join(parts).encode())
+            digest.update(b"\n")
+        return digest.hexdigest()[:16]
+
     def class_deck_revision(
         self, class_id: int, module: str, slot: str
     ) -> str:
         """Return a fingerprint of saved class overlays for one lesson deck.
 
         Playlist placements, hide/move overrides, page overlays, media copy,
-        and the Set Class deck seed all participate. The next open compares
-        this token so a cached seed pack cannot outlive teacher edits.
+        and the Set Class deck seed all participate. Placement and override
+        order (id, stage, page, sort) is hashed, so a move changes this
+        token even though the row count and max id do not. The next open
+        compares this token so a cached seed pack cannot outlive teacher edits.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -17019,23 +17045,25 @@ class SchoolDB(LovesDB):
         )
         params = (int(class_id), module_key, slot_key)
         with self._lock:
-            placements = self.conn.execute(
+            placement_rows = self.conn.execute(
                 """
-                SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id
+                SELECT id, item_id, stage, page_number, sort_order
                 FROM class_live_playlist_placements
                 WHERE class_id = ? AND module = ? AND slot = ?
+                ORDER BY id
                 """,
                 params,
-            ).fetchone()
-            overrides = self.conn.execute(
+            ).fetchall()
+            override_rows = self.conn.execute(
                 """
-                SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id,
-                       COALESCE(MAX(updated_at), '') AS stamp
+                SELECT id, item_id, removed, stage, page_number, sort_order,
+                       COALESCE(updated_at, '') AS stamp
                 FROM class_live_playlist_item_overrides
                 WHERE class_id = ? AND module = ? AND slot = ?
+                ORDER BY id
                 """,
                 params,
-            ).fetchone()
+            ).fetchall()
             pages = self.conn.execute(
                 """
                 SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id,
@@ -17070,13 +17098,20 @@ class SchoolDB(LovesDB):
                 f"s:{seed['mode']}:{seed['source_module']}{seed['source_slot']}:"
                 f"{int(seed['suppress_authored'] or 0)}:{seed['stamp'] or ''}"
             )
+        placement_max = max((int(row["id"]) for row in placement_rows), default=0)
+        override_max = max((int(row["id"]) for row in override_rows), default=0)
+        override_stamp = max((str(row["stamp"] or "") for row in override_rows), default="")
+        placement_order = self._overlay_order_token(
+            placement_rows, ("id", "item_id", "stage", "page_number", "sort_order")
+        )
+        override_order = self._overlay_order_token(
+            override_rows,
+            ("id", "item_id", "removed", "stage", "page_number", "sort_order"),
+        )
         return "|".join(
             [
-                f"p:{int(placements['n'] or 0)}:{int(placements['max_id'] or 0)}",
-                (
-                    f"o:{int(overrides['n'] or 0)}:{int(overrides['max_id'] or 0)}:"
-                    f"{overrides['stamp'] or ''}"
-                ),
+                f"p:{len(placement_rows)}:{placement_max}:{placement_order}",
+                f"o:{len(override_rows)}:{override_max}:{override_stamp}:{override_order}",
                 (
                     f"g:{int(pages['n'] or 0)}:{int(pages['max_id'] or 0)}:"
                     f"{pages['stamp'] or ''}"
@@ -17094,10 +17129,10 @@ class SchoolDB(LovesDB):
     ) -> None:
         """Rebuild and store the merged deck after a teacher write.
 
-        A move can keep the same ``class_deck_revision`` (placement count
-        and max id do not change), so this does not reuse the stored deck.
-        Other threads share this one rebuild. The previous object is
-        replaced when the new deck is stored.
+        The revision token now changes on a move, so other workers miss
+        their cache from the token alone. This still rebuilds on the
+        worker that handled the write. Threads on this worker share that
+        one rebuild.
 
         Args:
             class_id: Game-show ``classes.id``.

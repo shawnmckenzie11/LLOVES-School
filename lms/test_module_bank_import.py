@@ -1356,6 +1356,60 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertEqual(len(moved), 1)
         self.assertEqual(moved[0]["stage"], "teams")
 
+    def test_move_is_visible_to_a_second_connection(self) -> None:
+        """A move changes the revision, so another connection drops its cache.
+
+        Both databases open the same sqlite file. The reader warms its
+        cache, then the writer moves the question. The reader must see
+        the new stage and page without sharing the writer's process cache.
+        """
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            self.m1_q,
+            library_id=self.library_id,
+            page_number=4,
+            stage="round",
+        )
+        item_id = f"bank-import-{self.m1_q}"
+        reader_app = create_app(
+            db_path=self.school.db_path,
+            data_dir=self.school.data_dir,
+            testing=True,
+        )
+        reader = reader_app.config["SCHOOL_DB"]
+        try:
+            before_rev = reader.class_deck_revision(self.class_id, "M1", "C2")
+            warmed = reader.live_class_metadata_for_session(self.session_id)
+            warmed_row = next(
+                row
+                for row in warmed.get("questions") or []
+                if str(row.get("id") or "") == item_id
+            )
+            self.assertEqual(warmed_row["stage"], "round")
+            result = self.school.move_class_playlist_item(
+                self.class_id,
+                "M1",
+                "C2",
+                item_id,
+                target_page_index=2,
+            )
+            after_rev = self.school.class_deck_revision(self.class_id, "M1", "C2")
+            self.assertNotEqual(after_rev, before_rev)
+            self.assertEqual(reader.class_deck_revision(self.class_id, "M1", "C2"), after_rev)
+            seen = reader.live_class_metadata_for_session(self.session_id)
+            moved = next(
+                row
+                for row in seen.get("questions") or []
+                if str(row.get("id") or "") == item_id
+            )
+            self.assertEqual(moved["stage"], result["stage"])
+            self.assertEqual(int(moved["page_number"]), int(result["page_number"]))
+            self.assertEqual(int(moved.get("order") or moved.get("sort_order") or 0), int(result["sort_order"]))
+        finally:
+            reader.close()
+
     def test_move_published_item_resets_unpublished_and_keeps_points(self) -> None:
         """A move lands unpublished, clears answers, and leaves session points."""
         self.school.import_mc_to_class_playlist(
