@@ -167,8 +167,10 @@ class LiveDeckSeedTests(unittest.TestCase):
         self.assertEqual(seeded["mode"], "previous")
         self.assertEqual(seeded["source_module"], "M1")
         self.assertEqual(seeded["source_slot"], "C2")
+        # MCK-443: engine rides (Minds-On, Spark, Meet) are not copied.
         self.assertEqual(
-            _question_signature(seeded["live_metadata"]), source_before
+            _question_signature(seeded["live_metadata"]),
+            self._authored(source_before),
         )
         self.assertEqual(_question_signature(self._meta("M1", "C2")), source_before)
         self.assertEqual(SEED_C2.read_bytes(), self.c2_bytes)
@@ -365,7 +367,8 @@ class LiveDeckSeedTests(unittest.TestCase):
         )
         self.assertEqual(copied.status_code, 200, copied.get_json())
         self.assertEqual(
-            _question_signature(copied.get_json()["live_metadata"]), source
+            _question_signature(copied.get_json()["live_metadata"]),
+            self._authored(source),
         )
         self.assertEqual(_question_signature(self._meta("M1", "C2")), source)
         self.assertEqual(SEED_C2.read_bytes(), self.c2_bytes)
@@ -375,6 +378,81 @@ class LiveDeckSeedTests(unittest.TestCase):
         )
         self.assertEqual(missing.status_code, 400)
 
+
+    def _authored(self, signature: list) -> list:
+        """Drop engine-ride ids from a question signature (MCK-443)."""
+
+        return [
+            pair for pair in signature if not self.school._engine_ride_item_id(pair[0])
+        ]
+
+    def _ride_ids(self, metadata: dict) -> set[str]:
+        """Return engine-ride ids still on a merged deck (MCK-443)."""
+
+        return {
+            row_id
+            for row_id, _ in _question_signature(metadata)
+            if self.school._engine_ride_item_id(row_id)
+        }
+
+    def _copied_placement_ids(self, module: str, slot: str) -> list[str]:
+        """Return item ids of deck-copy placement rows for one slot."""
+
+        rows = self.school.conn.execute(
+            """
+            SELECT item_id FROM class_live_playlist_placements
+            WHERE class_id = ? AND placement_key LIKE 'deck-copy:%'
+            """,
+            (self.class_id,),
+        ).fetchall()
+        return [str(row["item_id"]) for row in rows]
+
+    def test_previous_and_course_copies_skip_engine_rides(self) -> None:
+        """MCK-443: copies never carry Minds-On, Spark or Meet relics."""
+
+        source = self._meta("M1", "C3")
+        self.assertTrue(self._ride_ids(source), "seed should hold rides")
+        authored = [
+            pair
+            for pair in _question_signature(self._meta("M1", "C2"))
+            if not self.school._engine_ride_item_id(pair[0])
+        ]
+        previous = self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C3", mode="previous", replace=True
+        )
+        meta = previous["live_metadata"]
+        self.assertEqual(self._ride_ids(meta), set())
+        self.assertEqual(_question_signature(meta), authored)
+        blob = json.dumps(meta).lower()
+        self.assertNotIn("a graph of y = x^2", blob)
+        self.assertNotIn("teammate who", blob)
+        copied = self.school.apply_class_deck_seed(
+            self.class_id,
+            "M2",
+            "C1",
+            mode="course",
+            source_module="M1",
+            source_slot="C3",
+            replace=True,
+        )
+        self.assertEqual(self._ride_ids(copied["live_metadata"]), set())
+        for item_id in self._copied_placement_ids("M2", "C1"):
+            self.assertFalse(self.school._engine_ride_item_id(item_id), item_id)
+
+    def test_test_copy_skips_engine_rides(self) -> None:
+        """MCK-443: a test-run copy of the real deck drops rides too."""
+
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        self.school.set_live_session_teacher_state(
+            int(test["id"]), live_module="M1", live_slot="C3"
+        )
+        self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C3", mode="test_copy"
+        )
+        for item_id in self._copied_placement_ids("M1", "C3"):
+            self.assertFalse(self.school._engine_ride_item_id(item_id), item_id)
 
     def test_authored_slot_defaults_to_use_current(self) -> None:
         """A course seed file is a current deck, so Use current is offered."""

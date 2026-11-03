@@ -423,6 +423,17 @@ class DeckSeedHelperTests(unittest.TestCase):
         )
 
 
+
+def _without_rides(signature: list) -> list:
+    """Drop engine-ride ids: deck copies skip them (MCK-443)."""
+
+    from school_db import SchoolDB
+
+    rides = {token.replace("-", "_") for token in SchoolDB._ENGINE_RIDE_IDS}
+    return [
+        pair for pair in signature if pair[0].lower().replace("-", "_") not in rides
+    ]
+
 def _question_signature(metadata: dict) -> list[tuple[str, str]]:
     """Return ``(id, text)`` pairs for merged deck questions."""
 
@@ -549,7 +560,7 @@ class DeckSeedKeepExistingServerTests(unittest.TestCase):
         self.assertEqual(seeded.status_code, 200, seeded.get_json())
         self.assertEqual(seeded.get_json()["mode"], "course")
         self.assertFalse(seeded.get_json().get("kept_existing", False))
-        self.assertEqual(self._deck("M2", "C1"), source)
+        self.assertEqual(self._deck("M2", "C1"), _without_rides(source))
 
     def test_explicit_course_replaces_existing_deck_only_after_confirm(self) -> None:
         """A clicked chip replaces a deck only with replace: true (MCK-132)."""
@@ -574,7 +585,7 @@ class DeckSeedKeepExistingServerTests(unittest.TestCase):
         )
         self.assertEqual(seeded.status_code, 200, seeded.get_json())
         self.assertEqual(seeded.get_json()["mode"], "course")
-        self.assertEqual(self._deck("M1", "C3"), source)
+        self.assertEqual(self._deck("M1", "C3"), _without_rides(source))
 
 
 if __name__ == "__main__":
