@@ -480,10 +480,8 @@
             <div class="set-class-step-control">
               <div class="set-class-kind-toggle set-class-run-kind-toggle" id="set-class-kind" role="group" aria-label="What are you starting?">
                 <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
-                <button type="button" id="set-class-run-kind-test" aria-pressed="false">Test class</button>
                 <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
               </div>
-              <button type="button" class="staff-info-trigger" id="set-class-run-kind-info" aria-controls="info-popover-test-run-kind" aria-expanded="false" aria-label="What's a test class?">ⓘ</button>
             </div>
           </div>
           <div class="set-class-step" id="set-class-which">
@@ -541,7 +539,6 @@
                 </div>
                 <p class="hint compact live-deck-seed-note" id="live-deck-seed-previous-note" aria-live="polite">Loading decks…</p>
               </fieldset>
-              <p class="hint compact" id="set-class-test-deck-note" hidden>Test classes use a copy of this deck, so your real deck won't change.</p>{# copy: Wonder #}
               <div class="set-class-deck-extra">
                 {# MCK-132: step 1 of Course deck. This teacher's current sections of the course. copy: Wonder #}
                 <label class="live-pack-field live-deck-copy-from" id="live-deck-copy-from-field" for="live-deck-copy-from" hidden>
@@ -1582,12 +1579,6 @@
       </div>
     </form>
   </dialog>
-  <div id="info-popover-test-run-kind" class="staff-info-popover" hidden role="dialog" aria-labelledby="info-test-run-kind-title">
-    <button type="button" class="staff-info-popover-close" aria-label="Close">×</button>
-    <h3 id="info-test-run-kind-title">What's a test class?</h3>
-    <p>A test class works just like a real one. Students can join, take attendance, answer questions and use the catch-up code. Everything is kept separate from your real classes, so it never counts toward marks, participation or module totals, and it won't change your class deck.</p>
-    <p>Test classes appear in Lesson Slides with a TEST tag. Delete one from its ⋯ menu to remove everything recorded in it, and its catch-up code stops working right away.</p>
-  </div>
   <div id="info-popover-participation-test-col" class="staff-info-popover" hidden role="dialog" aria-labelledby="info-participation-test-col-title">
     <button type="button" class="staff-info-popover-close" aria-label="Close">×</button>
     <h3 id="info-participation-test-col-title">Test class</h3>
