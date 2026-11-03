@@ -2009,31 +2009,66 @@ def _budget_state_burst(school: Any, session_id: int, after: int, students: int)
     return 0
 
 
-def _budget_slide_forwards(school: Any, fx: dict[str, Any], forwards: int = 8) -> dict[str, Any]:
+def _budget_student_audiences(school: Any, fx: dict[str, Any]) -> list[Any]:
+    """One news audience per joined student, with that student's real teams.
+
+    A postcard is a reload for the class if any of these phones would
+    receive it, so a postcard aimed at one team is not missed by looking
+    at one student only.
+
+    Args:
+        school: Open school database.
+        fx: One retained class fixture.
+    """
+    from live_news_wire import NewsAudience  # noqa: PLC0415
+
+    sid = int(fx["session_id"])
+    audiences = []
+    for student in fx["students"]:
+        try:
+            teams = school.student_open_group_team_ids(sid, int(student["id"]))
+        except Exception:  # noqa: BLE001
+            teams = frozenset()
+        audiences.append(
+            NewsAudience("student", student_id=int(student["id"]), team_ids=teams)
+        )
+    return audiences
+
+
+def _budget_slide_forwards(
+    school: Any,
+    fx: dict[str, Any],
+    forwards: int = 8,
+    *,
+    after_forward: Any = None,
+) -> dict[str, Any]:
     """Forward the shared slide and count what each phone would reload.
 
     One Forward must reach phones as one ``google_slide`` postcard only.
-    No student-visible postcard may ask for ``/state``, and every phone's
-    ``/state`` with its stored seq and stamp must still answer unchanged
-    (MCK-283, MCK-441).
+    No postcard that makes a phone fetch ``/state`` may reach any student
+    on any team, and every phone's ``/state`` with its stored seq and
+    stamp must still answer unchanged (MCK-283, MCK-441).
 
     Args:
         school: Open school database.
         fx: One retained class fixture with the slide deck attached.
         forwards: How many Forward taps to make.
+        after_forward: Test hook ``(index) -> None`` run right after each
+            Forward POST, before the checks. Used to inject faults.
 
     Returns:
         ``forwards``, ``reload_peak`` (most phones rebuilt by one
-        Forward), ``light_postcards`` (student-visible postcards that
-        make a phone fetch ``/state``), and ``p95_ms`` for the teacher POST.
+        Forward), ``light_postcards`` (reload postcards, counted once per
+        student phone that would receive one), and ``p95_ms`` for the
+        teacher POST.
     """
-    from live_news_wire import NewsAudience, event_visible, log_for  # noqa: PLC0415
+    from live_news_wire import event_visible, log_for  # noqa: PLC0415
 
     sid = int(fx["session_id"])
     staff = fx["staff_client"]
     staff.post(f"/api/live-sessions/{sid}/google-slides/pages/0/publish")
     _budget_warmup(fx)
-    audience = NewsAudience("student", student_id=1)
+    audiences = _budget_student_audiences(school, fx)
     peak = 0
     light = 0
     done = 0
@@ -2046,14 +2081,17 @@ def _budget_slide_forwards(school: Any, fx: dict[str, Any], forwards: int = 8) -
             json={"index": index},
         )
         times.append((time.perf_counter() - started) * 1000)
+        if after_forward is not None:
+            after_forward(index)
         if int(getattr(rv, "status_code", 0) or 0) != 200:
             continue
         done += 1
         for row in log_for(school.data_dir).since(sid, int(after)):
             # Paint-in-place postcards (google_slide, surface_show, board_*)
-            # do not fetch /state. Anything a phone would refetch on does.
-            if row.get("type") in _PHONE_LIGHT and event_visible(row, audience):
-                light += 1
+            # do not fetch /state. Any phone light type does.
+            if row.get("type") not in _PHONE_LIGHT:
+                continue
+            light += sum(1 for aud in audiences if event_visible(row, aud))
         rebuilt = _budget_rebuilds(fx) - 1
         peak = max(peak, rebuilt)
         if rebuilt:
@@ -2066,6 +2104,25 @@ def _budget_slide_forwards(school: Any, fx: dict[str, Any], forwards: int = 8) -
         "light_postcards": int(light),
         "p95_ms": round(float(p95), 1),
     }
+
+
+def slide_forward_errors(slides: dict[str, Any], forwards: int = 8) -> list[str]:
+    """Failures for the in-process Forward check. Empty means it passed.
+
+    Args:
+        slides: ``_budget_slide_forwards`` result.
+        forwards: Forwards the check asked for.
+    """
+    errors: list[str] = []
+    if int(slides["forwards"]) < int(forwards):
+        errors.append(f"slide forwards {slides['forwards']}, want {forwards}")
+    if int(slides["reload_peak"]) > 0:
+        errors.append(f"slide forward rebuilt {slides['reload_peak']} phones, want 0")
+    if int(slides["light_postcards"]) > 0:
+        errors.append(
+            f"slide forward sent {slides['light_postcards']} /state postcards, want 0"
+        )
+    return errors
 
 
 def _budget_teacher_writes(school: Any, fx: dict[str, Any]) -> dict[str, Any]:
@@ -2280,16 +2337,7 @@ def run_sqlite_budget(students: int, out: Path) -> int:
         summary["slide_forward_reload_peak"] = slides["reload_peak"]
         summary["slide_forward_light_postcards"] = slides["light_postcards"]
         summary["slide_forward_p95_ms"] = slides["p95_ms"]
-        if slides["forwards"] < 8:
-            errors.append(f"slide forwards {slides['forwards']}, want 8")
-        if slides["reload_peak"] > 0:
-            errors.append(
-                f"slide forward rebuilt {slides['reload_peak']} phones, want 0"
-            )
-        if slides["light_postcards"] > 0:
-            errors.append(
-                f"slide forward sent {slides['light_postcards']} /state postcards, want 0"
-            )
+        errors.extend(slide_forward_errors(slides, 8))
         state_p95 = _budget_state_p95_ms(fx)
         summary["state_p95_ms"] = round(state_p95, 1)
         if state_p95 >= 800:
