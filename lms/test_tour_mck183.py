@@ -476,7 +476,16 @@ function memory() {
   const release = { releases: [{ id: "r1", day: "2026-10-04", items: [{ text: "x" }] }] };
   const fetch = async () => ({ ok: true, json: async () => release });
   const storage = memory();
-  out.wnHeld = await wn.initWhatsNew({ document: doc, window: { location: { search: "" } }, fetch, storage });
+  // MCK-454: pin the clock; do not let this read the real one. whats_new.js
+  // keeps only releases within EARLIER_DAYS (30) of today, so a wall clock
+  // drops this 2026-10-04 fixture out of the window on 2026-11-04:
+  // unseenCount hits 0, shouldAutoOpen goes false, and initWhatsNew returns
+  // "seen" before tourHolds is ever asked. Pinning one day after the fixture
+  // leaves it 29 days inside the window whatever the real date is.
+  const NOW = new Date("2026-10-05T12:00:00-04:00");
+  out.wnHeld = await wn.initWhatsNew({
+    document: doc, window: { location: { search: "" } }, fetch, storage, now: NOW,
+  });
   out.wnOpenBefore = dialog.open;
   doc.dispatchEvent(new CE("alc-tour-end", { detail: { status: "skipped" } }));
   out.wnOpenAfter = dialog.open;
