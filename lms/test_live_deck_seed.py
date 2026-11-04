@@ -273,11 +273,18 @@ class LiveDeckSeedTests(unittest.TestCase):
         )
         from live_class_metadata import list_live_lesson_summaries
 
-        expected = next(
-            row["question_count"]
+        summary = next(
+            row
             for row in list_live_lesson_summaries("MCR3U")
             if row["module"] == "M1" and row["live_class"] == "C2"
         )
+        expected = sum(
+            1
+            for row in summary["questions"]
+            if not self.school._engine_ride_item_id(row.get("id"), row)
+        )
+        self.assertGreater(expected, 0)
+        self.assertLess(expected, int(summary["question_count"]))
         self.assertEqual(mcr_c2["question_count"], expected)
         for row in mcr["decks"]:
             path = metadata_path("MCR3U", row["module"], row["slot"])

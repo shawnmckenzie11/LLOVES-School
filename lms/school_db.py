@@ -14768,7 +14768,7 @@ class SchoolDB(LovesDB):
                             other_id,
                             module,
                             slot,
-                            int(summary.get("question_count") or 0),
+                            summary.get("questions"),
                         ),
                     }
                 )
@@ -14814,7 +14814,7 @@ class SchoolDB(LovesDB):
                         "module": module,
                         "slot": slot,
                         "label": f"{section} · {plain}" if section else plain,
-                        "question_count": len(questions),
+                        "question_count": self._authored_question_count(questions),
                     }
                 )
         return extras
@@ -14915,20 +14915,44 @@ class SchoolDB(LovesDB):
         except (TypeError, ValueError):
             return 1
 
-    def _deck_question_count(
-        self, class_id: int, module: str, slot: str, seed_count: int
-    ) -> int:
-        """Questions in one class's working deck, for the Set Class labels.
+    def _authored_question_count(self, questions: Any) -> int:
+        """Count questions a deck copy would write.
 
-        MCK-132: the confirm strip quotes this count. An unedited slot uses
-        the seed file count; a slot with any working rows (copy, edit, hide,
-        page or media) counts the merged deck, which is what a copy takes.
+        Engine rides are omitted with ``_without_engine_rides``, the same
+        predicate the copy uses. One helper so the picker, the current-deck
+        count, and both overlay lists cannot drift from that write. The
+        ``team_challenge`` object is not a question row and is not counted.
+
+        Args:
+            questions: Question dicts from a seed summary or a merged deck.
+        """
+
+        rows = [item for item in questions or [] if isinstance(item, dict)]
+        return len(self._without_engine_rides(rows))
+
+    def _deck_question_count(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        seed_questions: list[Any] | None = None,
+    ) -> int:
+        """Questions a copy of this deck would write.
+
+        MCK-458: built-in engine rides are not copied, so they are not
+        counted. An unedited slot counts the seed question rows. A slot
+        with any working rows (copy, edit, hide, page or media) counts
+        the merged deck. Both paths use ``_authored_question_count``,
+        which is what a copy takes.
 
         Args:
             class_id: Game-show ``classes.id``.
             module: Module token.
             slot: Challenge token.
-            seed_count: Question count from the course seed summary.
+            seed_questions: Question rows from the course seed summary,
+                already loaded by ``list_live_lesson_summaries``. Passed
+                through so an unedited slot is not parsed again. When
+                omitted, the seed metadata is loaded once.
         """
 
         params = (int(class_id), str(module).upper(), str(slot).upper())
@@ -14952,13 +14976,17 @@ class SchoolDB(LovesDB):
                     is not None
                 )
         if not edited:
-            return int(seed_count)
+            rows = seed_questions
+            if rows is None:
+                loaded = self.live_class_metadata_for_class_lesson(
+                    int(class_id), module, slot, fresh=True
+                )
+                rows = loaded.get("questions")
+            return self._authored_question_count(rows)
         merged = self.live_class_metadata_for_class_lesson(
             int(class_id), module, slot, fresh=True
         )
-        return len(
-            [item for item in merged.get("questions") or [] if isinstance(item, dict)]
-        )
+        return self._authored_question_count(merged.get("questions"))
 
     @staticmethod
     def _deck_natural_key(item: dict[str, Any]) -> tuple[int, int]:
@@ -15030,7 +15058,7 @@ class SchoolDB(LovesDB):
                         int(class_id),
                         module,
                         slot,
-                        int(summary.get("question_count") or 0),
+                        summary.get("questions"),
                     ),
                 }
             )
@@ -15071,7 +15099,7 @@ class SchoolDB(LovesDB):
                     "module": module,
                     "slot": slot,
                     "label": live_deck_choice_label(module, slot),
-                    "question_count": len(questions),
+                    "question_count": self._authored_question_count(questions),
                 }
             )
         section = self._section_code_for_class(int(class_id))
@@ -15163,12 +15191,8 @@ class SchoolDB(LovesDB):
             merged = self.live_class_metadata_for_class_lesson(
                 int(class_id), module_key, slot_key, fresh=True
             )
-            current_choice["question_count"] = len(
-                [
-                    item
-                    for item in merged.get("questions") or []
-                    if isinstance(item, dict)
-                ]
+            current_choice["question_count"] = self._authored_question_count(
+                merged.get("questions")
             )
         decks = self.list_course_live_deck_choices(
             int(class_id),
@@ -15705,6 +15729,9 @@ class SchoolDB(LovesDB):
             module_file_refs = []
         questions = self._without_engine_rides(questions)
         ready = self._serializable_deck_questions(questions)
+        # MCK-459: the strip runs first on purpose. A deck with only engine
+        # rides is a legitimate empty copy. Authored rows that cannot be
+        # serialized still refuse (`questions and not ready`).
         if choice != "blank" and questions and not ready:
             raise ValueError(
                 f"No deck saved for {source_m} {source_s}."

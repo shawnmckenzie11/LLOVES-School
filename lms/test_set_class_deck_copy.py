@@ -395,7 +395,11 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             )
         )
         self.assertTrue(body["current"]["available"])
-        self.assertEqual(body["current"]["question_count"], len(self._deck(self.a1, "M2", "C3")))
+        deck = self._deck(self.a1, "M2", "C3")
+        copyable = [
+            pair for pair in deck if not self.school._engine_ride_item_id(pair[0])
+        ]
+        self.assertEqual(body["current"]["question_count"], len(copyable))
         self.school.apply_class_deck_seed(self.a1, "M2", "C1", mode="blank")
         empty = self._options(self.a1, "M2", "C1")
         self.assertFalse(empty["current"]["available"])
@@ -415,6 +419,380 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             if row["class_id"] == self.a2 and (row["module"], row["slot"]) == ("M2", "C3")
         )
         self.assertEqual(listed["question_count"], working)
+
+    def _listed(self, class_id: int, module: str, slot: str, *, view: str = "M2", challenge: str = "C3") -> dict:
+        """Return one picker row for ``module``/``slot`` on ``class_id``."""
+
+        return next(
+            row
+            for row in self._options(class_id, view, challenge)["decks"]
+            if row["class_id"] == class_id
+            and row["module"] == module
+            and row["slot"] == slot
+        )
+
+    def _question_rows(self, metadata: dict) -> list[dict]:
+        """Return question dicts from merged live metadata."""
+
+        return [
+            row
+            for row in metadata.get("questions") or []
+            if isinstance(row, dict)
+        ]
+
+    def test_seed_only_ride_deck_quotes_zero_and_copies_empty(self) -> None:
+        """MCR3U M2 C2 is two engine rides. The quote is 0 and the copy is empty."""
+
+        listed = self._listed(self.mcr, "M2", "C2")
+        self.assertEqual(listed["question_count"], 0)
+        opened = self._options(self.mcr, "M2", "C2")
+        self.assertEqual(opened["current"]["question_count"], 0)
+        self.assertEqual(self.school._deck_question_count(self.mcr, "M2", "C2"), 0)
+        source = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M2", "C2", fresh=True
+        )
+        self.assertTrue(source.get("pages"))
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M3",
+            "C1",
+            mode="course",
+            source_module="M2",
+            source_slot="C2",
+            replace=True,
+        )
+        dest = copied["live_metadata"]
+        self.assertEqual(self._question_rows(dest), [])
+        self.assertEqual(
+            [row.get("name") for row in dest["pages"]],
+            [row.get("name") for row in source["pages"]],
+        )
+        again = self._listed(self.mcr, "M3", "C1", view="M2", challenge="C2")
+        self.assertEqual(again["question_count"], 0)
+
+    def test_authored_seed_count_matches_the_questions_a_copy_writes(self) -> None:
+        """MCR3U M1 C2 quotes the authored rows and the destination holds those."""
+
+        source = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M1", "C2", fresh=True
+        )
+        authored = self.school._without_engine_rides(self._question_rows(source))
+        self.assertGreater(len(authored), 0)
+        self.assertLess(len(authored), len(self._question_rows(source)))
+        listed = self._listed(self.mcr, "M1", "C2", view="M2", challenge="C1")
+        self.assertEqual(listed["question_count"], len(authored))
+        opened = self._options(self.mcr, "M1", "C2")
+        self.assertEqual(opened["current"]["question_count"], len(authored))
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M3",
+            "C2",
+            mode="course",
+            source_module="M1",
+            source_slot="C2",
+            replace=True,
+        )
+        dest_rows = self._question_rows(copied["live_metadata"])
+        self.assertEqual(
+            [str(row.get("id")) for row in dest_rows],
+            [str(row.get("id")) for row in authored],
+        )
+        self.assertEqual(len(dest_rows), listed["question_count"])
+        landed = self._options(self.mcr, "M3", "C2")
+        self.assertEqual(landed["current"]["question_count"], len(dest_rows))
+
+    def test_edited_deck_drops_rides_that_are_still_in_the_merge(self) -> None:
+        """A page edit leaves rides in the merge. The quote and the copy omit them."""
+
+        self.school.add_class_playlist_page(
+            self.mcr, "M1", "C2", name="Extra board", after_page_id="join"
+        )
+        merged = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M1", "C2", fresh=True
+        )
+        rows = self._question_rows(merged)
+        self.assertTrue(
+            any(self.school._engine_ride_item_id(row.get("id"), row) for row in rows)
+        )
+        authored = self.school._authored_question_count(rows)
+        self.assertLess(authored, len(rows))
+        listed = self._listed(self.mcr, "M1", "C2", view="M2", challenge="C1")
+        self.assertEqual(listed["question_count"], authored)
+        opened = self._options(self.mcr, "M1", "C2")
+        self.assertEqual(opened["current"]["question_count"], authored)
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M3",
+            "C3",
+            mode="course",
+            source_module="M1",
+            source_slot="C2",
+            replace=True,
+        )
+        dest_rows = self._question_rows(copied["live_metadata"])
+        self.assertEqual(len(dest_rows), authored)
+        self.assertFalse(
+            any(self.school._engine_ride_item_id(row.get("id"), row) for row in dest_rows)
+        )
+
+    def test_edited_deck_with_rides_removed_matches_the_copy(self) -> None:
+        """Hiding the rides leaves the authored count, and the copy writes that many."""
+
+        for ride in ("teams-spark", "meet-team", "team-challenge"):
+            self.school.remove_class_playlist_item(self.mcr, "M1", "C2", ride)
+        merged = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M1", "C2", fresh=True
+        )
+        rows = self._question_rows(merged)
+        self.assertGreater(len(rows), 0)
+        self.assertFalse(
+            any(self.school._engine_ride_item_id(row.get("id"), row) for row in rows)
+        )
+        listed = self._listed(self.mcr, "M1", "C2", view="M2", challenge="C1")
+        self.assertEqual(listed["question_count"], len(rows))
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M3",
+            "C4",
+            mode="course",
+            source_module="M1",
+            source_slot="C2",
+            replace=True,
+        )
+        self.assertEqual(len(self._question_rows(copied["live_metadata"])), len(rows))
+
+    def test_cross_section_quote_matches_the_copied_deck(self) -> None:
+        """A sibling seed-only deck quotes 0. An authored sibling quotes its rows."""
+
+        second = self.school.assign_course(
+            teacher_user_id=self.tid, ontario_code="MCR3U", new_section=True
+        )
+        other = self._make_class(second, self.tid)
+        body = self._options(self.mcr, "M3", "C1")
+        rides = next(
+            row
+            for row in body["decks"]
+            if row["class_id"] == other and (row["module"], row["slot"]) == ("M2", "C2")
+        )
+        authored = next(
+            row
+            for row in body["decks"]
+            if row["class_id"] == other and (row["module"], row["slot"]) == ("M1", "C2")
+        )
+        self.assertEqual(rides["question_count"], 0)
+        self.assertGreater(authored["question_count"], 0)
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M4",
+            "C1",
+            mode="course",
+            source_module="M1",
+            source_slot="C2",
+            source_class_id=other,
+            teacher_user_id=self.tid,
+            replace=True,
+        )
+        self.assertEqual(
+            len(self._question_rows(copied["live_metadata"])),
+            authored["question_count"],
+        )
+        empty = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M4",
+            "C2",
+            mode="course",
+            source_module="M2",
+            source_slot="C2",
+            source_class_id=other,
+            teacher_user_id=self.tid,
+            replace=True,
+        )
+        self.assertEqual(self._question_rows(empty["live_metadata"]), [])
+
+    def test_ride_only_question_list_still_copies_team_challenge(self) -> None:
+        """MCR3U M1 C1 quotes 0 questions and still brings its team challenge."""
+
+        source = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M1", "C1", fresh=True
+        )
+        challenge = source.get("team_challenge") or {}
+        self.assertTrue(str(challenge.get("question") or "").strip())
+        listed = self._listed(self.mcr, "M1", "C1", view="M2", challenge="C1")
+        self.assertEqual(listed["question_count"], 0)
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M4",
+            "C3",
+            mode="course",
+            source_module="M1",
+            source_slot="C1",
+            replace=True,
+        )
+        dest = copied["live_metadata"]
+        self.assertEqual(self._question_rows(dest), [])
+        self.assertEqual(
+            (dest.get("team_challenge") or {}).get("question"),
+            challenge["question"],
+        )
+
+    def test_overlay_only_deck_count_omits_engine_rides(self) -> None:
+        """Placements with no seed file are counted by the same ride filter."""
+
+        second = self.school.assign_course(
+            teacher_user_id=self.tid, ontario_code="MCR3U", new_section=True
+        )
+        other = self._make_class(second, self.tid)
+        self.school.conn.execute(
+            "UPDATE classes SET course_code = ? WHERE id = ?",
+            ("ZZZ1", other),
+        )
+        stamp = "2026-11-04T00:00:00Z"
+        for item_id, text in (
+            ("teams-spark", "Ride"),
+            ("domain-check", "Which inputs are allowed?"),
+        ):
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_placements (
+                    class_id, module, slot, page_number, stage, sort_order,
+                    placement_key, item_id, item_json, created_at
+                ) VALUES (?, 'M1', 'C1', 4, 'round', 1, ?, ?, ?, ?)
+                """,
+                (
+                    other,
+                    f"probe:{other}:{item_id}",
+                    item_id,
+                    json.dumps({"id": item_id, "text": text, "type": "mc"}),
+                    stamp,
+                ),
+            )
+        self.school.conn.commit()
+        self.school.invalidate_live_metadata_cache(class_id=other)
+        merged = self.school.live_class_metadata_for_class_lesson(
+            other, "M1", "C1", fresh=True
+        )
+        ids = {str(row.get("id")) for row in self._question_rows(merged)}
+        self.assertIn("teams-spark", ids)
+        self.assertIn("domain-check", ids)
+        body = self.school.deck_seed_options(
+            self.mcr, "M2", "C3", teacher_user_id=self.tid
+        )
+        listed = next(
+            row
+            for row in body["decks"]
+            if row["class_id"] == other and (row["module"], row["slot"]) == ("M1", "C1")
+        )
+        self.assertEqual(listed["question_count"], 1)
+        self.school.conn.execute(
+            "UPDATE classes SET course_code = ? WHERE id = ?",
+            ("ZZZ1", self.mcr),
+        )
+        for item_id, text in (
+            ("meet-team", "Ride"),
+            ("range-check", "What outputs can you get?"),
+        ):
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_placements (
+                    class_id, module, slot, page_number, stage, sort_order,
+                    placement_key, item_id, item_json, created_at
+                ) VALUES (?, 'M2', 'C4', 4, 'round', 1, ?, ?, ?, ?)
+                """,
+                (
+                    self.mcr,
+                    f"probe:{self.mcr}:{item_id}",
+                    item_id,
+                    json.dumps({"id": item_id, "text": text, "type": "mc"}),
+                    stamp,
+                ),
+            )
+        self.school.conn.commit()
+        self.school.invalidate_live_metadata_cache(class_id=self.mcr)
+        own = self.school.deck_seed_options(self.mcr, "M1", "C1")
+        own_row = next(
+            row
+            for row in own["decks"]
+            if row["class_id"] == self.mcr and (row["module"], row["slot"]) == ("M2", "C4")
+        )
+        self.assertEqual(own_row["question_count"], 1)
+
+    def test_builtins_only_copy_is_an_empty_deck_with_pages(self) -> None:
+        """MCK-459: a rides-only source copies, writes no questions, and keeps pages."""
+
+        source = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M2", "C2", fresh=True
+        )
+        copied = self.school.apply_class_deck_seed(
+            self.mcr,
+            "M5",
+            "C1",
+            mode="course",
+            source_module="M2",
+            source_slot="C2",
+            replace=True,
+        )
+        dest = copied["live_metadata"]
+        self.assertEqual(self._question_rows(dest), [])
+        self.assertEqual(
+            [row.get("id") for row in dest["pages"]],
+            [row.get("id") for row in source["pages"]],
+        )
+        self.assertGreater(len(dest["pages"]), 0)
+
+    def test_unserializable_authored_rows_still_refuse(self) -> None:
+        """MCK-459: authored rows that cannot be stored still raise ValueError."""
+
+        original = self.school.live_class_metadata_for_class_lesson
+
+        def poisoned(class_id, module, slot, **kwargs):
+            """Return one authored question whose payload is a set."""
+
+            meta = dict(original(class_id, module, slot, **kwargs))
+            if (
+                int(class_id) == self.mcr
+                and str(module).upper() == "M1"
+                and str(slot).upper() == "C3"
+            ):
+                meta["questions"] = [
+                    {
+                        "id": "authored-only",
+                        "text": "Cannot store this",
+                        "type": "mc",
+                        "stage": "round",
+                        "blob": {1, 2},
+                    }
+                ]
+            return meta
+
+        before = _deck_table_snapshot(self.school, self.mcr)
+        with patch.object(
+            self.school, "live_class_metadata_for_class_lesson", side_effect=poisoned
+        ):
+            with self.assertRaises(ValueError) as caught:
+                self.school.apply_class_deck_seed(
+                    self.mcr,
+                    "M5",
+                    "C2",
+                    mode="course",
+                    source_module="M1",
+                    source_slot="C3",
+                    replace=True,
+                )
+        self.assertIn("No deck saved", str(caught.exception))
+        self.assertEqual(_deck_table_snapshot(self.school, self.mcr), before)
+
+    def test_blank_still_writes_zero_questions(self) -> None:
+        """MCK-459: Blank remains a legitimate empty deck."""
+
+        from live_class_metadata import default_math_pages
+
+        copied = self.school.apply_class_deck_seed(self.mcr, "M5", "C3", mode="blank")
+        dest = copied["live_metadata"]
+        self.assertEqual(self._question_rows(dest), [])
+        self.assertEqual(
+            [row.get("name") for row in dest["pages"]],
+            [row.get("name") for row in default_math_pages()],
+        )
 
     # --- refusals -----------------------------------------------------------
 
