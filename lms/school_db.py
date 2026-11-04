@@ -15528,7 +15528,9 @@ class SchoolDB(LovesDB):
                     source_class_id=int(class_id),
                 )
             )
-            ready = self._serializable_deck_questions(questions)
+            ready = self._serializable_deck_questions(
+                self._without_engine_rides(questions)
+            )
             self._replace_class_deck_working_copy(
                 int(class_id),
                 module_key,
@@ -15701,6 +15703,7 @@ class SchoolDB(LovesDB):
         )
         if choice == "blank":
             module_file_refs = []
+        questions = self._without_engine_rides(questions)
         ready = self._serializable_deck_questions(questions)
         if choice != "blank" and questions and not ready:
             raise ValueError(
@@ -15843,6 +15846,26 @@ class SchoolDB(LovesDB):
                 key,
                 stamp=_now(),
             )
+
+    def _without_engine_rides(
+        self, questions: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Drop built-in engine rides from a deck copy (MCK-443).
+
+        Minds-On, Teams Spark, Meet and Team Challenge are engine-seeded
+        rides, not authored questions. Copying them froze their text into
+        placement rows, so every copied deck carried the relics.
+
+        Args:
+            questions: Resolved questions from the source deck.
+        """
+        return [
+            row
+            for row in questions
+            if not self._engine_ride_item_id(
+                row.get("id") or row.get("item_id"), row
+            )
+        ]
 
     @staticmethod
     def _serializable_deck_questions(

@@ -24,6 +24,7 @@ import {
 } from "/static/common.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import { bankLiveStart } from "/static/live_start.js";
+import { withoutRemovedCards } from "/static/deck_card_merge.js";
 import {
   bindSchoolDayPicker,
   defaultSchoolDay,
@@ -5031,17 +5032,31 @@ async function refreshLiveQuestionCards() {
 }
 
 /**
+ * MCK-443: ids removed via (Re)move this page load. The merged deck wins
+ * when it lists one again (re-import or re-copy).
+ * @type {Set<string>}
+ */
+const removedDeckItemIds = new Set();
+
+/**
  * Build staff cards from merged deck metadata so dest-page items survive
  * a current-page-only ``/state`` snapshot after a move.
  * @param {any[]} [serverCards]
  * @returns {any[]}
  */
 function questionCardsFromMetadata(serverCards) {
-  const incoming = Array.isArray(serverCards) ? serverCards : [];
   const metaQs =
     metadataMatchesCurrentPack() && Array.isArray(lastLiveMetadata?.questions)
       ? lastLiveMetadata.questions
       : [];
+  // MCK-443: live/previous cards must not repaint a just-removed question.
+  const incoming = withoutRemovedCards(
+    Array.isArray(serverCards) ? serverCards : [],
+    removedDeckItemIds,
+    metaQs
+      .filter((q) => q && !q.removed && !q.hidden)
+      .map((q) => String(q.id || q.item_id || ""))
+  );
   if (!metaQs.length) return incoming;
   const byId = new Map();
   for (const question of metaQs) {
@@ -5086,9 +5101,10 @@ function questionCardsFromMetadata(serverCards) {
  * @param {string} itemId
  * @param {"remove"|"move"} mode
  */
-function applyLocalPlaylistCardChange(itemId) {
+function applyLocalPlaylistCardChange(itemId, mode = "move") {
   const token = String(itemId || "").trim();
   if (!token) return;
+  if (mode === "remove") removedDeckItemIds.add(token);
   const alias = liveItemAlias(token);
   lastQuestionCards = (Array.isArray(lastQuestionCards) ? lastQuestionCards : []).filter(
     (row) => {
@@ -5121,7 +5137,10 @@ async function relocatePlaylistItem(itemId, payload) {
     }
   );
   applyLiveMcImportPayload(result);
-  if (!result?.live_metadata) {
+  if (payload.action === "remove") {
+    // MCK-443: a removed card must leave the panel now, not on refresh.
+    applyLocalPlaylistCardChange(token, "remove");
+  } else if (!result?.live_metadata) {
     applyLocalPlaylistCardChange(token);
   }
   lastQuestionCards = questionCardsFromMetadata(

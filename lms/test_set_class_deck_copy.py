@@ -54,6 +54,17 @@ from test_deck_seed_sticky_mode import STAFF_AP_HARNESS  # noqa: E402
 NODE = shutil.which("node")
 
 
+
+def _without_rides(signature: list) -> list:
+    """Drop engine-ride ids: deck copies skip them (MCK-443)."""
+
+    from school_db import SchoolDB
+
+    rides = {token.replace("-", "_") for token in SchoolDB._ENGINE_RIDE_IDS}
+    return [
+        pair for pair in signature if pair[0].lower().replace("-", "_") not in rides
+    ]
+
 def _question_signature(metadata: dict) -> list[tuple[str, str]]:
     """Return ``(id, text)`` pairs for merged deck questions."""
 
@@ -483,7 +494,7 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         )
         self.assertEqual(copied.status_code, 200, copied.get_json())
         self.assertEqual(copied.get_json()["mode"], "course")
-        self.assertEqual(self._deck(self.a1, "M2", "C1"), source)
+        self.assertEqual(self._deck(self.a1, "M2", "C1"), _without_rides(source))
         self.assertTrue(self.school.class_has_current_live_deck(self.a1, "M2", "C1"))
 
     def test_source_unchanged_after_copy_and_after_editing_the_copy(self) -> None:
@@ -595,7 +606,7 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
                 self.assertEqual(codes, [200] + [409] * 7, raced)
                 confirms = [flag for code, flag, _err in raced if code == 409]
                 self.assertTrue(all(confirms), raced)
-                self.assertEqual(self._deck(self.a1, "M2", "C1"), source)
+                self.assertEqual(self._deck(self.a1, "M2", "C1"), _without_rides(source))
         finally:
             for app in workers:
                 app.config["SCHOOL_DB"].close()
