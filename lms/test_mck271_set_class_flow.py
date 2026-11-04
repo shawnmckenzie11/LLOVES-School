@@ -30,7 +30,7 @@ class SetClassStartFieldTests(unittest.TestCase):
     def test_modes_keep_the_existing_post_bodies(self) -> None:
         """Live, test, and office keep kind, is_test, begin, and deck-seed fields."""
         script = r"""
-import { setClassStartFields, setClassSummaryLine } from "./static/set_class_mode.js";
+import { SET_CLASS_START_MODES, setClassStartFields, setClassSummaryLine } from "./static/set_class_mode.js";
 
 const live = setClassStartFields("live");
 const test = setClassStartFields("test");
@@ -48,10 +48,11 @@ function check(cond, message) {
   if (!cond) failed.push(message);
 }
 check(live.kind === "live" && live.run === "live" && live.is_test === false && live.deck === "chip", "live");
-check(test.kind === "live" && test.run === "test" && test.is_test === true && test.deck === "test_copy", "test");
+check(test.kind === "live" && test.run === "live" && test.is_test === false && test.deck === "chip", "MCK-447: test starts live");
 check(office.kind === "office" && office.run === "live" && office.is_test === false && office.deck === "chip", "office");
 check(other.kind === "live" && other.run === "live" && other.is_test === false, "unknown stays live");
-check(line === "Starting test class: Module 2, Class 1, current deck.", line);
+check(line === "Starting live class: Module 2, Class 1, current deck.", line);
+check(SET_CLASS_START_MODES.join() === "live,office", "MCK-447: two start choices");
 check(previous === "Starting live class: Module 3, Class 3, previous deck.", previous);
 check(course === "Starting live class: Module 1, Class 2, course deck.", course);
 check(openOffice === "Starting open office: Module 3, Open office 1.", openOffice);
@@ -141,9 +142,9 @@ class SetClassFlowPageTests(unittest.TestCase):
         self.assertIn("Defaulted to the next class", html)
         self.assertIn(">Use current</span>", html)
         self.assertLess(html.index(">Use current</span>"), html.index(">Previous</span>"))
-        self.assertIn(TEST_DECK_LINE, html)
+        self.assertNotIn(TEST_DECK_LINE, html)  # MCK-447
         self.assertIn('id="set-class-kind-live"', html)
-        self.assertIn('id="set-class-run-kind-test"', html)
+        self.assertNotIn('id="set-class-run-kind-test"', html)  # MCK-447
         self.assertIn('id="set-class-kind-office"', html)
         self.assertIn("set-class-run-kind-toggle", html)
         self.assertIn(">Start live class<", html)

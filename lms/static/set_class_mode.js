@@ -19,6 +19,12 @@ export function setClassPromptsForDeck(mode) {
 }
 
 /**
+ * Start choices Run Live Class offers (MCK-447 removed Test class).
+ * @type {readonly ("live"|"office")[]}
+ */
+export const SET_CLASS_START_MODES = Object.freeze(["live", "office"]);
+
+/**
  * Map one start choice onto the existing kind and run flags.
  *
  * Live is a live class run live. Test is a live class run as a test
@@ -29,8 +35,10 @@ export function setClassPromptsForDeck(mode) {
  * @returns {{kind: "live"|"office", run: "live"|"test", is_test: boolean, deck: "chip"|"test_copy"}}
  */
 export function setClassStartFields(mode) {
-  if (mode === "test") {
-    return { kind: "live", run: "test", is_test: true, deck: "test_copy" };
+  // MCK-447: Run Live Class no longer offers Test class. A stray "test"
+  // starts a live class; past test runs can still be deleted server-side.
+  if (mode === "test" || !SET_CLASS_START_MODES.includes(mode)) {
+    return { kind: "live", run: "live", is_test: false, deck: "chip" };
   }
   if (mode === "office") {
     return { kind: "office", run: "live", is_test: false, deck: "chip" };
@@ -46,10 +54,11 @@ export function setClassStartFields(mode) {
  * office and leaves the deck clause off.
  *
  * @param {{mode?: string, module?: string, slot?: string, deck?: string, slides?: string}} parts
- * @returns {string} For example ``Starting test class: Module 2, Class 1, current deck.``
+ * @returns {string} For example ``Starting live class: Module 2, Class 1, current deck.``
  */
 export function setClassSummaryLine(parts) {
-  const mode = parts?.mode === "test" || parts?.mode === "office" ? parts.mode : "live";
+  // MCK-447: no Test class choice, so no "Starting test class" line.
+  const mode = parts?.mode === "office" ? "office" : "live";
   const module = String(parts?.module || "M1").trim().toUpperCase();
   const slot = String(parts?.slot || "C1").trim().toUpperCase();
   const modNum = module.replace(/^M/, "") || module;
@@ -58,7 +67,7 @@ export function setClassSummaryLine(parts) {
     const officeNum = slot.replace(/^O/, "") || slot;
     return `Starting open office: ${modLabel}, Open office ${officeNum}.`;
   }
-  const type = mode === "test" ? "test class" : "live class";
+  const type = "live class";
   const classNum = slot.replace(/^C/, "") || slot;
   const deck = parts?.deck === "previous" || parts?.deck === "course" ? parts.deck : "current";
   const deckPhrase =

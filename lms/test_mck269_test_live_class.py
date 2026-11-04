@@ -401,11 +401,12 @@ class TestLiveClassTests(Base):
     def test_course_page_picks_test_at_the_start(self) -> None:
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         body = page.get_data(as_text=True)
-        self.assertIn('id="set-class-run-kind-test"', body)
+        # MCK-447: Run Live Class no longer offers Test class.
+        self.assertNotIn('id="set-class-run-kind-test"', body)
         self.assertIn("set-class-run-kind-toggle", body)
         self.assertNotIn('name="run_mode"', body)
         self.assertIn("Delete this test class?", body)
-        self.assertIn("info-popover-test-run-kind", body)
+        self.assertNotIn("info-popover-test-run-kind", body)
         self.assertNotIn('name="save_attendance"', body)
         self.assertNotIn('name="save_participation"', body)
         self.assertIn(">End Class<", body)
