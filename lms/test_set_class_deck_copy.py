@@ -1280,8 +1280,19 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             }
         )
 
+    def _require_mcr3u(self) -> None:
+        """Pin a fixture to MCR3U.
+
+        MCF3M M1 C2 has media and no team challenge. MCR3U M1 C2 is the
+        only seed that is authored, media, and a real team challenge
+        together, and MCR3U M1 C1 is the pair that has a team challenge
+        on both sides.
+        """
+
+        self.assertEqual(self.school._course_code_for_class(self.mcr), "MCR3U")
+
     def _copy(self, module: str, slot: str, source_module: str, source_slot: str) -> dict:
-        """Copy one deck onto this class's slot. Untouched slots still need replace."""
+        """Copy one MCR3U deck onto this class's slot. Untouched slots still need replace."""
 
         return self.school.apply_class_deck_seed(
             self.mcr,
@@ -1513,10 +1524,17 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertNotIn("1 questions", view["text"])
 
     def test_media_and_team_challenge_named_when_each_is_lost(self) -> None:
-        """M2 C1 isolates the team challenge. M2 C3 isolates the slides."""
+        """MCR3U: M2 C1 isolates team challenge, M2 C3 isolates slides.
 
+        MCF3M M1 C2 has no team challenge, so this copy has to be MCR3U
+        M1 C2 (7 authored, media, team challenge) or the team-challenge
+        half of the loss never happens.
+        """
+
+        self._require_mcr3u()
         self._copy("M2", "C2", "M1", "C2")
         body = self._options(self.mcr, "M2", "C2")
+        self.assertEqual(body["current"]["question_count"], 7)
         self.assertTrue(body["current"]["has_media"])
         self.assertTrue(body["current"]["has_team_challenge"])
         self.assertTrue(
@@ -1594,6 +1612,126 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             {"join": "minds_on", "teams": "teams-spark", "meet": "meet-team"},
         )
 
+    def test_loss_line_composes_pairs_a_four_row_table_misses(self) -> None:
+        """MCR3U. Slides plus team challenge, page plus slides, page plus team challenge.
+
+        Untouched M1 C2 replaced by untouched M2 C2 loses slides and the
+        team challenge and no page changes. A table of only the four v7
+        rows cannot emit ``slides and team challenge``.
+        """
+
+        self._require_mcr3u()
+        dest = self._options(self.mcr, "M1", "C2")
+        self.assertEqual(dest["current"]["question_count"], 7)
+        self.assertTrue(dest["current"]["has_media"])
+        self.assertTrue(dest["current"]["has_team_challenge"])
+        self.assertFalse(dest["current"]["has_page_changes"])
+        self.assertEqual(self._page_count("M1", "C2"), 0)
+        source = self._listed(self.mcr, "M2", "C2", view="M1", challenge="C2")
+        self.assertFalse(source["has_media"])
+        self.assertFalse(source["has_team_challenge"])
+        self.assertFalse(source["has_page_changes"])
+        view = self._confirm(source, dest["current"], "M1", "C2")
+        self.assertEqual(
+            view["loss"],
+            "Heads up: this removes M1 C2's slides and team challenge.",
+        )
+        self.assertIn("slides and team challenge", view["loss"])
+        self.assertNotIn(", and", view["loss"])
+        self._copy("M1", "C2", "M2", "C2")
+        landed = self._options(self.mcr, "M1", "C2")
+        self.assertFalse(landed["current"]["has_media"])
+        self.assertFalse(landed["current"]["has_team_challenge"])
+        self.assertEqual(self._page_count("M1", "C2"), 0)
+
+        self.school.add_class_playlist_page(
+            self.mcr, "M2", "C1", name="Pair board", after_page_id="join"
+        )
+        self.assertGreater(self._page_count("M2", "C1"), 0)
+        slides = self._options(self.mcr, "M2", "C1")
+        self.assertTrue(slides["current"]["has_page_changes"])
+        self.assertTrue(slides["current"]["has_media"])
+        self.assertFalse(slides["current"]["has_team_challenge"])
+        plain = self._listed(self.mcr, "M2", "C3", view="M2", challenge="C1")
+        slides_view = self._confirm(plain, slides["current"], "M2", "C1")
+        self.assertEqual(
+            slides_view["loss"],
+            "Heads up: this removes M2 C1's page changes and slides.",
+        )
+
+        self.school.add_class_playlist_page(
+            self.mcr, "M1", "C1", name="Challenge board", after_page_id="join"
+        )
+        challenge = self._options(self.mcr, "M1", "C1")
+        self.assertTrue(challenge["current"]["has_page_changes"])
+        self.assertTrue(challenge["current"]["has_team_challenge"])
+        self.assertTrue(challenge["current"]["has_media"])
+        media_source = self._listed(self.mcr, "M3", "C1", view="M1", challenge="C1")
+        self.assertTrue(media_source["has_media"])
+        self.assertFalse(media_source["has_team_challenge"])
+        self.assertFalse(media_source["has_page_changes"])
+        challenge_view = self._confirm(media_source, challenge["current"], "M1", "C1")
+        self.assertEqual(
+            challenge_view["loss"],
+            "Heads up: this removes M1 C1's page changes and team challenge.",
+        )
+
+    def test_loss_line_ignores_authored_count(self) -> None:
+        """MCR3U. A zero-question deck can still lose a team challenge.
+
+        The loss line is the three flags only. Both sides here have no
+        authored questions, so a gate on ``question_count > 0`` would
+        hide the line.
+        """
+
+        self._require_mcr3u()
+        slides_dest = self._options(self.mcr, "M1", "C3")
+        slides_source = self._listed(self.mcr, "M2", "C2", view="M1", challenge="C3")
+        self.assertEqual(slides_dest["current"]["question_count"], 0)
+        self.assertEqual(slides_source["question_count"], 0)
+        self.assertTrue(slides_dest["current"]["has_media"])
+        self.assertFalse(slides_dest["current"]["has_team_challenge"])
+        self.assertFalse(slides_source["has_media"])
+        self.assertFalse(slides_source["has_team_challenge"])
+        slides_only = self._confirm(slides_source, slides_dest["current"], "M1", "C3")
+        self.assertEqual(slides_only["loss"], "Heads up: this removes M1 C3's slides.")
+
+        tc_dest = self._options(self.mcr, "M1", "C1")
+        tc_source = self._listed(self.mcr, "M1", "C3", view="M1", challenge="C1")
+        self.assertEqual(tc_dest["current"]["question_count"], 0)
+        self.assertEqual(tc_source["question_count"], 0)
+        self.assertTrue(tc_dest["current"]["has_media"])
+        self.assertTrue(tc_dest["current"]["has_team_challenge"])
+        self.assertTrue(tc_source["has_media"])
+        self.assertFalse(tc_source["has_team_challenge"])
+        tc_only = self._confirm(tc_source, tc_dest["current"], "M1", "C1")
+        self.assertEqual(tc_only["loss"], "Heads up: this removes M1 C1's team challenge.")
+        self.assertNotIn("slides", tc_only["loss"])
+
+        both_source = self._listed(self.mcr, "M2", "C2", view="M1", challenge="C1")
+        self.assertEqual(both_source["question_count"], 0)
+        self.assertFalse(both_source["has_media"])
+        self.assertFalse(both_source["has_team_challenge"])
+        both = self._confirm(both_source, tc_dest["current"], "M1", "C1")
+        self.assertEqual(
+            both["loss"],
+            "Heads up: this removes M1 C1's slides and team challenge.",
+        )
+
+        self._copy("M2", "C2", "M1", "C1")
+        copied = self._options(self.mcr, "M2", "C2")
+        self.assertEqual(copied["current"]["question_count"], 0)
+        self.assertTrue(copied["current"]["has_media"])
+        self.assertTrue(copied["current"]["has_team_challenge"])
+        only_tc = self._listed(self.mcr, "M1", "C3", view="M2", challenge="C2")
+        self.assertEqual(only_tc["question_count"], 0)
+        self.assertTrue(only_tc["has_media"])
+        self.assertFalse(only_tc["has_team_challenge"])
+        caught = self._confirm(only_tc, copied["current"], "M2", "C2")
+        self.assertEqual(caught["loss"], "Heads up: this removes M2 C2's team challenge.")
+        self.assertNotIn("(0 questions)", caught["text"])
+        self.assertIn("which has no questions of its own", caught["text"])
+
     def test_page_changes_named_when_lost(self) -> None:
         """Page changes are named on a fresh seed-media slot and on a copied deck."""
 
@@ -1658,6 +1796,8 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             self.mcr, "M4", "C1", name="Copied board", after_page_id="join"
         )
         copied = self._options(self.mcr, "M4", "C1")
+        self._require_mcr3u()
+        self.assertEqual(copied["current"]["question_count"], 7)
         self.assertTrue(copied["current"]["has_page_changes"])
         self.assertTrue(copied["current"]["has_media"])
         self.assertTrue(copied["current"]["has_team_challenge"])
@@ -1675,29 +1815,65 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertFalse(cleared["current"]["has_team_challenge"])
 
     def test_loss_line_absent_when_the_source_carries_it_too(self) -> None:
-        """M1 C1 to M1 C2, M1 C2 to M1 C3, and M1 C1 to M2 C1 keep what both have."""
+        """MCR3U. Only M1 C1 into M1 C2 has a team challenge on both sides.
 
-        # M1 C2 is the source for M1 C3, so that copy runs before M1 C1 replaces M1 C2.
-        flows = (
+        M1 C2 into M1 C3 and M1 C1 into M2 C1 are media guards: those
+        destinations have no team challenge, so they would pass even if
+        the source half of the team-challenge predicate were deleted.
+        A third team-challenge pair is built by copying M1 C2 into M3 C1
+        first, so the destination carries one before M1 C1 replaces it.
+        """
+
+        self._require_mcr3u()
+        media_only = (
             ("M1", "C3", "M1", "C2"),
             ("M2", "C1", "M1", "C1"),
-            ("M1", "C2", "M1", "C1"),
         )
-        for module, slot, source_module, source_slot in flows:
+        for module, slot, source_module, source_slot in media_only:
             body = self._options(self.mcr, module, slot)
+            self.assertTrue(body["current"]["has_media"], f"MCR3U {module} {slot}")
+            self.assertFalse(
+                body["current"]["has_team_challenge"],
+                f"MCR3U {module} {slot} is not a team-challenge guard",
+            )
             source = self._listed(
                 self.mcr, source_module, source_slot, view=module, challenge=slot
             )
+            self.assertTrue(source["has_media"])
             view = self._confirm(source, body["current"], module, slot)
-            self.assertEqual(view["loss"], "", f"{source_module} {source_slot} → {module} {slot}")
-            self.assertNotIn("Heads up", view["text"])
+            self.assertEqual(view["loss"], "")
+            self.assertNotIn("team challenge", view["loss"])
             self._copy(module, slot, source_module, source_slot)
             landed = self._options(self.mcr, module, slot)
-            self.assertTrue(landed["current"]["has_media"], f"{module} {slot} media")
-            self.assertTrue(
-                landed["current"]["has_team_challenge"],
-                f"{module} {slot} team challenge",
-            )
+            self.assertTrue(landed["current"]["has_media"])
+
+        self._copy("M3", "C1", "M1", "C2")
+        built = self._options(self.mcr, "M3", "C1")
+        self.assertEqual(built["current"]["question_count"], 7)
+        self.assertTrue(built["current"]["has_media"])
+        self.assertTrue(built["current"]["has_team_challenge"])
+        third_source = self._listed(self.mcr, "M1", "C1", view="M3", challenge="C1")
+        self.assertTrue(third_source["has_team_challenge"])
+        third_view = self._confirm(third_source, built["current"], "M3", "C1")
+        self.assertEqual(third_view["loss"], "")
+        self._copy("M3", "C1", "M1", "C1")
+        third_landed = self._options(self.mcr, "M3", "C1")
+        self.assertTrue(third_landed["current"]["has_media"])
+        self.assertTrue(third_landed["current"]["has_team_challenge"])
+
+        both = self._options(self.mcr, "M1", "C2")
+        both_source = self._listed(self.mcr, "M1", "C1", view="M1", challenge="C2")
+        self.assertEqual(both["current"]["question_count"], 7)
+        self.assertTrue(both["current"]["has_media"])
+        self.assertTrue(both["current"]["has_team_challenge"])
+        self.assertTrue(both_source["has_media"])
+        self.assertTrue(both_source["has_team_challenge"])
+        both_view = self._confirm(both_source, both["current"], "M1", "C2")
+        self.assertEqual(both_view["loss"], "")
+        self._copy("M1", "C2", "M1", "C1")
+        kept = self._options(self.mcr, "M1", "C2")
+        self.assertTrue(kept["current"]["has_media"])
+        self.assertTrue(kept["current"]["has_team_challenge"])
 
     def test_rides_only_source_names_pages_only(self) -> None:
         """A deck with no questions, media, or team challenge names pages only."""
@@ -1961,6 +2137,39 @@ const nounCases = [
   [0, true, true, "with the pages, media and team challenge saved on M2 C1"],
   [1, true, true, "with the questions, pages, media and team challenge saved on M2 C1"],
 ];
+const lossCases = [
+  [true, false, false, "page changes"],
+  [false, true, false, "slides"],
+  [false, false, true, "team challenge"],
+  [true, true, false, "page changes and slides"],
+  [true, false, true, "page changes and team challenge"],
+  [false, true, true, "slides and team challenge"],
+  [true, true, true, "page changes, slides and team challenge"],
+];
+out.losses = lossCases.map(([pages, media, challenge, phrase]) => {
+  const view = deckCopyConfirmState({
+    mode: "course",
+    chosen: true,
+    deck: {
+      value: "1:M2:C2",
+      name: "M2 C2",
+      count: 0,
+      has_media: false,
+      has_team_challenge: false,
+      has_page_changes: false,
+    },
+    source: { sectionCode: "MCR3U", isThisClass: true },
+    target: { sectionCode: "MCR3U", name: "M2 C2" },
+    current: {
+      available: true,
+      question_count: 7,
+      has_media: media,
+      has_team_challenge: challenge,
+      has_page_changes: pages,
+    },
+  });
+  return [phrase, view.loss === `Heads up: this removes M2 C2's ${phrase}.`];
+});
 out.nouns = nounCases.map(([count, media, challenge, phrase]) => {
   const view = deckCopyConfirmState({
     mode: "course",
@@ -2113,6 +2322,12 @@ class DeckCopyHelperTests(unittest.TestCase):
             "with the questions and pages saved on M2 C1",
             [phrase for phrase, _matched in nouns],
         )
+        losses = self.got["losses"]
+        self.assertEqual(len(losses), 7)
+        for phrase, matched in losses:
+            self.assertTrue(matched, phrase)
+            self.assertNotIn(", and", phrase)
+        self.assertIn("slides and team challenge", [phrase for phrase, _matched in losses])
         self.assertEqual(self.got["success"]["variant"], "success")
         self.assertEqual(
             self.got["success"]["text"],

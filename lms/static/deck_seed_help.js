@@ -288,9 +288,11 @@ const DECK_COPY_SPARK =
   "Every class has its own Teams Spark and Meet questions, so these aren't copied."; // copy: Wonder
 
 /**
- * Loss line. Destination has the thing and the source does not.
- * Order: page changes, slides, team challenge. Empty when nothing is lost.
- * Question count is not here; it stays in sentence one.
+ * Compose the loss line. Destination has the thing and the source does not.
+ * Order is page changes, slides, team challenge. Two items use "and"
+ * with no comma. Three items use one comma and a closing "and", never
+ * an Oxford comma. Empty when nothing is lost. Not a four-row table:
+ * slides plus team challenge is a real untouched-seed loss.
  * @param {{has_page_changes?: boolean, has_media?: boolean, has_team_challenge?: boolean}|null} current
  * @param {{has_page_changes?: boolean, has_media?: boolean, has_team_challenge?: boolean}|null} deck
  * @param {string} targetName
@@ -580,6 +582,8 @@ export function deckCopyConfirmState(state = {}) {
     text = `Copies ${savedOnPhrase(deck, source, false)} over this class's ${target.name} deck. ${DECK_COPY_SPARK}`; // copy: Wonder
   } else if (!questions) {
     text = `Replaces this class's current ${target.name} deck, which has no questions of its own, with ${savedOnPhrase(deck, source, true)}. ${DECK_COPY_SPARK} Can't be undone.`; // copy: Wonder
+    // A zero authored count does not hide the loss line. Slides, page
+    // changes, and a team challenge are the three flags alone.
     loss = deckLossLine(current, deck, target.name || "");
   } else {
     text = `Replaces this class's current ${target.name} deck (${questionCount(questions)}), with ${savedOnPhrase(deck, source, true)}. ${DECK_COPY_SPARK} Can't be undone.`; // copy: Wonder
