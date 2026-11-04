@@ -2263,6 +2263,17 @@ body.staff-shell .live-deck-copy-confirm[data-variant="replace"] { border-color:
 body.staff-shell .live-deck-copy-confirm[data-variant="success"] { border-color: #bbf7d0; border-left-color: #15803d; background: #f0fdf4; }
 body.staff-shell .live-deck-copy-confirm[data-variant="nudge"] { border-color: #fca5a5; border-left-color: #b91c1c; background: #fef2f2; }
 body.staff-shell .live-deck-copy-confirm .live-deck-copy-text { flex: 1 1 auto; margin: 0; }
+body.staff-shell .live-deck-copy-confirm .live-deck-copy-loss {
+  display: block;
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+}
+body.staff-shell .live-deck-copy-confirm .live-deck-copy-loss[data-variant="nudge"] {
+  border: 1px solid #fca5a5;
+  border-left: 4px solid #b91c1c;
+  background: #fef2f2;
+}
 body.staff-shell .live-deck-copy-confirm .live-deck-copy-route { font-weight: 650; white-space: nowrap; }
 body.staff-shell .live-deck-copy-confirm .live-deck-copy-actions { display: flex; gap: 0.5rem; flex: 0 0 auto; }
 body.staff-shell .live-deck-copy-confirm button { width: auto; height: 36px; padding: 0 0.9rem; border-radius: 8px; font-size: 0.85rem; }

@@ -14770,6 +14770,7 @@ class SchoolDB(LovesDB):
                             slot,
                             summary.get("questions"),
                         ),
+                        **self._deck_choice_content_flags(other_id, module, slot),
                     }
                 )
             with self._lock:
@@ -14815,6 +14816,7 @@ class SchoolDB(LovesDB):
                         "slot": slot,
                         "label": f"{section} · {plain}" if section else plain,
                         "question_count": self._authored_question_count(questions),
+                        **self._deck_loss_content_flags(merged),
                     }
                 )
         return extras
@@ -14989,6 +14991,122 @@ class SchoolDB(LovesDB):
         return self._authored_question_count(merged.get("questions"))
 
     @staticmethod
+    def _deck_loss_content_flags(meta: dict[str, Any] | None) -> dict[str, bool]:
+        """Media and team-challenge flags from merged live metadata.
+
+        ``media`` is the merged dict (``file`` or ``ref``). There is no
+        top-level ``media_file`` on this shape, and ``slides`` is empty on
+        every seed, so neither is a media signal. ``team_challenge`` is
+        content: ``normalize_team_challenge`` always returns a dict, so
+        ``bool()`` of the dict is always true.
+
+        Args:
+            meta: Merged live-class metadata for one deck.
+        """
+
+        body = meta if isinstance(meta, dict) else {}
+        media = body.get("media") if isinstance(body.get("media"), dict) else {}
+        challenge = (
+            body.get("team_challenge")
+            if isinstance(body.get("team_challenge"), dict)
+            else {}
+        )
+        return {
+            "has_media": bool(media.get("file") or media.get("ref")),
+            "has_team_challenge": any(
+                str(challenge.get(part) or "").strip()
+                for part in ("context", "question", "speaker_notes")
+            ),
+        }
+
+    def _deck_choice_content_flags(
+        self, class_id: int, module: str, slot: str
+    ) -> dict[str, bool]:
+        """Media and team-challenge flags for one source deck.
+
+        Call after ``_deck_question_count``. An edited slot was just merged
+        and cached, so ``fresh=False`` reuses that build. An unedited slot
+        loads the seed, which is the merged deck.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token.
+            slot: Challenge token.
+        """
+
+        meta = self.live_class_metadata_for_class_lesson(
+            int(class_id), module, slot, fresh=False
+        )
+        return self._deck_loss_content_flags(meta)
+
+    def _page_overlay_counts(
+        self, keys: list[tuple[int, str, str]]
+    ) -> dict[tuple[int, str, str], int]:
+        """Count page-overlay rows for many decks in one grouped query.
+
+        Page changes live in ``class_live_playlist_pages`` and have no seed
+        equivalent, so every source row needs a count. A ``COUNT(*)`` inside
+        the picker loop would be one query per deck. Slots with no rows are
+        left out; callers treat a miss as zero.
+
+        Args:
+            keys: ``(class_id, module, slot)`` triples. Duplicates are fine.
+        """
+
+        unique: list[tuple[int, str, str]] = []
+        seen: set[tuple[int, str, str]] = set()
+        for class_id, module, slot in keys:
+            key = (int(class_id), str(module), str(slot))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(key)
+        found: dict[tuple[int, str, str], int] = {}
+        if not unique:
+            return found
+        # Stay under SQLite's bound-variable cap (three placeholders a row).
+        chunk_size = 200
+        with self._lock:
+            for start in range(0, len(unique), chunk_size):
+                chunk = unique[start : start + chunk_size]
+                placeholders = ", ".join("(?, ?, ?)" for _ in chunk)
+                params: list[Any] = []
+                for class_id, module, slot in chunk:
+                    params.extend((class_id, module, slot))
+                rows = self.conn.execute(
+                    f"""
+                    SELECT class_id, module, slot, COUNT(*) AS n
+                      FROM class_live_playlist_pages
+                     WHERE (class_id, module, slot) IN ({placeholders})
+                     GROUP BY class_id, module, slot
+                    HAVING COUNT(*) > 0
+                    """,
+                    params,
+                ).fetchall()
+                for row in rows:
+                    found[
+                        (int(row["class_id"]), str(row["module"]), str(row["slot"]))
+                    ] = int(row["n"])
+        return found
+
+    def _attach_page_change_flags(self, rows: list[dict[str, Any]]) -> None:
+        """Set ``has_page_changes`` on deck rows from one grouped count.
+
+        Args:
+            rows: Deck choices with ``class_id``, ``module``, and ``slot``.
+        """
+
+        keys = [
+            (int(row["class_id"]), str(row["module"]), str(row["slot"]))
+            for row in rows
+            if row.get("class_id") is not None
+        ]
+        counts = self._page_overlay_counts(keys)
+        for row in rows:
+            key = (int(row["class_id"]), str(row["module"]), str(row["slot"]))
+            row["has_page_changes"] = counts.get(key, 0) > 0
+
+    @staticmethod
     def _deck_natural_key(item: dict[str, Any]) -> tuple[int, int]:
         """Natural sort key for a deck: ``M2 C3`` -> ``(2, 3)``.
 
@@ -15060,6 +15178,7 @@ class SchoolDB(LovesDB):
                         slot,
                         summary.get("questions"),
                     ),
+                    **self._deck_choice_content_flags(int(class_id), module, slot),
                 }
             )
         with self._lock:
@@ -15100,6 +15219,7 @@ class SchoolDB(LovesDB):
                     "slot": slot,
                     "label": live_deck_choice_label(module, slot),
                     "question_count": self._authored_question_count(questions),
+                    **self._deck_loss_content_flags(merged),
                 }
             )
         section = self._section_code_for_class(int(class_id))
@@ -15123,6 +15243,7 @@ class SchoolDB(LovesDB):
                 *self._deck_natural_key(item),
             )
         )
+        self._attach_page_change_flags(choices)
         return choices
 
     def deck_seed_options(
@@ -15186,6 +15307,9 @@ class SchoolDB(LovesDB):
             "label": "Use current",
             "message": "" if current_ready else "No deck set yet",
             "question_count": 0,
+            "has_media": False,
+            "has_team_challenge": False,
+            "has_page_changes": False,
         }
         if current_ready:
             merged = self.live_class_metadata_for_class_lesson(
@@ -15194,6 +15318,11 @@ class SchoolDB(LovesDB):
             current_choice["question_count"] = self._authored_question_count(
                 merged.get("questions")
             )
+            current_choice.update(self._deck_loss_content_flags(merged))
+        page_key = (int(class_id), module_key, slot_key)
+        current_choice["has_page_changes"] = (
+            self._page_overlay_counts([page_key]).get(page_key, 0) > 0
+        )
         decks = self.list_course_live_deck_choices(
             int(class_id),
             exclude_module=module_key,
