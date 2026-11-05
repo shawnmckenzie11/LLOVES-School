@@ -6115,6 +6115,12 @@ body.staff-shell .end-live-dialog-actions > button {
   align-items: center;
   justify-content: center;
 }
+body.staff-shell #set-class-saved-dialog {
+  max-width: 28rem;
+}
+body.staff-shell #set-class-saved-dialog .end-live-dialog-actions {
+  flex-wrap: wrap;
+}
 body.staff-shell .feedback-live-group {
   text-align: center;
 }
