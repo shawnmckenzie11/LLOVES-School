@@ -8,11 +8,16 @@ result snapshots stay. This module reports how each session on one day
 ended and, for one session the teacher confirms was a real class, writes
 the run, participation from snapshots, catch-up link, and Lesson Slides
 row. Quit deletes the session, so a Quit class cannot be restored.
+
+A class started under the wrong module/class at Set Class replaces that
+slot's Lesson Slides row and catch-up link on End. ``move_lesson_slides_run``
+moves that class to the right slot and rebuilds the slot it overwrote.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -454,3 +459,531 @@ def restore_lesson_slides_session(
             "on_lesson_slides=yes" if after is not None and after.shown else "on_lesson_slides=no"
         )
     return lines
+
+
+_SLOT_TOKEN = re.compile(r"^\s*(M\d+)\s*[·.\-_/ ]?\s*(C\d+)\s*$", re.IGNORECASE)
+
+
+def parse_slot_token(text: str) -> tuple[str, str]:
+    """Split ``M4C3`` (or ``M4 C3``, ``M4·C3``) into module and slot.
+
+    Args:
+        text: Slot text from the command line.
+
+    Raises:
+        ValueError: The text is not one module plus one class slot.
+    """
+    match = _SLOT_TOKEN.match(str(text or ""))
+    if not match:
+        raise ValueError(f"{text!r} is not a class slot such as M4C3")
+    return match.group(1).upper(), match.group(2).upper()
+
+
+def _catalogue_slots(course: str) -> set[tuple[str, str]]:
+    """Every live-class (``C``) slot the course registry offers.
+
+    Args:
+        course: Ontario course code.
+    """
+    from live_class_packs import live_class_registry
+
+    registry = live_class_registry(course or "MCF3M")
+    out: set[tuple[str, str]] = set()
+    for module in registry.get("modules") or []:
+        for slot in (registry.get("slots_by_module") or {}).get(module) or []:
+            token = str(slot).strip().upper()
+            if token.startswith("C"):
+                out.add((str(module).strip().upper(), token))
+    return out
+
+
+def _slot_owner_keys(school: Any, class_id: int, module: str, slot: str) -> set[str]:
+    """Real run keys that currently own one slot on Lesson Slides.
+
+    Covers the stored row, the real catch-up link, and ended real runs the
+    table falls back to.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        module: Module token such as ``M4``.
+        slot: Class slot such as ``C3``.
+    """
+    from lesson_slides_table import _real_runs_outside_latest
+
+    cid = int(class_id)
+    keys: set[str] = set()
+    with school._lock:
+        for table in ("lesson_slides_latest", "catchup_links"):
+            for row in school.conn.execute(
+                f"""
+                SELECT run_key FROM {table}
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                  AND COALESCE(is_test, 0) = 0
+                """,
+                (cid, module, slot),
+            ).fetchall():
+                if str(row["run_key"] or "").strip():
+                    keys.add(str(row["run_key"]).strip())
+    run = _real_runs_outside_latest(school, cid).get((module, slot))
+    if run and str(run.get("run_key") or "").strip():
+        keys.add(str(run["run_key"]).strip())
+    return keys
+
+
+def _previous_slot_run(
+    school: Any, class_id: int, module: str, slot: str, *, skip_key: str
+) -> dict[str, Any] | None:
+    """Newest other ended real run in one slot, for rebuilding its row.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        module: Module token.
+        slot: Class slot.
+        skip_key: Run being moved away; never returned.
+    """
+    from lesson_slides_table import _real_runs_outside_latest
+
+    run = _real_runs_outside_latest(school, int(class_id)).get((module, slot))
+    if not run or str(run.get("run_key") or "") == skip_key:
+        return None
+    key = str(run["run_key"])
+    if (module, slot, 0, key) in school.lesson_slides_dismissed_keys(int(class_id)):
+        return None
+    out = dict(run)
+    with school._lock:
+        session = school.conn.execute(
+            """
+            SELECT id, session_code, ended_at FROM live_class_sessions
+            WHERE class_id = ? AND run_key = ? AND COALESCE(is_test, 0) = 0
+            ORDER BY id DESC LIMIT 1
+            """,
+            (int(class_id), key),
+        ).fetchone()
+    if session is not None:
+        out["live_session_id"] = int(session["id"])
+        out["session_code"] = str(session["session_code"] or "")
+        out["ended_at"] = str(out.get("ended_at") or session["ended_at"] or "")
+    return out
+
+
+def move_lesson_slides_run(
+    school: Any,
+    session_id: int,
+    to_module: str,
+    to_slot: str,
+    *,
+    apply: bool = False,
+) -> list[str]:
+    """Move one ended real class from the slot it was started as to another.
+
+    Run Live Class saves a run under the module and class picked at Set
+    Class. Picking the wrong one makes End replace that slot's Lesson
+    Slides row and take over its catch-up link, so the earlier class in
+    that slot drops off. This relabels every row of the run (teacher
+    state, participation items and answers, result snapshots, team
+    items, deletions, exit feedback for that meeting date), stores it on
+    the target slot with the deck link Lesson Slides showed for it and its
+    own join code, then rebuilds the source slot from the newest earlier
+    real run there. That run gets its old catch-up token and join code
+    back. With no earlier run the source slot's row is removed.
+
+    Dry-run unless ``apply``. All writes are in one transaction.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        session_id: ``live_class_sessions.id`` of the mislabelled class.
+        to_module: Target module, such as ``M4``.
+        to_slot: Target class slot, such as ``C3``.
+        apply: Write rows. Default prints the plan only.
+
+    Returns:
+        Lines describing each step, prefixed ``would`` on a dry run.
+
+    Raises:
+        ValueError: The session is missing, open, a test, not a saved real
+            run, already in the target slot, the target is not a class in
+            this course, or another real run already owns the target.
+    """
+    diag = diagnose_session(school, int(session_id))
+    if diag is None:
+        raise ValueError(f"session {session_id} not found")
+    if diag.status != "ended":
+        raise ValueError(f"session {session_id} is still open; end it first")
+    if diag.is_test:
+        raise ValueError(f"session {session_id} is a test class")
+    if not diag.run_key or diag.run_is_real is not True or diag.run_discarded:
+        raise ValueError(
+            f"session {session_id} has no saved real run; run restore-lesson-slides --apply first"
+        )
+    cid = diag.class_id
+    sid = diag.session_id
+    key = diag.run_key
+    src_mod, src_slot = diag.module, diag.slot
+    tgt_mod, tgt_slot = parse_slot_token(f"{to_module}{to_slot}")
+    if (src_mod, src_slot) == (tgt_mod, tgt_slot):
+        raise ValueError(f"session {session_id} is already {tgt_mod} {tgt_slot}")
+    catalogue = _catalogue_slots(diag.course)
+    if catalogue and (tgt_mod, tgt_slot) not in catalogue:
+        raise ValueError(f"{tgt_mod} {tgt_slot} is not a live class in {diag.course or 'this course'}")
+    others = _slot_owner_keys(school, cid, tgt_mod, tgt_slot) - {key}
+    if others:
+        raise ValueError(
+            f"{tgt_mod} {tgt_slot} already has a saved real class; "
+            "delete it from Lesson Slides first so nothing is overwritten"
+        )
+
+    with school._lock:
+        session = dict(
+            school.conn.execute(
+                "SELECT * FROM live_class_sessions WHERE id = ?", (sid,)
+            ).fetchone()
+        )
+        stored = school.conn.execute(
+            """
+            SELECT * FROM lesson_slides_latest
+            WHERE class_id = ? AND live_module = ? AND live_slot = ?
+              AND COALESCE(is_test, 0) = 0
+            """,
+            (cid, src_mod, src_slot),
+        ).fetchone()
+        link = school.conn.execute(
+            "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ?",
+            (cid, key),
+        ).fetchone()
+    stored = dict(stored) if stored is not None else None
+    link = dict(link) if link is not None else None
+    stored_is_ours = stored is not None and str(stored.get("run_key") or "") == key
+    deck_url = (
+        str(stored.get("presentation_url") or "") if stored_is_ours else ""
+    ) or str(session.get("presentation_url") or "")
+    ended_at = str(session.get("ended_at") or diag.ended_at or "")
+    code = str(session.get("session_code") or "")
+    meeting_date = str(session.get("meeting_date") or "").strip()
+
+    verb = "" if apply else "would "
+    lines = [diag.summary_line()]
+    lines.append(f"{verb}move this class from {src_mod} {src_slot} to {tgt_mod} {tgt_slot}")
+    lines.append(f"  deck link kept for {tgt_mod} {tgt_slot}: {deck_url or '(none)'}")
+    target_deck = _slot_deck_url(school, cid, tgt_mod, tgt_slot)
+    if target_deck and target_deck != deck_url:
+        lines.append(f"  note: the {tgt_mod} {tgt_slot} deck is a different file: {target_deck}")
+
+    if not apply:
+        rows = _relabel_run_rows(
+            school, cid, key, src_mod, src_slot, tgt_mod, tgt_slot, meeting_date, apply=False
+        )
+        lines.append(_relabel_line(verb, rows))
+        _append_previous_line(
+            lines, verb, src_mod, src_slot,
+            _previous_slot_run_preview(school, cid, src_mod, src_slot, key),
+        )
+        return lines
+
+    with school._lock:
+        school.conn.execute("BEGIN IMMEDIATE")
+        try:
+            # Relabel first so the source slot's earlier run is found without this one.
+            rows = _relabel_run_rows(
+                school, cid, key, src_mod, src_slot, tgt_mod, tgt_slot, meeting_date, apply=True
+            )
+            lines.append(_relabel_line(verb, rows))
+            previous = _previous_slot_run(school, cid, src_mod, src_slot, skip_key=key)
+            _append_previous_line(lines, verb, src_mod, src_slot, previous)
+            now = datetime.now().replace(microsecond=0).isoformat()
+            old_token = str(link["token"]) if link else ""
+            if link:
+                school.conn.execute("DELETE FROM catchup_links WHERE id = ?", (int(link["id"]),))
+            if stored_is_ours:
+                school.conn.execute(
+                    """
+                    DELETE FROM lesson_slides_latest
+                    WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                      AND COALESCE(is_test, 0) = 0
+                    """,
+                    (cid, src_mod, src_slot),
+                )
+            school._upsert_real_catchup_link_unlocked(
+                cid,
+                key,
+                tgt_mod,
+                tgt_slot,
+                now=now,
+                live_session_id=sid,
+                join_code=code,
+                ended_at=ended_at,
+                refresh_window=True,
+            )
+            school._upsert_lesson_slides_latest_unlocked(
+                sid,
+                class_id=cid,
+                run_key=key,
+                module=tgt_mod,
+                slot=tgt_slot,
+                ended_at=ended_at,
+                session_code=code,
+            )
+            if deck_url:
+                school.conn.execute(
+                    """
+                    UPDATE lesson_slides_latest SET presentation_url = ?
+                    WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                      AND COALESCE(is_test, 0) = 0
+                    """,
+                    (deck_url, cid, tgt_mod, tgt_slot),
+                )
+            if previous:
+                _rebuild_slot_unlocked(
+                    school, cid, src_mod, src_slot, previous, old_token=old_token, now=now
+                )
+            elif old_token:
+                school.conn.execute(
+                    "UPDATE catchup_links SET token = ? WHERE class_id = ? AND run_key = ?",
+                    (old_token, cid, key),
+                )
+            school.conn.execute("COMMIT")
+        except Exception:
+            school.conn.execute("ROLLBACK")
+            raise
+    after = diagnose_session(school, sid)
+    lines.append(
+        f"on_lesson_slides=yes as {tgt_mod} {tgt_slot}"
+        if after is not None and after.shown and (after.module, after.slot) == (tgt_mod, tgt_slot)
+        else "on_lesson_slides=no"
+    )
+    return lines
+
+
+def _relabel_line(verb: str, rows: dict[str, int]) -> str:
+    """One output line with the row count per relabelled table.
+
+    Args:
+        verb: ``""`` or ``"would "``.
+        rows: Counts from ``_relabel_run_rows``.
+    """
+    return f"{verb}relabel " + ", ".join(f"{name}={count}" for name, count in rows.items())
+
+
+def _append_previous_line(
+    lines: list[str], verb: str, module: str, slot: str, previous: dict[str, Any] | None
+) -> None:
+    """Say what happens to the source slot after the move.
+
+    Args:
+        lines: Output lines, appended in place.
+        verb: ``""`` or ``"would "``.
+        module: Source module.
+        slot: Source slot.
+        previous: Earlier run in that slot, or ``None``.
+    """
+    if previous:
+        lines.append(
+            f"{verb}put {module} {slot} back to its earlier class "
+            f"(session={previous.get('live_session_id') or '?'}, "
+            f"ended {_toronto_clock(str(previous.get('ended_at') or ''))})"
+        )
+    else:
+        lines.append(f"{verb}clear {module} {slot}: no earlier real class was found there")
+
+
+def _slot_deck_url(school: Any, class_id: int, module: str, slot: str) -> str:
+    """Deck link stored for one ``M``/``C`` slot, or ``""``.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        module: Module token.
+        slot: Class slot.
+    """
+    try:
+        deck = school.get_lesson_slide_deck(int(class_id), int(module[1:]), int(slot[1:]))
+    except (TypeError, ValueError):
+        return ""
+    return str((deck or {}).get("presentation_url") or "")
+
+
+def _relabel_run_rows(
+    school: Any,
+    class_id: int,
+    run_key: str,
+    src_mod: str,
+    src_slot: str,
+    tgt_mod: str,
+    tgt_slot: str,
+    meeting_date: str,
+    *,
+    apply: bool,
+) -> dict[str, int]:
+    """Count, and on ``apply`` rewrite, every module/slot field of one run.
+
+    Does not commit; ``move_lesson_slides_run`` commits once at the end.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        run_key: Run being moved.
+        src_mod: Module the run was saved as.
+        src_slot: Slot the run was saved as.
+        tgt_mod: Module to save it as.
+        tgt_slot: Slot to save it as.
+        meeting_date: Session meeting date; scopes exit feedback, which has
+            no run key. Empty skips feedback.
+        apply: Write the changes instead of only counting.
+
+    Returns:
+        Row counts by table.
+    """
+    cid = int(class_id)
+    by_run = (
+        ("participation_items", True),
+        ("participation_answers", False),
+        ("live_result_snapshots", True),
+        ("group_engagement_items", True),
+        ("lesson_slides_dismissed", True),
+    )
+    counts: dict[str, int] = {}
+    with school._lock:
+        for table, has_slot in by_run:
+            counts[table] = int(
+                school.conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE class_id = ? AND run_key = ?",
+                    (cid, run_key),
+                ).fetchone()[0]
+            )
+            if apply and counts[table]:
+                assign = "live_module = ?, live_slot = ?" if has_slot else "live_module = ?"
+                params: tuple[Any, ...] = (tgt_mod, tgt_slot) if has_slot else (tgt_mod,)
+                school.conn.execute(
+                    f"UPDATE {table} SET {assign} WHERE class_id = ? AND run_key = ?",
+                    (*params, cid, run_key),
+                )
+        feedback_where = (
+            "class_id = ? AND meeting_date = ? AND UPPER(live_module) = ? AND UPPER(live_slot) = ?"
+        )
+        feedback_args = (cid, meeting_date, src_mod, src_slot)
+        counts["live_class_feedback"] = (
+            int(
+                school.conn.execute(
+                    f"SELECT COUNT(*) FROM live_class_feedback WHERE {feedback_where}",
+                    feedback_args,
+                ).fetchone()[0]
+            )
+            if meeting_date
+            else 0
+        )
+        if apply and counts["live_class_feedback"]:
+            school.conn.execute(
+                f"UPDATE live_class_feedback SET live_module = ?, live_slot = ? WHERE {feedback_where}",
+                (tgt_mod, tgt_slot, *feedback_args),
+            )
+        sessions = school.conn.execute(
+            "SELECT id, teacher_state_json FROM live_class_sessions WHERE class_id = ? AND run_key = ?",
+            (cid, run_key),
+        ).fetchall()
+        counts["live_class_sessions"] = len(sessions)
+        if apply:
+            for row in sessions:
+                try:
+                    state = json.loads(row["teacher_state_json"] or "{}")
+                except (TypeError, ValueError):
+                    state = {}
+                if not isinstance(state, dict):
+                    state = {}
+                state["live_module"] = tgt_mod
+                state["live_slot"] = tgt_slot
+                school.conn.execute(
+                    "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+                    (json.dumps(state), int(row["id"])),
+                )
+    return counts
+
+
+def _previous_slot_run_preview(
+    school: Any, class_id: int, module: str, slot: str, run_key: str
+) -> dict[str, Any] | None:
+    """Dry-run lookup of the earlier run in a slot, ignoring the moved run.
+
+    The live fallback still sees the moved run in the source slot on a dry
+    run, so this asks inside a savepoint that is rolled back.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        module: Source module.
+        slot: Source slot.
+        run_key: Run being moved.
+    """
+    with school._lock:
+        school.conn.execute("SAVEPOINT move_preview")
+    try:
+        _relabel_run_rows(school, class_id, run_key, module, slot, "M0", "C0", "", apply=True)
+        return _previous_slot_run(school, class_id, module, slot, skip_key=run_key)
+    finally:
+        with school._lock:
+            school.conn.execute("ROLLBACK TO SAVEPOINT move_preview")
+            school.conn.execute("RELEASE SAVEPOINT move_preview")
+
+
+def _rebuild_slot_unlocked(
+    school: Any,
+    class_id: int,
+    module: str,
+    slot: str,
+    previous: dict[str, Any],
+    *,
+    old_token: str,
+    now: str,
+) -> None:
+    """Write the source slot's row and catch-up link for its earlier run.
+
+    The earlier run gets back the catch-up token it had before End took it,
+    and its own join code when that code is still free. Caller holds the
+    lock and commits.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        module: Source module.
+        slot: Source slot.
+        previous: Entry from ``_previous_slot_run``.
+        old_token: Token the moved run's link carried, or ``""``.
+        now: Current time for ``created_at`` / ``updated_at``.
+    """
+    cid = int(class_id)
+    key = str(previous["run_key"])
+    sid = previous.get("live_session_id")
+    code = str(previous.get("session_code") or "")
+    if code and school.conn.execute(
+        "SELECT 1 FROM catchup_links WHERE portal_join_code = ? LIMIT 1", (code,)
+    ).fetchone():
+        code = ""
+    ended_at = str(previous.get("ended_at") or "")
+    school.conn.execute(
+        "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?", (cid, key)
+    )
+    school._upsert_real_catchup_link_unlocked(
+        cid,
+        key,
+        module,
+        slot,
+        now=now,
+        live_session_id=int(sid) if sid else None,
+        join_code=code or None,
+        ended_at=ended_at or None,
+        refresh_window=True,
+    )
+    if old_token:
+        school.conn.execute(
+            "UPDATE catchup_links SET token = ? WHERE class_id = ? AND run_key = ?",
+            (old_token, cid, key),
+        )
+    school._upsert_lesson_slides_latest_unlocked(
+        int(sid) if sid else None,
+        class_id=cid,
+        run_key=key,
+        module=module,
+        slot=slot,
+        ended_at=ended_at,
+        session_code=str(previous.get("session_code") or ""),
+    )

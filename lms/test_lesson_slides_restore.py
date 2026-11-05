@@ -19,6 +19,9 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from cli import register_cli  # noqa: E402
 from lesson_slides_restore import (  # noqa: E402
     diagnose_lesson_slides_day,
+    diagnose_session,
+    move_lesson_slides_run,
+    parse_slot_token,
     restore_lesson_slides_session,
 )
 from lesson_slides_table import build_lesson_slides_table  # noqa: E402
@@ -264,6 +267,173 @@ class RestoreLessonSlidesTests(_RestoreFixture):
         self.assertEqual(diagnose_lesson_slides_day(self.school, DAY, course="MCF3M"), [])
 
 
+M4C1_DECK = "https://docs.google.com/presentation/d/m4c1-deck/edit"
+EARLIER_STARTED_UTC = "2026-11-02T19:05:00"
+EARLIER_ENDED_UTC = "2026-11-02T20:20:00"
+
+
+class MoveLessonSlidesRunTests(_RestoreFixture):
+    """A class started under the wrong slot moves and the slot it took is rebuilt."""
+
+    def _ended_real_class(self, module: str, slot: str, *, started: str, ended: str) -> int:
+        """Run one class to End as a real class with fixed start and end times.
+
+        Args:
+            module: Teacher module.
+            slot: Teacher slot.
+            started: Zone-less UTC start.
+            ended: Zone-less UTC end.
+
+        Returns:
+            ``live_class_sessions.id``.
+        """
+        sid = self._class_with_one_answer(module, slot)
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET started_at = ?, meeting_date = ? WHERE id = ?",
+            (started, started[:10], sid),
+        )
+        self.school.finish_live_class(self.class_id, celebrate=True, live_run=True)
+        c = self.school.conn
+        key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0])
+        self.school.set_participation_run_real(self.class_id, key, True)
+        c.execute("UPDATE live_class_sessions SET ended_at = ? WHERE id = ?", (ended, sid))
+        c.execute(
+            "UPDATE participation_runs SET ended_at = ? WHERE class_id = ? AND run_key = ?",
+            (ended, self.class_id, key),
+        )
+        c.execute(
+            "UPDATE lesson_slides_latest SET ended_at = ? WHERE class_id = ? AND run_key = ?",
+            (ended, self.class_id, key),
+        )
+        c.commit()
+        return sid
+
+    def _session(self, sid: int) -> dict:
+        """Run key and join code of one session.
+
+        Args:
+            sid: ``live_class_sessions.id``.
+        """
+        row = self.school.conn.execute(
+            "SELECT run_key, session_code FROM live_class_sessions WHERE id = ?", (sid,)
+        ).fetchone()
+        return {"run_key": str(row[0]), "code": str(row[1])}
+
+    def _link(self, run_key: str) -> dict | None:
+        """Catch-up link row for one run, or ``None``.
+
+        Args:
+            run_key: Participation run key.
+        """
+        row = self.school.conn.execute(
+            "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ?",
+            (self.class_id, run_key),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def setUp(self) -> None:
+        """Give M4 C1 its own deck link."""
+        super().setUp()
+        self.school.upsert_lesson_slide_deck(
+            self.class_id, 4, 1, presentation_id="m4c1-deck", presentation_url=M4C1_DECK
+        )
+
+    def test_wrong_slot_moves_and_the_earlier_class_comes_back(self) -> None:
+        """Nov 4 saved as M4 C1 moves to M4 C3; Nov 2's M4 C1 gets its row and link back."""
+        earlier = self._ended_real_class(
+            "M4", "C1", started=EARLIER_STARTED_UTC, ended=EARLIER_ENDED_UTC
+        )
+        a = self._session(earlier)
+        a_token = self._link(a["run_key"])["token"]
+        wrong = self._ended_real_class("M4", "C1", started=STARTED_UTC, ended=ENDED_UTC)
+        b = self._session(wrong)
+        self.school.conn.execute(
+            "INSERT INTO live_class_feedback (class_id, codename, meeting_date, token, mood, "
+            "live_module, live_slot, created_at) VALUES (?, 'Maple', '2026-11-04', 'fb', 4, "
+            "'M4', 'C1', ?)",
+            (self.class_id, ENDED_UTC),
+        )
+        self.school.conn.commit()
+
+        self.assertEqual(self._row("M4C1")["run_key"], b["run_key"])
+        self.assertIsNone(self._link(a["run_key"]))
+        self.assertEqual(self._link(b["run_key"])["token"], a_token)
+        self.assertFalse(self._row("M4C3")["has_run"])
+
+        before = self._counts()
+        plan = move_lesson_slides_run(self.school, wrong, "M4", "C3")
+        self.assertEqual(self._counts(), before)
+        self.assertEqual(self._row("M4C1")["run_key"], b["run_key"])
+        self.assertIn("would move this class from M4 C1 to M4 C3", plan)
+        self.assertTrue(any(f"(session={earlier}," in line for line in plan), plan)
+        self.assertTrue(any("live_class_feedback=1" in line for line in plan), plan)
+
+        done = move_lesson_slides_run(self.school, wrong, "M4", "C3", apply=True)
+        self.assertEqual(done[-1], "on_lesson_slides=yes as M4 C3")
+
+        moved = self._row("M4C3")
+        self.assertEqual(moved["run_key"], b["run_key"])
+        self.assertEqual(moved["deck_url"], M4C1_DECK)
+        restored = self._row("M4C1")
+        self.assertEqual(restored["run_key"], a["run_key"])
+        self.assertEqual(restored["deck_url"], M4C1_DECK)
+
+        a_link = self._link(a["run_key"])
+        b_link = self._link(b["run_key"])
+        self.assertEqual((a_link["live_module"], a_link["live_slot"]), ("M4", "C1"))
+        self.assertEqual(a_link["token"], a_token)
+        self.assertEqual(a_link["portal_join_code"], a["code"])
+        self.assertEqual((b_link["live_module"], b_link["live_slot"]), ("M4", "C3"))
+        self.assertEqual(b_link["portal_join_code"], b["code"])
+        self.assertNotEqual(b_link["token"], a_token)
+
+        c = self.school.conn
+        slots = {
+            tuple(r)
+            for r in c.execute(
+                "SELECT live_module, live_slot FROM participation_items WHERE class_id = ? AND run_key = ?",
+                (self.class_id, b["run_key"]),
+            )
+        }
+        self.assertEqual(slots, {("M4", "C3")})
+        feedback = c.execute("SELECT live_module, live_slot FROM live_class_feedback").fetchone()
+        self.assertEqual(tuple(feedback), ("M4", "C3"))
+        diag = diagnose_session(self.school, wrong)
+        self.assertEqual((diag.module, diag.slot), ("M4", "C3"))
+        self.assertEqual((diagnose_session(self.school, earlier).module,), ("M4",))
+
+        with self.assertRaisesRegex(ValueError, "already has a saved real class"):
+            move_lesson_slides_run(self.school, wrong, "M4", "C1")
+        with self.assertRaisesRegex(ValueError, "already M4 C3"):
+            move_lesson_slides_run(self.school, wrong, "M4", "C3")
+
+    def test_move_without_an_earlier_class_clears_the_slot(self) -> None:
+        """With nothing earlier in M4 C1 the slot is emptied and the link token kept."""
+        sid = self._ended_real_class("M4", "C1", started=STARTED_UTC, ended=ENDED_UTC)
+        b = self._session(sid)
+        token = self._link(b["run_key"])["token"]
+        plan = move_lesson_slides_run(self.school, sid, "M4", "C3")
+        self.assertIn("would clear M4 C1: no earlier real class was found there", plan)
+        move_lesson_slides_run(self.school, sid, "M4", "C3", apply=True)
+        self.assertFalse(self._row("M4C1")["has_run"])
+        self.assertEqual(self._row("M4C3")["run_key"], b["run_key"])
+        self.assertEqual(self._link(b["run_key"])["token"], token)
+
+    def test_refuses_unsaved_and_unknown_targets(self) -> None:
+        """A run never saved as real, or a slot the course lacks, is refused."""
+        sid = self._class_with_one_answer("M4", "C1")
+        self._close_take_attendance_card(sid)
+        with self.assertRaisesRegex(ValueError, "no saved real run"):
+            move_lesson_slides_run(self.school, sid, "M4", "C3")
+        ended = self._ended_real_class("M4", "C2", started=STARTED_UTC, ended=ENDED_UTC)
+        with self.assertRaisesRegex(ValueError, "not a live class"):
+            move_lesson_slides_run(self.school, ended, "M4", "C9")
+        with self.assertRaises(ValueError):
+            parse_slot_token("Module 4")
+        self.assertEqual(parse_slot_token("m4 c3"), ("M4", "C3"))
+        self.assertEqual(parse_slot_token("M4·C3"), ("M4", "C3"))
+
+
 class RestoreLessonSlidesCliTests(_RestoreFixture):
     """The ``restore-lesson-slides`` command is dry-run unless applied."""
 
@@ -335,6 +505,42 @@ class RestoreLessonSlidesCliTests(_RestoreFixture):
         finally:
             os.environ.pop("FLY_APP_NAME", None)
         self.assertTrue(self._row("M2C1")["has_run"])
+
+    def test_move_to_dry_runs_then_needs_the_move_phrase(self) -> None:
+        """--move-to plans first and, on Fly, applies only after MOVE:<id>:<slot>."""
+        sid = self._class_with_one_answer("M2", "C1")
+        self.school.finish_live_class(self.class_id, celebrate=True, live_run=True)
+        key = str(
+            self.school.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)
+            ).fetchone()[0]
+        )
+        self.school.set_participation_run_real(self.class_id, key, True)
+        self.assertNotEqual(
+            self.runner.invoke(args=["restore-lesson-slides", "--date", "2026-11-04", "--move-to", "M2C3"]).exit_code,
+            0,
+        )
+        dry = self.runner.invoke(args=["restore-lesson-slides", "--session", str(sid), "--move-to", "M2C3"])
+        self.assertEqual(dry.exit_code, 0, dry.output)
+        self.assertIn("move lesson slides run to M2 C3 (DRY RUN)", dry.output)
+        self.assertIn("would move this class from M2 C1 to M2 C3", dry.output)
+        self.assertTrue(self._row("M2C1")["has_run"])
+        os.environ["FLY_APP_NAME"] = "lloves-lms"
+        try:
+            args = [
+                "restore-lesson-slides", "--session", str(sid), "--move-to", "M2C3",
+                "--apply", "--i-know-this-is-prod",
+            ]
+            wrong = self.runner.invoke(args=args, input=f"RESTORE:{sid}\n")
+            self.assertNotEqual(wrong.exit_code, 0)
+            self.assertTrue(self._row("M2C1")["has_run"])
+            ok = self.runner.invoke(args=args, input=f"MOVE:{sid}:M2C3\n")
+            self.assertEqual(ok.exit_code, 0, ok.output)
+            self.assertIn("moved_to=M2C3", ok.output)
+        finally:
+            os.environ.pop("FLY_APP_NAME", None)
+        self.assertFalse(self._row("M2C1")["has_run"])
+        self.assertEqual(self._row("M2C3")["run_key"], key)
 
 
 if __name__ == "__main__":

@@ -327,6 +327,12 @@ def register_cli(app: Flask) -> None:
         help="live_class_sessions.id to restore as a real class.",
     )
     @click.option(
+        "--move-to",
+        "move_to",
+        default=None,
+        help="Move --session to this class slot, e.g. M4C3, and rebuild the slot it overwrote.",
+    )
+    @click.option(
         "--apply",
         is_flag=True,
         default=False,
@@ -344,6 +350,7 @@ def register_cli(app: Flask) -> None:
         course: str | None,
         class_id: int | None,
         session_id: int | None,
+        move_to: str | None,
         apply: bool,
         prod_override: bool,
     ) -> None:
@@ -351,18 +358,24 @@ def register_cli(app: Flask) -> None:
 
         With ``--date`` it lists every session that started that day and
         how it ended. With ``--session`` it plans (or, with ``--apply``,
-        writes) the restore for that one session. Nothing is written
-        without ``--apply``.
+        writes) the restore for that one session. With ``--move-to`` it
+        instead moves a saved class started under the wrong module/class
+        and rebuilds the slot it overwrote. Nothing is written without
+        ``--apply``.
         """
         from datetime import date as _date
 
         from lesson_slides_restore import (
             diagnose_lesson_slides_day,
+            move_lesson_slides_run,
+            parse_slot_token,
             restore_lesson_slides_session,
         )
 
         if not day and session_id is None:
             raise click.ClickException("Provide --date to list sessions, or --session to restore one.")
+        if move_to and session_id is None:
+            raise click.ClickException("--move-to requires --session.")
         if apply and session_id is None:
             raise click.ClickException("--apply requires --session.")
         if apply and _is_production_env() and not prod_override:
@@ -387,25 +400,52 @@ def register_cli(app: Flask) -> None:
                 click.echo("  " + diag.summary_line())
         if session_id is None:
             return
+        target: tuple[str, str] | None = None
+        if move_to:
+            try:
+                target = parse_slot_token(move_to)
+            except ValueError as exc:
+                raise click.ClickException(str(exc)) from exc
+
+        def run(write: bool) -> list[str]:
+            """Plan or apply the restore, or the move when ``--move-to`` is set."""
+            if target is not None:
+                return move_lesson_slides_run(
+                    school, int(session_id), target[0], target[1], apply=write
+                )
+            return restore_lesson_slides_session(school, int(session_id), apply=write)
+
+        title = (
+            f"move lesson slides run to {target[0]} {target[1]}" if target else "restore lesson slides"
+        )
         try:
-            plan = restore_lesson_slides_session(school, int(session_id), apply=False)
+            plan = run(False)
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
-        click.echo("restore lesson slides (DRY RUN)")
+        click.echo(f"{title} (DRY RUN)")
         for line in plan:
             click.echo("  " + line)
         if not apply:
             return
         if prod_override:
-            phrase = f"RESTORE:{int(session_id)}"
+            phrase = (
+                f"MOVE:{int(session_id)}:{target[0]}{target[1]}"
+                if target
+                else f"RESTORE:{int(session_id)}"
+            )
             typed = click.prompt(f"Type {phrase} to confirm apply", type=str).strip()
             if typed != phrase:
                 raise click.ClickException("Confirmation did not match; aborting.")
-        done = restore_lesson_slides_session(school, int(session_id), apply=True)
-        click.echo("restore lesson slides (APPLIED)")
+        try:
+            done = run(True)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"{title} (APPLIED)")
         for line in done:
             click.echo("  " + line)
-        audit = f"lesson_slides_restore_audit session={int(session_id)}"
+        audit = f"lesson_slides_restore_audit session={int(session_id)}" + (
+            f" moved_to={target[0]}{target[1]}" if target else ""
+        )
         click.echo(audit)
         logger.warning(audit)
 
