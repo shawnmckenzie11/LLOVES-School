@@ -92,8 +92,8 @@ if (failed.length) {
         self.assertIn("setClassStartFields(mode)", start)
 
 
-class SetClassFlowPageTests(unittest.TestCase):
-    """The new questions render, and the switch sits only on lists it filters."""
+class _SetClassPageFixture(unittest.TestCase):
+    """Signed-in teacher with one MCF3M class."""
 
     def setUp(self) -> None:
         """Isolated app with one MCF3M class."""
@@ -132,6 +132,10 @@ class SetClassFlowPageTests(unittest.TestCase):
     def _page(self, **query: str) -> str:
         """Return one staff course page."""
         return self.client.get(f"/staff/class/{self.class_id}", query_string=query).get_data(as_text=True)
+
+
+class SetClassFlowPageTests(_SetClassPageFixture):
+    """The new questions render, and the switch sits only on lists it filters."""
 
     def test_set_class_asks_one_question_at_a_time(self) -> None:
         """The three start choices replace Session type and Run as."""
@@ -236,6 +240,92 @@ class SetClassFlowPageTests(unittest.TestCase):
             )
         ]
         self.assertIn("holdSetClassForwardActions()", sync)
+
+
+class SavedSlotConfirmTests(_SetClassPageFixture):
+    """Start asks before replacing a class already saved for that slot."""
+
+    def _save_real_class(self, module: str, slot: str, ended_utc: str) -> None:
+        """Store one real Lesson Slides row, as End writes it.
+
+        Args:
+            module: Module token.
+            slot: Class slot.
+            ended_utc: Zone-less UTC end time.
+        """
+        with self.school._lock:
+            self.school._upsert_lesson_slides_latest_unlocked(
+                None,
+                class_id=self.class_id,
+                run_key=f"run-{module}{slot}",
+                module=module,
+                slot=slot,
+                ended_at=ended_utc,
+                session_code="",
+            )
+
+    def test_picker_lists_saved_real_classes_in_toronto_time(self) -> None:
+        """Real C rows are listed; test rows and open office are not."""
+        self._save_real_class("M4", "C1", "2026-11-04T20:13:00")
+        self._save_real_class("M4", "O1", "2026-11-04T21:00:00")
+        with self.school._lock:
+            self.school._upsert_lesson_slides_latest_unlocked(
+                None,
+                class_id=self.class_id,
+                run_key="test-run",
+                module="M4",
+                slot="C2",
+                ended_at="2026-11-04T20:13:00",
+                session_code="",
+                is_test=True,
+            )
+        saved = self.school.set_class_picker(self.class_id)["saved"]
+        self.assertEqual(saved, {"M4C1": "Wed, Nov 4, 3:13 PM"})
+        html = self._page(tab="live")
+        self.assertIn("data-saved-slots='{\"M4C1\": \"Wed, Nov 4, 3:13 PM\"}'", html)
+        self.assertIn('id="set-class-saved-dialog"', html)
+        self.assertIn(">Change class number<", html)
+        self.assertIn('value="override"', html)
+
+    def test_conflict_and_prompt_copy(self) -> None:
+        """Only a live pick of a saved slot asks; the copy names the slot and time."""
+        script = r"""
+import { savedSlotConflict, savedSlotPrompt } from "./static/set_class_mode.js";
+const saved = { M4C1: "Wed, Nov 4, 3:13 PM" };
+const failed = [];
+function check(cond, message) { if (!cond) failed.push(message); }
+const hit = savedSlotConflict(saved, { mode: "live", module: "m4", slot: "c1" });
+check(hit && hit.module === "M4" && hit.slot === "C1" && hit.when === "Wed, Nov 4, 3:13 PM", "hit");
+check(savedSlotConflict(saved, { mode: "live", module: "M4", slot: "C3" }) === null, "free slot");
+check(savedSlotConflict(saved, { mode: "office", module: "M4", slot: "C1" }) === null, "office");
+check(savedSlotConflict(null, { mode: "live", module: "M4", slot: "C1" }) === null, "no map");
+const copy = savedSlotPrompt(hit);
+check(copy.title === "Module 4, Class 1 already has a saved class", copy.title);
+check(copy.body.startsWith("Lesson Slides has a class from Wed, Nov 4, 3:13 PM saved as Module 4, Class 1."), copy.body);
+check(copy.override === "Override M4 C1", copy.override);
+if (failed.length) { console.error(failed.join("\n")); process.exit(1); }
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=LMS_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_start_asks_before_reserving_the_scoreboard(self) -> None:
+        """The confirm runs before the popup is reserved and before /begin."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        at = js.index('$("set-class-start")?.addEventListener("click"')
+        handler = js[at : js.index("});", at)]
+        self.assertLess(
+            handler.index("await confirmSavedSlotStart()"),
+            handler.index("reserveLiveSessionOverlay()"),
+        )
+        confirm = js[js.index("async function confirmSavedSlotStart") : js.index("function openOfficeNextMap")]
+        self.assertIn('if (choice === "override") return true;', confirm)
+        self.assertIn('$("live-class-select")?.focus();', confirm)
 
 
 if __name__ == "__main__":

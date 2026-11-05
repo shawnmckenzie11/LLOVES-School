@@ -47,6 +47,48 @@ export function setClassStartFields(mode) {
 }
 
 /**
+ * The saved class a live start would replace, or ``null``.
+ *
+ * End keeps one Lesson Slides row and one catch-up link per module and
+ * class, so starting a slot that already has a saved real class replaces
+ * it. Open office always takes the next unused number, so it never asks.
+ *
+ * @param {Record<string, string>|null|undefined} saved ``M4C1`` → Toronto time label.
+ * @param {{mode?: string, module?: string, slot?: string}} pick
+ * @returns {{module: string, slot: string, when: string}|null}
+ */
+export function savedSlotConflict(saved, pick) {
+  if (pick?.mode === "office") return null;
+  const module = String(pick?.module || "").trim().toUpperCase();
+  const slot = String(pick?.slot || "").trim().toUpperCase();
+  if (!module || !slot.startsWith("C") || !saved || typeof saved !== "object") return null;
+  const key = `${module}${slot}`;
+  if (!Object.prototype.hasOwnProperty.call(saved, key)) return null;
+  return { module, slot, when: String(saved[key] || "").trim() };
+}
+
+/**
+ * Title, body, and Override label for the saved-class prompt.
+ *
+ * @param {{module: string, slot: string, when: string}} conflict From ``savedSlotConflict``.
+ * @returns {{title: string, body: string, override: string}}
+ */
+export function savedSlotPrompt(conflict) {
+  const modNum = conflict.module.replace(/^M/, "") || conflict.module;
+  const classNum = conflict.slot.replace(/^C/, "") || conflict.slot;
+  const name = `Module ${modNum}, Class ${classNum}`;
+  const when = conflict.when ? ` from ${conflict.when}` : "";
+  return {
+    title: `${name} already has a saved class`,
+    body:
+      `Lesson Slides has a class${when} saved as ${name}. Starting this one replaces ` +
+      "that entry and its catch-up link when you end the class. Pick another class number " +
+      "if this is a different lesson.",
+    override: `Override ${conflict.module} ${conflict.slot}`,
+  };
+}
+
+/**
  * Footer line for the Set Class card.
  *
  * Live and test name the module, class, and deck. A test run says

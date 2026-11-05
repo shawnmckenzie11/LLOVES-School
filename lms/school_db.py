@@ -1276,6 +1276,29 @@ def _now() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+def _toronto_saved_label(stamp: str) -> str:
+    """Short Toronto time for a stored class, e.g. ``Wed, Nov 4, 3:13 PM``.
+
+    Args:
+        stamp: Zone-less UTC ``ended_at`` from ``lesson_slides_latest``.
+
+    Returns:
+        The label, or ``""`` when the stamp is empty or unreadable.
+    """
+    text = str(stamp or "").strip()
+    try:
+        datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    except ValueError:
+        return ""
+    try:
+        from live_class_run import parse_ended_at
+    except ImportError:
+        from lms.live_class_run import parse_ended_at
+    when = parse_ended_at(text)
+    hour = when.strftime("%I").lstrip("0") or "12"
+    return f"{when:%a, %b} {when.day}, {hour}:{when:%M %p}"
+
+
 def _utc_now() -> str:
     """Return a UTC ISO timestamp without microseconds.
 
@@ -41016,8 +41039,10 @@ class SchoolDB(LovesDB):
 
         Returns:
             ``module``, ``slot``, ``chapters``, ``label`` (``M3 · C2``),
-            ``course``, ``module_titles``, and ``open_office_next``
-            (module → ``O`` slot).
+            ``course``, ``module_titles``, ``open_office_next``
+            (module → ``O`` slot), and ``saved`` (``M4C1`` → Toronto time
+            of the real class already stored for that slot; Start asks
+            before replacing it).
         """
         try:
             from live_class_packs import live_class_registry
@@ -41055,6 +41080,7 @@ class SchoolDB(LovesDB):
                 catalogue.append((str(module).strip().upper(), token))
         pointer = self._begin_module_pointer(int(class_id))
         office_used: dict[str, list[str]] = {}
+        saved: dict[str, str] = {}
         last: tuple[str, str] | None = None
         last_at = ""
         in_module: tuple[str, str] | None = None
@@ -41068,6 +41094,8 @@ class SchoolDB(LovesDB):
                 office_used.setdefault(module, []).append(slot)
                 continue
             ended = str(row.get("ended_at") or "").strip()
+            if slot.startswith("C") and str(row.get("run_key") or "").strip():
+                saved[f"{module}{slot}"] = _toronto_saved_label(ended)
             if ended and ended >= last_at:
                 last_at = ended
                 last = (module, slot)
@@ -41133,6 +41161,7 @@ class SchoolDB(LovesDB):
                 module: next_open_office_slot(office_used.get(module, []))
                 for module in modules
             },
+            "saved": saved,
         }
 
     def _lesson_slides_questions_from_participation_unlocked(

@@ -467,6 +467,7 @@
              data-next-slot="{{ set_class.slot }}"
              data-next-label="{{ set_class.label }}"
              data-open-office-next='{{ set_class.open_office_next | tojson }}'
+             data-saved-slots='{{ (set_class.saved or {}) | tojson }}'
              data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3", "C4"]}) | tojson }}'>
           <label class="live-pack-field" for="live-course-select" hidden>
             <span>Course code</span>
@@ -591,6 +592,17 @@
           <p class="set-class-summary" id="set-class-summary">Starting live class: Module {{ set_class.module[1:] }}, Class {{ set_class.slot[1:] }}, current deck.</p>{# copy: Wonder #}
           <button type="button" class="set-class-start" id="set-class-start">Start live class</button>{# copy: Wonder #}
         </div>
+        {# Text is set by savedSlotPrompt in set_class_mode.js. #}
+        <dialog id="set-class-saved-dialog" class="end-live-dialog" aria-labelledby="set-class-saved-title">
+          <form method="dialog" class="end-live-dialog-form">
+            <h2 id="set-class-saved-title"></h2>
+            <p id="set-class-saved-body"></p>
+            <div class="end-live-dialog-actions">
+              <button type="submit" class="secondary" value="change" autofocus>Change class number</button>
+              <button type="submit" class="btn-danger" value="override" id="set-class-saved-override">Override</button>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       <div class="live-shell-body">

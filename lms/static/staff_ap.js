@@ -90,7 +90,13 @@ import {
   defaultCopyDeck,
   defaultCopySource,
 } from "/static/deck_seed_help.js";
-import { setClassPromptsForDeck, setClassStartFields, setClassSummaryLine } from "/static/set_class_mode.js";
+import {
+  savedSlotConflict,
+  savedSlotPrompt,
+  setClassPromptsForDeck,
+  setClassStartFields,
+  setClassSummaryLine,
+} from "/static/set_class_mode.js";
 import { overlayClassListPresence } from "/static/class_list_presence.js";
 import {
   GROUP_SETUP_COPY,
@@ -4011,6 +4017,50 @@ function readSetClassDefaultsFromDom() {
     slot,
     label: String(host.getAttribute("data-next-label") || `${module} · ${slot}`),
   };
+}
+
+/**
+ * Real classes already saved on Lesson Slides, ``M4C1`` → Toronto time.
+ * @returns {Record<string, string>}
+ */
+function savedSlotsMap() {
+  const host = document.getElementById("live-pack-strip");
+  try {
+    const raw = JSON.parse(host?.getAttribute("data-saved-slots") || "{}");
+    if (raw && typeof raw === "object") return raw;
+  } catch (_) {
+    /* keep empty */
+  }
+  return {};
+}
+
+/**
+ * Ask before a live start replaces a class already saved for that slot.
+ *
+ * "Change class number" returns false and focuses the Class picker, so
+ * nothing is started. "Override" (or no saved class) returns true.
+ * @returns {Promise<boolean>}
+ */
+async function confirmSavedSlotStart() {
+  const conflict = savedSlotConflict(savedSlotsMap(), {
+    mode: setClassKind === "office" ? "office" : "live",
+    module: $("live-module-select")?.value || teacherState.live_module,
+    slot: $("live-class-select")?.value || teacherState.live_slot,
+  });
+  const dialog = $("set-class-saved-dialog");
+  if (!conflict || !(dialog instanceof HTMLDialogElement)) return true;
+  const copy = savedSlotPrompt(conflict);
+  $("set-class-saved-title").textContent = copy.title;
+  $("set-class-saved-body").textContent = copy.body;
+  $("set-class-saved-override").textContent = copy.override;
+  dialog.returnValue = "";
+  const choice = await new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue), { once: true });
+    dialog.showModal();
+  });
+  if (choice === "override") return true;
+  $("live-class-select")?.focus();
+  return false;
 }
 
 /**
@@ -13421,7 +13471,8 @@ $("set-class-kind-live")?.addEventListener("click", () => {
 $("set-class-kind-office")?.addEventListener("click", () => {
   chooseSetClassStart("office");
 });
-$("set-class-start")?.addEventListener("click", () => {
+$("set-class-start")?.addEventListener("click", async () => {
+  if (!(await confirmSavedSlotStart())) return;
   const reservedWin = reserveLiveSessionOverlay();
   applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
 });
