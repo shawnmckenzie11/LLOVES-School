@@ -310,6 +310,105 @@ def register_cli(app: Flask) -> None:
             click.echo(audit_line)
             logger.warning(audit_line)
 
+    @app.cli.command("restore-lesson-slides")
+    @click.option(
+        "--date",
+        "day",
+        default=None,
+        help="Toronto date the class started, YYYY-MM-DD. Lists that day's sessions.",
+    )
+    @click.option("--course", default=None, help="Ontario course code, e.g. MCF3M")
+    @click.option("--class-id", "class_id", default=None, type=int, help="Limit to one class id.")
+    @click.option(
+        "--session",
+        "session_id",
+        default=None,
+        type=int,
+        help="live_class_sessions.id to restore as a real class.",
+    )
+    @click.option(
+        "--apply",
+        is_flag=True,
+        default=False,
+        help="Write rows (default is dry-run only).",
+    )
+    @click.option(
+        "--i-know-this-is-prod",
+        "prod_override",
+        is_flag=True,
+        default=False,
+        help="One-shot override to run --apply on production after confirmation.",
+    )
+    def restore_lesson_slides_cmd(
+        day: str | None,
+        course: str | None,
+        class_id: int | None,
+        session_id: int | None,
+        apply: bool,
+        prod_override: bool,
+    ) -> None:
+        """Explain why a live class is missing from Lesson Slides, and put it back.
+
+        With ``--date`` it lists every session that started that day and
+        how it ended. With ``--session`` it plans (or, with ``--apply``,
+        writes) the restore for that one session. Nothing is written
+        without ``--apply``.
+        """
+        from datetime import date as _date
+
+        from lesson_slides_restore import (
+            diagnose_lesson_slides_day,
+            restore_lesson_slides_session,
+        )
+
+        if not day and session_id is None:
+            raise click.ClickException("Provide --date to list sessions, or --session to restore one.")
+        if apply and session_id is None:
+            raise click.ClickException("--apply requires --session.")
+        if apply and _is_production_env() and not prod_override:
+            raise click.ClickException(
+                "Refusing --apply on production without --i-know-this-is-prod."
+            )
+        school = app.config["SCHOOL_DB"]
+        if day:
+            try:
+                parsed = _date.fromisoformat(str(day).strip())
+            except ValueError as exc:
+                raise click.ClickException("--date must be YYYY-MM-DD.") from exc
+            found = diagnose_lesson_slides_day(
+                school, parsed, class_id=class_id, course=course
+            )
+            click.echo(f"live sessions started {parsed.isoformat()} (Toronto)")
+            if not found:
+                click.echo(
+                    "  (none) — Quit deletes the session, so a Quit class leaves nothing to restore"
+                )
+            for diag in found:
+                click.echo("  " + diag.summary_line())
+        if session_id is None:
+            return
+        try:
+            plan = restore_lesson_slides_session(school, int(session_id), apply=False)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo("restore lesson slides (DRY RUN)")
+        for line in plan:
+            click.echo("  " + line)
+        if not apply:
+            return
+        if prod_override:
+            phrase = f"RESTORE:{int(session_id)}"
+            typed = click.prompt(f"Type {phrase} to confirm apply", type=str).strip()
+            if typed != phrase:
+                raise click.ClickException("Confirmation did not match; aborting.")
+        done = restore_lesson_slides_session(school, int(session_id), apply=True)
+        click.echo("restore lesson slides (APPLIED)")
+        for line in done:
+            click.echo("  " + line)
+        audit = f"lesson_slides_restore_audit session={int(session_id)}"
+        click.echo(audit)
+        logger.warning(audit)
+
     @app.cli.command("whats-new")
     @click.option(
         "--id",
@@ -436,13 +535,14 @@ def main() -> None:
         allowed_cmd = len(sys.argv) > 1 and sys.argv[1] in (
             "backfill-catchup",
             "repair-catchup",
+            "restore-lesson-slides",
             "sync-offering-live-schedules",
             "whats-new",
         )
         if not allowed_cmd:
             raise SystemExit(
                 "Refusing CLI on production except: backfill-catchup, "
-                "repair-catchup, sync-offering-live-schedules, whats-new"
+                "repair-catchup, restore-lesson-slides, sync-offering-live-schedules, whats-new"
             )
     application.cli.main(prog_name="python -m cli")
 
