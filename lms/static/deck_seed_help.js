@@ -233,6 +233,95 @@ function questionCount(n) {
   return `${count} ${count === 1 ? "question" : "questions"}`; // copy: Wonder
 }
 
+/**
+ * Join nouns with a comma before the last item.
+ * One noun stays bare. Two use "and" with no comma.
+ * @param {string[]} nouns
+ * @returns {string}
+ */
+function joinNouns(nouns) {
+  if (nouns.length <= 1) return nouns[0] || "";
+  if (nouns.length === 2) return `${nouns[0]} and ${nouns[1]}`;
+  return `${nouns.slice(0, -1).join(", ")} and ${nouns[nouns.length - 1]}`;
+}
+
+/**
+ * Compose the source nouns from four inputs: authored count, pages,
+ * media, and team challenge. Order is questions, pages, media, team
+ * challenge. A noun drops when the source lacks it. Pages never drop.
+ * Team challenge is its own noun and is not gated on the authored count:
+ * a deck can carry a team challenge and no authored questions
+ * (``pages, media and team challenge``).
+ * @param {{count?: number, has_media?: boolean, has_team_challenge?: boolean}|null} deck
+ * @returns {string}
+ */
+function sourceNounPhrase(deck) {
+  const nouns = [];
+  if ((Number(deck?.count) || 0) > 0) nouns.push("questions");
+  nouns.push("pages");
+  if (deck?.has_media) nouns.push("media");
+  if (deck?.has_team_challenge) nouns.push("team challenge");
+  return joinNouns(nouns);
+}
+
+/**
+ * ``the pages saved on M2 C1`` plus the cross-section tail.
+ * The tail hangs on the source name. When the sentence continues
+ * (``terminal`` false) a comma follows the clause so it does not
+ * attach to the deck being replaced.
+ * @param {{name?: string, count?: number, has_media?: boolean, has_team_challenge?: boolean}|null} deck
+ * @param {{isThisClass?: boolean}|null} source
+ * @param {boolean} terminal
+ * @returns {string}
+ */
+function savedOnPhrase(deck, source, terminal) {
+  const tail = source?.isThisClass
+    ? ""
+    : terminal
+      ? ", which isn't changed" // copy: Wonder
+      : ", which isn't changed,"; // copy: Wonder
+  return `the ${sourceNounPhrase(deck)} saved on ${deck?.name || ""}${tail}`;
+}
+
+/** Second sentence on every copy strip. copy: Wonder */
+const DECK_COPY_SPARK =
+  "Every class has its own Teams Spark and Meet questions, so these aren't copied."; // copy: Wonder
+
+/**
+ * Compose the loss line. Destination has the thing and the source does not.
+ * Order is page changes, slides, team challenge. Two items use "and"
+ * with no comma. Three items use one comma and a closing "and", never
+ * an Oxford comma. Empty when nothing is lost. Not a four-row table:
+ * slides plus team challenge is a real untouched-seed loss.
+ * @param {{has_page_changes?: boolean, has_media?: boolean, has_team_challenge?: boolean}|null} current
+ * @param {{has_page_changes?: boolean, has_media?: boolean, has_team_challenge?: boolean}|null} deck
+ * @param {string} targetName
+ * @returns {string}
+ */
+function deckLossLine(current, deck, targetName) {
+  const lost = [];
+  if (current?.has_page_changes && !deck?.has_page_changes) lost.push("page changes");
+  if (current?.has_media && !deck?.has_media) lost.push("slides");
+  if (current?.has_team_challenge && !deck?.has_team_challenge) lost.push("team challenge");
+  if (!lost.length) return "";
+  return `Heads up: this removes ${targetName}'s ${joinNouns(lost)}.`; // copy: Wonder
+}
+
+/**
+ * True when a replace destroys no teacher work.
+ * Authored questions, media, team challenge, and page changes are all absent.
+ * @param {{question_count?: number, has_media?: boolean, has_team_challenge?: boolean, has_page_changes?: boolean}|null} current
+ * @returns {boolean}
+ */
+function destinationHasNothingToLose(current) {
+  return (
+    !(Number(current?.question_count) || 0) &&
+    !current?.has_media &&
+    !current?.has_team_challenge &&
+    !current?.has_page_changes
+  );
+}
+
 /** ``11 decks`` / ``1 deck`` / ``no decks``. copy: Wonder */
 function deckCount(n) {
   const count = Number(n) || 0;
@@ -361,12 +450,16 @@ export function deckOptionsBySource(decks, classId, pack = {}) {
     const sameSlot = mod === moduleName && s === slot;
     const name = deckName(mod, s);
     const count = Number(deck.question_count ?? deck.questionCount ?? 0) || 0;
+    const amount = count ? questionCount(count) : "no questions of its own"; // copy: Wonder
     groups.get(group).options.push({
       value: `${String(classId)}:${mod}:${s}`,
-      label: `${name} · ${questionCount(count)}${sameSlot ? " · same slot" : ""}`, // copy: Wonder
+      label: `${name} · ${amount}${sameSlot ? " · same slot" : ""}`, // copy: Wonder
       name,
       count,
       sameSlot,
+      has_media: Boolean(deck.has_media ?? deck.hasMedia),
+      has_team_challenge: Boolean(deck.has_team_challenge ?? deck.hasTeamChallenge),
+      has_page_changes: Boolean(deck.has_page_changes ?? deck.hasPageChanges),
     });
   }
   return [...groups.values()];
@@ -422,13 +515,13 @@ export function deckCopyHelpText(state = {}) {
  *   deck?: {value?: string, name?: string, count?: number}|null,
  *   source?: {sectionCode?: string, isThisClass?: boolean}|null,
  *   target?: {sectionCode?: string, name?: string},
- *   current?: {available?: boolean, question_count?: number},
+ *   current?: {available?: boolean, question_count?: number, has_media?: boolean, has_team_challenge?: boolean, has_page_changes?: boolean},
  *   phase?: "idle"|"copying"|"nudge"|"error",
  *   error?: string,
  *   needsConfirm?: boolean,
  *   done?: {text?: string}|null,
  * }} state
- * @returns {{hidden: boolean, variant: string, route: string, text: string,
+ * @returns {{hidden: boolean, variant: string, route: string, text: string, loss: string,
  *   goLabel: string, showGo: boolean, showKeep: boolean, busy: boolean,
  *   holdsNext: boolean, replace: boolean}}
  */
@@ -438,6 +531,7 @@ export function deckCopyConfirmState(state = {}) {
     variant: "",
     route: "",
     text: "",
+    loss: "",
     goLabel: "",
     showGo: false,
     showKeep: false,
@@ -474,20 +568,39 @@ export function deckCopyConfirmState(state = {}) {
   // A 409 with needs_confirm, while the catalog still says the slot is
   // empty, used to leave Copy deck with no Keep current.
   const replace = Boolean(current.available) || Boolean(state.needsConfirm);
-  const qs = questionCount(deck.count);
+  // Empty slot first. A zero count on an empty slot is not the
+  // "no questions of its own" replace sentence.
+  const questions = Number(current.question_count) || 0;
   let variant = replace ? "replace" : "info";
-  let text = replace
-    ? `Replaces this class's current ${target.name} deck (${questionCount(current.question_count)}) with ${qs}, pages, media and team challenge. ${source.isThisClass ? `${sourceSection} · ${deck.name}` : sourceSection} is not changed. Can't be undone.` // copy: Wonder
-    : `Copies ${qs}, pages, media and team challenge.`; // copy: Wonder
+  let loss = "";
+  let text;
+  if (!current.available) {
+    variant = "info";
+    text = `Copies ${savedOnPhrase(deck, source, true)}. ${DECK_COPY_SPARK}`; // copy: Wonder
+  } else if (!questions && destinationHasNothingToLose(current)) {
+    variant = "info";
+    text = `Copies ${savedOnPhrase(deck, source, false)} over this class's ${target.name} deck. ${DECK_COPY_SPARK}`; // copy: Wonder
+  } else if (!questions) {
+    text = `Replaces this class's current ${target.name} deck, which has no questions of its own, with ${savedOnPhrase(deck, source, true)}. ${DECK_COPY_SPARK} Can't be undone.`; // copy: Wonder
+    // A zero authored count does not hide the loss line. Slides, page
+    // changes, and a team challenge are the three flags alone.
+    loss = deckLossLine(current, deck, target.name || "");
+  } else {
+    text = `Replaces this class's current ${target.name} deck (${questionCount(questions)}), with ${savedOnPhrase(deck, source, true)}. ${DECK_COPY_SPARK} Can't be undone.`; // copy: Wonder
+    loss = deckLossLine(current, deck, target.name || "");
+  }
   const goLabel = replace ? "Replace deck" : "Copy deck"; // copy: Wonder
   if (phase === "copying") {
     text = "Copying…"; // copy: Wonder
+    loss = "";
   } else if (phase === "nudge" && replace) {
     variant = "nudge";
     text = "Replace the deck or keep current first."; // copy: Wonder
+    loss = "";
   } else if (phase === "error") {
     variant = "nudge";
     text = String(state.error || "Couldn't copy the deck. Try again."); // copy: Wonder
+    loss = "";
   }
   return {
     ...base,
@@ -495,6 +608,7 @@ export function deckCopyConfirmState(state = {}) {
     variant,
     route,
     text,
+    loss,
     goLabel,
     showGo: true,
     showKeep: replace,
@@ -507,9 +621,20 @@ export function deckCopyConfirmState(state = {}) {
 
 /**
  * Success line after a copy.
- * @param {{sourceSection: string, deckName: string, targetSection: string, targetName: string, count: number}} info
+ * A source with no authored questions uses the zero-case toast.
+ * ``count`` stays on the row so this branch can see that zero.
+ * @param {{deckName: string, targetName: string, count: number, has_team_challenge?: boolean, hasTeamChallenge?: boolean}} info
  * @returns {string}
  */
 export function deckCopySuccessText(info) {
-  return `✓ Copied ${info.sourceSection} · ${info.deckName} → ${info.targetSection} · ${info.targetName} (${questionCount(info.count)}).`; // copy: Wonder
+  const source = String(info.deckName || "");
+  const target = String(info.targetName || "");
+  const count = Number(info.count) || 0;
+  if (!count) {
+    const challenge = info.has_team_challenge || info.hasTeamChallenge
+      ? ", with its team challenge" // copy: Wonder
+      : "";
+    return `Copied ${source} to ${target}${challenge}. ${target} has no questions yet. ${source}'s questions were only the built-in Teams Spark and Meet, which stay with each class.`; // copy: Wonder
+  }
+  return `✓ Copied ${source} → ${target} (${questionCount(count)}).`; // copy: Wonder
 }

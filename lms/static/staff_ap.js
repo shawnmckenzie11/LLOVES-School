@@ -826,6 +826,13 @@ function paintDeckCopyConfirm() {
       parts.push(route, document.createTextNode(" "));
     }
     parts.push(document.createTextNode(view.text));
+    if (view.loss) {
+      const loss = document.createElement("span");
+      loss.className = "live-deck-copy-loss";
+      loss.dataset.variant = "nudge";
+      loss.textContent = view.loss;
+      parts.push(loss);
+    }
     text.replaceChildren(...(view.hidden ? [] : parts));
   }
   const go = $("live-deck-copy-go");
@@ -905,6 +912,7 @@ async function copyDeckNow() {
       targetSection: state.target.sectionCode,
       targetName: state.target.name,
       count: state.deck.count,
+      has_team_challenge: Boolean(state.deck.has_team_challenge),
     }),
   };
   // The slot now has a deck: the row returns to Use current and Next
