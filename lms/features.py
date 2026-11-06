@@ -360,6 +360,30 @@ def set_feature_override(school: Any, user_id: int, key: str, enabled: bool) -> 
         )
 
 
+def _session_teacher(session_id: int) -> dict[str, Any] | None:
+    """The teacher who owns this live session, or None.
+
+    The id is the server row. A student-supplied teacher id is never read.
+
+    Args:
+        session_id: ``live_class_sessions.id``.
+    """
+    try:
+        sid = int(session_id)
+    except (TypeError, ValueError):
+        return None
+    school = _school()
+    with school._lock:
+        row = school.conn.execute(
+            "SELECT teacher_user_id FROM live_class_sessions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+    if row is None or row["teacher_user_id"] in (None, ""):
+        return None
+    teacher = school.get_user(int(row["teacher_user_id"]))
+    return teacher or None
+
+
 def feature_for_session(session_id: int, key: str) -> bool:
     """The owning teacher's flag for this live session.
 
@@ -373,22 +397,28 @@ def feature_for_session(session_id: int, key: str) -> bool:
     Returns:
         Whether the session's teacher has the feature.
     """
-    try:
-        sid = int(session_id)
-    except (TypeError, ValueError):
-        return False
-    school = _school()
-    with school._lock:
-        row = school.conn.execute(
-            "SELECT teacher_user_id FROM live_class_sessions WHERE id = ?",
-            (sid,),
-        ).fetchone()
-    if row is None or row["teacher_user_id"] in (None, ""):
-        return False
-    teacher = school.get_user(int(row["teacher_user_id"]))
+    teacher = _session_teacher(session_id)
     if not teacher:
         return False
     return has_feature(teacher, key)
+
+
+def feature_map_for_session(session_id: int) -> dict[str, bool]:
+    """Every registry flag for the teacher who owns this live session.
+
+    Students have no accounts. The id is the server session row, not a
+    teacher id from the phone. A missing session is all off.
+
+    Args:
+        session_id: ``live_class_sessions.id``.
+
+    Returns:
+        ``feature_key`` to whether it is on.
+    """
+    teacher = _session_teacher(session_id)
+    if not teacher:
+        return {key: False for key in FEATURE_KEYS}
+    return feature_map(teacher)
 
 
 def _positive_int(raw: Any) -> int | None:
@@ -438,13 +468,174 @@ def _session_id_from_request(kwargs: dict[str, Any]) -> int | None:
     return _positive_int(session.get("student_live_session_id"))
 
 
+def _owner_for_class(school: Any, class_id: int) -> dict[str, Any] | None:
+    """The teacher stored on this class, or on its offering.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+    """
+    try:
+        cls = school.game.get_class(int(class_id)) or {}
+    except Exception:
+        return None
+    owner_id = cls.get("teacher_user_id")
+    if owner_id in (None, "") and cls.get("offering_id"):
+        try:
+            offering = school.get_offering(int(cls["offering_id"])) or {}
+        except Exception:
+            offering = {}
+        owner_id = offering.get("teacher_user_id")
+    if owner_id in (None, ""):
+        return None
+    return school.get_user(int(owner_id))
+
+
+def feature_map_for_catchup_token(token: str) -> dict[str, bool]:
+    """Registry flags for the teacher who owns this catch-up's saved run.
+
+    The token is the server catch-up row. A signed-in teacher is not
+    consulted, and the token is not logged. The live session with this
+    class and run key supplies the teacher. If that session is gone, the
+    class owner is used. No owner is all off.
+
+    Args:
+        token: ``catchup_links.token``.
+
+    Returns:
+        ``feature_key`` to whether it is on.
+    """
+    flags = {key: False for key in FEATURE_KEYS}
+    secret = str(token or "").strip()[:80]
+    if not secret:
+        return flags
+    school = _school()
+    with school._lock:
+        link = school.conn.execute(
+            "SELECT class_id, run_key FROM catchup_links WHERE token = ?",
+            (secret,),
+        ).fetchone()
+    if link is None:
+        return flags
+    class_id = int(link["class_id"])
+    run_key = str(link["run_key"] or "")
+    teacher = None
+    if run_key:
+        with school._lock:
+            session_row = school.conn.execute(
+                """
+                SELECT teacher_user_id FROM live_class_sessions
+                WHERE class_id = ? AND run_key = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (class_id, run_key),
+            ).fetchone()
+        if session_row is not None and session_row["teacher_user_id"] not in (None, ""):
+            teacher = school.get_user(int(session_row["teacher_user_id"]))
+    if not teacher:
+        teacher = _owner_for_class(school, class_id)
+    if not teacher:
+        return flags
+    return feature_map(teacher)
+
+
+def _catchup_surface() -> bool:
+    """True when this request is a catch-up page.
+
+    Catch-up students have no account. The page must not use a staff
+    login that happens to share the browser.
+    """
+    try:
+        from flask import has_request_context, request
+    except ImportError:
+        return False
+    if not has_request_context():
+        return False
+    return str(getattr(request, "path", "") or "").startswith("/catchup/")
+
+
+def _catchup_token_from_request() -> str:
+    """Token from the catch-up path. The query string is ignored.
+
+    Canonical and legacy URLs both end in the token.
+    """
+    try:
+        from flask import has_request_context, request
+    except ImportError:
+        return ""
+    if not has_request_context():
+        return ""
+    parts = [part for part in str(request.path or "").split("/") if part]
+    if len(parts) < 2 or parts[0] != "catchup":
+        return ""
+    return str(parts[-1])[:80]
+
+
+def _student_surface() -> bool:
+    """True when this request is a student page or a student API.
+
+    Staff routes keep the signed-in teacher. A student has no account,
+    so a staff login in the same browser must not decide their flags.
+    """
+    try:
+        from flask import has_request_context, request
+    except ImportError:
+        return False
+    if not has_request_context():
+        return False
+    path = str(getattr(request, "path", "") or "")
+    if path.startswith("/student") or path.startswith("/api/student"):
+        return True
+    endpoint = str(getattr(request, "endpoint", "") or "")
+    return endpoint.startswith("student_")
+
+
+def _student_owner_session_id(kwargs: dict[str, Any]) -> int | None:
+    """Live session the server stored when this student joined.
+
+    The join cookie wins. A session id in the query string or body is
+    ignored, so a phone cannot point at another teacher's room. View
+    kwargs are used only when the cookie is empty and the view already
+    resolved the join.
+
+    Args:
+        kwargs: View or ``deny_unless`` keyword arguments.
+    """
+    try:
+        from flask import has_request_context, session
+    except ImportError:
+        return _positive_int(kwargs.get("session_id")) or _positive_int(
+            kwargs.get("live_session_id")
+        )
+    if has_request_context():
+        found = _positive_int(session.get("student_live_session_id"))
+        if found is not None:
+            return found
+    for name in ("session_id", "live_session_id"):
+        found = _positive_int(kwargs.get(name))
+        if found is not None:
+            return found
+    return None
+
+
 def _caller_has_feature(key: str, kwargs: dict[str, Any]) -> bool:
-    """Resolve the flag for the signed-in teacher, else the session owner.
+    """Resolve the flag for this request.
+
+    Student pages and student APIs follow the live session's owning
+    teacher, even when a different staff user is signed in. Staff routes
+    use the signed-in teacher, then a live session id on the request.
 
     Args:
         key: Feature key.
         kwargs: View keyword arguments, used to find a live session.
     """
+    if _catchup_surface():
+        return bool(feature_map_for_catchup_token(_catchup_token_from_request()).get(str(key)))
+    if _student_surface():
+        session_id = _student_owner_session_id(kwargs)
+        if session_id is None:
+            return False
+        return feature_for_session(session_id, key)
     try:
         from auth import current_user
     except ImportError:
@@ -461,12 +652,56 @@ def _caller_has_feature(key: str, kwargs: dict[str, Any]) -> bool:
     return feature_for_session(session_id, key)
 
 
+def features_for_page() -> dict[str, bool]:
+    """Registry flags for the template on this request.
+
+    Student pages use the live session's owning teacher. Catch-up pages
+    use the teacher who owns that saved run. Staff pages use the
+    signed-in teacher. A lookup failure is all off, so pro-only
+    controls stay out of the HTML.
+
+    Returns:
+        ``feature_key`` to whether it is on. Booleans only.
+    """
+    flags = {key: False for key in FEATURE_KEYS}
+    try:
+        from flask import has_request_context
+    except ImportError:
+        return flags
+    if not has_request_context():
+        return flags
+    try:
+        if _catchup_surface():
+            return feature_map_for_catchup_token(_catchup_token_from_request())
+        if _student_surface():
+            session_id = _student_owner_session_id({})
+            if session_id is None:
+                return flags
+            return feature_map_for_session(session_id)
+        try:
+            from auth import current_user
+        except ImportError:
+            from lms.auth import current_user
+        try:
+            user = current_user()
+        except RuntimeError:
+            user = None
+        if user is None:
+            return flags
+        return feature_map(user)
+    except Exception:
+        logger.exception("feature flags for this page failed")
+        return flags
+
+
 def feature_required(key: str) -> Callable:
     """Decorate a view so a missing feature answers 404.
 
-    Staff and IT are checked with :func:`has_feature`. A signed-out
-    request uses :func:`feature_for_session` when the view names a live
-    session, or when the student cookie has one. Off is 404, not 403.
+    Staff and IT are checked with :func:`has_feature`. A student page
+    or student API follows the live session's owning teacher, including
+    when a different staff user is signed in on the same browser. A
+    signed-out staff route uses :func:`feature_for_session` when the
+    view names a live session. Off is 404, not 403.
 
     Args:
         key: Feature key that must be on.

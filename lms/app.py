@@ -1546,31 +1546,19 @@ def create_app(
 
     @app.context_processor
     def inject_teacher_features() -> dict[str, Any]:
-        """Expose registry flags for the signed-in teacher or the session owner.
+        """Expose registry flags for this page.
 
-        Students follow the live session's teacher. The payload is booleans
-        only. A lookup failure hides pro-only controls.
+        Student pages follow the live session's owning teacher, not a
+        signed-in staff user and not an id from the phone. Staff pages
+        follow the signed-in teacher. The payload is booleans only.
         """
         import json
 
         try:
-            from features import FEATURE_KEYS, feature_for_session, feature_map
+            from features import features_for_page
         except ImportError:
-            from lms.features import FEATURE_KEYS, feature_for_session, feature_map
-        flags = {key: False for key in FEATURE_KEYS}
-        try:
-            if has_request_context():
-                user = current_user()
-                if user is not None:
-                    flags = feature_map(user)
-                else:
-                    sid = session.get("student_live_session_id")
-                    if sid:
-                        flags = {
-                            key: feature_for_session(int(sid), key) for key in FEATURE_KEYS
-                        }
-        except Exception:
-            logger.exception("feature flags for this page failed")
+            from lms.features import features_for_page
+        flags = features_for_page()
         return {
             "teacher_features": flags,
             "teacher_features_json": json.dumps(flags),

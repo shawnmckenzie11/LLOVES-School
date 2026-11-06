@@ -14,6 +14,16 @@ import {
 } from "/static/live_question_card.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { canvasToPngDataUrl, catchupDrawControlsHtml } from "/static/team_draw.js";
+import { featureOn } from "/static/teacher_features.js";
+
+/**
+ * True when this catch-up's teacher may show a draw board.
+ * Team draw and group draw are the catch-up drawing features.
+ * @returns {boolean}
+ */
+function catchupDrawOn() {
+  return featureOn("team_draw") || featureOn("group_draw");
+}
 
 /**
  * Option rows for a solo group-rank catch-up. Ids are the ones the server sent.
@@ -84,7 +94,9 @@ export function catchupCardHtml(question, tag) {
     : question?.group_rank
       ? groupRankCatchupHtml(content)
       : liveKind === "team_draw"
-        ? catchupDrawControlsHtml()
+        ? catchupDrawOn()
+          ? catchupDrawControlsHtml()
+          : ""
         : liveAnswerControlsHtml(kind, content, "individual", "—", "Submit Answer");
   return `<article class="student-live-card is-${question?.answered ? "closed" : "active"}" data-question-key="${escapeText(
     question?.question_key || ""
@@ -169,7 +181,7 @@ function mountCatchup() {
   }
   const questions = Array.isArray(data.questions) ? data.questions : [];
   root.innerHTML = questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
-  root.querySelectorAll("canvas.catchup-draw-canvas").forEach((canvas) => {
+  if (catchupDrawOn()) root.querySelectorAll("canvas.catchup-draw-canvas").forEach((canvas) => {
     if (!(canvas instanceof HTMLCanvasElement)) return;
     const submit = canvas.closest(".student-live-card")?.querySelector("[data-live-submit]");
     bindWhiteboard(canvas, {
