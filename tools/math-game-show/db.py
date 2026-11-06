@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS games (
     current_round INTEGER NOT NULL DEFAULT 1,
     round_started_at TEXT,
     round_duration_sec INTEGER,
+    timer_held INTEGER NOT NULL DEFAULT 0,
     rounds_json TEXT,
     overlay_phase TEXT
 );
@@ -898,6 +899,10 @@ class GameShowDB:
             self.conn.execute("ALTER TABLE games ADD COLUMN round_started_at TEXT")
         if "round_duration_sec" not in game_cols:
             self.conn.execute("ALTER TABLE games ADD COLUMN round_duration_sec INTEGER")
+        if "timer_held" not in game_cols:
+            self.conn.execute(
+                "ALTER TABLE games ADD COLUMN timer_held INTEGER NOT NULL DEFAULT 0"
+            )
         if "rounds_json" not in game_cols:
             self.conn.execute("ALTER TABLE games ADD COLUMN rounds_json TEXT")
         if "overlay_phase" not in game_cols:
@@ -4882,6 +4887,9 @@ class GameShowDB:
             going_live = game["status"] != "live"
             if going_live:
                 first = plan[0]
+                started_at, duration_sec = self._transition_clock(
+                    game, self._now(), int(first["duration_sec"])
+                )
                 self.conn.execute(
                     """
                     UPDATE games
@@ -4894,8 +4902,8 @@ class GameShowDB:
                     WHERE id = ?
                     """,
                     (
-                        self._now(),
-                        int(first["duration_sec"]),
+                        started_at,
+                        duration_sec,
                         json.dumps(plan),
                         game_id,
                     ),
@@ -5267,6 +5275,9 @@ class GameShowDB:
             ).fetchone()
             if int(n_teams["n"]) < 2:
                 raise ValueError("Create at least two teams before Meet the Teams")
+            started_at, duration_sec = self._transition_clock(
+                game, self._now(), minutes_i * 60
+            )
             self.conn.execute(
                 """
                 UPDATE games
@@ -5276,16 +5287,57 @@ class GameShowDB:
                     current_round = 0
                 WHERE id = ?
                 """,
-                (self._now(), minutes_i * 60, int(game["id"])),
+                (started_at, duration_sec, int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)
+
+
+    def _timer_held(self, game) -> bool:
+        """True when the teacher owns the one shared countdown.
+
+        Explicit Start, Pause, Resume, and Restart set ``games.timer_held``.
+        Stop clears it. The flag marks ownership of the existing clock. It
+        is not a second timer and it does not store a second deadline.
+
+        Args:
+            game: Current games row.
+
+        Returns:
+            Whether round and group transitions must leave the clock columns.
+        """
+        try:
+            return int(game["timer_held"] or 0) == 1
+        except (KeyError, TypeError, ValueError, IndexError):
+            return False
+
+    def _transition_clock(self, game, started_at, duration_sec):
+        """Clock columns to store for a round or group transition.
+
+        A held teacher timer keeps its start and stored duration, including
+        a paused remainder (start is NULL) and an expired countdown. An
+        unheld clock takes the caller's round or overlay timing so an idle
+        Start Round still applies the plan.
+
+        Args:
+            game: Current games row.
+            started_at: Start timestamp the transition would apply.
+            duration_sec: Duration in seconds the transition would apply.
+
+        Returns:
+            ``(round_started_at, round_duration_sec)`` to write.
+        """
+        if self._timer_held(game):
+            return game["round_started_at"], game["round_duration_sec"]
+        return started_at, int(duration_sec)
 
     def start_session_timer(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
         """Start a stage-independent countdown without changing overlay phase.
 
         Creates an open game via ``begin_game`` when none exists so JOIN
-        and individual MEET can use the same SessionTimer chrome.
+        and individual MEET can use the same SessionTimer chrome. Sets
+        ``timer_held`` so a later Start Round or group transition keeps
+        this countdown.
 
         Args:
             class_id: Classes primary key.
@@ -5305,7 +5357,8 @@ class GameShowDB:
                 """
                 UPDATE games
                 SET round_started_at = ?,
-                    round_duration_sec = ?
+                    round_duration_sec = ?,
+                    timer_held = 1
                 WHERE id = ?
                 """,
                 (self._now(), minutes_i * 60, int(game["id"])),
@@ -5334,7 +5387,8 @@ class GameShowDB:
                 """
                 UPDATE games
                 SET round_started_at = NULL,
-                    round_duration_sec = NULL
+                    round_duration_sec = NULL,
+                    timer_held = 0
                 WHERE id = ?
                 """,
                 (int(game["id"]),),
@@ -5368,7 +5422,8 @@ class GameShowDB:
                 """
                 UPDATE games
                 SET round_started_at = NULL,
-                    round_duration_sec = ?
+                    round_duration_sec = ?,
+                    timer_held = 1
                 WHERE id = ?
                 """,
                 (max(0, remaining), int(game["id"])),
@@ -5399,7 +5454,8 @@ class GameShowDB:
             self.conn.execute(
                 """
                 UPDATE games
-                SET round_started_at = ?
+                SET round_started_at = ?,
+                    timer_held = 1
                 WHERE id = ?
                 """,
                 (self._now(), int(game["id"])),
@@ -5435,7 +5491,8 @@ class GameShowDB:
             self.conn.execute(
                 """
                 UPDATE games
-                SET round_duration_sec = ?
+                SET round_duration_sec = ?,
+                    timer_held = 1
                 WHERE id = ?
                 """,
                 (minutes_i * 60, int(game["id"])),
@@ -5465,6 +5522,7 @@ class GameShowDB:
             ).fetchone()
             if int(n_teams["n"]) < 2:
                 raise ValueError("Create teams before anticipation")
+            started_at, duration_sec = self._transition_clock(game, self._now(), 120)
             self.conn.execute(
                 """
                 UPDATE games
@@ -5475,7 +5533,7 @@ class GameShowDB:
                     current_round = 0
                 WHERE id = ?
                 """,
-                (self._now(), 120, int(game["id"])),
+                (started_at, duration_sec, int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)
@@ -5557,6 +5615,9 @@ class GameShowDB:
             individual = self._game_is_individual_tracking(int(game["id"]))
             self._require_open_only_rounds(plan, individual=individual)
             first = plan[0]
+            started_at, duration_sec = self._transition_clock(
+                game, self._now(), int(first["duration_sec"])
+            )
             self.conn.execute(
                 """
                 UPDATE games
@@ -5569,8 +5630,8 @@ class GameShowDB:
                 WHERE id = ?
                 """,
                 (
-                    self._now(),
-                    int(first["duration_sec"]),
+                    started_at,
+                    duration_sec,
                     json.dumps(plan),
                     int(game["id"]),
                 ),
@@ -5664,6 +5725,9 @@ class GameShowDB:
             )
             if go_live:
                 first = open_only[0]
+                started_at, duration_sec = self._transition_clock(
+                    game, self._now(), int(first["duration_sec"])
+                )
                 self.conn.execute(
                     """
                     UPDATE games
@@ -5676,8 +5740,8 @@ class GameShowDB:
                     WHERE id = ?
                     """,
                     (
-                        self._now(),
-                        int(first["duration_sec"]),
+                        started_at,
+                        duration_sec,
                         json.dumps(open_only),
                         game_id,
                     ),
@@ -5797,7 +5861,8 @@ class GameShowDB:
             round_number: 1-based index into the configured rounds list.
 
         Returns:
-            Updated game state with a fresh countdown.
+            Updated game state. A held teacher timer keeps its countdown.
+            Otherwise this round's plan supplies a fresh countdown.
         """
         target = int(round_number)
         with self._lock:
@@ -5811,6 +5876,9 @@ class GameShowDB:
             if target != current + 1:
                 raise ValueError(f"Cannot skip to round {target}")
             nxt = plan[target - 1]
+            started_at, duration_sec = self._transition_clock(
+                game, self._now(), int(nxt["duration_sec"])
+            )
             self.conn.execute(
                 """
                 UPDATE games
@@ -5819,7 +5887,7 @@ class GameShowDB:
                     round_duration_sec = ?
                 WHERE id = ?
                 """,
-                (target, self._now(), int(nxt["duration_sec"]), int(game["id"])),
+                (target, started_at, duration_sec, int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)
@@ -5857,6 +5925,9 @@ class GameShowDB:
             self._require_open_only_rounds(new_plan, individual=individual)
             target = len(new_plan)
             nxt = new_plan[target - 1]
+            started_at, duration_sec = self._transition_clock(
+                game, self._now(), int(nxt["duration_sec"])
+            )
             self.conn.execute(
                 """
                 UPDATE games
@@ -5868,8 +5939,8 @@ class GameShowDB:
                 """,
                 (
                     target,
-                    self._now(),
-                    int(nxt["duration_sec"]),
+                    started_at,
+                    duration_sec,
                     json.dumps(new_plan),
                     int(game["id"]),
                 ),

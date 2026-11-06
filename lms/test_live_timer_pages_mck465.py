@@ -6,7 +6,8 @@ stage, a question, or whether groups exist. Next and page changes leave
 a running or paused clock alone. Resume keeps the remainder. Restart
 (the start route with the selected minutes) replaces it. End and Quit
 reject further writes. A running clock does not change the student
-poll stamp on each second.
+poll stamp on each second. Start Round and group transitions keep a
+teacher-held clock and still apply the round plan when the clock is idle.
 """
 
 from __future__ import annotations
@@ -393,3 +394,195 @@ class SessionTimerEveryPageTests(unittest.TestCase):
         self.assertIn('btn.textContent = "Resume"', apply)
         self.assertIn('btn.dataset.meetState = "expired"', apply)
         self.assertNotIn("running || paused", apply)
+
+    def _park_rounds(self) -> dict:
+        """Move individual tracking to rounds setup without going live.
+
+        Returns:
+            Game payload after the Class team is parked on rounds.
+        """
+        prepared = self.staff.post(
+            f"/api/classes/{self.class_id}/game/ungamified",
+            json={"go_live": False, "meeting_date": "2026-11-06"},
+        )
+        self.assertEqual(prepared.status_code, 200, prepared.get_json())
+        game = prepared.get_json()["game"]
+        self.assertEqual(game["status"], "rounds")
+        return game
+
+    def _start_open_round(self, minutes: int) -> dict:
+        """Start one Open Question round of ``minutes``.
+
+        Args:
+            minutes: Plan length. Used only when no teacher timer is held.
+
+        Returns:
+            Game payload after Start Round.
+        """
+        live = self.staff.post(
+            f"/api/classes/{self.class_id}/game/start-rounds",
+            json={"rounds": [{"kind": "open", "minutes": minutes}]},
+        )
+        self.assertEqual(live.status_code, 200, live.get_json())
+        game = live.get_json()["game"]
+        self.assertEqual(game["status"], "live")
+        self.assertEqual(int(game["round"]), 1)
+        return game
+
+    def _append_open_round(self, minutes: int) -> dict:
+        """Append and start the next Open Question round.
+
+        Args:
+            minutes: Plan length for the new round when the clock is unheld.
+
+        Returns:
+            Game payload on the new round.
+        """
+        nxt = self.staff.post(
+            f"/api/classes/{self.class_id}/game/append-round",
+            json={"kind": "open", "minutes": minutes},
+        )
+        self.assertEqual(nxt.status_code, 200, nxt.get_json())
+        return nxt.get_json()["game"]
+
+    def _assert_teacher_student_clock(self, game: dict) -> None:
+        """Teacher game clock and student display describe the same countdown.
+
+        Args:
+            game: Staff game block from the latest mutation.
+        """
+        shown = self._student_clock()
+        display = self._display()
+        self.assertEqual(shown["paused"], display["paused"])
+        self.assertEqual(shown["running"], display["running"])
+        self.assertEqual(shown["remaining_sec"], display["remaining_sec"])
+        self.assertEqual(bool(game.get("timer_paused")), bool(shown["paused"]))
+        if game.get("round_ends_at_ms") is None:
+            self.assertIsNone(shown["ends_at_ms"])
+        else:
+            self.assertEqual(shown["ends_at_ms"], game["round_ends_at_ms"])
+        if shown["paused"] or not shown["running"]:
+            self.assertEqual(
+                int(shown["remaining_sec"]), int(game["round_remaining_sec"])
+            )
+
+    def test_running_timer_survives_start_round_and_the_next_round(self) -> None:
+        """A running teacher timer is not replaced by the round plan."""
+        started = self._start(4)
+        deadline = started["round_ends_at_ms"]
+        self._park_rounds()
+        game = self._start_open_round(15)
+        self.assertEqual(game["round_ends_at_ms"], deadline)
+        self.assertEqual(int(game["round_duration_sec"]), 4 * 60)
+        self.assertGreaterEqual(int(game["round_remaining_sec"]), 238)
+        self.assertLessEqual(int(game["round_remaining_sec"]), 240)
+        self._assert_teacher_student_clock(game)
+        nxt = self._append_open_round(10)
+        self.assertEqual(int(nxt["round"]), 2)
+        self.assertEqual(nxt["round_ends_at_ms"], deadline)
+        self.assertEqual(int(nxt["round_duration_sec"]), 4 * 60)
+        self._assert_teacher_student_clock(nxt)
+        state = self.school.game.game_state(self.class_id)
+        student_id = int(state["students"][0]["id"])
+        scored = self.staff.post(
+            f"/api/classes/{self.class_id}/game/score",
+            json={"kind": "student", "id": student_id, "amount": 1},
+        )
+        self.assertEqual(scored.status_code, 200, scored.get_json())
+        after = self.school.game.game_state(self.class_id)["game"]
+        self.assertEqual(after["round_ends_at_ms"], deadline)
+        self.assertEqual(int(after["round"]), 2)
+
+    def test_paused_timer_keeps_frozen_remainder_through_start_round(self) -> None:
+        """Start Round does not unpause or swap the frozen remainder."""
+        self._start(5)
+        paused = self._pause()
+        remaining = int(paused["round_remaining_sec"])
+        self.assertGreaterEqual(remaining, 298)
+        self.assertLessEqual(remaining, 300)
+        self._park_rounds()
+        game = self._start_open_round(20)
+        self.assertTrue(game["timer_paused"])
+        self.assertIsNone(game["round_ends_at_ms"])
+        self.assertEqual(int(game["round_remaining_sec"]), remaining)
+        self._assert_teacher_student_clock(game)
+        nxt = self._append_open_round(8)
+        self.assertEqual(int(nxt["round"]), 2)
+        self.assertTrue(nxt["timer_paused"])
+        self.assertEqual(int(nxt["round_remaining_sec"]), remaining)
+        self._assert_teacher_student_clock(nxt)
+
+    def test_expired_teacher_timer_is_not_restarted_by_start_round(self) -> None:
+        """An expired teacher countdown stays at zero through Start Round."""
+        self._start(1)
+        started = (datetime.now() - timedelta(seconds=90)).replace(microsecond=0)
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE games SET round_started_at = ? WHERE class_id = ? "
+                "AND status != 'ended'",
+                (started.isoformat(), self.class_id),
+            )
+            self.school.game.conn.commit()
+        self.assertEqual(self._display()["remaining_sec"], 0)
+        self._park_rounds()
+        game = self._start_open_round(15)
+        self.assertEqual(int(game["round_remaining_sec"]), 0)
+        self.assertEqual(int(game["round_duration_sec"]), 60)
+        self.assertEqual(self._student_clock()["remaining_sec"], 0)
+        self._assert_teacher_student_clock(game)
+
+    def test_idle_start_round_still_uses_the_round_plan(self) -> None:
+        """With no teacher timer, Start Round and the next round use the plan."""
+        begun = self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-11-06"},
+        )
+        self.assertEqual(begun.status_code, 200, begun.get_json())
+        self._park_rounds()
+        game = self._start_open_round(15)
+        self.assertEqual(int(game["round_duration_sec"]), 15 * 60)
+        self.assertGreaterEqual(int(game["round_remaining_sec"]), 15 * 60 - 5)
+        self.assertLessEqual(int(game["round_remaining_sec"]), 15 * 60)
+        self._assert_teacher_student_clock(game)
+        nxt = self._append_open_round(10)
+        self.assertEqual(int(nxt["round"]), 2)
+        self.assertEqual(int(nxt["round_duration_sec"]), 10 * 60)
+        self.assertGreaterEqual(int(nxt["round_remaining_sec"]), 10 * 60 - 5)
+        self.assertLessEqual(int(nxt["round_remaining_sec"]), 10 * 60)
+        self._assert_teacher_student_clock(nxt)
+
+    def test_class_team_go_live_keeps_a_running_teacher_timer(self) -> None:
+        """Forming the Class team and going live does not reset a held timer."""
+        started = self._start(6)
+        deadline = started["round_ends_at_ms"]
+        live = self.staff.post(
+            f"/api/classes/{self.class_id}/game/ungamified",
+            json={"go_live": True, "meeting_date": "2026-11-06"},
+        )
+        self.assertEqual(live.status_code, 200, live.get_json())
+        game = live.get_json()["game"]
+        self.assertEqual(game["status"], "live")
+        self.assertEqual(game["round_ends_at_ms"], deadline)
+        self.assertEqual(int(game["round_duration_sec"]), 6 * 60)
+        self._assert_teacher_student_clock(game)
+
+    def test_team_challenge_phone_hide_is_display_only(self) -> None:
+        """MCK-171 hides the phone digits and does not write the clock."""
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn(
+            "MCK-171: no countdown on phones during a Team challenge (no rushing).",
+            js,
+        )
+        paint = js.split("function paintDisplayTime(")[1].split(
+            "function teamChallengeOpen("
+        )[0]
+        hide = paint.split("if (teamChallengeOpen(payload))")[1].split(
+            "if (dt.running"
+        )[0]
+        self.assertIn('displayTimeEl.textContent = "—"', hide)
+        self.assertNotIn("fetch(", hide)
+        self.assertNotIn("/game/timer", hide)
+        started = self._start(4)
+        shown = self._student_clock()
+        self.assertEqual(shown["ends_at_ms"], started["round_ends_at_ms"])
+        self.assertTrue(shown["running"])
