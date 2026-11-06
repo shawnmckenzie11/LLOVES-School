@@ -468,6 +468,109 @@ def _session_id_from_request(kwargs: dict[str, Any]) -> int | None:
     return _positive_int(session.get("student_live_session_id"))
 
 
+def _owner_for_class(school: Any, class_id: int) -> dict[str, Any] | None:
+    """The teacher stored on this class, or on its offering.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+    """
+    try:
+        cls = school.game.get_class(int(class_id)) or {}
+    except Exception:
+        return None
+    owner_id = cls.get("teacher_user_id")
+    if owner_id in (None, "") and cls.get("offering_id"):
+        try:
+            offering = school.get_offering(int(cls["offering_id"])) or {}
+        except Exception:
+            offering = {}
+        owner_id = offering.get("teacher_user_id")
+    if owner_id in (None, ""):
+        return None
+    return school.get_user(int(owner_id))
+
+
+def feature_map_for_catchup_token(token: str) -> dict[str, bool]:
+    """Registry flags for the teacher who owns this catch-up's saved run.
+
+    The token is the server catch-up row. A signed-in teacher is not
+    consulted, and the token is not logged. The live session with this
+    class and run key supplies the teacher. If that session is gone, the
+    class owner is used. No owner is all off.
+
+    Args:
+        token: ``catchup_links.token``.
+
+    Returns:
+        ``feature_key`` to whether it is on.
+    """
+    flags = {key: False for key in FEATURE_KEYS}
+    secret = str(token or "").strip()[:80]
+    if not secret:
+        return flags
+    school = _school()
+    with school._lock:
+        link = school.conn.execute(
+            "SELECT class_id, run_key FROM catchup_links WHERE token = ?",
+            (secret,),
+        ).fetchone()
+    if link is None:
+        return flags
+    class_id = int(link["class_id"])
+    run_key = str(link["run_key"] or "")
+    teacher = None
+    if run_key:
+        with school._lock:
+            session_row = school.conn.execute(
+                """
+                SELECT teacher_user_id FROM live_class_sessions
+                WHERE class_id = ? AND run_key = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (class_id, run_key),
+            ).fetchone()
+        if session_row is not None and session_row["teacher_user_id"] not in (None, ""):
+            teacher = school.get_user(int(session_row["teacher_user_id"]))
+    if not teacher:
+        teacher = _owner_for_class(school, class_id)
+    if not teacher:
+        return flags
+    return feature_map(teacher)
+
+
+def _catchup_surface() -> bool:
+    """True when this request is a catch-up page.
+
+    Catch-up students have no account. The page must not use a staff
+    login that happens to share the browser.
+    """
+    try:
+        from flask import has_request_context, request
+    except ImportError:
+        return False
+    if not has_request_context():
+        return False
+    return str(getattr(request, "path", "") or "").startswith("/catchup/")
+
+
+def _catchup_token_from_request() -> str:
+    """Token from the catch-up path. The query string is ignored.
+
+    Canonical and legacy URLs both end in the token.
+    """
+    try:
+        from flask import has_request_context, request
+    except ImportError:
+        return ""
+    if not has_request_context():
+        return ""
+    parts = [part for part in str(request.path or "").split("/") if part]
+    if len(parts) < 2 or parts[0] != "catchup":
+        return ""
+    return str(parts[-1])[:80]
+
+
 def _student_surface() -> bool:
     """True when this request is a student page or a student API.
 
@@ -526,6 +629,8 @@ def _caller_has_feature(key: str, kwargs: dict[str, Any]) -> bool:
         key: Feature key.
         kwargs: View keyword arguments, used to find a live session.
     """
+    if _catchup_surface():
+        return bool(feature_map_for_catchup_token(_catchup_token_from_request()).get(str(key)))
     if _student_surface():
         session_id = _student_owner_session_id(kwargs)
         if session_id is None:
@@ -550,8 +655,9 @@ def _caller_has_feature(key: str, kwargs: dict[str, Any]) -> bool:
 def features_for_page() -> dict[str, bool]:
     """Registry flags for the template on this request.
 
-    Student pages use the live session's owning teacher. Staff pages use
-    the signed-in teacher. A lookup failure is all off, so pro-only
+    Student pages use the live session's owning teacher. Catch-up pages
+    use the teacher who owns that saved run. Staff pages use the
+    signed-in teacher. A lookup failure is all off, so pro-only
     controls stay out of the HTML.
 
     Returns:
@@ -565,6 +671,8 @@ def features_for_page() -> dict[str, bool]:
     if not has_request_context():
         return flags
     try:
+        if _catchup_surface():
+            return feature_map_for_catchup_token(_catchup_token_from_request())
         if _student_surface():
             session_id = _student_owner_session_id({})
             if session_id is None:

@@ -650,7 +650,7 @@
                 <button type="button" class="live-content-tab" data-tab="media">Media</button>
                 {% endif %}
                 <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Questions</button>
-                {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
+                {% if teacher_features.whiteboard %}
                 <button type="button" class="live-content-tab" data-tab="canvas">Whiteboard</button>
                 {% endif %}
                 <button type="button" class="live-content-tab" data-tab="slides">Slides</button>
@@ -793,7 +793,7 @@
                   </section>
                 </section>
               </section>
-              {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
+              {% if teacher_features.whiteboard %}
               <section id="canvas-zone" class="live-content-slot is-parked" data-content-id="canvas" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Whiteboard</h2>

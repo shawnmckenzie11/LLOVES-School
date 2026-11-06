@@ -804,6 +804,6 @@ export function mountTeacherGrid(root) {
 
 if (typeof document !== "undefined") {
   const teacherRoot = document.getElementById("formative-live-board");
-  const boardOn = featureOn("whiteboard") || featureOn("whiteboard_submit");
+  const boardOn = featureOn("whiteboard");
   if (teacherRoot instanceof HTMLElement && boardOn) mountTeacherGrid(teacherRoot);
 }

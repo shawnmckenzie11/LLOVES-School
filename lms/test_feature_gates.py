@@ -482,6 +482,42 @@ class StudentOwnerResolveTests(_School):
             self.assertTrue(_caller_has_feature("media", {}))
             self.assertTrue(features_for_page()["media"])
 
+    def test_catchup_flags_follow_the_saved_run(self) -> None:
+        """Catch-up uses the run's teacher, not a staff login in the same browser."""
+        owner = self._teacher("cu-owner@example.com")
+        other = self._teacher("cu-other@example.com")
+        set_feature_override(self.school, int(other["id"]), "team_draw", True)
+        set_feature_override(self.school, int(other["id"]), "whiteboard", True)
+        class_id = self._class_for(int(owner["id"]), ["Ada"])
+        live = self._live(class_id, int(owner["id"]))
+        token = "cu-owner-token"
+        now = "2026-11-06T12:00:00"
+        self.school.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot,
+                is_open, created_at, updated_at
+            ) VALUES (?, ?, ?, 'M1', 'C1', 1, ?, ?)
+            """,
+            (token, class_id, str(live["run_key"]), now, now),
+        )
+        self.school.conn.commit()
+        with self.app.test_request_context(f"/catchup/MCF3M/m1-c1/{token}"):
+            from flask import session
+
+            session["logged_in"] = True
+            session["user_id"] = int(other["id"])
+            session["portal"] = "staff"
+            session["role"] = "staff"
+            flags = features_for_page()
+            self.assertFalse(flags["team_draw"])
+            self.assertFalse(flags["whiteboard"])
+            self.assertFalse(flags["media"])
+            self.assertTrue(flags["mc_questions"])
+            self.assertTrue(flags["live_slides"])
+            self.assertFalse(_caller_has_feature("team_draw", {}))
+            self.assertTrue(_caller_has_feature("mc_questions", {}))
+
 
 def _chrome() -> str:
     """First Chrome binary on this machine, or an empty string."""
@@ -595,13 +631,81 @@ class FeatureScreenTests(_School):
                 sess["role"] = "staff"
         return phone
 
-    def test_screens_follow_the_plan(self) -> None:
-        """New teachers hide off surfaces. A granted teacher keeps them.
+    def _catchup_client(self, live: dict, class_id: int, name: str, *, also_user_id: int | None = None):
+        """Catch-up browser for one roster student of this saved run.
 
-        ``whiteboard_submit`` stays on for a new teacher, so the Whiteboard
-        tab stays in refresh mode. Turning both whiteboard keys off removes
-        the tab, the canvas, and the gallery request. Student pages follow
-        the session owner even when another teacher is signed in.
+        The link stores that session's run key, so the page follows that
+        session's teacher. The token is not put in assertion text.
+
+        Args:
+            live: Live session row, including ``run_key``.
+            class_id: Class that owns the run.
+            name: Roster codename already on the class.
+            also_user_id: Staff user signed in on the same browser.
+
+        Returns:
+            Test client and the catch-up path.
+        """
+        from catchup_session import establish_catchup_identity
+
+        run_key = str(live["run_key"])
+        token = f"cu{int(live['id'])}c{int(class_id)}"
+        now = "2026-11-06T12:00:00"
+        self.school.conn.execute(
+            """
+            INSERT OR IGNORE INTO participation_runs
+                (class_id, run_key, is_real, auto_is_real, discarded)
+            VALUES (?, ?, 1, 1, 0)
+            """,
+            (int(class_id), run_key),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot,
+                is_open, created_at, updated_at
+            ) VALUES (?, ?, ?, 'M1', 'C1', 1, ?, ?)
+            """,
+            (token, int(class_id), run_key, now, now),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key,
+                item_json, prompt_kind, offered_at
+            ) VALUES (?, ?, 'M1', 'C1', 'item:draw1', ?, 'team_draw', ?)
+            """,
+            (
+                int(class_id),
+                run_key,
+                json.dumps({"type": "team_draw", "text": "Draw the figure."}),
+                now,
+            ),
+        )
+        self.school.conn.commit()
+        student = self.school.game.find_student_by_codename(int(class_id), name)
+        self.assertIsNotNone(student)
+        assert student is not None
+        sid = int(student["id"])
+        self.school.set_student_pin(int(class_id), sid, "2468")
+        phone = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(int(class_id), sid)
+        with phone.session_transaction() as sess:
+            establish_catchup_identity(sess, self.school, int(class_id), sid, stamp)
+            if also_user_id is not None:
+                sess["logged_in"] = True
+                sess["user_id"] = int(also_user_id)
+                sess["portal"] = "staff"
+                sess["role"] = "staff"
+        return phone, f"/catchup/{token}?play=1"
+
+    def test_screens_follow_the_plan(self) -> None:
+        """A new teacher sees only Questions and Slides.
+
+        ``whiteboard_submit`` stays on in the registry and still allows the
+        gallery route. It does not put the Whiteboard tab back. Turning
+        ``whiteboard`` on does. Student and catch-up pages follow the saved
+        run's teacher even when another teacher is signed in.
         """
         from werkzeug.serving import make_server
 
@@ -614,6 +718,10 @@ class FeatureScreenTests(_School):
         off_client, off_class, _off_id = self._page_client(
             "screen-boards@example.com", basic=False, boards_off=True
         )
+        board_client, board_class, _board_id = self._page_client(
+            "screen-board-on@example.com", basic=True
+        )
+        set_feature_override(self.school, _board_id, "whiteboard", True)
         basic_live = self._live_for(basic_client, basic_class)
         full_live = self._live_for(full_client, full_class)
         off_live = self._live_for(off_client, off_class)
@@ -624,6 +732,14 @@ class FeatureScreenTests(_School):
             str(full_live["session_code"]), "Bea", also_user_id=basic_id
         )
         off_phone = self._phone(str(off_live["session_code"]), "Ada")
+        board_live = self._live_for(board_client, board_class)
+        board_phone = self._phone(str(board_live["session_code"]), "Ada")
+        basic_catchup, basic_catchup_path = self._catchup_client(
+            basic_live, basic_class, "Bea", also_user_id=full_id
+        )
+        full_catchup, full_catchup_path = self._catchup_client(
+            full_live, full_class, "Ada", also_user_id=basic_id
+        )
         server = make_server("127.0.0.1", 0, self.app, threaded=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -636,6 +752,9 @@ class FeatureScreenTests(_School):
             "basic_student": art / "mck348-basic-student.png",
             "full_student": art / "mck348-full-student.png",
             "boards_off_student": art / "mck348-boards-off-student.png",
+            "board_on": art / "mck348-board-on-live.png",
+            "basic_catchup": art / "mck348-basic-catchup.png",
+            "full_catchup": art / "mck348-full-catchup.png",
         }
         spec = {
             "port": server.server_port,
@@ -683,6 +802,27 @@ class FeatureScreenTests(_School):
                     "shot": str(shots["boards_off_student"]),
                     "ready": "#live-response",
                 },
+                {
+                    "name": "board_on",
+                    "cookies": self._cookies(board_client),
+                    "path": f"/staff/class/{board_class}?tab=live",
+                    "shot": str(shots["board_on"]),
+                    "ready": "#live-content-tabs",
+                },
+                {
+                    "name": "basic_catchup",
+                    "cookies": self._cookies(basic_catchup),
+                    "path": basic_catchup_path,
+                    "shot": str(shots["basic_catchup"]),
+                    "ready": "#catchup-questions",
+                },
+                {
+                    "name": "full_catchup",
+                    "cookies": self._cookies(full_catchup),
+                    "path": full_catchup_path,
+                    "shot": str(shots["full_catchup"]),
+                    "ready": "#catchup-questions",
+                },
             ],
         }
         cfg = Path(self.tmp.name) / "feature-gates-e2e.json"
@@ -715,17 +855,21 @@ class FeatureScreenTests(_School):
         self.assertEqual(basic["mediaZone"], 0)
         self.assertEqual(basic["importForm"], 0)
         self.assertEqual(basic["googleStage"], 0)
-        self.assertEqual(basic["questions"], 1)
-        self.assertEqual(basic["slides"], 1)
-        self.assertEqual(basic["whiteboard"], 1)
-        self.assertEqual(basic["canvasZone"], 1)
-        self.assertEqual(basic["refresh"], 1)
+        self.assertEqual(
+            [basic["questions"], basic["slides"], basic["media"], basic["whiteboard"]],
+            [1, 1, 0, 0],
+        )
+        self.assertEqual(basic["canvasZone"], 0)
+        self.assertEqual(basic["refresh"], 0)
         self.assertEqual(basic["livePill"], 0)
         self.assertFalse(basic["flags"]["media"])
         self.assertFalse(basic["flags"]["slides_import"])
+        self.assertFalse(basic["flags"]["whiteboard"])
         self.assertTrue(basic["flags"]["live_slides"])
         self.assertTrue(basic["flags"]["whiteboard_submit"])
         self.assertFalse(any("active-media" in row for row in out["basic"]["requests"]))
+        self.assertFalse(any("whiteboard-gallery" in row for row in out["basic"]["requests"]))
+        self.assertFalse(any("/board/" in row for row in out["basic"]["requests"]))
         self.assertEqual(full["media"], 1)
         self.assertEqual(full["mediaZone"], 1)
         self.assertEqual(full["importForm"], 1)
@@ -752,11 +896,12 @@ class FeatureScreenTests(_School):
         self.assertEqual(basic_student["mediaPane"], 0)
         self.assertEqual(basic_student["slidesCard"], 0)
         self.assertEqual(basic_student["slidesFrame"], 1)
-        self.assertEqual(basic_student["canvasPane"], 1)
+        self.assertEqual(basic_student["canvasPane"], 0)
         self.assertEqual(basic_student["cursors"], 0)
         self.assertEqual(basic_student["teamDrawMystery"], 0)
-        self.assertEqual(basic_student["teamDrawPhone"], 1)
+        self.assertEqual(basic_student["teamDrawPhone"], 0)
         self.assertFalse(basic_student["flags"]["media"])
+        self.assertFalse(basic_student["flags"]["whiteboard"])
         self.assertTrue(basic_student["flags"]["whiteboard_submit"])
         self.assertFalse(any("/board/" in row for row in out["basic_student"]["requests"]))
         self.assertFalse(any("active-media" in row for row in out["basic_student"]["requests"]))
@@ -775,6 +920,28 @@ class FeatureScreenTests(_School):
         self.assertEqual(off_student["teamDrawPhone"], 0)
         self.assertFalse(any("/board/" in row for row in out["boards_off_student"]["requests"]))
         self.assertFalse(any("whiteboard-gallery" in row for row in out["boards_off_student"]["requests"]))
+        board_on = out["board_on"]["counts"]
+        self.assertEqual(
+            [board_on["questions"], board_on["slides"], board_on["media"], board_on["whiteboard"]],
+            [1, 1, 0, 1],
+        )
+        self.assertEqual(board_on["canvasZone"], 1)
+        self.assertEqual(board_on["livePill"], 1)
+        self.assertEqual(board_on["importForm"], 0)
+        self.assertTrue(board_on["flags"]["whiteboard"])
+        self.assertFalse(board_on["flags"]["media"])
+        basic_cu = out["basic_catchup"]["counts"]
+        full_cu = out["full_catchup"]["counts"]
+        self.assertGreaterEqual(basic_cu["catchupCards"], 1)
+        self.assertEqual(basic_cu["catchupDraw"], 0)
+        self.assertFalse(basic_cu["flags"]["team_draw"])
+        self.assertFalse(basic_cu["flags"]["group_draw"])
+        self.assertFalse(basic_cu["flags"]["whiteboard"])
+        self.assertTrue(basic_cu["flags"]["mc_questions"])
+        self.assertGreaterEqual(full_cu["catchupCards"], 1)
+        self.assertEqual(full_cu["catchupDraw"], 1)
+        self.assertTrue(full_cu["flags"]["team_draw"])
+        self.assertTrue(full_cu["flags"]["whiteboard"])
 
 
 if __name__ == "__main__":

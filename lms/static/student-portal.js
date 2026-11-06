@@ -106,11 +106,10 @@ import {
 /** Owner flags for this live room. Off features must not fetch or listen. */
 const mediaFeature = featureOn("media");
 const whiteboardFeature = featureOn("whiteboard");
-const whiteboardSubmitFeature = featureOn("whiteboard_submit");
-const boardFeature = whiteboardFeature || whiteboardSubmitFeature;
+const boardFeature =
+  whiteboardFeature || featureOn("team_draw") || featureOn("group_draw");
 const slidesImportFeature = featureOn("slides_import");
-const drawFeature =
-  featureOn("team_draw") || featureOn("group_draw") || whiteboardSubmitFeature;
+const drawFeature = featureOn("team_draw") || featureOn("group_draw");
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");

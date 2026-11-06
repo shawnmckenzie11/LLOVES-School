@@ -87,6 +87,8 @@ async function readPage(shot) {
       teamDrawPhone: id("team-draw-phone"),
       teamDrawMystery: id("team-draw-mystery"),
       portfolioDoc: id("portfolio-drive"),
+      catchupDraw: document.querySelectorAll("canvas.catchup-draw-canvas").length,
+      catchupCards: document.querySelectorAll("#catchup-questions .student-live-card").length,
       flags,
     };
   });
@@ -96,7 +98,45 @@ async function readPage(shot) {
     await page.waitForTimeout(200);
   }
   if (shot.shot) {
-    await page.screenshot({ path: shot.shot, fullPage: true });
+    await page.evaluate(() => {
+      for (const sel of [
+        "#ap-join-billboard",
+        "#ap-join-strip",
+        "#catchup-pin-dialog",
+        "#live-catchup-pin-dialog",
+        ".catchup-pin-dialog",
+      ]) {
+        document.querySelectorAll(sel).forEach((el) => {
+          if (el instanceof HTMLElement) el.hidden = true;
+        });
+      }
+      document.querySelectorAll("[data-live-code]").forEach((el) => {
+        el.removeAttribute("data-live-code");
+      });
+      const deck = document.getElementById("set-class-deck-step");
+      if (deck instanceof HTMLElement) deck.setAttribute("data-mck348-deck", "1");
+    });
+    const deck = page.locator("#set-class-deck-step");
+    if (await deck.count()) {
+      await deck.screenshot({ path: shot.shot.replace(/\.png$/, "-deck.png") });
+    }
+    await page.evaluate(() => {
+      document.querySelectorAll(".live-shell-ia-v2").forEach((el) => {
+        el.classList.remove("is-set-class");
+      });
+    });
+    const tabs = page.locator("#live-content-tabs");
+    const catchup = page.locator("#catchup-questions");
+    const phone = page.locator("#live-response");
+    if (await tabs.count()) {
+      await tabs.screenshot({ path: shot.shot });
+    } else if (await catchup.count()) {
+      await catchup.screenshot({ path: shot.shot });
+    } else if (await phone.count()) {
+      await phone.screenshot({ path: shot.shot });
+    } else {
+      await page.screenshot({ path: shot.shot });
+    }
   }
   await context.close();
   return { errors, counts, requests, width: 1280 };

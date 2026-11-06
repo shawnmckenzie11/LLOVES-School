@@ -61,7 +61,7 @@
       <iframe id="media-frame" title="Live class media" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
     {% endif %}
-    {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
+    {% if teacher_features.whiteboard or teacher_features.team_draw or teacher_features.group_draw %}
     <div id="canvas-pane" class="canvas-pane student-floating-pane" hidden>
       <div class="student-pane-bar" data-pane-drag="canvas">
         <span>Whiteboard</span>
