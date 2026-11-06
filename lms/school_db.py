@@ -14957,27 +14957,7 @@ class SchoolDB(LovesDB):
                 omitted, the seed metadata is loaded once.
         """
 
-        params = (int(class_id), str(module).upper(), str(slot).upper())
-        edited = self._slot_has_deck_overlay(
-            int(class_id), module, slot, real_deck_only=True
-        )
-        if not edited:
-            with self._lock:
-                edited = (
-                    self.conn.execute(
-                        """
-                        SELECT 1 FROM class_live_playlist_item_overrides
-                        WHERE class_id = ? AND module = ? AND slot = ?
-                        UNION ALL
-                        SELECT 1 FROM class_live_deck_seeds
-                        WHERE class_id = ? AND module = ? AND slot = ?
-                        LIMIT 1
-                        """,
-                        params + params,
-                    ).fetchone()
-                    is not None
-                )
-        if not edited:
+        if not self._deck_has_working_rows(class_id, module, slot):
             rows = seed_questions
             if rows is None:
                 loaded = self.live_class_metadata_for_class_lesson(
@@ -14989,6 +14969,41 @@ class SchoolDB(LovesDB):
             int(class_id), module, slot, fresh=True
         )
         return self._authored_question_count(merged.get("questions"))
+
+    def _deck_has_working_rows(self, class_id: int, module: str, slot: str) -> bool:
+        """Whether this slot is no longer the untouched course seed.
+
+        Same predicate as ``_deck_question_count``: a placement, page
+        overlay, item override, media text, or deck-seed row. An
+        untouched slot's media and team challenge are the seed file, so
+        the picker must not full-merge one class deck per row.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token.
+            slot: Challenge token.
+        """
+
+        if self._slot_has_deck_overlay(
+            int(class_id), module, slot, real_deck_only=True
+        ):
+            return True
+        params = (int(class_id), str(module).upper(), str(slot).upper())
+        with self._lock:
+            return (
+                self.conn.execute(
+                    """
+                    SELECT 1 FROM class_live_playlist_item_overrides
+                    WHERE class_id = ? AND module = ? AND slot = ?
+                    UNION ALL
+                    SELECT 1 FROM class_live_deck_seeds
+                    WHERE class_id = ? AND module = ? AND slot = ?
+                    LIMIT 1
+                    """,
+                    params + params,
+                ).fetchone()
+                is not None
+            )
 
     @staticmethod
     def _deck_loss_content_flags(meta: dict[str, Any] | None) -> dict[str, bool]:
@@ -15024,9 +15039,11 @@ class SchoolDB(LovesDB):
     ) -> dict[str, bool]:
         """Media and team-challenge flags for one source deck.
 
-        Call after ``_deck_question_count``. An edited slot was just merged
-        and cached, so ``fresh=False`` reuses that build. An unedited slot
-        loads the seed, which is the merged deck.
+        An untouched slot reads the course seed file. That file is the
+        merged deck until a copy or edit, and the read does not rebuild
+        or cache class metadata. A slot with working rows uses the merged
+        deck. ``_deck_question_count`` has already built that deck when
+        the row is edited, so ``fresh=False`` reuses it.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -15034,8 +15051,15 @@ class SchoolDB(LovesDB):
             slot: Challenge token.
         """
 
+        module_key = str(module).upper()
+        slot_key = str(slot).upper()
+        if not self._deck_has_working_rows(int(class_id), module_key, slot_key):
+            course = self._course_code_for_class(int(class_id))
+            return self._deck_loss_content_flags(
+                load_live_class_metadata(course, module_key, slot_key)
+            )
         meta = self.live_class_metadata_for_class_lesson(
-            int(class_id), module, slot, fresh=False
+            int(class_id), module_key, slot_key, fresh=False
         )
         return self._deck_loss_content_flags(meta)
 

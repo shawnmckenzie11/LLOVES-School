@@ -2033,6 +2033,93 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         )
         self.assertNotIn("Can't be undone.", view["text"])
 
+    def _count_metadata_builds(self, fn):
+        """Run ``fn`` and return ``(result, [(class_id, module, slot), ...])``.
+
+        Counts ``_build_live_metadata`` calls. That is the full class merge,
+        not a seed-file read.
+
+        Args:
+            fn: Zero-argument callable.
+        """
+
+        calls: list[tuple[int, str, str]] = []
+        real = self.school._build_live_metadata
+
+        def spy(key, revision, deck_kw, **kwargs):
+            """Record one full merge, then build it."""
+
+            calls.append((int(key[0]), str(key[2]), str(key[3])))
+            return real(key, revision, deck_kw, **kwargs)
+
+        with patch.object(self.school, "_build_live_metadata", side_effect=spy):
+            return fn(), calls
+
+    def test_untouched_picker_does_not_full_merge_every_row(self) -> None:
+        """Three MCR3U sections: repeated opens stay near one full merge.
+
+        Source media and team-challenge flags used to call
+        ``live_class_metadata_for_class_lesson`` for every untouched row.
+        Three sections list about 95 decks and rebuilt all of them on every
+        open, which filled the 64-entry shared cache and evicted the deck
+        the class was already teaching. The cache cap is not the fix.
+        """
+
+        self._require_mcr3u()
+        semester = self.school.get_semester(int(self.off_mcr["semester_id"]))
+        for _ in range(2):
+            offering = self.school.assign_course(
+                teacher_user_id=self.tid, ontario_code="MCR3U", new_section=True
+            )
+            self._make_class(offering, self.tid)
+        self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M1", "C1", fresh=True
+        )
+        _, warm = self._count_metadata_builds(
+            lambda: self.school.live_class_metadata_for_class_lesson(
+                self.mcr, "M1", "C1", fresh=False
+            )
+        )
+        self.assertEqual(warm, [])
+        opens: list[int] = []
+        listed = 0
+        for _ in range(3):
+            body, calls = self._count_metadata_builds(
+                lambda: self.school.deck_seed_options(
+                    self.mcr, "M2", "C2", teacher_user_id=self.tid
+                )
+            )
+            listed = len(body["decks"])
+            opens.append(len(calls))
+        self.assertGreaterEqual(listed, 90)
+        self.assertEqual(opens, [1, 1, 1], opens)
+        self.assertLess(len(self.school._live_metadata_cache), listed)
+        _, after = self._count_metadata_builds(
+            lambda: self.school.live_class_metadata_for_class_lesson(
+                self.mcr, "M1", "C1", fresh=False
+            )
+        )
+        self.assertEqual(after, [])
+        listed_row = self._listed(
+            self.mcr, "M1", "C1", view="M2", challenge="C2"
+        )
+        merged = self.school.live_class_metadata_for_class_lesson(
+            self.mcr, "M1", "C1", fresh=True
+        )
+        truth = self.school._deck_loss_content_flags(merged)
+        self.assertEqual(listed_row["has_media"], truth["has_media"])
+        self.assertEqual(listed_row["has_team_challenge"], truth["has_team_challenge"])
+        self.assertTrue(listed_row["has_team_challenge"])
+        self._copy("M4", "C2", "M1", "C1")
+        copied = self._options(self.mcr, "M4", "C2")
+        self.assertEqual(copied["current"]["question_count"], 0)
+        self.assertTrue(copied["current"]["has_media"])
+        self.assertTrue(copied["current"]["has_team_challenge"])
+        self._copy("M4", "C2", "M2", "C2")
+        cleared = self._options(self.mcr, "M4", "C2")
+        self.assertFalse(cleared["current"]["has_media"])
+        self.assertFalse(cleared["current"]["has_team_challenge"])
+
     def test_page_changes_are_counted_once_for_the_whole_picker(self) -> None:
         """Page-overlay counts are one grouped query, not one query per deck."""
 
