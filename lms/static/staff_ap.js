@@ -11580,7 +11580,13 @@ function applySessionTimerUi(state = overlayState) {
   const stepper = $("ap-meet-stepper");
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
-  const running = Boolean(game.round_ends_at_ms) && !game.timer_paused;
+  const restart = $("ap-meet-restart");
+  const endsAt = Number(game.round_ends_at_ms) || 0;
+  const expired =
+    Boolean(game.round_ends_at_ms) &&
+    !game.timer_paused &&
+    remainingUntilMs(endsAt) <= 0;
+  const running = Boolean(game.round_ends_at_ms) && !game.timer_paused && !expired;
   const paused = Boolean(game.timer_paused);
   if (stepper) {
     stepper.hidden = false;
@@ -11597,11 +11603,14 @@ function applySessionTimerUi(state = overlayState) {
     clock.hidden = false;
     clock.removeAttribute("hidden");
     if (running) {
-      sessionEndsAtMs = Number(game.round_ends_at_ms) || 0;
+      sessionEndsAtMs = endsAt;
       clock.textContent = formatCountdown(remainingUntilMs(sessionEndsAtMs));
     } else if (paused) {
       sessionEndsAtMs = 0;
       clock.textContent = formatCountdown(Number(game.round_remaining_sec) || 0);
+    } else if (expired) {
+      sessionEndsAtMs = endsAt;
+      clock.textContent = formatCountdown(0);
     } else {
       sessionEndsAtMs = 0;
       clock.textContent = formatCountdown(sessionTimerMinutes() * 60);
@@ -11614,10 +11623,19 @@ function applySessionTimerUi(state = overlayState) {
     } else if (paused) {
       btn.textContent = "Resume";
       btn.dataset.meetState = "paused";
+    } else if (expired) {
+      btn.textContent = "Start";
+      btn.dataset.meetState = "expired";
     } else {
       btn.textContent = "Start";
       btn.dataset.meetState = "idle";
     }
+  }
+  if (restart) {
+    const showRestart = paused || running || expired;
+    restart.hidden = !showRestart;
+    if (showRestart) restart.removeAttribute("hidden");
+    else restart.setAttribute("hidden", "");
   }
 }
 
@@ -11632,11 +11650,31 @@ function paintSessionClock() {
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
   if (!clock) return;
-  if (btn?.dataset.meetState !== "running") return;
+  if (btn?.dataset.meetState !== "running" && btn?.dataset.meetState !== "expired") return;
   if (!sessionEndsAtMs) return;
   const left = remainingUntilMs(sessionEndsAtMs);
   clock.textContent = formatCountdown(left);
-  if (left <= 0) void closeAnswersAtZero(sessionEndsAtMs);
+  if (left <= 0) {
+    if (btn && btn.dataset.meetState === "running") {
+      btn.textContent = "Start";
+      btn.dataset.meetState = "expired";
+      const restart = $("ap-meet-restart");
+      if (restart) {
+        restart.hidden = false;
+        restart.removeAttribute("hidden");
+      }
+      const stepper = $("ap-meet-stepper");
+      if (stepper) {
+        stepper.setAttribute("aria-disabled", "false");
+        for (const el of stepper.querySelectorAll("button, input")) {
+          if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) {
+            el.disabled = false;
+          }
+        }
+      }
+    }
+    void closeAnswersAtZero(sessionEndsAtMs);
+  }
 }
 
 /** Deadline (epoch ms) already sent to ``timer-expired``. */
@@ -12062,6 +12100,15 @@ $("ap-meet-start")?.addEventListener("click", async () => {
       applySessionTimerUi(overlayState);
       return;
     }
+    await startSessionTimer();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-meet-restart")?.addEventListener("click", async () => {
+  try {
+    hideError("#ap-overlay-error");
     await startSessionTimer();
   } catch (err) {
     showError("#ap-overlay-error", err);

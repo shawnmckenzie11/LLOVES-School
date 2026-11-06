@@ -1387,6 +1387,9 @@ body.staff-shell .ap-meet-start {
   min-width: 5.5rem;
   white-space: nowrap;
 }
+body.staff-shell #ap-meet-restart[hidden] {
+  display: none !important;
+}
 body.staff-shell .ap-meet-live-clock {
   margin: 0;
   min-width: 3.25rem;
