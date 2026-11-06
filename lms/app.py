@@ -125,6 +125,7 @@ from school_db import (  # noqa: E402
     DeleteTestLiveClassConflict,
     LiveRunKindConflict,
     DeckReplaceNotConfirmed,
+    SlideCountMismatch,
     GroupAnswerLocked,
     RankAgreeConflict,
     RankRaceStepConflict,

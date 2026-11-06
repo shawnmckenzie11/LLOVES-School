@@ -17,6 +17,7 @@ from app import (
     DEFAULT_LIVE_MEDIA_URL,
     DeckCopyLiveConflict,
     DeckReplaceNotConfirmed,
+    SlideCountMismatch,
     DeleteTestLiveClassConflict,
     EARNED_AVATARS,
     EARNED_AVATAR_SRC,
@@ -880,7 +881,8 @@ def register_live(app, school, shared):
 
         Last-page delete is a sibling DELETE route. Adding never writes
         seed JSON; the page is a ``class_live_playlist_pages`` row.
-        Body ``kind`` / ``page_kind`` selects blank, welcome, or winner.
+        Body ``kind`` / ``page_kind`` must be blank. Welcome and winner
+        are not page types.
         """
         user = current_user()
         assert user is not None
@@ -3477,6 +3479,19 @@ def register_live(app, school, shared):
             "status": "error",
             "error": str(job.get("error") or "Could not attach that deck."),
         }
+        try:
+            extra = json.loads(str(job.get("result_json") or "{}"))
+        except json.JSONDecodeError:
+            extra = {}
+        if isinstance(extra, dict):
+            for key in (
+                "needs_page_count_confirm",
+                "fixed_page_count",
+                "new_slide_count",
+                "missing_pages",
+            ):
+                if key in extra:
+                    body[key] = extra[key]
         code = int(job.get("http_status") or 400)
         if job.get("needs_slides_read"):
             body["needs_slides_read"] = True
@@ -3650,6 +3665,9 @@ def register_live(app, school, shared):
 
             filename = str(upload.filename or "")
             published = _slide_default_published(published_raw)
+            confirm_page_loss = str(
+                request.form.get("confirm_page_loss") or ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
             try:
                 suffix = slide_files.office_suffix(filename)
             except ValueError as exc:
@@ -3672,6 +3690,7 @@ def register_live(app, school, shared):
                 are files. The upload is read again only when it is stored.
                 """
                 import course_slide_files as files
+                from slide_import_jobs import SlideImportFailed
 
                 path = Path(str(spilled))
                 page_dir = path.parent / f"pages-{job_id}"
@@ -3679,19 +3698,25 @@ def register_live(app, school, shared):
                     page_paths, truncated = files.pages_from_office_to_dir(
                         path, suffix, page_dir, timeout=80
                     )
-                    saved = school.save_course_slide_deck(
-                        int(class_id),
-                        module,
-                        slot,
-                        title=title,
-                        source="pptx",
-                        page_paths=page_paths,
-                        default_published=published,
-                        truncated=truncated,
-                        source_path=path,
-                        source_suffix=suffix,
-                        job_id=job_id,
-                    )
+                    try:
+                        saved = school.save_course_slide_deck(
+                            int(class_id),
+                            module,
+                            slot,
+                            title=title,
+                            source="pptx",
+                            page_paths=page_paths,
+                            default_published=published,
+                            truncated=truncated,
+                            source_path=path,
+                            source_suffix=suffix,
+                            job_id=job_id,
+                            confirm_page_loss=confirm_page_loss,
+                        )
+                    except SlideCountMismatch as exc:
+                        raise SlideImportFailed(
+                            str(exc), detail=exc.detail()
+                        ) from exc
                 finally:
                     path.unlink(missing_ok=True)
                     shutil.rmtree(page_dir, ignore_errors=True)
@@ -3719,6 +3744,7 @@ def register_live(app, school, shared):
         if published is None:
             published = published_raw
         published_flag = _slide_default_published(published)
+        confirm_page_loss = bool(body.get("confirm_page_loss"))
         try:
             from google_slides_import import parse_presentation_id
 
@@ -3756,18 +3782,22 @@ def register_live(app, school, shared):
                     )
                 except SlidesShareNotPublic as exc:
                     raise SlideImportFailed(str(exc), needs_slides_read=True) from exc
-                saved = school.save_course_slide_deck(
-                    int(class_id),
-                    module,
-                    slot,
-                    title="Google Slides",
-                    source=source,
-                    presentation_id=presentation_id,
-                    page_paths=page_paths,
-                    default_published=published_flag,
-                    truncated=truncated,
-                    job_id=job_id,
-                )
+                try:
+                    saved = school.save_course_slide_deck(
+                        int(class_id),
+                        module,
+                        slot,
+                        title="Google Slides",
+                        source=source,
+                        presentation_id=presentation_id,
+                        page_paths=page_paths,
+                        default_published=published_flag,
+                        truncated=truncated,
+                        job_id=job_id,
+                        confirm_page_loss=confirm_page_loss,
+                    )
+                except SlideCountMismatch as exc:
+                    raise SlideImportFailed(str(exc), detail=exc.detail()) from exc
             finally:
                 shutil.rmtree(work_dir, ignore_errors=True)
             _emit_slide_news_for_class(int(class_id))
@@ -4086,6 +4116,7 @@ def register_live(app, school, shared):
             "text_ride",
             "question_views",
             "page_id",
+            "page_number",
             "gamification_on",
         ):
             if key in body:

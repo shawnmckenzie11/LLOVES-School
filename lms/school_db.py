@@ -174,6 +174,7 @@ try:
         load_live_class_metadata,
         metadata_path,
         previous_challenge_slot,
+        questions_for_page,
         questions_for_stage,
     )
     from live_teacher_state import (
@@ -351,6 +352,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         load_live_class_metadata,
         metadata_path,
         previous_challenge_slot,
+        questions_for_page,
         questions_for_stage,
     )
     from lms.live_teacher_state import (
@@ -2083,6 +2085,43 @@ class DeckReplaceNotConfirmed(ValueError):
     Set Class answers 409 so the teacher picks Replace deck or Keep
     current. Nothing is written.
     """
+
+
+class SlideCountMismatch(ValueError):
+    """A re-pulled slide deck does not match the page count fixed at class start.
+
+    The deck is left as it was until the teacher confirms. Question rows
+    are not deleted or renumbered.
+
+    Args:
+        message: Teacher-facing warning.
+        fixed_page_count: Page count recorded for this live class.
+        new_slide_count: Slides in the deck just pulled.
+        missing_pages: Pages above the new count that still hold questions.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        fixed_page_count: int,
+        new_slide_count: int,
+        missing_pages: list[dict[str, Any]],
+    ) -> None:
+        super().__init__(message)
+        self.fixed_page_count = int(fixed_page_count)
+        self.new_slide_count = int(new_slide_count)
+        self.missing_pages = list(missing_pages)
+
+    def detail(self) -> dict[str, Any]:
+        """Return the confirm payload the slide-import poll shows the teacher."""
+
+        return {
+            "needs_page_count_confirm": True,
+            "fixed_page_count": self.fixed_page_count,
+            "new_slide_count": self.new_slide_count,
+            "missing_pages": self.missing_pages,
+        }
 
 
 class DeckCopyLiveConflict(ValueError):
@@ -7579,6 +7618,7 @@ class LovesDB:
         *,
         needs_slides_read: bool = False,
         http_status: int = 400,
+        detail: dict[str, Any] | None = None,
     ) -> None:
         """Mark one import failed with a teacher-facing message.
 
@@ -7587,7 +7627,12 @@ class LovesDB:
             error: Message returned by the status poll.
             needs_slides_read: True when consent is required.
             http_status: Status the poll should use.
+            detail: Optional JSON kept for the poll, such as a slide-count
+                confirm payload. The deck itself is not stored here.
         """
+        result = ""
+        if isinstance(detail, dict) and detail:
+            result = json.dumps(detail)
         with self._lock:
             self.conn.execute(
                 """
@@ -7596,13 +7641,14 @@ class LovesDB:
                     error = ?,
                     needs_slides_read = ?,
                     http_status = ?,
-                    result_json = ''
+                    result_json = ?
                 WHERE id = ? AND status = 'running'
                 """,
                 (
                     str(error or "Could not attach that deck.")[:500],
                     1 if needs_slides_read else 0,
                     int(http_status),
+                    result,
                     str(job_id),
                 ),
             )
@@ -10356,6 +10402,211 @@ class LovesDB:
             "truncated": bool(row["truncated"]),
         }
 
+    def _questions_on_missing_pages(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        new_count: int,
+    ) -> list[dict[str, Any]]:
+        """Return questions whose page number is past ``new_count``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+            new_count: Slides in the deck being pulled.
+
+        Returns:
+            ``[{page_number, questions}]`` sorted by page. Question rows
+            are not changed.
+        """
+        try:
+            metadata = self.live_class_metadata_for_class_lesson(
+                int(class_id), module, slot
+            )
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return []
+        grouped: dict[int, list[str]] = {}
+        for row in (metadata or {}).get("questions") or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                page = int(row.get("page_number"))
+            except (TypeError, ValueError):
+                continue
+            if page <= int(new_count):
+                continue
+            label = str(
+                row.get("text") or row.get("name") or row.get("id") or "Question"
+            ).strip()
+            bucket = grouped.setdefault(page, [])
+            short = (label or "Question")[:80]
+            if short not in bucket:
+                bucket.append(short)
+        return [
+            {"page_number": page, "questions": labels}
+            for page, labels in sorted(grouped.items())
+        ]
+
+    def _placed_active_session(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        session_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the active run for this placement, or None.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+            session_id: Explicit run, or the class's active run.
+        """
+        if session_id:
+            parsed = self.get_live_session(int(session_id)) or {}
+        else:
+            active = self.get_active_live_session_for_class(int(class_id))
+            parsed = (
+                self.get_live_session(int(active["id"])) if active is not None else {}
+            )
+        if not parsed or parsed.get("status") != "active":
+            return None
+        if int(parsed.get("class_id") or 0) != int(class_id):
+            return None
+        teacher = parsed.get("teacher_state")
+        state = teacher if isinstance(teacher, dict) else {}
+        if normalize_live_module(state.get("live_module")) != module:
+            return None
+        if normalize_live_slot(state.get("live_slot")) != slot:
+            return None
+        return parsed
+
+    def _refuse_slide_count_mismatch(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        new_count: int,
+        confirm: bool,
+        session_id: int | None,
+    ) -> None:
+        """Stop a re-pull whose slide count differs until the teacher confirms.
+
+        The first deck on a live class sets the page count and does not
+        prompt. A later deck with a different count raises
+        ``SlideCountMismatch`` unless ``confirm`` is true. Nothing is
+        deleted or renumbered here.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+            new_count: Slides in the deck being saved.
+            confirm: Teacher chose to use the new count.
+            session_id: Active run, when the caller already has one.
+
+        Raises:
+            SlideCountMismatch: Count differs and the teacher has not confirmed.
+        """
+        session = self._placed_active_session(
+            int(class_id), module, slot, session_id
+        )
+        if session is None:
+            return
+        teacher = session.get("teacher_state")
+        state = teacher if isinstance(teacher, dict) else {}
+        baseline: int | None = None
+        raw_fixed = state.get("fixed_page_count")
+        if raw_fixed not in (None, ""):
+            try:
+                baseline = int(raw_fixed)
+            except (TypeError, ValueError):
+                baseline = None
+        existing = self._course_slide_deck_row(int(class_id), module, slot)
+        existing_count = 0
+        if existing is not None:
+            existing_count = len(self._course_slide_page_rows(int(existing["id"])))
+        if baseline is None:
+            if not existing_count:
+                return
+            baseline = existing_count
+        if int(new_count) == int(baseline) or confirm:
+            return
+        missing = self._questions_on_missing_pages(
+            int(class_id), module, slot, int(new_count)
+        )
+        parts = [
+            f"This deck has {int(new_count)} slides. This class started with {int(baseline)} pages.",
+            "Questions on missing pages could be lost.",
+        ]
+        if missing:
+            bits = []
+            for row in missing[:8]:
+                labels = ", ".join(row.get("questions") or []) or "questions"
+                bits.append(f"page {row.get('page_number')} ({labels})")
+            parts.append("Missing pages: " + "; ".join(bits) + ".")
+        else:
+            parts.append("No questions sit on a page this deck does not include.")
+        parts.append(
+            "Nothing was changed. Confirm to use the new slide count. "
+            "Questions are not deleted or renumbered."
+        )
+        message = " ".join(parts)
+        if len(message) > 480:
+            message = message[:477].rstrip() + "..."
+        raise SlideCountMismatch(
+            message,
+            fixed_page_count=int(baseline),
+            new_slide_count=int(new_count),
+            missing_pages=missing,
+        )
+
+    def _set_fixed_page_count(self, session_id: int, count: int) -> None:
+        """Store the slide count the teacher accepted for this run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            count: Page count. Question page numbers are left alone.
+        """
+        if int(count) < 1:
+            return
+        try:
+            state = self.live_session_teacher_state_payload(int(session_id))
+        except KeyError:
+            return
+        if int(state.get("fixed_page_count") or 0) == int(count):
+            return
+        state["fixed_page_count"] = int(count)
+        self._write_teacher_state(int(session_id), state)
+
+    def _freeze_page_count_at_start(self, session_id: int) -> None:
+        """Fix the page count to the deck already attached when class starts.
+
+        A class with no slides yet stays unfixed until the first deck is
+        saved. That first save sets the count. A later count change asks
+        the teacher first.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            state = self.live_session_teacher_state_payload(int(session_id))
+        except KeyError:
+            return
+        if state.get("fixed_page_count"):
+            return
+        deck = self.google_slides_deck(int(session_id))
+        pages = deck.get("pages") if isinstance(deck, dict) else None
+        if not pages:
+            return
+        state["fixed_page_count"] = len(pages)
+        if state.get("page_number") in (None, ""):
+            state["page_number"] = 1
+        self._write_teacher_state(int(session_id), state)
+
     def save_course_slide_deck(
         self,
         class_id: int,
@@ -10374,6 +10625,7 @@ class LovesDB:
         source_suffix: str = "",
         session_id: int | None = None,
         job_id: str | None = None,
+        confirm_page_loss: bool = False,
     ) -> dict[str, Any]:
         """Save one course deck and point a matching live run at it.
 
@@ -10403,6 +10655,10 @@ class LovesDB:
             job_id: Slide import row. When set, the deck is written only
                 while that row is still ``running``. A closed job stores
                 nothing and the new files are removed.
+            confirm_page_loss: Teacher agreed to a slide count that differs
+                from the count fixed at class start. Without it, a
+                different count raises ``SlideCountMismatch`` and writes
+                nothing. Questions are not deleted or renumbered.
 
         Returns:
             ``deck`` summary and ``google_slides`` when a run was bound.
@@ -10452,6 +10708,14 @@ class LovesDB:
                 source_rel = self._store_course_slide_source(
                     int(class_id), bytes(source_bytes), source_suffix
                 )
+            self._refuse_slide_count_mismatch(
+                int(class_id),
+                live_module,
+                live_slot,
+                new_count=len(names),
+                confirm=bool(confirm_page_loss),
+                session_id=session_id,
+            )
             previous_names, previous_source = self._replace_course_slide_rows(
                 int(class_id),
                 live_module,
@@ -10505,6 +10769,8 @@ class LovesDB:
         summary = self.course_slide_deck_summary(
             int(class_id), live_module, live_slot
         )
+        if bound_session is not None:
+            self._set_fixed_page_count(int(bound_session), len(names))
         return {"deck": summary, "google_slides": google}
 
     def delete_course_slide_deck(
@@ -16730,25 +16996,32 @@ class SchoolDB(LovesDB):
             return None
         if str(teacher.get("live_slot") or "C1").upper() != str(slot).upper():
             return None
-        return self.set_live_session_teacher_state(
-            int(active["id"]),
-            stage=str(page.get("stage") or "play"),
-            page_id=str(page.get("id") or ""),
-        )
+        kwargs: dict[str, Any] = {"page_id": str(page.get("id") or "")}
+        raw_number = page.get("page_number")
+        if raw_number not in (None, ""):
+            try:
+                kwargs["page_number"] = int(raw_number)
+            except (TypeError, ValueError):
+                pass
+        return self.set_live_session_teacher_state(int(active["id"]), **kwargs)
 
     @staticmethod
     def _normalize_playlist_page_kind(kind: str) -> str:
-        """Return ``blank``, ``welcome``, or ``winner``.
+        """Return ``blank``.
+
+        Welcome and winner are not page types. A page is a number.
 
         Args:
             kind: Raw add-page kind from the staff dialog or API.
 
         Raises:
-            ValueError: When ``kind`` is not one of the supported tokens.
+            ValueError: When ``kind`` is not ``blank``.
         """
         token = str(kind or "blank").strip().lower() or "blank"
-        if token not in {"blank", "welcome", "winner"}:
-            raise ValueError(f"invalid page kind: {token}")
+        if token != "blank":
+            raise ValueError(
+                "Pages are numbered slides. Welcome and winner are not page types."
+            )
         return token
 
     def add_class_playlist_page(
@@ -16765,8 +17038,7 @@ class SchoolDB(LovesDB):
 
         Authored seed JSON is not rewritten. Blank pages have no questions
         and reuse the pack's existing media via the shared slot metadata.
-        Welcome and winner pages land on the existing student TEAMS / Summary
-        surfaces.
+        The new page is a number. It does not switch the live stage.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -16774,7 +17046,7 @@ class SchoolDB(LovesDB):
             slot: Live slot such as ``C3``.
             name: Teacher-supplied page title. Required for ``blank``.
             after_page_id: Page identity to insert after.
-            kind: ``blank``, ``welcome``, or ``winner``.
+            kind: ``blank``. Welcome and winner are refused.
 
         Returns:
             Summary with ``page``, ``land_page``, and merged ``live_metadata``.
@@ -29314,7 +29586,14 @@ class SchoolDB(LovesDB):
                 continue
             item_id = item_id_raw.strip().lower().replace("-", "_")
             item_stage = str(row.get("stage") or "").strip().lower()
-            if not saved:
+            on_this_page = False
+            raw_page = row.get("page_number")
+            if current_page is not None and raw_page not in (None, ""):
+                try:
+                    on_this_page = int(raw_page) == int(current_page)
+                except (TypeError, ValueError):
+                    on_this_page = False
+            if not saved and not on_this_page:
                 if item_id in {"teams_spark"} or item_stage == "teams" and item_id.endswith("spark"):
                     if stage != "teams":
                         continue
@@ -29388,6 +29667,13 @@ class SchoolDB(LovesDB):
             status = str(item["status"])
             item_stage = str(item.get("stage") or "").strip().lower()
             stage_matches = not item_stage or not stage or item_stage == stage
+            raw_page = item.get("page_number")
+            if current_page is not None and raw_page not in (None, ""):
+                try:
+                    if int(raw_page) == int(current_page):
+                        stage_matches = True
+                except (TypeError, ValueError):
+                    pass
             include_results = status == "closed" or (
                 bool(item["show_live_results"])
                 and (
@@ -30602,34 +30888,66 @@ class SchoolDB(LovesDB):
     def _current_deck_page(
         self, metadata: Any, teacher: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Resolve the teacher's current named page from merged metadata.
+        """Resolve the teacher's current page from merged metadata.
 
-        Prefers ``page_id`` so overlay pages that reuse a pedagogical stage
-        (``play``) stay distinct from authored pages.
+        ``page_number`` wins. It is the same number as the slide
+        (page 1 is slide index 0). ``page_id`` and ``stage`` are read
+        only when no page number is stored, so an old session still opens.
 
         Args:
             metadata: Merged live-class metadata.
             teacher: Public teacher state.
 
         Returns:
-            The matching page dict, or ``None`` when the deck has no pages.
+            The matching page dict, or ``None`` when the deck has no pages
+            and no page number.
         """
         pages = [
             row
             for row in (metadata.get("pages") if isinstance(metadata, dict) else [])
             or []
-            if isinstance(row, dict) and row.get("stage")
+            if isinstance(row, dict) and (row.get("stage") or row.get("page_number"))
         ]
+
+        def numbered(row: dict[str, Any], index: int) -> dict[str, Any]:
+            """Copy one page and fill a missing page number from its index."""
+            found = dict(row)
+            raw = found.get("page_number")
+            if raw in (None, ""):
+                found["page_number"] = index
+            else:
+                try:
+                    found["page_number"] = int(raw)
+                except (TypeError, ValueError):
+                    found["page_number"] = index
+            return found
+
+        raw_number = teacher.get("page_number")
+        if raw_number not in (None, ""):
+            try:
+                number = int(raw_number)
+            except (TypeError, ValueError):
+                number = 0
+            if number > 0:
+                for index, row in enumerate(pages, start=1):
+                    found = numbered(row, index)
+                    if int(found["page_number"]) == number:
+                        return found
+                return {
+                    "id": f"page-{number}",
+                    "name": f"Page {number}",
+                    "page_number": number,
+                }
         page_id = str(teacher.get("page_id") or "").strip()
         if page_id:
-            for row in pages:
+            for index, row in enumerate(pages, start=1):
                 if str(row.get("id") or "").strip() == page_id:
-                    return row
+                    return numbered(row, index)
         stage = str(teacher.get("stage") or "").strip().lower()
-        for row in pages:
+        for index, row in enumerate(pages, start=1):
             if str(row.get("stage") or "").strip().lower() == stage:
-                return row
-        return pages[0] if pages else None
+                return numbered(row, index)
+        return numbered(pages[0], 1) if pages else None
 
     def _page_number_for_deck_page(self, page: dict[str, Any] | None) -> int | None:
         """Return the stored question-binding page_number for one page."""
@@ -32366,7 +32684,11 @@ class SchoolDB(LovesDB):
             for row in metadata.get("questions") or []
             if isinstance(row, dict) and str(row.get("id") or "").strip()
         }
-        for question in questions_for_stage(metadata, stage):
+        if teacher.get("page_number") not in (None, "") and wanted_page is not None:
+            question_source = questions_for_page(metadata, wanted_page)
+        else:
+            question_source = questions_for_stage(metadata, stage)
+        for question in question_source:
             question_id = str(question.get("id") or "").strip()
             if not question_id or self._session_playlist_item_removed(
                 session_id, question_id
@@ -33566,6 +33888,11 @@ class SchoolDB(LovesDB):
         """
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
+            raw_number = teacher.get("page_number")
+            if raw_number not in (None, ""):
+                number = int(raw_number)
+                if number > 0:
+                    return number
             if not str(teacher.get("page_id") or "").strip():
                 return None
             metadata = self.live_class_metadata_for_session(session_id)
@@ -33598,6 +33925,19 @@ class SchoolDB(LovesDB):
             return True
         raw = item.get("page_number")
         if raw in (None, ""):
+            token = str(item.get("item_id") or "").strip().lower().replace("-", "_")
+            # Unpaged fixed rides must not follow the teacher onto every page.
+            # Minds-on with no page number still belongs on page 1.
+            if token == "minds_on":
+                return int(current_page) == 1
+            if token in {
+                "teams_spark",
+                "meet_team",
+                "meet_a",
+                "meet_b",
+                "meet_c",
+            }:
+                return False
             return True
         try:
             return int(raw) == int(current_page)
@@ -38425,6 +38765,74 @@ class SchoolDB(LovesDB):
             payload["cue_id"] = CUE_MEET_CLEAR
         return payload
 
+    def _stamp_page_number_for_legacy_stage(
+        self,
+        session_id: int,
+        payload: dict[str, Any],
+        *,
+        prev_stage: str,
+    ) -> None:
+        """Fill ``page_number`` when an old caller moved stage or ``page_id``.
+
+        Page number stays the identity. A legacy stage write is read to
+        find the matching page. It does not invent a page type.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            payload: Teacher state about to be stored.
+            prev_stage: Stage before this patch.
+        """
+        try:
+            metadata = self.live_class_metadata_for_session(session_id)
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return
+        probe = dict(payload)
+        probe.pop("page_number", None)
+        page_id = str(payload.get("page_id") or "").strip()
+        chosen: int | None = None
+        if page_id:
+            page = self._current_deck_page(metadata, probe)
+            chosen = self._page_number_for_deck_page(page)
+        new_stage = str(payload.get("stage") or "")
+        if chosen is None and new_stage != str(prev_stage or ""):
+            chosen = self._page_number_for_stage(metadata, new_stage)
+        if chosen:
+            payload["page_number"] = int(chosen)
+
+    def _sync_slide_index_to_page(self, session_id: int, page_number: Any) -> None:
+        """Point the attached deck at the same page. Does not bump ``state_seq``.
+
+        Page 1 is slide index 0. A missing or shorter deck is left alone.
+        Publish flags stay as the teacher set them.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            page_number: 1-based lesson page.
+        """
+        try:
+            number = int(page_number)
+        except (TypeError, ValueError):
+            return
+        if number < 1:
+            return
+        deck = self.google_slides_deck(int(session_id))
+        if not isinstance(deck, dict):
+            return
+        pages = deck.get("pages") or []
+        index = number - 1
+        if index < 0 or index >= len(pages):
+            return
+        try:
+            current = int(deck.get("current_index") or 0)
+        except (TypeError, ValueError):
+            current = 0
+        if current == index:
+            return
+        try:
+            self.set_google_slides_current(int(session_id), index, follow=False)
+        except (KeyError, ValueError):
+            return
+
     def set_live_session_teacher_state(
         self,
         session_id: int,
@@ -38555,7 +38963,16 @@ class SchoolDB(LovesDB):
             self._mount_meet_chain(
                 session_id, payload, chain_state=state, fire_open=False
             )
+        stage_moved = str(payload.get("stage") or "") != str(prev_stage or "")
+        if "page_number" not in kwargs and ("page_id" in kwargs or stage_moved):
+            self._stamp_page_number_for_legacy_stage(
+                session_id, payload, prev_stage=prev_stage
+            )
         written = self._write_teacher_state(session_id, payload)
+        if payload.get("page_number") != current.get("page_number"):
+            self._sync_slide_index_to_page(
+                session_id, payload.get("page_number")
+            )
         flags = written.get("round_flags") or {}
         posted_round = "round_flags" in kwargs or "round" in kwargs
         if written.get("stage") == "play" and (
@@ -48667,6 +49084,7 @@ class SchoolDB(LovesDB):
         if self._restore_live_team_lock(int(class_id), create=True):
             self._publish_restored_team_lock(session_id)
         self.bind_session_course_slides(session_id)
+        self._freeze_page_count_at_start(session_id)
         return session_row
 
 

@@ -244,18 +244,22 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         frozen = apply_teacher_state_update(aligned, canvas_align="teacher")
         self.assertEqual(frozen["canvas_align"], "teacher")
 
-    def test_round_unlocks_wait_until_play(self) -> None:
-        """ROUND stores unlocks but students only see them on PLAY."""
+    def test_round_page_mounts_media_and_canvas(self) -> None:
+        """The old Round lock is gone. Media and the whiteboard mount there.
+
+        An explicit stage change still replaces the projection. Page-number
+        navigation is what keeps a surface the teacher already chose.
+        """
         rnd = apply_teacher_state_update(
             None, stage="round", unlocks={"media": True, "canvas": True}
         )
         self.assertEqual(rnd["stage"], "round")
-        self.assertFalse(rnd["unlocks"]["media"])
-        self.assertFalse(rnd["unlocks"]["canvas"])
-        self.assertFalse(rnd["student_frames"]["media"])
-        self.assertFalse(rnd["student_frames"]["canvas"])
-        self.assertFalse(student_should_mount_media(rnd))
-        self.assertFalse(student_should_mount_canvas(rnd))
+        self.assertTrue(rnd["unlocks"]["media"])
+        self.assertTrue(rnd["unlocks"]["canvas"])
+        self.assertTrue(rnd["student_frames"]["media"])
+        self.assertTrue(rnd["student_frames"]["canvas"])
+        self.assertTrue(student_should_mount_media(rnd))
+        self.assertTrue(student_should_mount_canvas(rnd))
         play = apply_teacher_state_update(rnd, stage="play")
         self.assertFalse(play["student_frames"]["media"])
         self.assertFalse(play["student_frames"]["canvas"])

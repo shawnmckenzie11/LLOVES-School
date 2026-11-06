@@ -925,18 +925,25 @@
         </section>
       </div>
     </dialog>
+    <dialog id="live-slide-count-dialog" class="live-relocate-dialog" aria-labelledby="live-slide-count-title">
+      <form id="live-slide-count-form" class="live-relocate-dialog-card">
+        <header class="live-relocate-head">
+          <h2 id="live-slide-count-title" class="live-pane-title">Slide count changed</h2>
+        </header>
+        <p id="live-slide-count-message" class="hint compact"></p>
+        <div class="live-relocate-move-row">
+          <button type="button" class="secondary live-q-btn" id="live-slide-count-keep">Keep current slides</button>
+          <button type="submit" class="live-q-btn" id="live-slide-count-continue">Use the new slide count</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="live-add-page-dialog" class="live-relocate-dialog" aria-labelledby="live-add-page-title">
       <form id="live-add-page-form" class="live-relocate-dialog-card">
         <header class="live-relocate-head">
           <h2 id="live-add-page-title" class="live-pane-title">Add page</h2>
           <button type="button" class="secondary live-q-btn" data-live-add-page-close aria-label="Close">Close</button>
         </header>
-        <fieldset class="live-add-page-kinds">
-          <legend class="live-relocate-move-field">Page type</legend>
-          <label><input type="radio" name="live-add-page-kind" value="blank" checked> Blank page</label>
-          <label><input type="radio" name="live-add-page-kind" value="welcome"> Welcome Page</label>
-          <label><input type="radio" name="live-add-page-kind" value="winner"> Winner Page</label>
-        </fieldset>
+        <p class="hint compact">This adds a numbered page. It is not a welcome or winner page.</p>
         <label class="live-relocate-move-field" for="live-add-page-name" id="live-add-page-name-label">Page name</label>
         <input id="live-add-page-name" type="text" maxlength="80" autocomplete="off" required>
         <p id="live-add-page-error" class="error compact" hidden></p>
