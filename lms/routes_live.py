@@ -6362,13 +6362,34 @@ def register_live(app, school, shared):
 
         return _staff_post(class_id, run)
 
+    def _require_live_timer(class_id: int) -> None:
+        """Refuse SessionTimer writes after End or Quit.
+
+        Start, pause, resume, and restart are live-lesson controls.
+        A finished session must not start again from a leftover game row.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Raises:
+            ValueError: When this class has no active live session.
+        """
+        if school.get_active_live_session_for_class(int(class_id)) is None:
+            raise ValueError("The timer is only available during a live class.")
+
     @bp.route("/api/classes/<int:class_id>/game/timer/start", methods=["POST"])
     @login_required
     def api_timer_start(class_id: int):
-        """Start the stage-independent session countdown."""
+        """Start or restart the session countdown from the selected minutes.
+
+        Restart is this same write: it replaces a running, paused, or
+        expired clock with a fresh duration. Resume is a different route
+        and keeps the frozen remainder.
+        """
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            _require_live_timer(class_id)
             minutes = body.get("minutes", 3)
             try:
                 minutes_i = int(minutes)
@@ -6381,10 +6402,11 @@ def register_live(app, school, shared):
     @bp.route("/api/classes/<int:class_id>/game/timer/pause", methods=["POST"])
     @login_required
     def api_timer_pause(class_id: int):
-        """Pause the active Meet / round countdown."""
+        """Pause the active session countdown, keeping the remainder."""
 
         def run(_body):
             """Apply one staff JSON mutation for this class."""
+            _require_live_timer(class_id)
             return school.game.pause_round_timer(class_id)
 
         return _staff_post(class_id, run)
@@ -6392,10 +6414,15 @@ def register_live(app, school, shared):
     @bp.route("/api/classes/<int:class_id>/game/timer/resume", methods=["POST"])
     @login_required
     def api_timer_resume(class_id: int):
-        """Resume a paused Meet / round countdown."""
+        """Resume a paused countdown from its frozen remainder.
+
+        This does not reset the duration. A fresh countdown is Start
+        or Restart (``timer/start``).
+        """
 
         def run(_body):
             """Apply one staff JSON mutation for this class."""
+            _require_live_timer(class_id)
             return school.game.resume_round_timer(class_id)
 
         return _staff_post(class_id, run)
@@ -6403,10 +6430,11 @@ def register_live(app, school, shared):
     @bp.route("/api/classes/<int:class_id>/game/timer/remaining", methods=["POST"])
     @login_required
     def api_timer_remaining(class_id: int):
-        """Set remaining session/Meet countdown to N integer minutes while paused."""
+        """Set remaining session countdown to N integer minutes while paused."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            _require_live_timer(class_id)
             minutes = body.get("minutes")
             try:
                 minutes_i = int(minutes)

@@ -5683,14 +5683,14 @@ class GameShowDB:
                     ),
                 )
             else:
+                # Keep a SessionTimer that is already running or paused.
+                # Forming the single Class team is not a reason to clear it.
                 self.conn.execute(
                     """
                     UPDATE games
                     SET status = 'rounds',
                         overlay_phase = NULL,
                         current_round = 0,
-                        round_started_at = NULL,
-                        round_duration_sec = NULL,
                         rounds_json = ?
                     WHERE id = ?
                     """,
@@ -6957,7 +6957,10 @@ class GameShowDB:
             started_s = (
                 str(game["round_started_at"]) if game.get("round_started_at") else None
             )
-            duration_i = int(game.get("round_duration_sec") or 180)
+            # A missing duration is idle. Defaulting to 180 made a cleared
+            # clock look like a paused 3:00 Meet timer.
+            raw_meet = game.get("round_duration_sec")
+            duration_i = 0 if raw_meet in (None, "") else int(raw_meet)
             paused = started_s is None and duration_i > 0
             return {
                 "round": 0,
@@ -6999,11 +7002,16 @@ class GameShowDB:
             current = 1
         active = plan[current - 1]
         live = str(game.get("status") or "") == "live"
-        has_session_clock = bool(game.get("round_started_at")) or (
-            not live and game.get("round_duration_sec") not in (None, "")
+        # Pause stores remaining seconds and clears the start. That stored
+        # clock counts while scoring is live too. Ignoring it showed the
+        # round plan length instead of the frozen remainder.
+        raw_stored = game.get("round_duration_sec")
+        has_session_clock = bool(game.get("round_started_at")) or raw_stored not in (
+            None,
+            "",
         )
         started = game.get("round_started_at") if live or has_session_clock else None
-        raw_dur = game.get("round_duration_sec") if live or has_session_clock else None
+        raw_dur = raw_stored if live or has_session_clock else None
         duration_i = int(raw_dur) if raw_dur not in (None, "") else int(active["duration_sec"])
         started_s = str(started) if started else None
         paused = (live or has_session_clock) and started_s is None and duration_i > 0

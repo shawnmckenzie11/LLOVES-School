@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+"""MCK-465: SessionTimer start, pause, resume, and restart on every page.
+
+The countdown is one clock for the live lesson. It is not tied to a
+stage, a question, or whether groups exist. Next and page changes leave
+a running or paused clock alone. Resume keeps the remainder. Restart
+(the start route with the selected minutes) replaces it. End and Quit
+reject further writes. A running clock does not change the student
+poll stamp on each second.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
+
+LMS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = LMS_DIR.parent
+sys.path.insert(0, str(LMS_DIR))
+sys.path.insert(0, str(REPO_ROOT))
+
+os.environ.pop("GOOGLE_CLIENT_ID", None)
+os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
+
+from app import create_app  # noqa: E402
+from live_class_metadata import default_math_pages  # noqa: E402
+
+# Named lesson pages, including the old stage ids, plus one page whose
+# id is not a stage. The timer must not special-case those ids.
+LESSON_PAGES: tuple[tuple[str, str], ...] = tuple(
+    (row["id"], row["stage"]) for row in default_math_pages()
+) + (("blank-extra", "play"),)
+
+
+class SessionTimerEveryPageTests(unittest.TestCase):
+    """Staff and student SessionTimer across pages and group shapes."""
+
+    def setUp(self) -> None:
+        """Isolated app, one class, and staff plus student clients."""
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.staff = self.app.test_client()
+        self.student = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCF3M"
+        )
+        self.staff.get("/auth/google?portal=staff")
+        self.staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.staff.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.staff.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple", "Aspen"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        self.class_id = int(created.get_json()["class"]["id"])
+        run = self.staff.post(
+            f"/staff/class/{self.class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        live = self.school.get_active_live_session_for_class(self.class_id)
+        self.assertIsNotNone(live)
+        assert live is not None
+        self.session_id = int(live["id"])
+        self.student.post(
+            "/auth/student-code",
+            data={"code": str(live["session_code"]), "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "good"})
+
+    def tearDown(self) -> None:
+        """Close the isolated database."""
+        self.school.close()
+        self.tmp.cleanup()
+
+    def _start(self, minutes: int) -> dict:
+        """POST timer start and return the game block."""
+        response = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": minutes},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        game = response.get_json()["game"]
+        self.assertFalse(game.get("timer_paused"))
+        self.assertIsInstance(game.get("round_ends_at_ms"), int)
+        return game
+
+    def _pause(self) -> dict:
+        """POST timer pause and return the game block."""
+        response = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/pause",
+            json={},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        game = response.get_json()["game"]
+        self.assertTrue(game.get("timer_paused"))
+        self.assertIsNone(game.get("round_ends_at_ms"))
+        self.assertGreater(int(game.get("round_remaining_sec") or 0), 0)
+        return game
+
+    def _resume(self) -> dict:
+        """POST timer resume and return the game block."""
+        response = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/resume",
+            json={},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        game = response.get_json()["game"]
+        self.assertFalse(game.get("timer_paused"))
+        self.assertIsInstance(game.get("round_ends_at_ms"), int)
+        return game
+
+    def _goto(self, page_id: str, stage: str) -> dict:
+        """Move the live lesson to one named page. Returns teacher state."""
+        response = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": stage, "page_id": page_id},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        state = response.get_json()["teacher_state"]
+        self.assertEqual(state["stage"], stage)
+        self.assertEqual(state["page_id"], page_id)
+        return state
+
+    def _display(self) -> dict:
+        """Student-facing clock snapshot for this class."""
+        return self.school.live_session_display_time(self.class_id)
+
+    def _student_clock(self) -> dict:
+        """Clock on the joined student's full state payload."""
+        body = self.student.get("/api/student/state").get_json()
+        self.assertIn("display_time", body)
+        return body["display_time"]
+
+    def test_controls_on_every_page_with_no_groups(self) -> None:
+        """Start, pause, resume, and restart work before any groups exist."""
+        for page_id, stage in LESSON_PAGES:
+            self._goto(page_id, stage)
+            started = self._start(4)
+            self.assertGreaterEqual(int(started["round_remaining_sec"]), 239)
+            paused = self._pause()
+            frozen = int(paused["round_remaining_sec"])
+            self.assertLessEqual(frozen, 240)
+            resumed = self._resume()
+            self.assertGreaterEqual(int(resumed["round_remaining_sec"]), frozen - 2)
+            self.assertLess(int(resumed["round_remaining_sec"]), 240 + 2)
+            restarted = self._start(2)
+            self.assertGreaterEqual(int(restarted["round_remaining_sec"]), 119)
+            self.assertLessEqual(int(restarted["round_remaining_sec"]), 120)
+            self.assertEqual(self._display()["ends_at_ms"], restarted["round_ends_at_ms"])
+
+    def test_controls_after_groups_and_on_the_class_team(self) -> None:
+        """Two teams, then the single Class team, do not block the timer."""
+        students = self.school.game.dashboard(self.class_id)["students"]
+        ids = [int(row["id"]) for row in students]
+        self.school.game.begin_game(self.class_id)
+        assigned = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "assign": {
+                    "n_teams": 2,
+                    "mode": "balanced",
+                    "present_ids": ids,
+                }
+            },
+        )
+        self.assertEqual(assigned.status_code, 200, assigned.get_json())
+        self.assertTrue(assigned.get_json()["teacher_state"]["groups_configured"])
+        for page_id, stage in (("meet", "meet"), ("round_1", "round"), ("summary", "summary")):
+            self._goto(page_id, stage)
+            self._start(3)
+            self._pause()
+            self._resume()
+        running = self._start(6)
+        deadline = running["round_ends_at_ms"]
+        solo = self.staff.post(
+            f"/api/classes/{self.class_id}/game/ungamified",
+            json={"present_ids": ids, "go_live": False, "meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(solo.status_code, 200, solo.get_json())
+        self.assertEqual(solo.get_json()["teams"][0]["name"], "Class")
+        self.assertEqual(solo.get_json()["game"]["round_ends_at_ms"], deadline)
+        self.assertFalse(solo.get_json()["game"].get("timer_paused"))
+        self._goto("welcome", "teams")
+        self.assertEqual(self._display()["ends_at_ms"], deadline)
+
+    def test_navigation_keeps_running_and_paused_clocks(self) -> None:
+        """Forward and Back do not stop, reset, or pause the countdown."""
+        started = self._start(8)
+        deadline = started["round_ends_at_ms"]
+        for page_id, stage in LESSON_PAGES:
+            self._goto(page_id, stage)
+            shown = self._display()
+            self.assertTrue(shown["running"], page_id)
+            self.assertFalse(shown["paused"], page_id)
+            self.assertEqual(shown["ends_at_ms"], deadline, page_id)
+            student = self._student_clock()
+            self.assertTrue(student["running"], page_id)
+            self.assertEqual(student["ends_at_ms"], deadline, page_id)
+        paused = self._pause()
+        frozen = int(paused["round_remaining_sec"])
+        for page_id, stage in reversed(LESSON_PAGES):
+            self._goto(page_id, stage)
+            shown = self._display()
+            self.assertTrue(shown["paused"], page_id)
+            self.assertFalse(shown["running"], page_id)
+            self.assertEqual(shown["remaining_sec"], frozen, page_id)
+            student = self._student_clock()
+            self.assertTrue(student["paused"], page_id)
+            self.assertEqual(student["remaining_sec"], frozen, page_id)
+
+    def test_meet_without_groups_does_not_replace_a_running_clock(self) -> None:
+        """Opening Meet with nobody grouped leaves the selected countdown."""
+        started = self._start(7)
+        deadline = started["round_ends_at_ms"]
+        self._goto("meet", "meet")
+        game = self.school.game.game_state(self.class_id)["game"]
+        self.assertNotEqual(game.get("overlay_phase"), "meet_teams")
+        self.assertEqual(game.get("round_ends_at_ms"), deadline)
+        self.assertEqual(self._student_clock()["ends_at_ms"], deadline)
+
+    def test_resume_keeps_remainder_and_restart_uses_selected_minutes(self) -> None:
+        """Resume is not reset. Restart uses the minutes in the request."""
+        self._start(8)
+        self._pause()
+        adjusted = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/remaining",
+            json={"minutes": 2},
+        )
+        self.assertEqual(adjusted.status_code, 200, adjusted.get_json())
+        self.assertEqual(adjusted.get_json()["game"]["round_remaining_sec"], 120)
+        resumed = self._resume()
+        self.assertGreaterEqual(int(resumed["round_remaining_sec"]), 118)
+        self.assertLessEqual(int(resumed["round_remaining_sec"]), 120)
+        self._pause()
+        restarted = self._start(6)
+        self.assertGreaterEqual(int(restarted["round_remaining_sec"]), 359)
+        self.assertLessEqual(int(restarted["round_remaining_sec"]), 360)
+
+    def test_new_start_after_expiry(self) -> None:
+        """A clock that has already hit 0:00 can start again."""
+        self._start(1)
+        started = (datetime.now() - timedelta(seconds=90)).replace(microsecond=0)
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE games SET round_started_at = ? WHERE class_id = ? "
+                "AND status != 'ended'",
+                (started.isoformat(), self.class_id),
+            )
+            self.school.game.conn.commit()
+        self.assertEqual(self._display()["remaining_sec"], 0)
+        self.assertTrue(self._display()["running"])
+        restarted = self._start(3)
+        self.assertGreaterEqual(int(restarted["round_remaining_sec"]), 179)
+        self.assertLessEqual(int(restarted["round_remaining_sec"]), 180)
+
+    def test_pause_while_scoring_is_live_keeps_the_remainder(self) -> None:
+        """A live scoring row must not swap the frozen remainder for the plan."""
+        self._start(5)
+        plan = '[{"kind": "open", "minutes": 20}]'
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE games SET status = 'live', rounds_json = ? "
+                "WHERE class_id = ? AND status != 'ended'",
+                (plan, self.class_id),
+            )
+            self.school.game.conn.commit()
+        paused = self._pause()
+        remaining = int(paused["round_remaining_sec"])
+        self.assertGreaterEqual(remaining, 298)
+        self.assertLessEqual(remaining, 300)
+        shown = self._display()
+        self.assertTrue(shown["paused"])
+        self.assertEqual(shown["remaining_sec"], remaining)
+
+    def test_end_and_a_student_cannot_write_the_timer(self) -> None:
+        """End closes the control. A student session cannot start it."""
+        self._start(3)
+        self.school.end_live_class_session(self.session_id)
+        denied = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": 3},
+        )
+        self.assertEqual(denied.status_code, 400, denied.get_json())
+        self.assertIn("live class", denied.get_json()["error"])
+        paused = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/pause",
+            json={},
+        )
+        self.assertEqual(paused.status_code, 400)
+        student = self.student.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": 3},
+        )
+        self.assertNotEqual(student.status_code, 200)
+
+    def test_poll_stamp_changes_on_start_and_stays_put_while_running(self) -> None:
+        """One stamp change per teacher write, not one per countdown second."""
+        idle = self.school.live_student_poll_stamp(self.session_id, self.class_id)
+        self.assertTrue(idle.endswith(":idle"))
+        self._start(5)
+        running = self.school.live_student_poll_stamp(self.session_id, self.class_id)
+        self.assertNotEqual(running, idle)
+        self.assertIn(":run:", running)
+        self.assertEqual(
+            self.school.live_student_poll_stamp(self.session_id, self.class_id),
+            running,
+        )
+        self._pause()
+        paused = self.school.live_student_poll_stamp(self.session_id, self.class_id)
+        self.assertNotEqual(paused, running)
+        self.assertIn(":paused:", paused)
+        self._resume()
+        again = self.school.live_student_poll_stamp(self.session_id, self.class_id)
+        self.assertIn(":run:", again)
+        self.assertNotEqual(again, paused)
+
+    def test_close_at_zero_still_follows_the_same_clock_after_a_page_change(self) -> None:
+        """The opt-in flag and the deadline survive a page change."""
+        self.school.set_live_session_teacher_state(
+            self.session_id, timer_closes_answers=False
+        )
+        self._start(1)
+        started = (datetime.now() - timedelta(seconds=90)).replace(microsecond=0)
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE games SET round_started_at = ? WHERE class_id = ? "
+                "AND status != 'ended'",
+                (started.isoformat(), self.class_id),
+            )
+            self.school.game.conn.commit()
+        self._goto("round_3", "round_3")
+        self.assertEqual(self.school.close_answers_if_timer_expired(self.session_id), [])
+        self.assertIsNotNone(self.school.session_timer_deadline(self.class_id))
+        self.school.set_live_session_teacher_state(
+            self.session_id, timer_closes_answers=True
+        )
+        state = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertTrue(state["timer_closes_answers"])
+        self.assertIsNotNone(self.school.session_timer_deadline(self.class_id))
+
+    def test_restart_control_is_separate_from_resume(self) -> None:
+        """The shell labels Restart on its own button and keeps Resume."""
+        html = self.staff.get(f"/staff/class/{self.class_id}?tab=live").get_data(
+            as_text=True
+        )
+        panel = html[html.index('id="session-timer"') :]
+        self.assertIn('id="ap-meet-restart"', panel)
+        self.assertIn(">Restart<", panel)
+        self.assertLess(panel.index('id="ap-meet-start"'), panel.index('id="ap-meet-restart"'))
+        self.assertIn('id="live-timer-closes"', panel)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        restart = js.split('$("ap-meet-restart")?.addEventListener("click"')[1].split(
+            '$("live-timer-toggle")'
+        )[0]
+        self.assertIn("startSessionTimer()", restart)
+        self.assertNotIn("timer/resume", restart)
+        self.assertNotIn("timer/pause", restart)
+        start = js.split('$("ap-meet-start")?.addEventListener("click"')[1].split(
+            '$("ap-meet-restart")'
+        )[0]
+        self.assertIn("/game/timer/pause", start)
+        self.assertIn("/game/timer/resume", start)
+        self.assertIn("startSessionTimer()", start)
+        apply = js.split("function applySessionTimerUi(")[1].split(
+            "function paintSessionClock("
+        )[0]
+        self.assertIn('btn.textContent = "Resume"', apply)
+        self.assertIn('btn.dataset.meetState = "expired"', apply)
+        self.assertNotIn("running || paused", apply)

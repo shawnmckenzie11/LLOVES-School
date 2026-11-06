@@ -35705,33 +35705,21 @@ class SchoolDB(LovesDB):
 
     def apply_session_timer_on_stage_advance(
         self, class_id: int, new_stage: str
-    ) -> dict[str, Any] | None:
-        """Stop the running SessionTimer when the teacher changes stage.
+    ) -> None:
+        """Leave the SessionTimer alone when the teacher changes stage.
 
-        Every stage now exposes the same opt-in Timer controls. No stage starts
-        a countdown until the teacher checks Timer and clicks Start.
+        Next used to clear the clock so the destination could apply its
+        own preset. That stopped a running or paused countdown on every
+        page change. The timer is not tied to a stage, a question, or
+        whether groups exist, so this hook neither stops nor starts it.
+        ``SESSION_TIMER_STAGE_PRESETS`` stays empty: no stage auto-starts.
 
         Args:
-            class_id: Game-show ``classes.id``.
-            new_stage: Destination pedagogical stage.
-
-        Returns:
-            Updated game state, or ``None`` when no game exists and
-            the destination has no preset to start.
+            class_id: Game-show ``classes.id``. Kept for callers. Unused.
+            new_stage: Destination stage. Kept for callers. Unused.
         """
-        try:
-            self.game.stop_session_timer(int(class_id))
-        except Exception:  # noqa: BLE001 — missing game is idle
-            pass
-        minutes = self.SESSION_TIMER_STAGE_PRESETS.get(
-            str(new_stage or "").strip().lower()
-        )
-        if minutes:
-            return self.game.start_session_timer(int(class_id), minutes)
-        try:
-            return self.game.game_state(int(class_id))
-        except Exception:  # noqa: BLE001
-            return None
+        _ = (class_id, new_stage)
+        return None
 
     def live_session_teacher_state_payload(
         self, session_id: int
@@ -38979,16 +38967,15 @@ class SchoolDB(LovesDB):
             leaving = True
             entering = False
         if entering:
+            # Mount the Meet chain only. Do not start or replace the
+            # SessionTimer: that used to require two teams and reset any
+            # countdown already running on another page.
             self._mount_meet_chain(
                 session_id,
                 payload,
                 chain_state=new_meet_chain_state(),
                 fire_open="cue_id" not in kwargs,
             )
-            try:
-                self.game.start_meet_teams(int(session_row["class_id"]), 3)
-            except (KeyError, ValueError):
-                pass
         elif leaving:
             self._wipe_meet_chain(
                 session_id,
@@ -50058,8 +50045,41 @@ class SchoolDB(LovesDB):
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:"
             f"{self._google_slides_stamp_token(int(session_id))}:"
-            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}:"
+            f"{self._session_timer_stamp_token(int(class_id))}"
         )
+
+    def _session_timer_stamp_token(self, class_id: int) -> str:
+        """Stable SessionTimer token for the student ``/state`` stamp.
+
+        Start, pause, resume, and restart change it once. A running
+        countdown keeps the same deadline, so the stamp does not change
+        every second and phones do not rebuild ``/state`` on each tick.
+        Student taps do not write the clock, so they do not change it.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``idle``, ``paused:<seconds>``, or ``run:<deadline ms>``.
+        """
+        try:
+            fields = self.game.open_game_round_fields(int(class_id)) or {}
+        except (TypeError, ValueError, sqlite3.Error):
+            return "idle"
+        if fields.get("timer_paused"):
+            try:
+                remaining = max(0, int(fields.get("round_remaining_sec") or 0))
+            except (TypeError, ValueError):
+                remaining = 0
+            return f"paused:{remaining}"
+        ends = fields.get("round_ends_at_ms")
+        if ends:
+            try:
+                return f"run:{int(ends)}"
+            except (TypeError, ValueError):
+                return "idle"
+        return "idle"
 
     #: Last good presence token per session (MCK-186), so a presence blip
     #: keeps the stamp steady instead of dropping to "" and back (two full
