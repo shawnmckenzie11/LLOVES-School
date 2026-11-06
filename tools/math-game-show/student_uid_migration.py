@@ -1075,13 +1075,19 @@ def _saved_trigger_sql(conn: sqlite3.Connection) -> list[str]:
 
 
 def _row_uid_unique(conn: sqlite3.Connection) -> bool:
-    """True when some unique index covers ``row_uid`` alone.
+    """True when a non-partial unique index covers ``row_uid`` alone.
+
+    ``PRAGMA index_list`` column 4 is the partial flag. A ``WHERE`` clause
+    does not constrain every row, so it is not a global uid key. Composite
+    and expression indexes are not accepted either.
 
     Args:
-        conn: Open connection after the rename.
+        conn: Open connection. Used for the no-op check and after rebuild.
     """
     for row in conn.execute("PRAGMA index_list(students)"):
         if int(row[2]) != 1:
+            continue
+        if len(row) > 4 and int(row[4] or 0) != 0:
             continue
         info = list(conn.execute(f"PRAGMA index_info({_q(row[1])})"))
         if len(info) == 1 and str(info[0][2]) == UID_COLUMN:

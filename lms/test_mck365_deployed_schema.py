@@ -844,3 +844,40 @@ class MalformedNoopTests(unittest.TestCase):
         result = migrate_students_off_canvas_id(conn, secret=SECRET)
         self.assertEqual(result["status"], "noop")
         self.assertTrue(student_uid_ready(result, student_uid_invariants(conn)))
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO students (id, row_uid) VALUES (2, ?)", (valid,))
+
+    def test_partial_unique_index_does_not_cover_every_row(self) -> None:
+        """``WHERE 0`` is unique in name only. The no-op must not accept it."""
+        valid = "c" * 32
+        other = "d" * 32
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        conn = _open(Path(tmp.name) / "school.sqlite")
+        self.addCleanup(conn.close)
+        conn.execute(
+            "CREATE TABLE students (id INTEGER PRIMARY KEY, row_uid TEXT NOT NULL)"
+        )
+        conn.execute("CREATE UNIQUE INDEX uq ON students(row_uid) WHERE 0")
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (valid,))
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (2, ?)", (other,))
+        before = list(conn.execute("SELECT id, row_uid FROM students ORDER BY id"))
+        result = migrate_students_off_canvas_id(conn, secret=SECRET)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "row_uid_not_unique")
+        self.assertEqual(
+            list(conn.execute("SELECT id, row_uid FROM students ORDER BY id")),
+            before,
+        )
+        self.assertFalse(student_uid_ready(result, student_uid_invariants(conn)))
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'lms_data_migrations'"
+        ).fetchone()
+        self.assertIsNone(row)
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (3, ?)", (valid,))
+        self.assertEqual(
+            int(conn.execute(
+                "SELECT COUNT(*) FROM students WHERE row_uid = ?", (valid,)
+            ).fetchone()[0]),
+            2,
+        )
