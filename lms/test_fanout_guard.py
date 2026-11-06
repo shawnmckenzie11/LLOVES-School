@@ -776,6 +776,7 @@ class FanoutGuardTests(unittest.TestCase):
             self.session_id,
             presentation_id="DeckFanout01",
             page_pngs=pngs,
+            confirm_page_loss=True,
         )
 
         def _same(label: str) -> None:
@@ -861,6 +862,7 @@ class FanoutGuardTests(unittest.TestCase):
             self.session_id,
             presentation_id="DeckFanoutUnpublish",
             page_pngs=pngs,
+            confirm_page_loss=True,
         )
         for index in (0, 1):
             published = self.staff.post(
@@ -1117,6 +1119,7 @@ class FanoutGuardTests(unittest.TestCase):
             self.session_id,
             presentation_id="DeckFanout22",
             page_pngs=[png] * 22,
+            confirm_page_loss=True,
         )
         deck = self.school.google_slides_deck(self.session_id)
         assert deck is not None

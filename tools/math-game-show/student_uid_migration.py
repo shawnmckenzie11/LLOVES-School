@@ -605,32 +605,36 @@ def _contains_key(node: Any, wanted: str) -> bool:
 
 
 def _detach_reused_grants(conn: sqlite3.Connection, detached_ids: set[tuple[int, int]]) -> int:
-    """Remove celebration grants whose numeric id now belongs to someone else.
+    """Stop when a reused numeric id still has reward grants.
 
-    A grant is removed only when a stored fingerprint names that class and
-    id and does not match the row's legacy value. Matching winners keep
-    their grants, including claimed avatars and source refs.
+    A fingerprint that does not match the row's legacy value is not proof
+    of which grants belong to the previous person and which belong to the
+    current row. Deleting every grant on that id would drop a legitimate
+    award. The drop is blocked instead. Matching winners are not touched.
 
     Args:
         conn: Open transaction.
-        detached_ids: ``(class_id, student_id)`` pairs proven not to be the
-            original fingerprint owner.
+        detached_ids: ``(class_id, student_id)`` pairs whose stored
+            fingerprint is not the current row.
 
     Returns:
-        Rows deleted.
+        Always 0. Grants are not deleted.
+
+    Raises:
+        _Blocked: A detached id has one or more avatar reward grants.
     """
     if not detached_ids or not _table_exists(conn, "avatar_reward_grants"):
         return 0
-    removed = 0
     marks = ",".join("?" for _ in _GRANT_SOURCES)
     for class_id, student_id in detached_ids:
-        cur = conn.execute(
-            f"DELETE FROM avatar_reward_grants "
-            f"WHERE class_id = ? AND student_id = ? AND source IN ({marks})",
+        row = conn.execute(
+            f"SELECT 1 FROM avatar_reward_grants "
+            f"WHERE class_id = ? AND student_id = ? AND source IN ({marks}) LIMIT 1",
             (int(class_id), int(student_id), *_GRANT_SOURCES),
-        )
-        removed += int(cur.rowcount or 0)
-    return removed
+        ).fetchone()
+        if row is not None:
+            raise _Blocked("unresolved_grant_owner")
+    return 0
 
 
 def _create_replacement(

@@ -158,6 +158,7 @@ class SlideFollowBrowserTests(unittest.TestCase):
             page_pngs=_pages(13),
             default_published=False,
             title=TITLE,
+            confirm_page_loss=True,
         )
         self.assertEqual(len(deck["pages"]), 13)
         self.assertEqual(deck["title"], TITLE)

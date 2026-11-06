@@ -876,6 +876,13 @@
                 <p class="hint compact" id="live-slides-empty">{# copy: Wonder #}No slides yet. Add a deck when you start a live class, at step 3 (Which deck?).</p>
                 <p class="hint compact" id="live-google-slides-count" hidden></p>
                 {% if teacher_features.slides_import %}
+                <form id="live-slides-replace-form" class="live-google-slides-form">
+                  <label class="live-google-slides-label" for="live-slides-replace-file">Replace slides
+                    <input id="live-slides-replace-file" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+                  </label>
+                  <button type="submit" class="secondary" id="live-slides-replace">Replace slides</button>
+                  <p class="hint compact" id="live-slides-replace-error" hidden></p>
+                </form>
                 <div class="live-google-slides-stage" id="live-google-slides-stage" hidden>
                   <img id="live-google-slides-card" class="live-google-slides-card" alt="">
                 </div>

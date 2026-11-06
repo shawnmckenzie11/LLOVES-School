@@ -10086,6 +10086,7 @@ class LovesDB:
         source_path: Any | None = None,
         source_suffix: str = "",
         job_id: str | None = None,
+        confirm_page_loss: bool = False,
     ) -> dict[str, Any]:
         """Store one PNG per slide on the course and point this run at it.
 
@@ -10110,6 +10111,8 @@ class LovesDB:
             source_suffix: ``.ppt`` or ``.pptx`` when an upload is set.
             job_id: Slide import row. When set, the save is skipped
                 unless that row is still running.
+            confirm_page_loss: Teacher agreed when the slide count differs
+                from the page list fixed at class start.
 
         Returns:
             Teacher deck dict.
@@ -10117,6 +10120,8 @@ class LovesDB:
         Raises:
             KeyError: Unknown session.
             ValueError: Inactive session, or a page is not a PNG.
+            SlideCountMismatch: The slide count differs and the teacher
+                has not confirmed.
         """
         session = self.get_live_session(int(session_id))
         if session is None:
@@ -10141,6 +10146,7 @@ class LovesDB:
             source_suffix=source_suffix,
             session_id=int(session_id),
             job_id=job_id,
+            confirm_page_loss=bool(confirm_page_loss),
         )
         deck = saved.get("google_slides")
         if not isinstance(deck, dict):
@@ -10582,12 +10588,43 @@ class LovesDB:
         state["fixed_page_count"] = int(count)
         self._write_teacher_state(int(session_id), state)
 
-    def _freeze_page_count_at_start(self, session_id: int) -> None:
-        """Fix the page count to the deck already attached when class starts.
+    def _extend_fixed_page_count_for_added_page(
+        self, class_id: int, module: str, slot: str, page_number: int
+    ) -> dict[str, Any] | None:
+        """Grow the frozen page list when the teacher adds a page.
 
-        A class with no slides yet stays unfixed until the first deck is
-        saved. That first save sets the count. A later count change asks
-        the teacher first.
+        The new page keeps a fresh page number. Existing question page
+        numbers are not shifted. A class that has not started is left alone.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+            page_number: Number just assigned to the added page.
+
+        Returns:
+            The updated teacher state, or None when no live run matches.
+        """
+        session = self._placed_active_session(int(class_id), module, slot)
+        if session is None or int(page_number) < 1:
+            return None
+        try:
+            state = self.live_session_teacher_state_payload(int(session["id"]))
+        except KeyError:
+            return None
+        current = int(state.get("fixed_page_count") or 0)
+        if int(page_number) <= current:
+            return state
+        self._set_fixed_page_count(int(session["id"]), int(page_number))
+        return self.live_session_teacher_state_payload(int(session["id"]))
+
+    def _freeze_page_count_at_start(self, session_id: int) -> None:
+        """Fix the page list when the class starts.
+
+        An attached slide deck wins, because pages are the slides. With no
+        deck, the lesson's current page count is the list. A later deck
+        whose slide count differs asks the teacher before it replaces that
+        list. Question page numbers are not rewritten here.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -10600,9 +10637,17 @@ class LovesDB:
             return
         deck = self.google_slides_deck(int(session_id))
         pages = deck.get("pages") if isinstance(deck, dict) else None
-        if not pages:
-            return
-        state["fixed_page_count"] = len(pages)
+        if pages:
+            count = len(pages)
+        else:
+            try:
+                metadata = self.live_class_metadata_for_session(int(session_id))
+                count = len(self._normalize_deck_pages(metadata))
+            except (KeyError, TypeError, ValueError, sqlite3.Error):
+                count = 0
+            if count < 1:
+                count = len(default_math_pages())
+        state["fixed_page_count"] = int(count)
         if state.get("page_number") in (None, ""):
             state["page_number"] = 1
         self._write_teacher_state(int(session_id), state)
@@ -17157,6 +17202,11 @@ class SchoolDB(LovesDB):
         teacher_state = self._land_live_session_on_page(
             int(class_id), module_key, slot_key, page
         )
+        extended = self._extend_fixed_page_count_for_added_page(
+            int(class_id), module_key, slot_key, int(page_number)
+        )
+        if extended is not None:
+            teacher_state = extended
         return {
             "action": "added",
             "page": page,

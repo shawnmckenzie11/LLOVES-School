@@ -236,7 +236,11 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         return raw
 
     def _attach(self) -> dict:
-        """POST a share link whose public PDF is the two-page fixture."""
+        """POST a share link whose public PDF is the two-page fixture.
+
+        Class start freezes the lesson page list. This helper is the
+        teacher's confirm when that list and the slide count differ.
+        """
         with mock.patch(
             "google_slides_import.fetch_public_pdf", return_value=self.pdf
         ):
@@ -246,7 +250,8 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     "url": (
                         "https://docs.google.com/presentation/d/"
                         f"{_FILE_ID}/edit?usp=sharing"
-                    )
+                    ),
+                    "confirm_page_loss": True,
                 },
             )
             response = follow_slide_import(self.staff, response)
@@ -620,6 +625,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     ),
                     "module": "M1",
                     "slot": "C2",
+                    "confirm_page_loss": True,
                 },
             )
             response = follow_slide_import(self.staff, response)

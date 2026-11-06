@@ -175,8 +175,43 @@ class MCK325PageNumberTests(unittest.TestCase):
         self.assertIsNone(read.get("page_number"))
         self.assertEqual(SEED_C2.read_text(encoding="utf-8"), self.seed_before)
 
+    def test_class_start_fixes_the_page_list_and_add_does_not_reindex(self) -> None:
+        """Start locks the lesson page count. Adding a page appends a new number."""
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        before_pages = self._question_pages()
+        self.assertGreaterEqual(int(teacher.get("fixed_page_count") or 0), 7)
+        frozen = int(teacher["fixed_page_count"])
+        added = self.school.add_class_playlist_page(
+            self.class_id,
+            "M1",
+            "C2",
+            name="Extra practice",
+            after_page_id="join",
+        )
+        new_number = int(added["page"]["page_number"])
+        self.assertGreater(new_number, frozen)
+        self.assertEqual(self._question_pages(), before_pages)
+        after = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(int(after.get("fixed_page_count") or 0), new_number)
+        self.assertEqual(after.get("stage"), "join")
+        self.assertEqual(SEED_C2.read_text(encoding="utf-8"), self.seed_before)
+
     def test_repull_slide_count_mismatch_requires_confirm(self) -> None:
         """A shorter re-pull warns and does not delete or renumber questions."""
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertGreater(int(teacher.get("fixed_page_count") or 0), 2)
+        with self.assertRaises(SlideCountMismatch) as first_block:
+            self.school.save_course_slide_deck(
+                self.class_id,
+                "M1",
+                "C2",
+                title="First",
+                source="pptx",
+                page_pngs=[_PNG, _PNG],
+                session_id=self.session_id,
+            )
+        self.assertIn("could be lost", str(first_block.exception))
+        self.assertIsNone(self.school.course_slide_deck_summary(self.class_id, "M1", "C2"))
         first = self.school.save_course_slide_deck(
             self.class_id,
             "M1",
@@ -185,6 +220,7 @@ class MCK325PageNumberTests(unittest.TestCase):
             source="pptx",
             page_pngs=[_PNG, _PNG],
             session_id=self.session_id,
+            confirm_page_loss=True,
         )
         self.assertEqual(len((first.get("google_slides") or {}).get("pages") or []), 2)
         before_pages = self._question_pages()

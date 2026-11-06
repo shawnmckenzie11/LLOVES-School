@@ -13867,6 +13867,91 @@ $("live-slides-unpublish")?.addEventListener("click", () => {
 $("set-class-slides-form")?.addEventListener("submit", (event) => {
   addSetClassSlides(event).catch((err) => showError("#ap-overlay-error", err));
 });
+
+/**
+ * Re-pull a PowerPoint onto this live class.
+ *
+ * A different slide count opens the confirm dialog. Cancel leaves the
+ * current deck and its page numbers in place.
+ *
+ * @param {Event} event
+ * @returns {Promise<void>}
+ */
+async function replaceLiveSlides(event) {
+  event.preventDefault();
+  const error = $("live-slides-replace-error");
+  const fileInput = $("live-slides-replace-file");
+  const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : null;
+  const module = String(
+    (!setupPhase && teacherState.live_module) ||
+      $("live-module-select")?.value ||
+      teacherState.live_module ||
+      "M1"
+  ).toUpperCase();
+  const slot = String(
+    (!setupPhase && teacherState.live_slot) ||
+      $("live-class-select")?.value ||
+      teacherState.live_slot ||
+      "C1"
+  ).toUpperCase();
+  if (error instanceof HTMLElement) {
+    error.hidden = true;
+    error.textContent = "";
+  }
+  if (!file) {
+    if (error instanceof HTMLElement) {
+      error.hidden = false;
+      error.textContent = "Choose a PowerPoint.";
+    }
+    return;
+  }
+  let confirmPageLoss = false;
+  const postDeck = async () => {
+    /** @type {Record<string, string>} */
+    const fields = { module, slot };
+    if (confirmPageLoss) fields.confirm_page_loss = "1";
+    return postSlideUpload(`/api/classes/${classId}/slide-deck`, file, fields);
+  };
+  try {
+    let started;
+    try {
+      started = await postDeck();
+    } catch (err) {
+      if (!(err && err.needsPageCountConfirm) || confirmPageLoss) throw err;
+      const accepted = await confirmSlideCountChange(
+        err instanceof Error ? err.message : String(err || "")
+      );
+      if (!accepted) return;
+      confirmPageLoss = true;
+      started = await postDeck();
+    }
+    let data;
+    try {
+      data = await finishSlideImport(started);
+    } catch (err) {
+      if (!(err && err.needsPageCountConfirm) || confirmPageLoss) throw err;
+      const accepted = await confirmSlideCountChange(
+        err instanceof Error ? err.message : String(err || "")
+      );
+      if (!accepted) return;
+      confirmPageLoss = true;
+      data = await finishSlideImport(await postDeck());
+    }
+    if (data?.google_slides) lastGoogleSlides = data.google_slides;
+    if (fileInput instanceof HTMLInputElement) fileInput.value = "";
+    paintSlidesMetadata();
+    paintGoogleSlidesChrome();
+  } catch (err) {
+    if (error instanceof HTMLElement) {
+      error.hidden = false;
+      error.textContent = err instanceof Error ? err.message : "Could not replace that deck.";
+    }
+  }
+}
+
+$("live-slides-replace-form")?.addEventListener("submit", (event) => {
+  replaceLiveSlides(event).catch((err) => showError("#live-slides-replace-error", err));
+});
 $("set-class-slides-remove")?.addEventListener("click", () => {
   removeSetClassSlides().catch((err) => showError("#ap-overlay-error", err));
 });

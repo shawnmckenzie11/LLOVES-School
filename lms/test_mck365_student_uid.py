@@ -195,14 +195,6 @@ class _LegacyDb:
             """,
             ("avatar-keep",),
         )
-        self.conn.execute(
-            """
-            INSERT INTO avatar_reward_grants (
-                id, class_id, student_id, source, source_ref, status, avatar_key,
-                created_at
-            ) VALUES (2, 1, 7, 'engaged', 'engaged:old', 'pending', NULL, 't0')
-            """
-        )
         award = {
             "class_id": 1,
             "student_id": 1,
@@ -385,6 +377,30 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(self._count("session_scores"), 0)
         self.assertEqual(self._count("roster_notes"), 3)
 
+    def test_unresolved_grant_on_a_reused_id_blocks_the_drop(self) -> None:
+        """A grant on a reused id is not deleted and is not reassigned.
+
+        The fingerprint does not match the current row, so the migration
+        cannot tell a leftover award from one the current student earned.
+        """
+        self.db.conn.execute(
+            """
+            INSERT INTO avatar_reward_grants (
+                id, class_id, student_id, source, source_ref, status,
+                created_at
+            ) VALUES (2, 1, 7, 'engaged', 'engaged:old', 'pending', 't0')
+            """
+        )
+        result = migrate_students_off_canvas_id(self.db.conn, secret=SECRET)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "unresolved_grant_owner")
+        self.assertIn("canvas_id", self._columns())
+        self.assertEqual(self._count("avatar_reward_grants"), 2)
+        kept = self.db.conn.execute(
+            "SELECT source_ref FROM avatar_reward_grants ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row[0] for row in kept], ["shoutout:keep", "engaged:old"])
+
     def test_kid_mismatch_blocks_the_drop(self) -> None:
         """A snapshot signed by another key is not rewritten or dropped."""
         self.db.conn.execute(
@@ -398,7 +414,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["reason"], "kid_mismatch")
         self.assertIn("canvas_id", self._columns())
-        self.assertEqual(self._count("avatar_reward_grants"), 2)
+        self.assertEqual(self._count("avatar_reward_grants"), 1)
         self.assertTrue((self.uploads / "class-1.csv").is_file())
 
     def test_inconsistent_fingerprint_blocks_the_drop(self) -> None:
