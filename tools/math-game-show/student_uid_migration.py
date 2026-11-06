@@ -282,6 +282,8 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
     before_ids = _id_list(conn)
     before_children = _child_row_counts(conn, child_fks)
     before_grants = _grant_count(conn)
+    before_fk = _fk_violation_set(conn)
+    _reject_student_fk_violations(before_fk, child_fks)
 
     uid_by_id, legacy_by_id, class_by_id = _load_identity(conn, names)
     settings, mutated = _plan_fingerprints(conn, fp_key, class_by_id, legacy_by_id, uid_by_id)
@@ -347,8 +349,10 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
         f"SELECT COUNT(*) FROM students WHERE {UID_COLUMN} IS NULL OR TRIM({UID_COLUMN}) = ''"
     ).fetchone()[0]:
         raise _Blocked("row_uid_missing")
-    if conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+    after_fk = _fk_violation_set(conn)
+    if after_fk != before_fk:
         raise _Blocked("foreign_key_check_failed")
+    _reject_student_fk_violations(after_fk, child_fks)
     integrity = conn.execute("PRAGMA integrity_check").fetchall()
     if [row[0] for row in integrity] != ["ok"]:
         raise _Blocked("integrity_check_failed")
@@ -365,6 +369,51 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
     }
     _insert_marker_ignore(conn, detail)
     return {"status": "applied", **detail}
+
+
+
+def _fk_violation_set(conn: sqlite3.Connection) -> tuple[tuple[str, int, str, int], ...]:
+    """Exact ``PRAGMA foreign_key_check`` rows, order-independent.
+
+    Each row is ``(table, rowid, parent, fkid)``. Equal counts with a
+    different row are not the same set. Nothing is deleted.
+
+    Args:
+        conn: Open connection. Foreign-key enforcement may be off; the
+            pragma still lists violations.
+
+    Returns:
+        Sorted violation tuples.
+    """
+    found = []
+    for row in conn.execute("PRAGMA foreign_key_check"):
+        found.append((str(row[0]), int(row[1]), str(row[2]), int(row[3])))
+    return tuple(sorted(found))
+
+
+def _reject_student_fk_violations(
+    violations: tuple[tuple[str, int, str, int], ...],
+    child_fks: tuple[tuple[str, str, str, str, str], ...],
+) -> None:
+    """Block when any violation touches ``students`` or a child of it.
+
+    Questions pointing at a missing bank, and module items pointing at a
+    missing outline, are not student-related. Those rows are left as they
+    are. A student row, or a table that references ``students``, is refused
+    even when the violation was already present.
+
+    Args:
+        violations: Output of :func:`_fk_violation_set`.
+        child_fks: Foreign keys that point at ``students``.
+
+    Raises:
+        _Blocked: A student-related violation is in the set.
+    """
+    student_tables = {fk[0] for fk in child_fks}
+    student_tables.add("students")
+    for table, _rowid, parent, _fkid in violations:
+        if table in student_tables or parent == "students":
+            raise _Blocked("student_foreign_key_violation")
 
 
 def _plan_fingerprints(

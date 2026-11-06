@@ -5367,10 +5367,11 @@ class GameShowDB:
         return self.game_state(class_id)
 
     def stop_session_timer(self, class_id: int) -> dict[str, Any]:
-        """Clear the session countdown to idle (not pause).
+        """Clear the session countdown to idle and release teacher hold.
 
-        Teacher Next (beat 21) stops a running or paused clock so the
-        destination stage can apply its own preset or stay idle.
+        This is the explicit Stop control. It is not pause and it is not
+        called when the page changes. ``timer_held`` returns to 0 so a
+        later round plan can supply its own duration.
 
         Args:
             class_id: Classes primary key.

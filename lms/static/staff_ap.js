@@ -11701,6 +11701,7 @@ function applySessionTimerUi(state = overlayState) {
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
   const restart = $("ap-meet-restart");
+  const stop = $("ap-meet-stop");
   const endsAt = Number(game.round_ends_at_ms) || 0;
   const expired =
     Boolean(game.round_ends_at_ms) &&
@@ -11757,6 +11758,12 @@ function applySessionTimerUi(state = overlayState) {
     if (showRestart) restart.removeAttribute("hidden");
     else restart.setAttribute("hidden", "");
   }
+  if (stop) {
+    const showStop = paused || running || expired;
+    stop.hidden = !showStop;
+    if (showStop) stop.removeAttribute("hidden");
+    else stop.setAttribute("hidden", "");
+  }
 }
 
 /** Session countdown deadline (epoch ms), or 0 when idle/paused. */
@@ -11782,6 +11789,11 @@ function paintSessionClock() {
       if (restart) {
         restart.hidden = false;
         restart.removeAttribute("hidden");
+      }
+      const stop = $("ap-meet-stop");
+      if (stop) {
+        stop.hidden = false;
+        stop.removeAttribute("hidden");
       }
       const stepper = $("ap-meet-stepper");
       if (stepper) {
@@ -12230,6 +12242,19 @@ $("ap-meet-restart")?.addEventListener("click", async () => {
   try {
     hideError("#ap-overlay-error");
     await startSessionTimer();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-meet-stop")?.addEventListener("click", async () => {
+  try {
+    hideError("#ap-overlay-error");
+    overlayState = await api(`/api/classes/${classId}/game/timer/stop`, {
+      method: "POST",
+      body: "{}",
+    });
+    applySessionTimerUi(overlayState);
   } catch (err) {
     showError("#ap-overlay-error", err);
   }

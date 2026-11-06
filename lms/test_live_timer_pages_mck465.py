@@ -586,3 +586,149 @@ class SessionTimerEveryPageTests(unittest.TestCase):
         shown = self._student_clock()
         self.assertEqual(shown["ends_at_ms"], started["round_ends_at_ms"])
         self.assertTrue(shown["running"])
+
+    def _held_flag(self) -> int:
+        """Return ``timer_held`` for this class, or 0 when no game exists."""
+        row = self.school.game.conn.execute(
+            "SELECT COALESCE(timer_held, 0) FROM games WHERE class_id = ?",
+            (self.class_id,),
+        ).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    def _stop(self) -> dict:
+        """POST Stop and return the idle game block."""
+        response = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/stop",
+            json={},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        game = response.get_json()["game"]
+        self.assertFalse(game.get("timer_paused"))
+        self.assertIsNone(game.get("round_ends_at_ms"))
+        self.assertEqual(self._held_flag(), 0)
+        row = self.school.game.conn.execute(
+            "SELECT round_started_at, round_duration_sec FROM games WHERE class_id = ?",
+            (self.class_id,),
+        ).fetchone()
+        self.assertIsNone(row[0])
+        self.assertIsNone(row[1])
+        shown = self._student_clock()
+        self.assertFalse(shown["running"])
+        self.assertFalse(shown["paused"])
+        self.assertEqual(int(shown["remaining_sec"]), 0)
+        return game
+
+    def test_stop_releases_a_running_clock_for_the_round_plan(self) -> None:
+        """Stop clears a running hold. The next Start Round uses the plan."""
+        self._start(4)
+        self.assertEqual(self._held_flag(), 1)
+        self._stop()
+        begun = self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-11-06"},
+        )
+        self.assertIn(begun.status_code, (200, 400), begun.get_json())
+        self._park_rounds()
+        game = self._start_open_round(15)
+        self.assertEqual(int(game["round_duration_sec"]), 15 * 60)
+        self.assertEqual(self._held_flag(), 0)
+        self._assert_teacher_student_clock(game)
+
+    def test_stop_releases_paused_and_expired_clocks(self) -> None:
+        """Stop drops a frozen remainder and an expired hold."""
+        self._start(5)
+        paused = self._pause()
+        self.assertGreater(int(paused["round_remaining_sec"]), 0)
+        self.assertEqual(self._held_flag(), 1)
+        self._stop()
+        self._start(1)
+        started = (datetime.now() - timedelta(seconds=90)).replace(microsecond=0)
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE games SET round_started_at = ? WHERE class_id = ?",
+                (started.isoformat(), self.class_id),
+            )
+            self.school.game.conn.commit()
+        self.assertEqual(self._display()["remaining_sec"], 0)
+        self.assertEqual(self._held_flag(), 1)
+        self._stop()
+        self.assertEqual(self._student_clock()["remaining_sec"], 0)
+        self.assertFalse(self._student_clock()["running"])
+
+    def test_stop_with_no_groups_one_group_and_several_groups(self) -> None:
+        """Stop is available before groups, on one Class team, and on two teams."""
+        self._start(3)
+        self._stop()
+        students = self.school.game.dashboard(self.class_id)["students"]
+        ids = [int(row["id"]) for row in students]
+        assigned = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"assign": {"n_teams": 2, "mode": "balanced", "present_ids": ids}},
+        )
+        self.assertEqual(assigned.status_code, 200, assigned.get_json())
+        self._start(4)
+        self.assertEqual(self._held_flag(), 1)
+        self._stop()
+        solo = self.staff.post(
+            f"/api/classes/{self.class_id}/game/ungamified",
+            json={"present_ids": ids, "go_live": False, "meeting_date": "2026-11-06"},
+        )
+        self.assertEqual(solo.status_code, 200, solo.get_json())
+        self.assertEqual(solo.get_json()["teams"][0]["name"], "Class")
+        self._start(6)
+        deadline = self.school.game.game_state(self.class_id)["game"]["round_ends_at_ms"]
+        self._goto("round_1", "round")
+        self.assertEqual(self._display()["ends_at_ms"], deadline)
+        self.assertEqual(self._held_flag(), 1)
+        self._stop()
+
+    def test_navigation_does_not_release_a_held_clock(self) -> None:
+        """Forward and Back leave timer_held set. Only Stop clears it."""
+        started = self._start(8)
+        deadline = started["round_ends_at_ms"]
+        self.assertEqual(self._held_flag(), 1)
+        self._goto("play", "play")
+        self._goto("summary", "summary")
+        self.assertEqual(self._held_flag(), 1)
+        self.assertEqual(self._display()["ends_at_ms"], deadline)
+        self.assertEqual(self._student_clock()["ends_at_ms"], deadline)
+        html = self.staff.get(f"/staff/class/{self.class_id}?tab=live").get_data(as_text=True)
+        self.assertIn('id="ap-meet-stop"', html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        stop = js.split('$("ap-meet-stop")?.addEventListener("click"')[1].split(
+            '$("live-timer-toggle")'
+        )[0]
+        self.assertIn("/game/timer/stop", stop)
+        self.assertNotIn("startSessionTimer()", stop)
+
+    def test_end_quit_and_a_student_cannot_stop_the_timer(self) -> None:
+        """End and Quit reject Stop. A student session receives 401."""
+        self._start(3)
+        student = self.student.post(
+            f"/api/classes/{self.class_id}/game/timer/stop",
+            json={},
+        )
+        self.assertEqual(student.status_code, 401, student.get_json())
+        self.assertEqual(self._held_flag(), 1)
+        self.school.end_live_class_session(self.session_id)
+        ended = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/stop",
+            json={},
+        )
+        self.assertEqual(ended.status_code, 400, ended.get_json())
+        self.assertIn("live class", ended.get_json()["error"])
+
+    def test_quit_rejects_stop(self) -> None:
+        """Quit ends the live session, so Stop is refused."""
+        self._start(3)
+        quits = self.staff.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            headers={"Accept": "application/json"},
+        )
+        self.assertIn(quits.status_code, (200, 302), quits.get_json(silent=True) or quits.status_code)
+        self.assertIsNone(self.school.get_active_live_session_for_class(self.class_id))
+        denied = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/stop",
+            json={},
+        )
+        self.assertEqual(denied.status_code, 400, denied.get_json())

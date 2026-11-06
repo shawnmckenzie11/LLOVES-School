@@ -6365,7 +6365,7 @@ def register_live(app, school, shared):
     def _require_live_timer(class_id: int) -> None:
         """Refuse SessionTimer writes after End or Quit.
 
-        Start, pause, resume, and restart are live-lesson controls.
+        Start, pause, resume, restart, and stop are live-lesson controls.
         A finished session must not start again from a leftover game row.
 
         Args:
@@ -6396,6 +6396,25 @@ def register_live(app, school, shared):
             except (TypeError, ValueError) as exc:
                 raise ValueError("minutes must be an integer") from exc
             return school.game.start_session_timer(class_id, minutes_i)
+
+        return _staff_post(class_id, run)
+
+
+    @bp.route("/api/classes/<int:class_id>/game/timer/stop", methods=["POST"])
+    @login_required
+    def api_timer_stop(class_id: int):
+        """Release a teacher-held countdown and return the clock to idle.
+
+        Stop is not pause. The remainder is cleared and ``timer_held``
+        returns to 0, so a later Start Round can apply that round's plan.
+        Page changes do not call this route.
+
+        """
+
+        def run(_body):
+            """Apply one staff JSON mutation for this class."""
+            _require_live_timer(class_id)
+            return school.game.stop_session_timer(class_id)
 
         return _staff_post(class_id, run)
 
