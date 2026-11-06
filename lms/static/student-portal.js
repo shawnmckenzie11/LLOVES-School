@@ -64,6 +64,7 @@ import {
   drawSubmitVisible,
   isDrawQuestion,
 } from "/static/team_draw.js";
+import { featureOn } from "/static/teacher_features.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
@@ -101,6 +102,15 @@ import {
   unsentResendDecision,
   unsentStudentKey,
 } from "/static/unsent_answer.js";
+
+/** Owner flags for this live room. Off features must not fetch or listen. */
+const mediaFeature = featureOn("media");
+const whiteboardFeature = featureOn("whiteboard");
+const whiteboardSubmitFeature = featureOn("whiteboard_submit");
+const boardFeature = whiteboardFeature || whiteboardSubmitFeature;
+const slidesImportFeature = featureOn("slides_import");
+const drawFeature =
+  featureOn("team_draw") || featureOn("group_draw") || whiteboardSubmitFeature;
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -1454,6 +1464,7 @@ function bindStudentCanvas() {
  * reaches this function; that tab's queue already drops a non-OK body.
  */
 function refreshStudentBoard() {
+  if (!boardFeature) return Promise.resolve();
   if (studentBoardRefresh) return studentBoardRefresh;
   // The reset below drops text labels; reload this student's own ones.
   studentSoloLabelsLoaded = false;
@@ -1562,6 +1573,7 @@ function failedBoardFetchCue() {
  * @param {boolean} [force]
  */
 function kickStudentBoardDelta(force) {
+  if (!boardFeature) return;
   ensureStudentBoardPoll();
   if (studentBoardPoll && typeof studentBoardPoll.kick === "function") {
     studentBoardPoll.kick(Boolean(force));
@@ -1604,7 +1616,7 @@ function applyStudentBoardSnapshot(data) {
 }
 
 function ensureStudentBoardPoll() {
-  if (studentBoardPoll) return;
+  if (!boardFeature || studentBoardPoll) return;
   studentBoardPoll = createBoardDeltaPoll({
     /**
      * @returns {boolean}
@@ -1785,7 +1797,7 @@ function paintWhiteboardReopenCue(payload) {
  * post is not refused as stale.
  */
 async function loadStudentSoloLabels() {
-  if (studentSoloLabelsLoaded || studentSoloLabelsLoading) return;
+  if (!boardFeature || studentSoloLabelsLoaded || studentSoloLabelsLoading) return;
   const meId = Number(lastStudentPayload?.me?.id) || 0;
   if (!meId || typeof bindStudentCanvas.applyDelta !== "function") return;
   studentSoloLabelsLoading = true;
@@ -1889,6 +1901,7 @@ function showUnsharedSlidePlaceholder() {
 }
 
 function applyStudentGoogleSlide(card) {
+  if (!slidesImportFeature) return;
   if (!card || card.attached !== true) return;
   if (card.rev != null) lastSlideRev = Number(card.rev) || 0;
   const docked = dockedLiveCardKeys.has("surface:slides");
@@ -1907,7 +1920,7 @@ function applyStudentGoogleSlide(card) {
 }
 
 function paintStudentSlides(payload) {
-  const card = googleSlideCard(payload);
+  const card = slidesImportFeature ? googleSlideCard(payload) : null;
   const image = document.getElementById("slides-card");
   if (card && card.rev != null) lastSlideRev = Number(card.rev) || 0;
   if (card) {
@@ -2298,6 +2311,7 @@ function applyTeacherProjection(payload) {
  * @param {ReturnType<typeof studentProjection>} proj
  */
 function syncTeamDrawChrome(payload, proj) {
+  if (!drawFeature) return;
   const item = findActiveDrawItem(payload);
   const state = item?.group_submit || null;
   const on = Boolean(item && proj.canvas && proj.canvasAlign === "team");
@@ -2390,7 +2404,7 @@ function findActiveDrawItem(payload) {
   );
 }
 
-if (teamDrawSubmit instanceof HTMLButtonElement) {
+if (drawFeature && teamDrawSubmit instanceof HTMLButtonElement) {
   teamDrawSubmit.addEventListener("click", async () => {
     const payload = lastStudentPayload;
     const item = payload ? findActiveDrawItem(payload) : null;
@@ -2581,7 +2595,7 @@ function postMediaState(media) {
   }
 }
 
-window.addEventListener("message", (event) => {
+if (mediaFeature) window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;
   const data = event.data;
   if (!data || data.type !== "artifact-ready" || data.source !== "lloves-jigsawable") return;
@@ -2597,6 +2611,7 @@ let lastStudentMedia = null;
  * @param {any} payload
  */
 function paintMedia(payload) {
+  if (!mediaFeature) return;
   const proj = applyTeacherProjection(payload);
   const artifactLive = stateMachineMediaLive(payload);
   if (payload.game_show_welcome) {
@@ -6052,7 +6067,7 @@ function applySurfaceShow(event) {
   if (surface === "canvas") next.surface_canvas_mode = mode;
   lastStudentPayload = next;
   applyTeacherProjection(next);
-  if (surface === "canvas") kickStudentBoardDelta(true);
+  if (surface === "canvas" && boardFeature) kickStudentBoardDelta(true);
 }
 
 /**
@@ -6081,6 +6096,7 @@ function ensureStudentNewsWire(sessionId) {
   studentNewsWire = connectLiveNewsWire(sid, {
     onNews(event) {
       if (event && event.type === "google_slide") {
+        if (!slidesImportFeature) return;
         applyStudentGoogleSlide({
           attached: true,
           shared: Number(event.shared) === 1,
@@ -6093,7 +6109,7 @@ function ensureStudentNewsWire(sessionId) {
         return;
       }
       if (event && (event.type === "board_ink" || event.type === "board_show")) {
-        kickStudentBoardDelta(true);
+        if (boardFeature) kickStudentBoardDelta(true);
         return;
       }
       if (event && event.type === "surface_show") {
@@ -6766,7 +6782,7 @@ if (saveWorkBtn) {
   });
 }
 
-window.addEventListener("message", (event) => {
+if (mediaFeature) window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;
   const data = event.data;
   const artifactSources = new Set([
@@ -6779,7 +6795,7 @@ window.addEventListener("message", (event) => {
   }
 });
 
-bindStudentCanvas();
+if (boardFeature) bindStudentCanvas();
 bindFloatingPane(mediaPane);
 bindFloatingPane(canvasPane);
 bindFloatingPane(slidesPane);

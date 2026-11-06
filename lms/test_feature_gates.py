@@ -30,7 +30,7 @@ from feature_gates import (  # noqa: E402
     reset_whiteboard_refresh,
     scope_catchup_links,
 )
-from features import set_feature_override  # noqa: E402
+from features import _caller_has_feature, features_for_page, set_feature_override  # noqa: E402
 from live_news_wire import log_for, reset_logs  # noqa: E402
 
 
@@ -439,6 +439,50 @@ class OtherFeatureGateTests(_School):
         self.assertEqual(fifth.status_code, 200)
 
 
+class StudentOwnerResolveTests(_School):
+    """A student page follows the live room, not another signed-in teacher."""
+
+    def test_page_flags_ignore_a_signed_in_teacher_and_a_body_session(self) -> None:
+        """The join cookie wins over a staff login and a posted session id."""
+        owner = self._teacher("resolve-owner@example.com")
+        other = self._teacher("resolve-other@example.com")
+        set_feature_override(self.school, int(other["id"]), "media", True)
+        set_feature_override(self.school, int(other["id"]), "slides_import", True)
+        class_a = self._class_for(int(owner["id"]), ["Ada"])
+        class_b = self._class_for(int(other["id"]), ["Bea"])
+        live_a = self._live(class_a, int(owner["id"]))
+        live_b = self._live(class_b, int(other["id"]))
+        with self.app.test_request_context(
+            "/api/student/state",
+            method="POST",
+            json={"session_id": int(live_b["id"]), "teacher_user_id": int(other["id"])},
+        ):
+            from flask import session
+
+            session["logged_in"] = True
+            session["user_id"] = int(other["id"])
+            session["portal"] = "staff"
+            session["role"] = "staff"
+            session["student_live_session_id"] = int(live_a["id"])
+            self.assertFalse(_caller_has_feature("media", {}))
+            self.assertFalse(_caller_has_feature("slides_import", {}))
+            self.assertTrue(_caller_has_feature("live_slides", {}))
+            self.assertTrue(_caller_has_feature("whiteboard_submit", {}))
+            flags = features_for_page()
+            self.assertFalse(flags["media"])
+            self.assertTrue(flags["mc_questions"])
+            self.assertFalse(flags["whiteboard"])
+        with self.app.test_request_context("/api/live-sessions/1/active-media"):
+            from flask import session
+
+            session["logged_in"] = True
+            session["user_id"] = int(other["id"])
+            session["portal"] = "staff"
+            session["role"] = "staff"
+            self.assertTrue(_caller_has_feature("media", {}))
+            self.assertTrue(features_for_page()["media"])
+
+
 def _chrome() -> str:
     """First Chrome binary on this machine, or an empty string."""
     for path in (
@@ -473,8 +517,17 @@ class FeatureScreenTests(_School):
         """Session cookies for the browser. Values are not logged."""
         return {cookie.key: cookie.value for cookie in client._cookies.values()}
 
-    def _page_client(self, email: str, *, basic: bool):
-        """Sign in through the mock callback, then drop the grant when ``basic``."""
+    def _page_client(self, email: str, *, basic: bool, boards_off: bool = False):
+        """Sign in through the mock callback, then drop the grant when ``basic``.
+
+        ``boards_off`` also turns both whiteboard keys off, which is the
+        registry state where the Whiteboard tab is gone.
+
+        Args:
+            email: Staff email. Not printed.
+            basic: Delete the launch rows so plan defaults apply.
+            boards_off: Override both whiteboard keys off after that.
+        """
         teacher = self._teacher(email)
         offering = self.school.assign_course(
             teacher_user_id=int(teacher["id"]), ontario_code="MCF3M"
@@ -497,38 +550,140 @@ class FeatureScreenTests(_School):
         )
         self.assertEqual(created.status_code, 200)
         class_id = int(created.get_json()["class"]["id"])
-        if basic:
+        if basic or boards_off:
             self.school.conn.execute(
                 "DELETE FROM user_features WHERE user_id = ?",
                 (int(teacher["id"]),),
             )
-        return client, class_id
+        if boards_off:
+            set_feature_override(
+                self.school, int(teacher["id"]), "whiteboard", False
+            )
+            set_feature_override(
+                self.school, int(teacher["id"]), "whiteboard_submit", False
+            )
+        return client, class_id, int(teacher["id"])
+
+    def _live_for(self, client, class_id: int) -> dict:
+        """Start the live class and return the session row. The code is not logged."""
+        started = client.post(
+            f"/staff/class/{class_id}/run-live", follow_redirects=False
+        )
+        self.assertEqual(started.status_code, 302)
+        live = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(live)
+        assert live is not None
+        return live
+
+    def _phone(self, code: str, name: str, *, also_user_id: int | None = None):
+        """Join through mood and character. Optionally keep a staff login too."""
+        phone = self.app.test_client()
+        joined = phone.post(
+            "/auth/student-code",
+            data={"code": code, "name": name},
+            follow_redirects=False,
+        )
+        self.assertEqual(joined.status_code, 302)
+        self.assertEqual(phone.post("/student/mood", data={"mood": "good"}).status_code, 302)
+        picked = phone.post("/student/character", data={"character": "fox"})
+        self.assertIn(picked.status_code, (200, 302))
+        if also_user_id is not None:
+            with phone.session_transaction() as sess:
+                sess["logged_in"] = True
+                sess["user_id"] = int(also_user_id)
+                sess["portal"] = "staff"
+                sess["role"] = "staff"
+        return phone
 
     def test_screens_follow_the_plan(self) -> None:
-        """Basic hides Media and the import form. The granted teacher keeps them."""
+        """New teachers hide off surfaces. A granted teacher keeps them.
+
+        ``whiteboard_submit`` stays on for a new teacher, so the Whiteboard
+        tab stays in refresh mode. Turning both whiteboard keys off removes
+        the tab, the canvas, and the gallery request. Student pages follow
+        the session owner even when another teacher is signed in.
+        """
         from werkzeug.serving import make_server
 
-        basic_client, basic_class = self._page_client("screen-basic@example.com", basic=True)
-        full_client, full_class = self._page_client("screen-full@example.com", basic=False)
+        basic_client, basic_class, basic_id = self._page_client(
+            "screen-basic@example.com", basic=True
+        )
+        full_client, full_class, full_id = self._page_client(
+            "screen-full@example.com", basic=False
+        )
+        off_client, off_class, _off_id = self._page_client(
+            "screen-boards@example.com", basic=False, boards_off=True
+        )
+        basic_live = self._live_for(basic_client, basic_class)
+        full_live = self._live_for(full_client, full_class)
+        off_live = self._live_for(off_client, off_class)
+        basic_phone = self._phone(
+            str(basic_live["session_code"]), "Ada", also_user_id=full_id
+        )
+        full_phone = self._phone(
+            str(full_live["session_code"]), "Bea", also_user_id=basic_id
+        )
+        off_phone = self._phone(str(off_live["session_code"]), "Ada")
         server = make_server("127.0.0.1", 0, self.app, threaded=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        basic_shot = Path("/opt/cursor/artifacts/mck348-basic-live.png")
-        full_shot = Path("/opt/cursor/artifacts/mck348-full-live.png")
-        basic_shot.parent.mkdir(parents=True, exist_ok=True)
+        art = Path("/opt/cursor/artifacts")
+        art.mkdir(parents=True, exist_ok=True)
+        shots = {
+            "basic": art / "mck348-basic-live.png",
+            "full": art / "mck348-full-live.png",
+            "boards_off": art / "mck348-boards-off-live.png",
+            "basic_student": art / "mck348-basic-student.png",
+            "full_student": art / "mck348-full-student.png",
+            "boards_off_student": art / "mck348-boards-off-student.png",
+        }
         spec = {
             "port": server.server_port,
             "chrome": _chrome(),
-            "basic": {
-                "cookies": self._cookies(basic_client),
-                "path": f"/staff/class/{basic_class}?tab=live",
-                "shot": str(basic_shot),
-            },
-            "full": {
-                "cookies": self._cookies(full_client),
-                "path": f"/staff/class/{full_class}?tab=live",
-                "shot": str(full_shot),
-            },
+            "pages": [
+                {
+                    "name": "basic",
+                    "cookies": self._cookies(basic_client),
+                    "path": f"/staff/class/{basic_class}?tab=live",
+                    "shot": str(shots["basic"]),
+                    "ready": "#live-content-tabs",
+                },
+                {
+                    "name": "full",
+                    "cookies": self._cookies(full_client),
+                    "path": f"/staff/class/{full_class}?tab=live",
+                    "shot": str(shots["full"]),
+                    "ready": "#live-content-tabs",
+                },
+                {
+                    "name": "boards_off",
+                    "cookies": self._cookies(off_client),
+                    "path": f"/staff/class/{off_class}?tab=live",
+                    "shot": str(shots["boards_off"]),
+                    "ready": "#live-content-tabs",
+                },
+                {
+                    "name": "basic_student",
+                    "cookies": self._cookies(basic_phone),
+                    "path": "/student/home",
+                    "shot": str(shots["basic_student"]),
+                    "ready": "#live-response",
+                },
+                {
+                    "name": "full_student",
+                    "cookies": self._cookies(full_phone),
+                    "path": "/student/home",
+                    "shot": str(shots["full_student"]),
+                    "ready": "#live-response",
+                },
+                {
+                    "name": "boards_off_student",
+                    "cookies": self._cookies(off_phone),
+                    "path": "/student/home",
+                    "shot": str(shots["boards_off_student"]),
+                    "ready": "#live-response",
+                },
+            ],
         }
         cfg = Path(self.tmp.name) / "feature-gates-e2e.json"
         cfg.write_text(json.dumps(spec), encoding="utf-8")
@@ -541,36 +696,85 @@ class FeatureScreenTests(_School):
                 },
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=180,
                 check=False,
             )
         finally:
             server.shutdown()
             server.server_close()
         lines = [line for line in proc.stdout.splitlines() if line.startswith("{")]
-        self.assertTrue(lines, proc.stderr[-1500:])
+        self.assertTrue(lines, (proc.stderr or "")[-1500:])
         out = json.loads(lines[-1])
-        self.assertEqual(out["basic"]["errors"], [])
-        self.assertEqual(out["full"]["errors"], [])
+        for name in shots:
+            self.assertEqual(out[name]["errors"], [], name)
+            self.assertTrue(shots[name].is_file(), name)
         basic = out["basic"]["counts"]
         full = out["full"]["counts"]
+        boards = out["boards_off"]["counts"]
         self.assertEqual(basic["media"], 0)
+        self.assertEqual(basic["mediaZone"], 0)
         self.assertEqual(basic["importForm"], 0)
         self.assertEqual(basic["googleStage"], 0)
         self.assertEqual(basic["questions"], 1)
         self.assertEqual(basic["slides"], 1)
         self.assertEqual(basic["whiteboard"], 1)
+        self.assertEqual(basic["canvasZone"], 1)
         self.assertEqual(basic["refresh"], 1)
         self.assertEqual(basic["livePill"], 0)
+        self.assertFalse(basic["flags"]["media"])
+        self.assertFalse(basic["flags"]["slides_import"])
+        self.assertTrue(basic["flags"]["live_slides"])
+        self.assertTrue(basic["flags"]["whiteboard_submit"])
+        self.assertFalse(any("active-media" in row for row in out["basic"]["requests"]))
         self.assertEqual(full["media"], 1)
+        self.assertEqual(full["mediaZone"], 1)
         self.assertEqual(full["importForm"], 1)
         self.assertEqual(full["googleStage"], 1)
         self.assertEqual(full["questions"], 1)
         self.assertEqual(full["slides"], 1)
         self.assertEqual(full["whiteboard"], 1)
         self.assertEqual(full["livePill"], 1)
-        self.assertTrue(basic_shot.is_file())
-        self.assertTrue(full_shot.is_file())
+        self.assertTrue(full["flags"]["media"])
+        self.assertEqual(boards["questions"], 1)
+        self.assertEqual(boards["slides"], 1)
+        self.assertEqual(boards["media"], 0)
+        self.assertEqual(boards["whiteboard"], 0)
+        self.assertEqual(boards["canvasZone"], 0)
+        self.assertEqual(boards["importForm"], 0)
+        self.assertEqual(boards["googleStage"], 0)
+        self.assertEqual(boards["refresh"], 0)
+        self.assertFalse(any("whiteboard-gallery" in row for row in out["boards_off"]["requests"]))
+        self.assertFalse(any("/board/" in row for row in out["boards_off"]["requests"]))
+        self.assertFalse(any("active-media" in row for row in out["boards_off"]["requests"]))
+        basic_student = out["basic_student"]["counts"]
+        full_student = out["full_student"]["counts"]
+        off_student = out["boards_off_student"]["counts"]
+        self.assertEqual(basic_student["mediaPane"], 0)
+        self.assertEqual(basic_student["slidesCard"], 0)
+        self.assertEqual(basic_student["slidesFrame"], 1)
+        self.assertEqual(basic_student["canvasPane"], 1)
+        self.assertEqual(basic_student["cursors"], 0)
+        self.assertEqual(basic_student["teamDrawMystery"], 0)
+        self.assertEqual(basic_student["teamDrawPhone"], 1)
+        self.assertFalse(basic_student["flags"]["media"])
+        self.assertTrue(basic_student["flags"]["whiteboard_submit"])
+        self.assertFalse(any("/board/" in row for row in out["basic_student"]["requests"]))
+        self.assertFalse(any("active-media" in row for row in out["basic_student"]["requests"]))
+        self.assertEqual(full_student["mediaPane"], 1)
+        self.assertEqual(full_student["slidesCard"], 1)
+        self.assertEqual(full_student["canvasPane"], 1)
+        self.assertEqual(full_student["cursors"], 1)
+        self.assertEqual(full_student["teamDrawMystery"], 1)
+        self.assertTrue(full_student["flags"]["media"])
+        self.assertTrue(full_student["flags"]["whiteboard"])
+        self.assertEqual(off_student["canvasPane"], 0)
+        self.assertEqual(off_student["mediaPane"], 0)
+        self.assertEqual(off_student["slidesCard"], 0)
+        self.assertEqual(off_student["slidesFrame"], 1)
+        self.assertEqual(off_student["cursors"], 0)
+        self.assertEqual(off_student["teamDrawPhone"], 0)
+        self.assertFalse(any("/board/" in row for row in out["boards_off_student"]["requests"]))
+        self.assertFalse(any("whiteboard-gallery" in row for row in out["boards_off_student"]["requests"]))
 
 
 if __name__ == "__main__":

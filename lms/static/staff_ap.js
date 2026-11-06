@@ -51,6 +51,7 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { teamDrawStatusBoardHtml } from "/static/team_draw.js";
+import { featureOn } from "/static/teacher_features.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -3048,7 +3049,13 @@ function teacherPanePreset(content) {
  * The media iframe stays mounted so the 3D slice is not recreated.
  */
 function paintFrames() {
-  const content = teacherPaneContent();
+  let content = teacherPaneContent();
+  let shownTab = String(teacherState.active_tab || "questions");
+  const frames = $("live-frames");
+  if (frames && !frames.querySelector(`[data-content-id="${content}"]`)) {
+    content = "questions";
+    shownTab = "questions";
+  }
   const preset = teacherPanePreset(content) || "canvas_full";
   const host = $("live-frames");
   if (host) {
@@ -3066,7 +3073,7 @@ function paintFrames() {
     btn.classList.toggle("is-active", btn.getAttribute("data-preset") === preset);
   });
   document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
-    const on = btn.getAttribute("data-tab") === teacherState.active_tab;
+    const on = btn.getAttribute("data-tab") === shownTab;
     btn.classList.toggle("is-active", on);
     if (on) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
@@ -3399,6 +3406,7 @@ function paintSlidesEmpty() {
  * @returns {any}
  */
 function googleSlidesDeck() {
+  if (!featureOn("slides_import")) return null;
   const deck = lastGoogleSlides;
   if (!deck || deck.kind !== "google_slides" || !Array.isArray(deck.pages) || !deck.pages.length) {
     return null;
@@ -5805,10 +5813,10 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const hostId = groupResultsHostId(result, liveItemId);
   const seq = escapeHtml(String(result?.group_response_seq || ""));
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
-  if (
-    String(result?.response_mode || "") === "team_draw" ||
-    result?.draw
-  ) {
+  const drawMode =
+    String(result?.response_mode || "") === "team_draw" || Boolean(result?.draw);
+  if (drawMode) {
+    if (!(featureOn("team_draw") || featureOn("group_draw"))) return "";
     return `${open}${teamDrawStatusBoardHtml(result)}</div>`;
   }
   if (result?.rank) {
@@ -8973,6 +8981,7 @@ function liveClassSeedMedia() {
  * ``challenge=C1`` would overwrite a persisted C2/C3 session on refresh.
  */
 async function ensureC1MediaSeeded() {
+  if (!featureOn("media")) return;
   const seed = liveClassSeedMedia();
   if (!seed) {
     const sessionId = liveSessionId || readLiveSessionId();
@@ -9041,6 +9050,7 @@ async function ensureC1MediaSeeded() {
  * @param {Record<string, unknown>} body
  */
 async function postActiveMedia(body) {
+  if (!featureOn("media")) return lastActiveMedia;
   if (mediaPushInFlight) {
     mediaPushQueued = body;
     return lastActiveMedia;
@@ -9409,6 +9419,7 @@ async function applyHeldArtifactGroupQ(asGroup) {
  */
 function bindActiveMediaControls() {
   paintActiveMediaStatus(null);
+  if (!featureOn("media")) return;
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;

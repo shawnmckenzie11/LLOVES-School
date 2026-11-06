@@ -10,6 +10,7 @@ import {
   createPresenceQueue,
   normalizeBoardPoint,
 } from "./live_whiteboard.js";
+import { featureOn } from "./teacher_features.js";
 
 /** Teacher tile poll. About every 2 seconds, one since-seq request. */
 const TILE_POLL_MS = 2000;
@@ -803,5 +804,6 @@ export function mountTeacherGrid(root) {
 
 if (typeof document !== "undefined") {
   const teacherRoot = document.getElementById("formative-live-board");
-  if (teacherRoot instanceof HTMLElement) mountTeacherGrid(teacherRoot);
+  const boardOn = featureOn("whiteboard") || featureOn("whiteboard_submit");
+  if (teacherRoot instanceof HTMLElement && boardOn) mountTeacherGrid(teacherRoot);
 }

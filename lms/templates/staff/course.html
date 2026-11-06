@@ -660,6 +660,7 @@
               <div class="live-frame-slot" data-frame="A" data-drop-frame="A"><span class="live-frame-label">A</span></div>
               <div class="live-frame-slot" data-frame="B" data-drop-frame="B"><span class="live-frame-label">B</span></div>
               <div class="live-frame-slot" data-frame="C" data-drop-frame="C"><span class="live-frame-label">C</span></div>
+              {% if teacher_features.media %}
               <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-parked" data-content-id="media" data-flag="media" data-slot="">
                 <section class="ap-active-media" id="ap-active-media">
                   <div class="live-content-pane-head">
@@ -701,6 +702,7 @@
                   </form>
                 </section>
               </section>
+              {% endif %}
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
                 <div class="live-content-pane-head live-questions-head">
                   <h2 class="live-pane-title">Questions</h2>
@@ -791,6 +793,7 @@
                   </section>
                 </section>
               </section>
+              {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
               <section id="canvas-zone" class="live-content-slot is-parked" data-content-id="canvas" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Whiteboard</h2>
@@ -859,6 +862,7 @@
                   </div>
                 </section>
               </section>
+              {% endif %}
               <section id="slides-zone" class="live-content-slot is-parked" data-content-id="slides" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Slides</h2>
