@@ -259,6 +259,64 @@ def _counts(conn: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+
+def _dump(conn: sqlite3.Connection, table: str) -> tuple[list[str], list[tuple]]:
+    """Every column of ``table``, ordered by its primary key.
+
+    Args:
+        conn: Open connection.
+        table: Table name from this rehearsal.
+
+    Returns:
+        Column names and rows. Values are not logged by the caller.
+    """
+    info = list(conn.execute(f"PRAGMA table_info({table})"))
+    cols = [str(row[1]) for row in info]
+    order = [str(row[1]) for row in info if int(row[5])] or cols
+    quoted = ", ".join(f'"{name}"' for name in cols)
+    ordering = ", ".join(f'"{name}"' for name in order)
+    rows = [
+        tuple(row)
+        for row in conn.execute(f"SELECT {quoted} FROM {table} ORDER BY {ordering}")
+    ]
+    return cols, rows
+
+
+def _without(cols: list[str], rows: list[tuple], drop: set[str]) -> list[tuple]:
+    """Drop named columns from dumped rows.
+
+    Args:
+        cols: Column names aligned with each row.
+        rows: Dumped rows.
+        drop: Columns that the migration is allowed to change.
+
+    Returns:
+        Rows with those columns removed.
+    """
+    keep = [index for index, name in enumerate(cols) if name not in drop]
+    return [tuple(row[index] for index in keep) for row in rows]
+
+
+_RETAINED = (
+    "classes",
+    "sessions",
+    "session_scores",
+    "live_participation_credits",
+    "participation_answers",
+    "catchup_links",
+    "catchup_pin_failures",
+    "catchup_pin_unlocks",
+    "student_moods",
+    "avatar_reward_grants",
+    "live_class_sessions",
+    "live_session_prompts",
+    "live_session_responses",
+    "questions",
+    "module_items",
+    "student_id_seq",
+)
+
+
 class DeployedSchemaRehearsalTests(unittest.TestCase):
     """Synthetic rows on the captured CREATE statements."""
 
@@ -289,27 +347,10 @@ class DeployedSchemaRehearsalTests(unittest.TestCase):
             ),
         )
         before_counts = _counts(self.conn)
-        pins = [
-            tuple(row)
-            for row in self.conn.execute(
-                "SELECT id, pin_hash, default_pin_ciphertext, pin_set_by, is_test_student "
-                "FROM students ORDER BY id"
-            )
-        ]
-        score = tuple(
-            self.conn.execute(
-                "SELECT present, points, late FROM session_scores WHERE student_id = 1"
-            ).fetchone()
-        )
-        answer = self.conn.execute(
-            "SELECT answer_json FROM participation_answers WHERE id = 1"
-        ).fetchone()[0]
-        grants = [
-            tuple(row)
-            for row in self.conn.execute(
-                "SELECT student_id, source, status, avatar_key FROM avatar_reward_grants ORDER BY id"
-            )
-        ]
+        retained = {name: _dump(self.conn, name) for name in _RETAINED}
+        student_cols, student_rows = _dump(self.conn, "students")
+        students_kept = _without(student_cols, student_rows, {"canvas_id", "row_uid"})
+        settings_cols, settings_rows = _dump(self.conn, "school_settings")
         past = json.loads(
             self.conn.execute(
                 "SELECT value FROM school_settings WHERE key = 'celebration_held_cards'"
@@ -329,6 +370,20 @@ class DeployedSchemaRehearsalTests(unittest.TestCase):
         self.assertGreaterEqual(int(result["fingerprints_orphaned"]), 1)
         self.assertEqual(_fk_violation_set(self.conn), before_fk)
         self.assertEqual(_counts(self.conn), before_counts)
+        for name, (cols, rows) in retained.items():
+            after_cols, after_rows = _dump(self.conn, name)
+            self.assertEqual(after_cols, cols, name)
+            self.assertEqual(after_rows, rows, name)
+        after_student_cols, after_student_rows = _dump(self.conn, "students")
+        self.assertEqual(
+            _without(after_student_cols, after_student_rows, {"canvas_id", "row_uid"}),
+            students_kept,
+        )
+        uid_index = after_student_cols.index("row_uid")
+        uids = [row[uid_index] for row in after_student_rows]
+        self.assertEqual(len(uids), len(set(uids)))
+        for uid in uids:
+            self.assertRegex(str(uid), r"^[0-9a-f]{32}$")
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(students)")}
         self.assertNotIn("canvas_id", cols)
         self.assertIn("row_uid", cols)
@@ -340,39 +395,21 @@ class DeployedSchemaRehearsalTests(unittest.TestCase):
         self.assertIn("idx_students_class", names)
         self.assertIn("idx_students_class_codename", names)
         self.assertIn("uq_students_one_test_student", names)
-        after_pins = [
-            tuple(row)
-            for row in self.conn.execute(
-                "SELECT id, pin_hash, default_pin_ciphertext, pin_set_by, is_test_student "
-                "FROM students ORDER BY id"
-            )
-        ]
-        self.assertEqual(after_pins, pins)
-        after_score = tuple(
-            self.conn.execute(
-                "SELECT present, points, late FROM session_scores WHERE student_id = 1"
-            ).fetchone()
-        )
-        self.assertEqual(after_score, score)
-        self.assertEqual(
-            self.conn.execute(
-                "SELECT answer_json FROM participation_answers WHERE id = 1"
-            ).fetchone()[0],
-            answer,
-        )
-        after_grants = [
-            tuple(row)
-            for row in self.conn.execute(
-                "SELECT student_id, source, status, avatar_key FROM avatar_reward_grants ORDER BY id"
-            )
-        ]
-        self.assertEqual(after_grants, grants)
         held = json.loads(
             self.conn.execute(
                 "SELECT value FROM school_settings WHERE key = 'celebration_held_cards'"
             ).fetchone()[0]
         )
         self.assertEqual(held["cards"][0]["students"][0]["fp"], past)
+        key_index = settings_cols.index("key")
+        value_index = settings_cols.index("value")
+        after_settings_cols, after_settings_rows = _dump(self.conn, "school_settings")
+        self.assertEqual(after_settings_cols, settings_cols)
+        changed = {"celebration_public_snapshot", "celebration_held_cards"}
+        for before_row, after_row in zip(settings_rows, after_settings_rows):
+            self.assertEqual(before_row[key_index], after_row[key_index])
+            if before_row[key_index] not in changed:
+                self.assertEqual(after_row, before_row)
         self.assertFalse((uploads / "class-1.csv").exists())
         self.assertEqual((library / "keep.bin").read_bytes(), b"pack")
         uids = [
@@ -400,6 +437,7 @@ class DeployedSchemaRehearsalTests(unittest.TestCase):
 
         before = _counts(self.conn)
         before_fk = _fk_violation_set(self.conn)
+        retained = {name: _dump(self.conn, name) for name in ("students", *_RETAINED, "school_settings")}
         uploads = Path(self.tmp.name) / "uploads"
         uploads.mkdir()
         (uploads / "class-3.csv").write_text("legacy\n", encoding="utf-8")
@@ -412,6 +450,10 @@ class DeployedSchemaRehearsalTests(unittest.TestCase):
             )
         self.assertEqual(_counts(self.conn), before)
         self.assertEqual(_fk_violation_set(self.conn), before_fk)
+        for name, (cols, rows) in retained.items():
+            after_cols, after_rows = _dump(self.conn, name)
+            self.assertEqual(after_cols, cols, name)
+            self.assertEqual(after_rows, rows, name)
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(students)")}
         self.assertIn("canvas_id", cols)
         self.assertEqual(
@@ -543,29 +585,33 @@ class ConstraintAndFkTests(unittest.TestCase):
 class PeakAndProbeTests(unittest.TestCase):
     """dbstat rewrite size, and the probe refuses a host /data mount."""
 
-    def test_peak_uses_students_pages_not_the_whole_file(self) -> None:
-        """The bound is the students table plus the indexes the rebuild rewrites."""
+    def test_peak_ceiling_is_not_the_old_students_size(self) -> None:
+        """Old dbstat bytes are not the size of the rebuilt table.
+
+        The ceiling allows every existing page to be rewritten and adds
+        24 bytes of WAL frame overhead per page. It does not include
+        startup writers or a second copy of ``libraries/``. A synthetic
+        rehearsal measurement is not production capacity proof.
+        """
         payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        by_name = {row["name"]: int(row["bytes"]) for row in payload["dbstat_by_object"]}
-        rewritten_names = (
-            "students",
-            "sqlite_autoindex_students_1",
-            "idx_students_class",
-            "idx_students_class_codename",
-            "uq_students_one_test_student",
-        )
-        rewritten = sum(by_name[name] for name in rewritten_names)
-        self.assertEqual(rewritten, 53248)
-        self.assertLess(rewritten, DB_BYTES)
-        peak = sqlite_rebuild_peak_bytes(DB_BYTES, WAL_BYTES, rewritten)
-        self.assertFalse(peak["ceiling"])
-        self.assertEqual(peak["peak_bytes"], DB_BYTES + WAL_BYTES + rewritten)
-        self.assertLess(int(peak["with_same_disk_backup_bytes"]), FREE_BYTES)
-        ceiling = sqlite_rebuild_peak_bytes(DB_BYTES, WAL_BYTES, None)
+        page_count = int(payload["pragma"]["page_count"])
+        page_size = int(payload["pragma"]["page_size"])
+        self.assertEqual(page_count * page_size, DB_BYTES)
+        frame_overhead = page_count * 24
+        ceiling = sqlite_rebuild_peak_bytes(DB_BYTES, WAL_BYTES, None, page_count=page_count)
         self.assertTrue(ceiling["ceiling"])
-        self.assertGreater(int(ceiling["peak_bytes"]), int(peak["peak_bytes"]))
-        page_bytes = int(payload["pragma"]["page_count"]) * int(payload["pragma"]["page_size"])
-        self.assertEqual(page_bytes, DB_BYTES)
+        self.assertEqual(
+            ceiling["peak_bytes"],
+            DB_BYTES + WAL_BYTES + DB_BYTES + frame_overhead,
+        )
+        self.assertLess(int(ceiling["with_same_disk_backup_bytes"]), FREE_BYTES)
+        by_name = {row["name"]: int(row["bytes"]) for row in payload["dbstat_by_object"]}
+        old_students = by_name["students"] + by_name["sqlite_autoindex_students_1"]
+        old_students += by_name["idx_students_class"]
+        old_students += by_name["idx_students_class_codename"]
+        old_students += by_name["uq_students_one_test_student"]
+        self.assertLess(old_students, int(ceiling["peak_bytes"]))
+        self.assertNotEqual(int(ceiling["rewritten_bytes"]), old_students)
 
     def test_probe_refuses_host_data_and_allows_a_private_tmpfs(self) -> None:
         """Importing the probe does not open a database or a socket."""
@@ -728,3 +774,73 @@ class ReadinessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MalformedNoopTests(unittest.TestCase):
+    """A no-op must not accept a preexisting uid that is not a real one."""
+
+    def test_malformed_noop_blocks_without_rewriting(self) -> None:
+        """Nullable, blank, duplicate, non-unique, and wrong-shaped uids stay put."""
+        valid = "a" * 32
+        other = "b" * 32
+        cases = (
+            ("nullable", "row_uid TEXT", None, "row_uid_malformed"),
+            ("blank", "row_uid TEXT NOT NULL", "", "row_uid_malformed"),
+            ("bad_shape", "row_uid TEXT NOT NULL", "not-a-uid", "row_uid_malformed"),
+            ("duplicate", "row_uid TEXT NOT NULL", valid, "row_uid_duplicate"),
+            ("not_unique", "row_uid TEXT NOT NULL", valid, "row_uid_not_unique"),
+            ("constraint_nullable", "row_uid TEXT", valid, "row_uid_nullable"),
+        )
+        for name, column_sql, value, reason in cases:
+            with self.subTest(name=name):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                conn = _open(Path(tmp.name) / "school.sqlite")
+                self.addCleanup(conn.close)
+                unique = "" if name in {"not_unique", "duplicate", "nullable", "blank", "bad_shape", "constraint_nullable"} else ""
+                if name == "not_unique":
+                    suffix = ""
+                elif "NOT NULL" in column_sql and name not in {"duplicate", "not_unique"}:
+                    suffix = " UNIQUE"
+                else:
+                    suffix = ""
+                if name == "constraint_nullable":
+                    suffix = ""
+                conn.execute(
+                    f"CREATE TABLE students (id INTEGER PRIMARY KEY, {column_sql}{suffix})"
+                )
+                if name == "duplicate":
+                    conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (valid,))
+                    conn.execute("INSERT INTO students (id, row_uid) VALUES (2, ?)", (valid,))
+                elif name == "not_unique":
+                    conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (valid,))
+                    conn.execute("INSERT INTO students (id, row_uid) VALUES (2, ?)", (other,))
+                else:
+                    conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (value,))
+                before = list(conn.execute("SELECT id, row_uid FROM students ORDER BY id"))
+                result = migrate_students_off_canvas_id(conn, secret=SECRET)
+                self.assertEqual(result["status"], "blocked")
+                self.assertEqual(result["reason"], reason)
+                after = list(conn.execute("SELECT id, row_uid FROM students ORDER BY id"))
+                self.assertEqual(after, before)
+                ledger = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE name = 'lms_data_migrations'"
+                ).fetchone()
+                if ledger is not None:
+                    row = conn.execute(
+                        "SELECT 1 FROM lms_data_migrations WHERE migration_key = 'mck365_drop_canvas_id_v1'"
+                    ).fetchone()
+                    self.assertIsNone(row)
+                self.assertFalse(student_uid_ready(result, student_uid_invariants(conn)))
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        conn = _open(Path(tmp.name) / "school.sqlite")
+        self.addCleanup(conn.close)
+        conn.execute(
+            "CREATE TABLE students (id INTEGER PRIMARY KEY, row_uid TEXT NOT NULL UNIQUE)"
+        )
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (valid,))
+        result = migrate_students_off_canvas_id(conn, secret=SECRET)
+        self.assertEqual(result["status"], "noop")
+        self.assertTrue(student_uid_ready(result, student_uid_invariants(conn)))

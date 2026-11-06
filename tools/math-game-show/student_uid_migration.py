@@ -214,6 +214,14 @@ def migrate_students_off_canvas_id(
     fp_key = celebration_fp_key(secret)
     fk_was_on = int(conn.execute("PRAGMA foreign_keys").fetchone()[0])
     if LEGACY_COLUMN not in _column_names(conn, "students"):
+        defect = _row_uid_defect(conn)
+        if defect:
+            logger.warning("student uid migration blocked: %s", defect)
+            return {
+                "status": "blocked",
+                "reason": defect,
+                "legacy_roster_csv_files": count_legacy_roster_csv(uploads_dir),
+            }
         _ensure_ledger(conn)
         _insert_marker_ignore(
             conn,
@@ -270,6 +278,9 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
     columns = _table_info(conn, "students")
     names = [col[1] for col in columns]
     if LEGACY_COLUMN not in names:
+        defect = _row_uid_defect(conn)
+        if defect:
+            raise _Blocked(defect)
         _insert_marker_ignore(conn, {"schema": "already_without_legacy_column"})
         return {"status": "noop"}
 
@@ -447,6 +458,51 @@ def _unsupported_students_ddl(conn: sqlite3.Connection) -> str | None:
     return None
 
 
+
+_UID_SHAPE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _row_uid_defect(conn: sqlite3.Connection) -> str | None:
+    """Return why preexisting ``row_uid`` values cannot be accepted as-is.
+
+    A no-op must not rewrite rows or invent replacements. Nullable,
+    non-unique, blank, duplicate, or wrong-shaped values are refused.
+    The required shape is the 32-character hex from :func:`new_row_uid`.
+
+    Args:
+        conn: Open connection. The legacy column is already absent.
+
+    Returns:
+        A reason code, or None when every row is a unique non-blank uid
+        and the column is ``NOT NULL`` with its own unique index.
+    """
+    if not _table_exists(conn, "students"):
+        return "row_uid_missing"
+    columns = _table_info(conn, "students")
+    uid_col = next((col for col in columns if col[1] == UID_COLUMN), None)
+    if uid_col is None:
+        return "row_uid_missing"
+    malformed = 0
+    seen: set[str] = set()
+    duplicate = False
+    for (value,) in conn.execute(f"SELECT {_q(UID_COLUMN)} FROM students"):
+        if not isinstance(value, str) or _UID_SHAPE.fullmatch(value) is None:
+            malformed += 1
+            continue
+        if value in seen:
+            duplicate = True
+        seen.add(value)
+    if malformed:
+        return "row_uid_malformed"
+    if duplicate:
+        return "row_uid_duplicate"
+    if int(uid_col[3]) != 1 and int(uid_col[5]) != 1:
+        return "row_uid_nullable"
+    if not _row_uid_unique(conn):
+        return "row_uid_not_unique"
+    return None
+
+
 def student_uid_invariants(conn: sqlite3.Connection) -> dict[str, Any]:
     """Schema facts that decide whether the drop finished.
 
@@ -461,6 +517,7 @@ def student_uid_invariants(conn: sqlite3.Connection) -> dict[str, Any]:
     return {
         "legacy_column_present": LEGACY_COLUMN in cols,
         "row_uid_present": UID_COLUMN in cols,
+        "row_uid_valid": _row_uid_defect(conn) is None,
         "ledger_status": _ledger_status(conn),
     }
 
@@ -485,6 +542,7 @@ def student_uid_ready(result: dict[str, Any] | None, invariants: dict[str, Any])
         status in {"applied", "noop"}
         and not invariants.get("legacy_column_present")
         and invariants.get("row_uid_present")
+        and invariants.get("row_uid_valid") is True
         and invariants.get("ledger_status") == "applied"
     )
 
@@ -493,30 +551,29 @@ def sqlite_rebuild_peak_bytes(
     db_bytes: int,
     wal_bytes: int,
     rewritten_bytes: int | None = None,
+    *,
+    page_count: int | None = None,
 ) -> dict[str, int | bool]:
-    """Peak bytes for the students rebuild, plus a same-disk backup.
+    """Peak bytes for a sqlite rewrite, plus a same-disk backup.
 
-    Replacement pages are written into the WAL and then checkpointed into
-    the main file. Peak footprint on that filesystem is the current
-    database, the current WAL, and the pages the rebuild writes. When the
-    rewritten size is unknown, the ceiling uses the whole database file.
-    A backup placed on the same filesystem needs another copy of the
-    database and the WAL. Concurrent writers can grow the WAL further;
-    startup holds the schema lock so other workers wait, and traffic stays
-    closed until this pass is ready.
+    This is a ceiling, not the measured size of the new uid index.
+    When ``rewritten_bytes`` is omitted, every existing database page is
+    assumed rewritten. ``page_count`` adds 24 bytes of WAL frame overhead
+    per page. Other startup writers and the library tree are not included.
 
     Args:
         db_bytes: Size of the main database file.
         wal_bytes: Size of the WAL file, or 0 when there is none.
-        rewritten_bytes: dbstat total for the objects the rebuild rewrites,
-            or None when that total is not known yet.
+        rewritten_bytes: Optional byte count. Not a measured new-table size.
+            None selects the whole-file ceiling.
+        page_count: Pages that may become WAL frames. None adds no overhead.
 
     Returns:
-        ``peak_bytes``, ``with_same_disk_backup_bytes``, and ``ceiling``
-        (True when the whole file was used as the rewrite size).
+        Peak and same-disk backup sizes, the rewrite allowance, the WAL
+        overhead, and whether the whole file was used.
 
     Raises:
-        ValueError: A size is negative, or the rewrite is larger than the file.
+        ValueError: A size is negative, or the rewrite exceeds the file.
     """
     if db_bytes < 0 or wal_bytes < 0:
         raise ValueError("sizes must be >= 0")
@@ -527,11 +584,18 @@ def sqlite_rebuild_peak_bytes(
         if rewritten_bytes < 0 or rewritten_bytes > db_bytes:
             raise ValueError("rewritten_bytes must be inside the database file")
         rewritten = rewritten_bytes
-    peak = db_bytes + wal_bytes + rewritten
+    if page_count is None:
+        overhead = 0
+    else:
+        if page_count < 0:
+            raise ValueError("page_count must be >= 0")
+        overhead = int(page_count) * 24
+    peak = db_bytes + wal_bytes + rewritten + overhead
     return {
         "peak_bytes": peak,
         "with_same_disk_backup_bytes": peak + db_bytes + wal_bytes,
         "rewritten_bytes": rewritten,
+        "wal_frame_overhead_bytes": overhead,
         "ceiling": ceiling,
     }
 
