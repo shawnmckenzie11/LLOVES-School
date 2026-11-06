@@ -508,7 +508,6 @@ class FormativeIntegrationTests(unittest.TestCase):
         """
         sid = self.school.game._insert_student_row(
             self.class_id,
-            canvas_id=f"codename:{codename}",
             last_display="",
             first_name=codename,
             codename=codename,

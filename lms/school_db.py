@@ -41409,7 +41409,6 @@ class SchoolDB(LovesDB):
                 try:
                     stu_id = self.game._insert_student_row(
                         cid,
-                        canvas_id=f"test-student:{cid}",
                         last_display=self.TEST_STUDENT_CODENAME,
                         first_name=self.TEST_STUDENT_CODENAME,
                         codename=self.TEST_STUDENT_CODENAME,

@@ -657,16 +657,42 @@ def _key_id(school: Any) -> str:
     return hmac.new(_fp_key(school), _KID_MESSAGE, hashlib.sha256).hexdigest()[:16]
 
 
-def _student_fp(school: Any, class_id: int, student_id: int, canvas_id: Any) -> str:
-    """Keyed fingerprint of one roster row: class, id, and its never-changing key.
+def _roster_token(row: Any) -> str:
+    """Stable per-row token mixed into a celebration fingerprint.
 
-    ``students.id`` can be reused after a delete. ``canvas_id`` is set once
+    ``row_uid`` is set once at insert and is not a name. Renames keep it.
+    A file whose legacy column has not been dropped yet falls back to that
+    column so a later migration can still match the stored fingerprint.
+
+    Args:
+        row: A ``students`` mapping or sqlite row, or None.
+    """
+    if row is None:
+        return ""
+    keys = row.keys() if hasattr(row, "keys") else []
+    if "row_uid" in keys and row["row_uid"]:
+        return str(row["row_uid"])
+    if "canvas_id" in keys and row["canvas_id"]:
+        return str(row["canvas_id"])
+    return ""
+
+
+def _student_fp(school: Any, class_id: int, student_id: int, row_uid: Any) -> str:
+    """Keyed fingerprint of one roster row: class, id, and its never-changing uid.
+
+    ``students.id`` can be reused after a delete. ``row_uid`` is set once
     at insert and never updated (renames keep it), so a reused id on a
     different student gives a different fingerprint. HMAC-SHA256 under the
-    app secret, so the snapshot holds no Canvas id or Codename and a DB
-    copy without the secret cannot test name guesses against it.
+    app secret, so the snapshot holds no external id, uid, or Codename, and
+    a DB copy without the secret cannot test name guesses against it.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: ``classes.id``.
+        student_id: ``students.id``.
+        row_uid: ``students.row_uid`` for this row.
     """
-    raw = f"{int(class_id)}:{int(student_id)}:{canvas_id or ''}"
+    raw = f"{int(class_id)}:{int(student_id)}:{row_uid or ''}"
     return hmac.new(_fp_key(school), raw.encode("utf-8"), hashlib.sha256).hexdigest()[:20]
 
 
@@ -691,7 +717,7 @@ def _resolve_ref(school: Any, ref: Any) -> dict[str, Any] | None:
         return None
     want = str(ref.get("fp") or "")
     have = _student_fp(
-        school, int(ref["class_id"]), int(ref["student_id"]), row.get("canvas_id")
+        school, int(ref["class_id"]), int(ref["student_id"]), _roster_token(row)
     )
     return row if want and hmac.compare_digest(want, have) else None
 
@@ -814,7 +840,7 @@ def _engaged_snapshot_cards(
                 {
                     "class_id": class_id,
                     "student_id": student_id,
-                    "fp": _student_fp(school, class_id, student_id, row.get("canvas_id")),
+                    "fp": _student_fp(school, class_id, student_id, _roster_token(row)),
                 }
             )
         if not refs:
@@ -1754,7 +1780,7 @@ def set_featured_award(
         raise ValueError("That class is not yours to celebrate.")
     with school.game._lock:
         row = school.game.conn.execute(
-            "SELECT id, canvas_id FROM students WHERE id = ? AND class_id = ?",
+            "SELECT * FROM students WHERE id = ? AND class_id = ?",
             (int(student_id), int(class_id)),
         ).fetchone()
     if row is None:
@@ -1763,7 +1789,7 @@ def set_featured_award(
         "class_id": int(class_id),
         "student_id": int(student_id),
         "blurb": str(blurb or "").strip()[:240],
-        "fp": _student_fp(school, int(class_id), int(student_id), row[1]),
+        "fp": _student_fp(school, int(class_id), int(student_id), _roster_token(row)),
     }
     # MCK-116: ``featured_at`` marks one featured appearance for the avatar
     # reward. Re-saving the same student (a new blurb) keeps it, so it never
@@ -1841,7 +1867,7 @@ def _award_owner_row(school: Any, award: dict[str, Any]) -> dict[str, Any] | Non
 
     None when the student was deleted or moved, or (MCK-116 MED-2) the id
     now belongs to someone else: ``fp`` (``_student_fp``, the #212 frozen
-    board check) no longer matches the row's never-changing ``canvas_id``.
+    board check) no longer matches the row's never-changing ``row_uid``.
     """
     row = _roster_row(school, award.get("class_id"), award.get("student_id"))
     if row is None or int(row.get("class_id") or 0) != int(award["class_id"]):
@@ -1849,7 +1875,7 @@ def _award_owner_row(school: Any, award: dict[str, Any]) -> dict[str, Any] | Non
     want = str(award.get("fp") or "")
     if want:
         have = _student_fp(
-            school, int(award["class_id"]), int(award["student_id"]), row.get("canvas_id")
+            school, int(award["class_id"]), int(award["student_id"]), _roster_token(row)
         )
         if not hmac.compare_digest(want, have):
             return None
@@ -1922,7 +1948,7 @@ def reward_appearances(school: Any) -> list[dict[str, Any]]:
         owner = _award_owner_row(school, award)
         if owner is not None:
             award["fp"] = _student_fp(
-                school, award["class_id"], award["student_id"], owner.get("canvas_id")
+                school, award["class_id"], award["student_id"], _roster_token(owner)
             )
             _set_award_identity(school, award)
     out: list[dict[str, Any]] = []

@@ -1481,6 +1481,13 @@ def create_app(
         logger.exception("slide import sweep failed")
     # MCK-118 LOW-A: Most Engaged fingerprints are keyed to the app secret.
     bind_celebration_secret(school, app.secret_key)
+    # MCK-365: retry the student-uid migration with the bound secret. The
+    # first pass runs inside GameShowDB startup. This pass is a no-op once
+    # that succeeded, and it can finish a pass that blocked on the key.
+    try:
+        school.game.migrate_student_row_uids(secret=app.secret_key)
+    except Exception:
+        logger.exception("student uid migration failed")
     # MCK-176: rank option aliases for students are keyed to the app secret.
     school.rank_alias_secret = str(app.secret_key or "")
     try:

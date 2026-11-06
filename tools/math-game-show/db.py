@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 
 from csv_import import parse_canvas_grades_csv
+from student_uid_migration import migrate_students_off_canvas_id, new_row_uid
 from schedule import (
     TIME_OPTIONS,
     format_header_label,
@@ -53,10 +54,9 @@ CREATE TABLE IF NOT EXISTS classes (
 CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-    canvas_id TEXT NOT NULL,
     last_display TEXT NOT NULL,
     first_name TEXT NOT NULL,
-    UNIQUE(class_id, canvas_id)
+    row_uid TEXT NOT NULL UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -657,6 +657,30 @@ def normalize_codename(raw: str) -> str:
     return name
 
 
+_STUDENT_RESPONSE_HIDDEN = frozenset(
+    {
+        "row_uid",
+        "canvas_id",
+        "pin_hash",
+        "default_pin_ciphertext",
+    }
+)
+
+
+def hide_protected_student_fields(students: list[dict[str, Any]]) -> None:
+    """Remove internal uid and pin secrets from roster dicts before a response.
+
+    ``row_uid`` is a protected pseudonym. Pin hash and ciphertext are
+    credentials. In-process readers keep using ``get_student``.
+
+    Args:
+        students: Roster dicts that will be serialized to a client.
+    """
+    for row in students:
+        for key in _STUDENT_RESPONSE_HIDDEN:
+            row.pop(key, None)
+
+
 def roster_from_codenames(codenames: list[str]) -> list[dict[str, str]]:
     """Build student insert rows from teacher-typed Codenames.
 
@@ -664,7 +688,7 @@ def roster_from_codenames(codenames: list[str]) -> list[dict[str, str]]:
         codenames: One Codename per student (order preserved).
 
     Returns:
-        Rows with ``canvas_id``, ``first_name``, ``last_display``, ``codename``.
+        Rows with ``first_name``, ``last_display``, and ``codename``.
 
     Raises:
         ValueError: If the list is empty or a Codename is invalid/duplicated.
@@ -679,7 +703,6 @@ def roster_from_codenames(codenames: list[str]) -> list[dict[str, str]]:
         seen.add(key)
         roster.append(
             {
-                "canvas_id": f"codename:{key}",
                 "last_display": "",
                 "first_name": name,
                 "codename": name,
@@ -803,7 +826,8 @@ class GameShowDB:
         Existing local DBs keep their data; ``owns_session`` defaults to 0.
         Legacy ``session_scores.points`` become Round 1 totals.
         LLOVES adds ``offering_id`` / ``teacher_user_id`` on classes and
-        ``codename`` on students (Canvas CSV columns stay for the local app).
+        ``codename`` on students. The legacy external student column, when
+        still present, is replaced by ``row_uid`` at the end of this method.
         """
         game_cols = {
             row["name"]
@@ -836,6 +860,26 @@ class GameShowDB:
         self._migrate_student_portal()
         self._migrate_session_scores_late()
         self._migrate_team_name_poll()
+        self.migrate_student_row_uids()
+
+    def migrate_student_row_uids(self, *, secret: str | bytes | None = None) -> dict[str, Any]:
+        """Replace a legacy external student column with ``row_uid``, if needed.
+
+        Safe to call again after the app secret is bound. A second call keeps
+        the uids and fingerprints from the first successful run.
+
+        Args:
+            secret: Celebration secret. Empty uses the environment, then the
+                dev default, matching ``create_app``.
+
+        Returns:
+            Migration status counts. No student names or row values.
+        """
+        return migrate_students_off_canvas_id(
+            self.conn,
+            uploads_dir=self.uploads_dir,
+            secret=secret,
+        )
 
     def _migrate_rounds(self) -> None:
         """Add round/timer columns and copy legacy points into Round 1.
@@ -899,8 +943,9 @@ class GameShowDB:
     def _migrate_lloves_roster(self) -> None:
         """Add offering/teacher links and a Codename roster column.
 
-        The standalone Math Game Show still uses Canvas CSV fields. LLOVES
-        stores the teacher-chosen Codename and leaves last/first blank.
+        The standalone Math Game Show can still import a gradebook CSV.
+        LLOVES stores the teacher-chosen Codename and leaves last/first blank.
+        Neither path stores an external student identifier.
         """
         class_cols = {
             row["name"]
@@ -1220,20 +1265,23 @@ class GameShowDB:
         self,
         class_id: int,
         *,
-        canvas_id: str,
         last_display: str,
         first_name: str,
         codename: str | None = None,
         is_test_student: bool = False,
     ) -> int:
-        """Insert one students row, including ``codename`` when migrated.
+        """Insert one students row and a new random ``row_uid``.
+
+        The uid is not derived from the name. A database whose legacy
+        external column has not been dropped yet still requires that
+        column; it is filled with a separate random value, never an
+        external identifier.
 
         Args:
             class_id: Parent class.
-            canvas_id: Unique-per-class key (Canvas SIS id or ``codename:…``).
             last_display: Family name, or empty on the LLOVES path.
             first_name: Given name, or the Codename on the LLOVES path.
-            codename: LLOVES roster name, or None for Canvas CSV imports.
+            codename: LLOVES roster name, or None for gradebook CSV imports.
             is_test_student: When True, exclude from attendance and participation.
 
         Returns:
@@ -1241,39 +1289,26 @@ class GameShowDB:
         """
         cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
         student_id = self._allocate_student_id()
+        fields = ["id", "class_id", "last_display", "first_name"]
+        values: list[Any] = [student_id, class_id, last_display, first_name]
+        if "codename" in cols:
+            fields.append("codename")
+            values.append(codename)
         if "is_test_student" in cols:
-            self.conn.execute(
-                """
-                INSERT INTO students
-                    (id, class_id, canvas_id, last_display, first_name, codename, is_test_student)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    student_id,
-                    class_id,
-                    canvas_id,
-                    last_display,
-                    first_name,
-                    codename,
-                    1 if is_test_student else 0,
-                ),
-            )
-        else:
-            self.conn.execute(
-                """
-                INSERT INTO students
-                    (id, class_id, canvas_id, last_display, first_name, codename)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    student_id,
-                    class_id,
-                    canvas_id,
-                    last_display,
-                    first_name,
-                    codename,
-                ),
-            )
+            fields.append("is_test_student")
+            values.append(1 if is_test_student else 0)
+        if "row_uid" in cols:
+            fields.append("row_uid")
+            values.append(new_row_uid())
+        if "canvas_id" in cols:
+            fields.append("canvas_id")
+            values.append(new_row_uid())
+        marks = ", ".join("?" for _ in fields)
+        names = ", ".join(fields)
+        self.conn.execute(
+            f"INSERT INTO students ({names}) VALUES ({marks})",
+            values,
+        )
         return student_id
 
     def create_class(
@@ -1350,7 +1385,6 @@ class GameShowDB:
             for student in roster:
                 self._insert_student_row(
                     class_id,
-                    canvas_id=str(student["canvas_id"]),
                     last_display=str(student["last_display"]),
                     first_name=str(student["first_name"]),
                     codename=student.get("codename"),
@@ -1377,9 +1411,6 @@ class GameShowDB:
                     """,
                     (session_id, sid),
                 )
-            if csv_text:
-                upload_path = self.uploads_dir / f"class-{class_id}.csv"
-                upload_path.write_text(csv_text, encoding="utf-8")
             self._set_current_class(class_id)
             self.conn.commit()
         return self.get_class(class_id)
@@ -1510,7 +1541,7 @@ class GameShowDB:
         """Change the names shown for one roster student.
 
         Writes ``first_name``, ``last_display``, and ``codename`` only.
-        The stable ``canvas_id``, attendance marks, and points stay put.
+        The stable ``row_uid``, attendance marks, and points stay put.
         ``None`` keeps the stored field. A LLOVES row whose first name and
         Codename are the same single label stays in sync when only the
         display name is sent.
@@ -3055,6 +3086,7 @@ class GameShowDB:
             )
             sort_out = "last"
         self.attach_today_moods(class_id, students)
+        hide_protected_student_fields(students)
         columns = self._sheet_columns(sessions, subtotals)
         return {
             "class": cls,
@@ -3214,21 +3246,18 @@ class GameShowDB:
             name = normalize_codename(codename)
             first = name
             last = ""
-            canvas_id = f"codename:{name.lower()}"
             stored_codename = name
         else:
             first = first_name.strip()
             last = last_display.strip()
             if not first or not last:
                 raise ValueError("First name and last name are required")
-            canvas_id = f"manual-{class_id}-{int(time.time() * 1000)}"
             stored_codename = None
         self.get_class(class_id)
         try:
             with self._lock:
                 student_id = self._insert_student_row(
                     class_id,
-                    canvas_id=canvas_id,
                     last_display=last,
                     first_name=first,
                     codename=stored_codename,
@@ -6355,6 +6384,7 @@ class GameShowDB:
             ]
         totals = self.career_totals(class_id)
         self.attach_today_moods(class_id, students)
+        hide_protected_student_fields(students)
         team_of = {int(m["student_id"]): int(m["team_id"]) for m in memberships}
         present_ids = [int(s["id"]) for s in students if scores.get(int(s["id"]), {}).get("present")]
         default_present = self.previous_present_ids(class_id, int(session["id"]))

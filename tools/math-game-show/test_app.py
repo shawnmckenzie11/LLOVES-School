@@ -81,12 +81,11 @@ class CsvImportTests(unittest.TestCase):
         """Sanitized fixture has 17 students and parses Zxx Hafsa."""
         roster = parse_canvas_grades_csv(FIXTURE_CSV.read_text(encoding="utf-8"))
         self.assertEqual(len(roster), 17)
-        hafsa = next(s for s in roster if s["canvas_id"] == "90017")
+        hafsa = next(s for s in roster if s["first_name"] == "Hafsa")
         self.assertEqual(hafsa["last_display"], "Zxx")
-        self.assertEqual(hafsa["first_name"], "Hafsa")
-        joy = next(s for s in roster if s["canvas_id"] == "90012")
+        self.assertNotIn("canvas_id", hafsa)
+        joy = next(s for s in roster if s["first_name"] == "Joy")
         self.assertEqual(joy["last_display"], "Sxxxxxx")
-        self.assertEqual(joy["first_name"], "Joy")
 
     def test_real_export_if_present(self) -> None:
         """Downloads MCF3M export: 17 students, skip meta, parse Zxx Hafsa."""
@@ -97,7 +96,7 @@ class CsvImportTests(unittest.TestCase):
         hafsa = next(s for s in roster if "Hafsa" in s["first_name"] or s["student_raw"].endswith("Hafsa"))
         self.assertEqual(hafsa["last_display"], "Zxx")
         self.assertEqual(hafsa["first_name"], "Hafsa")
-        self.assertTrue(all(s["canvas_id"] for s in roster))
+        self.assertTrue(all("canvas_id" not in s for s in roster))
         labels = {s["student_raw"].strip().lower() for s in roster}
         self.assertFalse(any("points possible" in x for x in labels))
 
