@@ -282,6 +282,9 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
     before_ids = _id_list(conn)
     before_children = _child_row_counts(conn, child_fks)
     before_grants = _grant_count(conn)
+    blocked_ddl = _unsupported_students_ddl(conn)
+    if blocked_ddl:
+        raise _Blocked("unsupported_students_ddl:" + blocked_ddl)
     before_fk = _fk_violation_set(conn)
     _reject_student_fk_violations(before_fk, child_fks)
 
@@ -350,8 +353,7 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
     ).fetchone()[0]:
         raise _Blocked("row_uid_missing")
     after_fk = _fk_violation_set(conn)
-    if after_fk != before_fk:
-        raise _Blocked("foreign_key_check_failed")
+    _require_same_fk_violations(before_fk, after_fk)
     _reject_student_fk_violations(after_fk, child_fks)
     integrity = conn.execute("PRAGMA integrity_check").fetchall()
     if [row[0] for row in integrity] != ["ok"]:
@@ -370,6 +372,181 @@ def _rebuild(conn: sqlite3.Connection, fp_key: bytes, failpoint: str | None) -> 
     _insert_marker_ignore(conn, detail)
     return {"status": "applied", **detail}
 
+
+
+
+def _require_same_fk_violations(
+    before: tuple[tuple[str, int, str, int], ...],
+    after: tuple[tuple[str, int, str, int], ...],
+) -> None:
+    """Block unless the violation tuples are the same set.
+
+    Equal counts are not enough. A row that moved to a new rowid is a
+    new violation. Rows are not deleted to make the sets match.
+
+    Args:
+        before: Violations captured before the rebuild.
+        after: Violations captured after the rebuild.
+
+    Raises:
+        _Blocked: The sets differ.
+    """
+    if before != after:
+        raise _Blocked("foreign_key_check_failed")
+
+
+def _unsupported_students_ddl(conn: sqlite3.Connection) -> str | None:
+    """Return a reason when ``students`` has a constraint this rebuild drops.
+
+    ``PRAGMA table_info`` does not carry CHECK, collation, AUTOINCREMENT,
+    deferred foreign keys, or UNIQUE indexes whose SQL is missing. Those
+    are refused. A UNIQUE index that includes the legacy column is the
+    legacy key and is removed with that column. Partial indexes that have
+    SQL and do not name the legacy column are copied.
+
+    Args:
+        conn: Open connection, before the table is dropped.
+
+    Returns:
+        A short reason, or None when the table can be rebuilt.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'students'"
+    ).fetchone()
+    sql = "" if row is None or row[0] is None else str(row[0])
+    folded = re.sub(r"\s+", " ", sql).lower()
+    if "autoincrement" in folded:
+        return "autoincrement"
+    if "collate" in folded:
+        return "collation"
+    if re.search(r"\bcheck\s*\(", folded):
+        return "check"
+    if "deferrable" in folded:
+        return "deferred_foreign_key"
+    if "without rowid" in folded:
+        return "without_rowid"
+    for match in re.finditer(r"\bunique\s*\(([^)]*)\)", folded):
+        cols = [part.strip().strip('"') for part in match.group(1).split(",")]
+        if LEGACY_COLUMN not in cols:
+            return "table_unique"
+    for row in conn.execute("PRAGMA index_list(students)"):
+        if int(row[2]) != 1:
+            continue
+        name = str(row[1])
+        stored = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+            (name,),
+        ).fetchone()
+        index_sql = None if stored is None else stored[0]
+        cols = [str(info[2]) for info in conn.execute(f"PRAGMA index_info({_q(name)})")]
+        if index_sql:
+            continue
+        if LEGACY_COLUMN in cols or cols == [UID_COLUMN]:
+            continue
+        return "unique_without_sql"
+    return None
+
+
+def student_uid_invariants(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Schema facts that decide whether the drop finished.
+
+    Args:
+        conn: Open school database.
+
+    Returns:
+        Legacy-column presence, ``row_uid`` presence, and this migration's
+        ledger status. No row values.
+    """
+    cols = _column_names(conn, "students")
+    return {
+        "legacy_column_present": LEGACY_COLUMN in cols,
+        "row_uid_present": UID_COLUMN in cols,
+        "ledger_status": _ledger_status(conn),
+    }
+
+
+def student_uid_ready(result: dict[str, Any] | None, invariants: dict[str, Any]) -> bool:
+    """True only when the bound-secret pass applied or was a no-op.
+
+    A blocked or error result is not ready, even if the process booted.
+    The first pass inside database open is allowed to return blocked so
+    the secret retry can run. This function judges that retry.
+
+    Args:
+        result: Return value of :func:`migrate_students_off_canvas_id`,
+            or ``{"status": "error"}`` when it raised.
+        invariants: Output of :func:`student_uid_invariants`.
+
+    Returns:
+        Whether traffic and writes may proceed.
+    """
+    status = str((result or {}).get("status") or "")
+    return bool(
+        status in {"applied", "noop"}
+        and not invariants.get("legacy_column_present")
+        and invariants.get("row_uid_present")
+        and invariants.get("ledger_status") == "applied"
+    )
+
+
+def sqlite_rebuild_peak_bytes(
+    db_bytes: int,
+    wal_bytes: int,
+    rewritten_bytes: int | None = None,
+) -> dict[str, int | bool]:
+    """Peak bytes for the students rebuild, plus a same-disk backup.
+
+    Replacement pages are written into the WAL and then checkpointed into
+    the main file. Peak footprint on that filesystem is the current
+    database, the current WAL, and the pages the rebuild writes. When the
+    rewritten size is unknown, the ceiling uses the whole database file.
+    A backup placed on the same filesystem needs another copy of the
+    database and the WAL. Concurrent writers can grow the WAL further;
+    startup holds the schema lock so other workers wait, and traffic stays
+    closed until this pass is ready.
+
+    Args:
+        db_bytes: Size of the main database file.
+        wal_bytes: Size of the WAL file, or 0 when there is none.
+        rewritten_bytes: dbstat total for the objects the rebuild rewrites,
+            or None when that total is not known yet.
+
+    Returns:
+        ``peak_bytes``, ``with_same_disk_backup_bytes``, and ``ceiling``
+        (True when the whole file was used as the rewrite size).
+
+    Raises:
+        ValueError: A size is negative, or the rewrite is larger than the file.
+    """
+    if db_bytes < 0 or wal_bytes < 0:
+        raise ValueError("sizes must be >= 0")
+    ceiling = rewritten_bytes is None
+    if rewritten_bytes is None:
+        rewritten = db_bytes
+    else:
+        if rewritten_bytes < 0 or rewritten_bytes > db_bytes:
+            raise ValueError("rewritten_bytes must be inside the database file")
+        rewritten = rewritten_bytes
+    peak = db_bytes + wal_bytes + rewritten
+    return {
+        "peak_bytes": peak,
+        "with_same_disk_backup_bytes": peak + db_bytes + wal_bytes,
+        "rewritten_bytes": rewritten,
+        "ceiling": ceiling,
+    }
+
+
+def _ledger_status(conn: sqlite3.Connection) -> str | None:
+    """This migration's ledger status, or None when it has no row."""
+    if not _table_exists(conn, "lms_data_migrations"):
+        return None
+    row = conn.execute(
+        "SELECT status FROM lms_data_migrations WHERE migration_key = ?",
+        (MIGRATION_KEY,),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row[0])
 
 
 def _fk_violation_set(conn: sqlite3.Connection) -> tuple[tuple[str, int, str, int], ...]:

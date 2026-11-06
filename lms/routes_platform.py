@@ -73,14 +73,24 @@ def register_platform(app, school, shared):
 
     @bp.route("/health")
     def health():
-        """Fly / DNS liveness — no auth, no presence ping, no live session."""
-        return jsonify(
-            {
-                "ok": True,
-                "school": SCHOOL_SHORT,
-                "live_presence": school.live_presence_label(),
-            }
-        )
+        """Liveness. Not ok while the student-uid pass is blocked or failed.
+
+        A process that booted is not healthy by itself. ``/health`` is the
+        only route served in that state, and ``ok`` is false there.
+        """
+        from flask import current_app
+
+        report = current_app.config.get("STUDENT_UID_MIGRATION") or {}
+        ready = bool(current_app.config.get("STUDENT_UID_READY"))
+        body = {
+            "ok": ready,
+            "school": SCHOOL_SHORT,
+            "live_presence": school.live_presence_label(),
+            "student_uid_migration": report.get("status"),
+        }
+        if not ready:
+            return jsonify(body), 503
+        return jsonify(body)
 
     @bp.route("/it/offerings/<int:offering_id>/rotate", methods=["POST"])
     @it_required

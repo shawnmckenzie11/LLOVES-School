@@ -1484,10 +1484,32 @@ def create_app(
     # MCK-365: retry the student-uid migration with the bound secret. The
     # first pass runs inside GameShowDB startup. This pass is a no-op once
     # that succeeded, and it can finish a pass that blocked on the key.
+    # The open above already ran one pass, which may return blocked when the
+    # secret was not bound yet. This retry is the pass that must be applied
+    # or a no-op before any request is served. Its result is not ignored.
+    from student_uid_migration import student_uid_invariants, student_uid_ready
     try:
-        school.game.migrate_student_row_uids(secret=app.secret_key)
+        migration_result = school.game.migrate_student_row_uids(secret=app.secret_key)
     except Exception:
         logger.exception("student uid migration failed")
+        migration_result = {"status": "error"}
+    if not isinstance(migration_result, dict):
+        migration_result = {"status": "missing"}
+    invariants = student_uid_invariants(school.game.conn)
+    ready = student_uid_ready(migration_result, invariants)
+    app.config["STUDENT_UID_MIGRATION"] = {
+        "status": str(migration_result.get("status") or "missing"),
+        "reason": migration_result.get("reason"),
+        **invariants,
+        "ready": ready,
+    }
+    app.config["STUDENT_UID_READY"] = ready
+    if not ready:
+        logger.error(
+            "student uid migration is not ready status=%s reason=%s",
+            app.config["STUDENT_UID_MIGRATION"]["status"],
+            app.config["STUDENT_UID_MIGRATION"].get("reason"),
+        )
     # MCK-176: rank option aliases for students are keyed to the app secret.
     school.rank_alias_secret = str(app.secret_key or "")
     try:
@@ -1633,6 +1655,31 @@ def create_app(
                 "max-age=31536000; includeSubDomains",
             )
         return response
+
+
+    @app.before_request
+    def _hold_until_student_uid_ready():
+        """Refuse traffic until the bound-secret uid pass is applied or a no-op.
+
+        ``/health`` stays available so a probe can see the blocked status.
+        It does not report ok. The first database-open pass is not this
+        gate. Writes and page loads wait.
+
+        Returns:
+            503 JSON when the migration is not ready, else None.
+        """
+        if app.config.get("STUDENT_UID_READY"):
+            return None
+        if request.path == "/health":
+            return None
+        status = (app.config.get("STUDENT_UID_MIGRATION") or {}).get("status")
+        return jsonify(
+            {
+                "ok": False,
+                "error": "student uid migration is not ready",
+                "student_uid_migration": status,
+            }
+        ), 503
 
     @app.before_request
     def _hide_whats_new_source_file():
