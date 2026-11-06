@@ -1614,6 +1614,9 @@ def _budget_attach_slide_deck(school: Any, fx: dict[str, Any], pages: int = 22) 
         page_pngs=[png] * int(pages),
         default_published=False,
         title="Load deck",
+        # Class start freezes the lesson page list. This harness is the
+        # teacher's confirm so the budget can attach its synthetic deck.
+        confirm_page_loss=True,
     )
 
 
