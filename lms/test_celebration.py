@@ -950,7 +950,7 @@ class CelebrationTests(unittest.TestCase):
     def _unsalted_fp(self, class_id: int, student_id: int) -> str:
         """f526b9b's fingerprint: plain sha256, guessable from a DB copy."""
         row = self.school.game.get_student(int(class_id), int(student_id))
-        raw = f"{int(class_id)}:{int(student_id)}:{row.get('canvas_id') or ''}"
+        raw = f"{int(class_id)}:{int(student_id)}:{row.get('row_uid') or ''}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
     def _stored(self) -> dict:
@@ -980,7 +980,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(len(refs), 3)
         for ref in refs:
             row = self.school.game.get_student(ref["class_id"], ref["student_id"])
-            raw = f"{ref['class_id']}:{ref['student_id']}:{row.get('canvas_id') or ''}"
+            raw = f"{ref['class_id']}:{ref['student_id']}:{row.get('row_uid') or ''}"
             self.assertEqual(
                 ref["fp"], hmac.new(key, raw.encode("utf-8"), hashlib.sha256).hexdigest()[:20]
             )

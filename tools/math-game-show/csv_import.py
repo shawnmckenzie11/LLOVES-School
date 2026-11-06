@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-"""Parse a Canvas gradebook CSV into a Math Game Show roster.
+"""Parse a gradebook CSV into a Math Game Show roster.
 
-Keeps only ``Student`` and ``ID``. Skips header/meta rows and blank IDs.
+Only the ``Student`` column is read. ID, SIS, login, and every other column
+are ignored and are not stored. Rows are not matched or dropped by name or
+by position: two students with the same first name become two roster rows.
+Creating a class from the same file again creates a new class and new
+``row_uid`` values. It does not update an existing roster.
+
+A LLOVES Codename list is a different import (``parse_codename_column_csv``).
+An exact duplicate Codename there is rejected with an error because the
+roster display name is already unique per class. That is not a silent drop
+and it is not an external identifier.
 """
 
 from __future__ import annotations
@@ -74,19 +83,20 @@ def _is_meta_student(student: str) -> bool:
 
 
 def parse_canvas_grades_csv(text: str) -> list[dict[str, str]]:
-    """Parse a Canvas gradebook export into roster dicts.
+    """Parse a gradebook export into roster dicts.
 
-    Expected shape: header row, posting-method row, ``Points Possible`` row,
-    then student rows. Extra assignment/score columns are ignored.
+    Expected shape: header row, optional posting-method and ``Points Possible``
+    rows, then student rows. Only the Student column is read. ID and SIS
+    columns are not stored, and identical names are kept as separate rows.
 
     Args:
         text: Entire CSV file contents.
 
     Returns:
-        List of ``{canvas_id, last_display, first_name, student_raw}``.
+        List of ``{last_display, first_name, student_raw}``.
 
     Raises:
-        ValueError: If the file has no Student/ID columns or no students.
+        ValueError: If the file has no Student column or no students.
     """
     if text.startswith("\ufeff"):
         text = text.lstrip("\ufeff")
@@ -97,33 +107,26 @@ def parse_canvas_grades_csv(text: str) -> list[dict[str, str]]:
         raise ValueError("CSV is empty") from exc
 
     student_i = _header_index(header, "Student")
-    id_i = _header_index(header, "ID")
 
     rows: list[dict[str, str]] = []
-    seen_ids: set[str] = set()
     for raw in reader:
         if not raw:
             continue
         student = raw[student_i] if student_i < len(raw) else ""
-        canvas_id = (raw[id_i] if id_i < len(raw) else "").strip()
-        if _is_meta_student(student) or not canvas_id:
+        if _is_meta_student(student):
             continue
         last_display, first_name = parse_student_name(student)
         if not last_display and not first_name:
             continue
-        if canvas_id in seen_ids:
-            continue
-        seen_ids.add(canvas_id)
         rows.append(
             {
-                "canvas_id": canvas_id,
                 "last_display": last_display,
                 "first_name": first_name,
                 "student_raw": student.strip(),
             }
         )
     if not rows:
-        raise ValueError("No students found in CSV (check Student and ID columns)")
+        raise ValueError("No students found in CSV (check the Student column)")
     return rows
 
 
@@ -138,7 +141,6 @@ def roster_summary(students: list[dict[str, Any]]) -> dict[str, Any]:
     """
     preview = [
         {
-            "canvas_id": s["canvas_id"],
             "last_display": s["last_display"],
             "first_name": s["first_name"],
         }

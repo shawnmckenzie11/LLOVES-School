@@ -34,7 +34,6 @@ def _worker(game_cls, db_path: str, store: str, class_id: int, tag: int, out) ->
             with game._lock:
                 sid = game._insert_student_row(
                     class_id,
-                    canvas_id=f"codename:p{tag}n{n}",
                     last_display="",
                     first_name=f"P{tag}N{n}",
                     codename=f"P{tag}N{n}",
@@ -95,7 +94,7 @@ class AtomicAllocatorTests(_Base):
             try:
                 with game._lock:
                     ids.append(game._insert_student_row(
-                        self.class_id, canvas_id=f"codename:t{n}", last_display="",
+                        self.class_id, last_display="",
                         first_name=f"T{n}", codename=f"T{n}"))
                     game.conn.commit()
             except Exception as exc:  # noqa: BLE001
@@ -138,7 +137,7 @@ class OneTestStudentTests(_Base):
         self.school.ensure_class_test_student(self.class_id)
         with self.assertRaises(sqlite3.IntegrityError):
             self.school.game._insert_student_row(
-                self.class_id, canvas_id="test-student:dup", last_display="",
+                self.class_id, last_display="",
                 first_name="Test Student", codename="Test Student 2", is_test_student=True)
         self.school.game.conn.rollback() if self.school.game.conn.in_transaction else None
         self.assertEqual(self._count(), 1)
