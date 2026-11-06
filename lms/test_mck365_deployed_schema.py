@@ -846,6 +846,8 @@ class MalformedNoopTests(unittest.TestCase):
         self.assertTrue(student_uid_ready(result, student_uid_invariants(conn)))
         with self.assertRaises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO students (id, row_uid) VALUES (2, ?)", (valid,))
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO students (id, row_uid) VALUES (3, NULL)")
 
     def test_partial_unique_index_does_not_cover_every_row(self) -> None:
         """``WHERE 0`` is unique in name only. The no-op must not accept it."""
@@ -881,3 +883,51 @@ class MalformedNoopTests(unittest.TestCase):
             ).fetchone()[0]),
             2,
         )
+
+    def test_text_primary_key_without_not_null_is_not_ready(self) -> None:
+        """A rowid TEXT PRIMARY KEY still stores NULL. Do not mark it ready."""
+        valid = "e" * 32
+        other = "f" * 32
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        conn = _open(Path(tmp.name) / "school.sqlite")
+        self.addCleanup(conn.close)
+        conn.execute("CREATE TABLE students (id INTEGER, row_uid TEXT PRIMARY KEY)")
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (valid,))
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (2, ?)", (other,))
+        before = list(conn.execute("SELECT id, row_uid FROM students ORDER BY id"))
+        result = migrate_students_off_canvas_id(conn, secret=SECRET)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "row_uid_nullable")
+        self.assertEqual(
+            list(conn.execute("SELECT id, row_uid FROM students ORDER BY id")),
+            before,
+        )
+        self.assertFalse(student_uid_ready(result, student_uid_invariants(conn)))
+        self.assertIsNone(conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'lms_data_migrations'"
+        ).fetchone())
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (3, NULL)")
+        self.assertIsNone(conn.execute(
+            "SELECT row_uid FROM students WHERE id = 3"
+        ).fetchone()[0])
+
+    def test_not_null_primary_key_rejects_null_and_duplicate(self) -> None:
+        """``TEXT PRIMARY KEY NOT NULL`` stays ready and rejects null or a copy."""
+        valid = "a" * 32
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        conn = _open(Path(tmp.name) / "school.sqlite")
+        self.addCleanup(conn.close)
+        conn.execute(
+            "CREATE TABLE students (id INTEGER, row_uid TEXT PRIMARY KEY NOT NULL)"
+        )
+        conn.execute("INSERT INTO students (id, row_uid) VALUES (1, ?)", (valid,))
+        result = migrate_students_off_canvas_id(conn, secret=SECRET)
+        self.assertEqual(result["status"], "noop")
+        self.assertTrue(student_uid_ready(result, student_uid_invariants(conn)))
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO students (id, row_uid) VALUES (2, NULL)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO students (id, row_uid) VALUES (3, ?)", (valid,))
+

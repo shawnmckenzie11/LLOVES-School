@@ -474,7 +474,9 @@ def _row_uid_defect(conn: sqlite3.Connection) -> str | None:
 
     Returns:
         A reason code, or None when every row is a unique non-blank uid
-        and the column is ``NOT NULL`` with its own unique index.
+        and the column is declared ``NOT NULL`` with its own non-partial
+        unique index. Primary-key position is not that declaration: a
+        rowid table's ``TEXT PRIMARY KEY`` still accepts NULL.
     """
     if not _table_exists(conn, "students"):
         return "row_uid_missing"
@@ -496,7 +498,9 @@ def _row_uid_defect(conn: sqlite3.Connection) -> str | None:
         return "row_uid_malformed"
     if duplicate:
         return "row_uid_duplicate"
-    if int(uid_col[3]) != 1 and int(uid_col[5]) != 1:
+    # ``PRAGMA table_info`` pk is not NOT NULL. SQLite accepts NULL in a
+    # rowid table's TEXT PRIMARY KEY unless the column is declared NOT NULL.
+    if int(uid_col[3]) != 1:
         return "row_uid_nullable"
     if not _row_uid_unique(conn):
         return "row_uid_not_unique"
