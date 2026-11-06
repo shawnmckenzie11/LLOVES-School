@@ -1190,6 +1190,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             page_pngs=[png],
             source_bytes=b"PK\x03\x04target-slide-source",
             source_suffix=".pptx",
+            confirm_page_loss=True,
         )
         self.school.save_course_slide_deck(
             other_class,
@@ -1200,6 +1201,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             page_pngs=[png],
             source_bytes=b"PK\x03\x04other-slide-source",
             source_suffix=".pptx",
+            confirm_page_loss=True,
         )
         target_rows = self.school.conn.execute(
             """

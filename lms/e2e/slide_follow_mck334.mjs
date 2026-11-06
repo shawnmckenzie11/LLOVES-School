@@ -21,9 +21,17 @@ async function readText(locator) {
 async function waitText(locator, wanted, timeout) {
   const end = Date.now() + timeout;
   let last = "";
+  const want = String(wanted || "");
   while (Date.now() < end) {
     last = await readText(locator);
-    if (last === wanted || last.includes(wanted)) return last;
+    const upper = last.toUpperCase();
+    const needle = want.toUpperCase();
+    // "INACTIVE" contains "ACTIVE". A status must match the whole word.
+    if (needle.includes(" / ")) {
+      if (upper === needle || upper.includes(needle)) return last;
+    } else if (upper === needle) {
+      return last;
+    }
     await sleep(80);
   }
   throw new Error(`wanted ${wanted}, saw ${last}`);

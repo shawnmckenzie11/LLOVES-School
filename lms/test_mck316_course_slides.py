@@ -1464,6 +1464,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                     "module": "M1",
                     "slot": "C1",
                     "default_published": False,
+                    "confirm_page_loss": True,
                 },
             )
             added = follow_slide_import(self.staff, added)
@@ -1516,6 +1517,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                     "module": "M1",
                     "slot": "C1",
                     "default_published": "1",
+                    "confirm_page_loss": "1",
                     "file": (io.BytesIO(payload), "Quadratics.pptx"),
                 },
             )
@@ -1621,6 +1623,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                 "module": "M1",
                 "slot": "C1",
                 "default_published": "1",
+                "confirm_page_loss": "1",
                 "file": (io.BytesIO(_minimal_pptx()), "Hello.pptx"),
             },
         )

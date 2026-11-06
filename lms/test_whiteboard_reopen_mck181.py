@@ -144,6 +144,13 @@ class WhiteboardReopenFollowupTests(unittest.TestCase):
             json={"publish_mode": "individual"},
         )
         self.assertEqual(published.status_code, 200, published.get_json())
+        # Individual publish opens the student canvas. This gate still
+        # needs the frozen teacher align that used to fold the solo board.
+        frozen = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"canvas_align": "teacher"},
+        )
+        self.assertEqual(frozen.status_code, 200, frozen.get_json())
         return tokens
 
     def test_labels_survive_reload_past_200_saves(self) -> None:

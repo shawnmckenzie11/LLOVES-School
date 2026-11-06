@@ -323,7 +323,7 @@ class SessionTimerEveryPageTests(unittest.TestCase):
     def test_poll_stamp_changes_on_start_and_stays_put_while_running(self) -> None:
         """One stamp change per teacher write, not one per countdown second."""
         idle = self.school.live_student_poll_stamp(self.session_id, self.class_id)
-        self.assertTrue(idle.endswith(":idle"))
+        self.assertIn(":idle:", idle)
         self._start(5)
         running = self.school.live_student_poll_stamp(self.session_id, self.class_id)
         self.assertNotEqual(running, idle)

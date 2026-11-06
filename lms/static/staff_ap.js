@@ -2585,10 +2585,20 @@ function paintStageRail() {
     if (counter) counter.textContent = "";
     paintLivePageLabel(name, "Set Class");
   } else {
-    if (counter) {
-      counter.textContent = index >= 0 ? `${index + 1} / ${pages.length}` : "";
+    const deck = googleSlidesDeck();
+    if (deck) {
+      const slideIndex = Math.max(
+        0,
+        Math.min(deck.pages.length - 1, Number(deck.current_index) || 0)
+      );
+      if (counter) counter.textContent = `${slideIndex + 1} / ${deck.pages.length}`;
+      paintLivePageLabel(name, String(deck.title || "Slides"));
+    } else {
+      if (counter) {
+        counter.textContent = index >= 0 ? `${index + 1} / ${pages.length}` : "";
+      }
+      paintLivePageLabel(name, index >= 0 ? pages[index].name : "");
     }
-    paintLivePageLabel(name, index >= 0 ? pages[index].name : "");
   }
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");

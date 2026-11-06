@@ -329,6 +329,14 @@
       "api_timer_start"
     ],
     [
+      "/api/classes/<int:class_id>/game/timer/stop",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_timer_stop"
+    ],
+    [
       "/api/classes/<int:class_id>/game/ungamified",
       [
         "OPTIONS",

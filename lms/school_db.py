@@ -10728,6 +10728,11 @@ class LovesDB:
         )
         names: list[str] = []
         source_rel = ""
+        if str(job_id or "").strip():
+            # A closed import must say so before the page-count prompt.
+            # The same check runs again inside the deck transaction.
+            with self._lock:
+                self._require_running_slide_import(str(job_id))
         try:
             if paths:
                 for index, path in enumerate(paths):
@@ -38841,7 +38846,8 @@ class SchoolDB(LovesDB):
         """Point the attached deck at the same page. Does not bump ``state_seq``.
 
         Page 1 is slide index 0. A missing or shorter deck is left alone.
-        Publish flags stay as the teacher set them.
+        Leaving a published page publishes the destination, so the student
+        pane follows Forward and Back. Other pages keep their flags.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -38867,7 +38873,7 @@ class SchoolDB(LovesDB):
         if current == index:
             return
         try:
-            self.set_google_slides_current(int(session_id), index, follow=False)
+            self.set_google_slides_current(int(session_id), index, follow=True)
         except (KeyError, ValueError):
             return
 
@@ -38967,9 +38973,13 @@ class SchoolDB(LovesDB):
             leaving = True
             entering = False
         if entering:
-            # Mount the Meet chain only. Do not start or replace the
-            # SessionTimer: that used to require two teams and reset any
-            # countdown already running on another page.
+            # Mount the Meet chain and the Meet prompt. Do not start or
+            # replace the SessionTimer: that used to require two teams
+            # and reset any countdown already running on another page.
+            try:
+                self.game.mark_meet_teams_phase(int(session_row["class_id"]))
+            except (KeyError, ValueError):
+                pass
             self._mount_meet_chain(
                 session_id,
                 payload,
@@ -49866,7 +49876,8 @@ class SchoolDB(LovesDB):
         (MCK-108). End Live Class flips both, so a tab that still sends its
         pre-End seq and stamp can never get the unchanged short-circuit
         and miss the celebration, even if ``state_seq`` was not bumped.
-        The Google Slides revision sits immediately before the MVP ballot
+        The SessionTimer token sits immediately before the Google Slides
+        revision. That revision sits immediately before the MVP ballot
         count. That count stays just before the presence token, and the
         last field stays that token while a Take turns item is open.
 
@@ -50044,9 +50055,9 @@ class SchoolDB(LovesDB):
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:"
+            f"{self._session_timer_stamp_token(int(class_id))}:"
             f"{self._google_slides_stamp_token(int(session_id))}:"
-            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}:"
-            f"{self._session_timer_stamp_token(int(class_id))}"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
         )
 
     def _session_timer_stamp_token(self, class_id: int) -> str:

@@ -169,6 +169,7 @@ class SlideFollowBrowserTests(unittest.TestCase):
             live_slot="C1",
             stage="round",
             page_id="round_1",
+            page_number=1,
             active_tab="slides",
             layout_preset="slides_full",
         )

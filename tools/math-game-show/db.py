@@ -5292,6 +5292,32 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
+    def mark_meet_teams_phase(self, class_id: int) -> None:
+        """Show the Meet the Teams prompt without writing the countdown.
+
+        ``start_meet_teams`` also replaces the SessionTimer. Entering
+        Meet only needs ``overlay_phase``, and only once two teams exist.
+        A held or running clock stays. Fewer than two teams leaves the phase.
+
+        Args:
+            class_id: Classes primary key.
+
+        Raises:
+            KeyError: This class has no game row.
+        """
+        with self._lock:
+            game = self._game_row(class_id)
+            n_teams = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM game_teams WHERE game_id = ?",
+                (int(game["id"]),),
+            ).fetchone()
+            if int(n_teams["n"]) < 2:
+                return
+            self.conn.execute(
+                "UPDATE games SET overlay_phase = 'meet_teams' WHERE id = ?",
+                (int(game["id"]),),
+            )
+            self.conn.commit()
 
     def _timer_held(self, game) -> bool:
         """True when the teacher owns the one shared countdown.
