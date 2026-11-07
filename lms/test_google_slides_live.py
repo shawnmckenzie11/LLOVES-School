@@ -236,7 +236,11 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         return raw
 
     def _attach(self) -> dict:
-        """POST a share link whose public PDF is the two-page fixture."""
+        """POST a share link whose public PDF is the two-page fixture.
+
+        Class start freezes the lesson page list. This helper is the
+        teacher's confirm when that list and the slide count differ.
+        """
         with mock.patch(
             "google_slides_import.fetch_public_pdf", return_value=self.pdf
         ):
@@ -246,7 +250,8 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     "url": (
                         "https://docs.google.com/presentation/d/"
                         f"{_FILE_ID}/edit?usp=sharing"
-                    )
+                    ),
+                    "confirm_page_loss": True,
                 },
             )
             response = follow_slide_import(self.staff, response)
@@ -620,6 +625,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     ),
                     "module": "M1",
                     "slot": "C2",
+                    "confirm_page_loss": True,
                 },
             )
             response = follow_slide_import(self.staff, response)
@@ -1101,7 +1107,13 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         shown.close()
 
     def test_reimport_deletes_replaced_page_files(self) -> None:
-        """A new deck drops the previous page files and keeps the new ones."""
+        """A shorter re-pull waits for confirm, then drops the old page files.
+
+        MCK-325: a different slide count does not delete or replace anything
+        until the teacher confirms. The warning names questions on pages the
+        new deck does not include. After confirm, the old image files go and
+        question page numbers stay put.
+        """
         first = self._attach()["google_slides"]
         old_names = [page["image_url"].rsplit("/", 1)[-1] for page in first["pages"]]
         for name in old_names:
@@ -1117,15 +1129,30 @@ class GoogleSlidesLiveTests(unittest.TestCase):
             other = drawing.tobytes()
         finally:
             drawing.close()
+        payload = {
+            "url": (
+                "https://docs.google.com/presentation/d/"
+                f"{_FILE_ID}/edit?usp=sharing"
+            )
+        }
+        with mock.patch("google_slides_import.fetch_public_pdf", return_value=other):
+            held = self.staff.post(
+                f"/api/classes/{self.class_id}/slide-deck",
+                json=payload,
+            )
+            held = follow_slide_import(self.staff, held)
+        self.assertEqual(held.status_code, 409, held.get_data(as_text=True))
+        warning = held.get_json() or {}
+        self.assertTrue(warning.get("needs_page_count_confirm"))
+        self.assertIn("could be lost", str(warning.get("error") or ""))
+        for name in old_names:
+            self.assertIsNotNone(
+                self.school.live_question_image_path(self.class_id, name)
+            )
         with mock.patch("google_slides_import.fetch_public_pdf", return_value=other):
             response = self.staff.post(
                 f"/api/classes/{self.class_id}/slide-deck",
-                json={
-                    "url": (
-                        "https://docs.google.com/presentation/d/"
-                        f"{_FILE_ID}/edit?usp=sharing"
-                    )
-                },
+                json={**payload, "confirm_page_loss": True},
             )
             response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))

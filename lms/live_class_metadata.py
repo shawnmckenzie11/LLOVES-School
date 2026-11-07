@@ -765,6 +765,47 @@ def questions_for_stage(metadata: Any, stage: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def questions_for_page(metadata: Any, page_number: Any) -> list[dict[str, Any]]:
+    """Return questions bound to one 1-based page number.
+
+    Page number is the identity. The legacy ``stage`` string is not a
+    filter, so a question that was authored on the old Round page is
+    ordinary content on that page number.
+
+    Args:
+        metadata: Normalized live-class metadata.
+        page_number: 1-based page, matching slide ``index + 1``.
+
+    Returns:
+        Question rows whose stored ``page_number`` equals ``page_number``.
+        Rows with no page number are omitted.
+    """
+
+    if not isinstance(metadata, dict):
+        return []
+    try:
+        wanted = int(page_number)
+    except (TypeError, ValueError):
+        return []
+    if wanted < 1:
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in metadata.get("questions") or []:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("page_number")
+        if raw in (None, ""):
+            continue
+        try:
+            number = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if number == wanted:
+            rows.append(deepcopy(row))
+    rows.sort(key=_placement_sort_key)
+    return rows
+
+
 
 def _clip_scan_text(raw: Any, limit: int = 140) -> str:
     """Return one line of scan text, clipped so the inventory stays readable.

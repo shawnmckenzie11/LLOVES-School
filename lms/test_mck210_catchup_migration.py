@@ -263,9 +263,9 @@ class ProdMigrationFixture(unittest.TestCase):
         g = self.school.game.conn
         for cid in (8, 9, 10):
             g.execute(
-                "INSERT INTO students (class_id, canvas_id, last_display, first_name, codename) "
+                "INSERT INTO students (class_id, row_uid, last_display, first_name, codename) "
                 "VALUES (?, ?, 'S1', 'Stu', 'Stu')",
-                (cid, f"canvas-{cid}"),
+                (cid, f"row-{cid}"),
             )
         g.commit()
         self.students = [

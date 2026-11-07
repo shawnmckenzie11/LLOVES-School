@@ -249,6 +249,7 @@ class QuitRetryTests(EndAlwaysSavesTests):
             page_pngs=[png],
             default_published=True,
             title="Live deck",
+            confirm_page_loss=True,
         )
         self.school.mint_open_catchup_link(self.class_id, run_key, "M1", "C2")
         self.assertEqual(

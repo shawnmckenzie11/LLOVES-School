@@ -1333,7 +1333,10 @@ const canvas = makeEl('canvas');
 Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
 const body = makeEl('body');
 body.dataset = { codename: '' };
-const byId = { 'student-canvas': canvas, body };
+const features = makeEl('script');
+features.textContent = '{"whiteboard":true,"team_draw":true,"group_draw":true}';
+Object.setPrototypeOf(features, HTMLElement.prototype);
+const byId = { 'student-canvas': canvas, body, 'lloves-features': features };
 globalThis.document = {
   body,
   title: '',
@@ -1576,7 +1579,10 @@ const canvas = makeEl('canvas');
 Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
 const body = makeEl('body');
 body.dataset = { codename: '' };
-const byId = { 'student-canvas': canvas, body };
+const features = makeEl('script');
+features.textContent = '{"whiteboard":true,"team_draw":true,"group_draw":true}';
+Object.setPrototypeOf(features, HTMLElement.prototype);
+const byId = { 'student-canvas': canvas, body, 'lloves-features': features };
 globalThis.document = {
   body,
   title: '',
@@ -2178,7 +2184,10 @@ const pane = makeEl();
 Object.setPrototypeOf(pane, HTMLElement.prototype);
 const body = makeEl();
 body.dataset = { codename: '' };
-const byId = { 'student-canvas': canvas, 'canvas-pane': pane, body };
+const features = makeEl();
+features.textContent = '{"whiteboard":true,"team_draw":true,"group_draw":true}';
+Object.setPrototypeOf(features, HTMLElement.prototype);
+const byId = { 'student-canvas': canvas, 'canvas-pane': pane, body, 'lloves-features': features };
 globalThis.document = {
   body,
   title: '',

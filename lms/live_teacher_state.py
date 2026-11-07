@@ -240,11 +240,31 @@ def default_teacher_state() -> dict[str, Any]:
         "live_slot": DEFAULT_LIVE_SLOT,
         "live_module": DEFAULT_LIVE_MODULE,
         "page_id": "",
+        "page_number": 1,
+        "fixed_page_count": None,
         "text_ride": default_text_ride(),
         "question_views": default_question_views(),
         "whiteboard_projected_student_id": None,
         "whiteboard_projected_board": None,
     }
+
+
+def _clean_page_number(raw: Any) -> int | None:
+    """Return a positive page number, or None when the value is empty.
+
+    Args:
+        raw: Stored or posted page number.
+    """
+
+    if raw in (None, ""):
+        return None
+    try:
+        number = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if number < 1:
+        return None
+    return number
 
 
 def _clean_ref(raw: Any) -> str | None:
@@ -391,19 +411,16 @@ def normalize_canvas_align(raw: Any) -> str:
 def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
     """Project student frames from student-view modes.
 
-    ``none`` collapses the student frame (no empty locked pane). ROUND
-    never mounts media/canvas. Mutates ``state`` and keeps legacy
-    ``unlocks`` / ``canvas_align`` in sync.
+    ``none`` collapses the student frame (no empty locked pane). Every
+    page can mount media, the whiteboard, and slides. The old Round
+    lock is not applied. Mutates ``state`` and keeps legacy ``unlocks``
+    / ``canvas_align`` in sync.
 
     Args:
         state: In-progress public teacher state.
     """
     stage = str(state.get("stage") or "join")
     view = _clean_student_view(state.get("student_view"), stage=stage)
-    if stage == "round":
-        view["media"] = "none"
-        view["canvas"] = "none"
-        view["slides"] = "none"
     state["student_view"] = view
     state["unlocks"] = unlocks_from_student_view(view)
     state["canvas_align"] = canvas_align_from_view(view["canvas"])
@@ -733,8 +750,6 @@ def student_should_mount_media(state: dict[str, Any] | None) -> bool:
         Whether the student media iframe should have a ``src``.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    if str(public.get("stage") or "") == "round":
-        return False
     view = public.get("student_view") or default_student_view(public.get("stage"))
     return str(view.get("media") or "none") != "none"
 
@@ -803,8 +818,6 @@ def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
         Whether the student canvas pane is visible.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    if str(public.get("stage") or "") == "round":
-        return False
     view = public.get("student_view") or default_student_view(public.get("stage"))
     return str(view.get("canvas") or "none") != "none"
 
@@ -946,6 +959,15 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["live_module"] = normalize_live_module(stored.get("live_module"))
     if "page_id" in stored:
         base["page_id"] = str(stored.get("page_id") or "").strip()
+    if "page_number" in stored:
+        base["page_number"] = _clean_page_number(stored.get("page_number"))
+    else:
+        # Old sessions keep stage as a read-only id until a page number is stored.
+        base["page_number"] = None
+    if "fixed_page_count" in stored:
+        base["fixed_page_count"] = _clean_page_number(stored.get("fixed_page_count"))
+    else:
+        base["fixed_page_count"] = None
     if "text_ride" in stored:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
@@ -1008,6 +1030,7 @@ def apply_teacher_state_update(
     live_slot: Any = None,
     live_module: Any = None,
     page_id: Any = None,
+    page_number: Any = None,
     text_ride: Any = None,
     question_views: Any = None,
     whiteboard_projected_student_id: Any = None,
@@ -1058,7 +1081,10 @@ def apply_teacher_state_update(
             Empty clears the blob.
         live_slot: ``C1`` / ``C2`` / ``C3`` / ``C4``.
         live_module: ``M1`` / ``M2`` / … Catalogue module (interim).
-        page_id: Named deck page id such as ``join`` or ``welcome``.
+        page_id: Legacy deck page id. Read for old sessions. Not a page type.
+        page_number: 1-based page. This is the page identity and matches
+            slide ``index + 1``. Changing it does not reset the student
+            projection or walk stages.
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
         question_views: Per-question ``none`` / ``student`` visibility map.
@@ -1270,8 +1296,13 @@ def apply_teacher_state_update(
         base["live_module"] = normalize_live_module(live_module)
     if page_id is not None:
         base["page_id"] = str(page_id or "").strip()
-    elif stage_changed:
+    elif stage_changed and page_number is None:
         base["page_id"] = ""
+    if page_number is not None:
+        number = _clean_page_number(page_number)
+        if number is None:
+            raise ValueError("page_number must be a positive integer")
+        base["page_number"] = number
     if text_ride is not None:
         if text_ride in (None, "", {}, False):
             base["text_ride"] = default_text_ride()

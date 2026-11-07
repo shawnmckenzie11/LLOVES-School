@@ -204,7 +204,7 @@ class RosterNameEditTests(unittest.TestCase):
         ]
         self.assertTrue(before_scores)
         teacher_before = dict(self.school.get_user_by_email("teacher@gmail.com"))
-        canvas_before = self.maple["canvas_id"]
+        uid_before = self.maple["row_uid"]
         rv = self._rename(
             self.client,
             self.class_id,
@@ -219,7 +219,7 @@ class RosterNameEditTests(unittest.TestCase):
         self.assertEqual(body["last_name"], "")
         updated = self.school.game.get_student(self.class_id, self.maple_id)
         self.assertEqual(updated["codename"], "River")
-        self.assertEqual(updated["canvas_id"], canvas_before)
+        self.assertEqual(updated["row_uid"], uid_before)
         after_scores = [
             tuple(row)
             for row in self.school.game.conn.execute(

@@ -553,6 +553,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             live_module="M1",
             live_slot="C2",
             stage="round",
+            page_number=1,
         )
 
     def tearDown(self) -> None:
@@ -2844,7 +2845,11 @@ class ModuleBankImportApiTests(unittest.TestCase):
             ),
         )
         self.school.set_live_session_teacher_state(
-            self.session_id, live_module="M1", live_slot="C2", stage="round"
+            self.session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="round",
+            page_number=1,
         )
         self.school.import_mc_to_class_playlist(
             self.class_id,

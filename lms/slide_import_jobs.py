@@ -100,9 +100,16 @@ class SlideImportFailed(Exception):
         needs_slides_read: True when the deck needs the read-only consent.
     """
 
-    def __init__(self, message: str, *, needs_slides_read: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        needs_slides_read: bool = False,
+        detail: dict | None = None,
+    ) -> None:
         super().__init__(message)
         self.needs_slides_read = bool(needs_slides_read)
+        self.detail = detail if isinstance(detail, dict) else None
 
 
 def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> None:
@@ -146,7 +153,8 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
                 job_id,
                 str(exc),
                 needs_slides_read=exc.needs_slides_read,
-                http_status=403 if exc.needs_slides_read else 400,
+                http_status=409 if exc.detail else (403 if exc.needs_slides_read else 400),
+                detail=exc.detail,
             )
         except ValueError as exc:
             school.fail_slide_import_job(

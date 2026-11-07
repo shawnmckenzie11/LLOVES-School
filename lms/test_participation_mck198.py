@@ -672,7 +672,12 @@ class CatchupTests(Base):
         self.assertIn('src="/static/catchup.js"', html)
         self.assertFalse(any(q["answered"] for q in data["questions"]))
         self.assertNotIn("Ben", html)
-        self.assertNotIn("team", html.lower())
+        # Group items stay off the card. The feature script names team_draw.
+        rendered = json.dumps(data["questions"])
+        self.assertNotIn("item:M1-q4", rendered)
+        self.assertNotIn("item:M1-q5", rendered)
+        self.assertNotIn("c1 Q4", html)
+        self.assertNotIn("c1 Q5", html)
         client.post(
             f"/catchup/{self.token}",
             data={"question_key": "item:M1-q1", "answer": "Option A text"},

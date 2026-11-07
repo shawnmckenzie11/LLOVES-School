@@ -51,6 +51,7 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { teamDrawStatusBoardHtml } from "/static/team_draw.js";
+import { featureOn } from "/static/teacher_features.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -2463,22 +2464,54 @@ function adoptTeacherState(next) {
  * Named pages for the current live-lesson file, or the math default.
  * @returns {{id: string, name: string, stage: string, page_number?: number}[]}
  */
-function liveLessonPages() {
+/**
+ * Seed and overlay pages, numbered from the stored page or their order.
+ * Stage is kept so an old deck can still be read. It is not the identity.
+ * @returns {{id: string, name: string, stage: string, page_number: number}[]}
+ */
+function legacyLessonPages() {
   const rows = lastLiveMetadata?.pages;
   if (Array.isArray(rows) && rows.length) {
     return rows
-      .filter((row) => row && row.stage)
-      .map((row) => {
+      .filter((row) => row && (row.stage || row.page_number))
+      .map((row, index) => {
         const stored = Number(row.page_number);
         return {
-          id: String(row.id || row.stage),
-          name: String(row.name || row.stage),
-          stage: String(row.stage),
-          page_number: stored > 0 ? stored : undefined,
+          id: String(row.id || row.stage || `page-${index + 1}`),
+          name: String(row.name || row.stage || `Page ${index + 1}`),
+          stage: String(row.stage || ""),
+          page_number: stored > 0 ? stored : index + 1,
         };
       });
   }
-  return DEFAULT_LIVE_PAGES;
+  return DEFAULT_LIVE_PAGES.map((row, index) => ({
+    ...row,
+    page_number: index + 1,
+  }));
+}
+
+/**
+ * Pages for the rail. A frozen slide count, or an attached deck, is 1:1
+ * with the slides. Legacy names are read when that page number still has one.
+ * @returns {{id: string, name: string, stage: string, page_number: number}[]}
+ */
+function liveLessonPages() {
+  const legacy = legacyLessonPages();
+  const fixed = Number(teacherState.fixed_page_count || 0);
+  const deck = googleSlidesDeck();
+  const count = fixed || (deck ? deck.pages.length : 0);
+  if (!count) return legacy;
+  const pages = [];
+  for (let number = 1; number <= count; number += 1) {
+    const prior = legacy.find((row) => Number(row.page_number) === number);
+    pages.push({
+      id: prior?.id || `page-${number}`,
+      name: prior?.name || `Page ${number}`,
+      stage: prior?.stage || "",
+      page_number: number,
+    });
+  }
+  return pages;
 }
 
 /**
@@ -2507,13 +2540,22 @@ function isBlankOverlayLivePage() {
 
 function currentLivePageIndex() {
   const pages = liveLessonPages();
-  const pageId = String(teacherState.page_id || "").trim();
-  if (pageId) {
-    const byId = pages.findIndex((row) => row.id === pageId);
-    if (byId >= 0) return byId;
+  const number = Number(teacherState.page_number || 0);
+  if (number > 0) {
+    const byNumber = pages.findIndex((row) => Number(row.page_number) === number);
+    if (byNumber >= 0) return byNumber;
   }
-  const stage = String(teacherState.stage || "round");
-  return pages.findIndex((row) => row.stage === stage);
+  if (!number) {
+    const pageId = String(teacherState.page_id || "").trim();
+    if (pageId) {
+      const byId = pages.findIndex((row) => row.id === pageId);
+      if (byId >= 0) return byId;
+    }
+    const stage = String(teacherState.stage || "");
+    const byStage = pages.findIndex((row) => row.stage && row.stage === stage);
+    if (byStage >= 0) return byStage;
+  }
+  return pages.length ? 0 : -1;
 }
 
 /**
@@ -2543,33 +2585,29 @@ function paintStageRail() {
     if (counter) counter.textContent = "";
     paintLivePageLabel(name, "Set Class");
   } else {
-    if (counter) {
-      counter.textContent = index >= 0 ? `${index + 1} / ${pages.length}` : "";
+    const deck = googleSlidesDeck();
+    if (deck) {
+      const slideIndex = Math.max(
+        0,
+        Math.min(deck.pages.length - 1, Number(deck.current_index) || 0)
+      );
+      if (counter) counter.textContent = `${slideIndex + 1} / ${deck.pages.length}`;
+      paintLivePageLabel(name, String(deck.title || "Slides"));
+    } else {
+      if (counter) {
+        counter.textContent = index >= 0 ? `${index + 1} / ${pages.length}` : "";
+      }
+      paintLivePageLabel(name, index >= 0 ? pages[index].name : "");
     }
-    paintLivePageLabel(name, index >= 0 ? pages[index].name : "");
   }
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");
-  const slideDeck = slidesRailActive() ? googleSlidesDeck() : null;
-  if (slideDeck) {
-    const slideIndex = Math.max(
-      0,
-      Math.min(slideDeck.pages.length - 1, Number(slideDeck.current_index) || 0)
-    );
-    if (counter) counter.textContent = `${slideIndex + 1} / ${slideDeck.pages.length}`;
-    paintLivePageLabel(name, String(slideDeck.title || "Slides"));
-    if (prev instanceof HTMLButtonElement) {
-      prev.disabled = setupPhase || slidePostInFlight || slideIndex <= 0;
-    }
-    if (next instanceof HTMLButtonElement) {
-      next.disabled = slidePostInFlight || slideIndex >= slideDeck.pages.length - 1;
-    }
-  } else {
-    if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || pageFlipInFlight;
-    if (next instanceof HTMLButtonElement) {
-      next.disabled =
-        pageFlipInFlight || (setupPhase ? false : index < 0 || index >= pages.length - 1);
-    }
+  if (prev instanceof HTMLButtonElement) {
+    prev.disabled = setupPhase || pageFlipInFlight || index <= 0;
+  }
+  if (next instanceof HTMLButtonElement) {
+    next.disabled =
+      pageFlipInFlight || (setupPhase ? false : index < 0 || index >= pages.length - 1);
   }
   const addBtn = $("live-add-page");
   const deleteBtn = $("live-delete-page");
@@ -3048,7 +3086,13 @@ function teacherPanePreset(content) {
  * The media iframe stays mounted so the 3D slice is not recreated.
  */
 function paintFrames() {
-  const content = teacherPaneContent();
+  let content = teacherPaneContent();
+  let shownTab = String(teacherState.active_tab || "questions");
+  const frames = $("live-frames");
+  if (frames && !frames.querySelector(`[data-content-id="${content}"]`)) {
+    content = "questions";
+    shownTab = "questions";
+  }
   const preset = teacherPanePreset(content) || "canvas_full";
   const host = $("live-frames");
   if (host) {
@@ -3066,7 +3110,7 @@ function paintFrames() {
     btn.classList.toggle("is-active", btn.getAttribute("data-preset") === preset);
   });
   document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
-    const on = btn.getAttribute("data-tab") === teacherState.active_tab;
+    const on = btn.getAttribute("data-tab") === shownTab;
     btn.classList.toggle("is-active", on);
     if (on) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
@@ -3399,6 +3443,7 @@ function paintSlidesEmpty() {
  * @returns {any}
  */
 function googleSlidesDeck() {
+  if (!featureOn("slides_import")) return null;
   const deck = lastGoogleSlides;
   if (!deck || deck.kind !== "google_slides" || !Array.isArray(deck.pages) || !deck.pages.length) {
     return null;
@@ -3414,8 +3459,28 @@ function googleSlidesDeck() {
  * True when Back and Forward should move slide pages.
  * @returns {boolean}
  */
+/**
+ * Kept so older callers can ask. Back and Forward always move the page
+ * number, and the slide index follows that number.
+ * @returns {boolean}
+ */
 function slidesRailActive() {
-  return teacherState.active_tab === "slides" && Boolean(googleSlidesDeck());
+  return false;
+}
+
+/**
+ * Keep the on-screen slide index aligned with a page number.
+ * The server write is the source of truth. This only avoids a stale frame
+ * until the next poll. It does not publish the slide.
+ * @param {number} pageNumber
+ */
+function adoptSlideIndexForPage(pageNumber) {
+  const deck = googleSlidesDeck();
+  if (!deck) return;
+  const index = Number(pageNumber) - 1;
+  if (index < 0 || index >= deck.pages.length) return;
+  lastGoogleSlides = { ...deck, current_index: index };
+  paintGoogleSlidesChrome();
 }
 
 function paintGoogleSlidesChrome() {
@@ -3653,6 +3718,7 @@ async function postSlideUpload(path, file, fields) {
   if (!response.ok || data.ok === false) {
     const error = new Error(data.error || "Could not attach that deck.");
     if (data.needs_slides_read === true) error.needsSlidesRead = true;
+    if (data.needs_page_count_confirm === true) error.needsPageCountConfirm = true;
     if (
       typeof data.connect_url === "string" &&
       data.connect_url.startsWith("/auth/google/slides-read") &&
@@ -3716,6 +3782,49 @@ function syncSetClassSlidesRemove() {
  * @param {Event} event
  * @returns {Promise<void>}
  */
+/**
+ * Ask the teacher before a re-pulled deck replaces a different slide count.
+ * Keep current leaves the saved deck alone.
+ * @param {string} message
+ * @returns {Promise<boolean>}
+ */
+function confirmSlideCountChange(message) {
+  const dialog = $("live-slide-count-dialog");
+  const text = $("live-slide-count-message");
+  if (!(dialog instanceof HTMLDialogElement)) {
+    return Promise.resolve(window.confirm(message));
+  }
+  if (text instanceof HTMLElement) text.textContent = String(message || "");
+  return new Promise((resolve) => {
+    const keep = $("live-slide-count-keep");
+    const form = $("live-slide-count-form");
+    const finish = (ok) => {
+      if (keep instanceof HTMLButtonElement) keep.onclick = null;
+      if (form instanceof HTMLFormElement) form.onsubmit = null;
+      if (dialog.open) dialog.close();
+      resolve(ok);
+    };
+    if (keep instanceof HTMLButtonElement) {
+      keep.onclick = () => finish(false);
+    }
+    if (form instanceof HTMLFormElement) {
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        finish(true);
+      };
+    }
+    dialog.addEventListener(
+      "cancel",
+      (event) => {
+        event.preventDefault();
+        finish(false);
+      },
+      { once: true }
+    );
+    dialog.showModal();
+  });
+}
+
 async function addSetClassSlides(event) {
   event.preventDefault();
   const error = $("set-class-slides-error");
@@ -3739,24 +3848,52 @@ async function addSetClassSlides(event) {
     return;
   }
   if (button instanceof HTMLButtonElement) button.disabled = true;
+  let confirmPageLoss = false;
   try {
     const fields = {
       module,
       slot,
       default_published: publish instanceof HTMLInputElement && publish.checked ? "1" : "",
     };
-    const started = file
-      ? await postSlideUpload(`/api/classes/${classId}/slide-deck`, file, fields)
-      : await api(`/api/classes/${classId}/slide-deck`, {
-          method: "POST",
-          body: JSON.stringify({
-            url,
-            module,
-            slot,
-            default_published: fields.default_published === "1",
-          }),
-        });
-    const data = await finishSlideImport(started);
+    const postDeck = async () => {
+      if (confirmPageLoss) fields.confirm_page_loss = "1";
+      return file
+        ? await postSlideUpload(`/api/classes/${classId}/slide-deck`, file, fields)
+        : await api(`/api/classes/${classId}/slide-deck`, {
+            method: "POST",
+            body: JSON.stringify({
+              url,
+              module,
+              slot,
+              default_published: fields.default_published === "1",
+              confirm_page_loss: confirmPageLoss,
+            }),
+          });
+    };
+    let started;
+    try {
+      started = await postDeck();
+    } catch (err) {
+      if (!(err && err.needsPageCountConfirm) || confirmPageLoss) throw err;
+      const accepted = await confirmSlideCountChange(
+        err instanceof Error ? err.message : String(err || "")
+      );
+      if (!accepted) return;
+      confirmPageLoss = true;
+      started = await postDeck();
+    }
+    let data;
+    try {
+      data = await finishSlideImport(started);
+    } catch (err) {
+      if (!(err && err.needsPageCountConfirm) || confirmPageLoss) throw err;
+      const accepted = await confirmSlideCountChange(
+        err instanceof Error ? err.message : String(err || "")
+      );
+      if (!accepted) return;
+      confirmPageLoss = true;
+      data = await finishSlideImport(await postDeck());
+    }
     setClassSlidesTitle = String(data?.deck?.title || "");
     setClassSlidesKey = `${module}|${slot}`;
     syncSetClassSlidesRemove();
@@ -4684,15 +4821,11 @@ function advanceLivePage(delta) {
   const pages = liveLessonPages();
   const index = currentLivePageIndex();
   /** @type {Record<string, unknown>} */
-  let body;
-  if (index < 0) {
-    body = { advance: Number(delta) > 0 ? "next" : "prev" };
-  } else {
-    const nextIndex = Math.max(0, Math.min(pages.length - 1, index + Number(delta)));
-    const page = pages[nextIndex];
-    if (!page || nextIndex === index) return;
-    body = { stage: page.stage, page_id: page.id };
-  }
+  if (index < 0) return;
+  const nextIndex = Math.max(0, Math.min(pages.length - 1, index + Number(delta)));
+  const page = pages[nextIndex];
+  if (!page || nextIndex === index) return;
+  const body = { page_number: Number(page.page_number) || nextIndex + 1 };
   pageFlipInFlight = true;
   paintStageRail();
   const generation = armTeacherMutationFeel("flip", () => {
@@ -4700,6 +4833,7 @@ function advanceLivePage(delta) {
   });
   patchTeacherState(body, { flip: true })
     .then(() => {
+      adoptSlideIndexForPage(body.page_number);
       settleTeacherMutationFeel(generation, true);
     })
     .catch(() => {
@@ -5438,7 +5572,9 @@ function metadataMatchesCurrentPack() {
  */
 function joinPromptCardRow() {
   if (isBlankOverlayLivePage()) return null;
-  if (String(teacherState.stage || "") !== "join") return null;
+  const page = Number(teacherState.page_number || 0);
+  if (page > 1) return null;
+  if (!page && String(teacherState.stage || "") !== "join") return null;
   const joinRow = lastJoinPrompt || lastActivePrompt;
   const action = joinRow && joinRow.payload;
   if (!action || !(action.prompt || action.question)) return null;
@@ -5477,22 +5613,13 @@ function joinPromptCardRow() {
  */
 function currentPageQuestionRows() {
   const pageIndex = currentLivePageNumber();
-  const stageKey = String(teacherState.stage || "");
   const blankOverlay = isBlankOverlayLivePage();
   return deckQuestionRows().filter((card) => {
     const cardPage = Number(card.page_number || 0);
-    const cardStage = String(card.stage || "");
-    const token = String(card.id || card.item_id || "");
-    if (
-      stageKey === "join" &&
-      (cardStage === "join" || isEngineRideItemId(token))
-    ) {
-      return cardStage === "join" || token.replace(/-/g, "_") === "minds_on";
-    }
-    // Class-added overlay pages still show items staff placed on this stored page.
     if (pageIndex > 0 && cardPage > 0) return cardPage === pageIndex;
     if (blankOverlay) return false;
-    return cardStage === stageKey;
+    if (Number(teacherState.page_number || 0) > 0) return false;
+    return String(card.stage || "") === String(teacherState.stage || "");
   });
 }
 
@@ -5805,10 +5932,10 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const hostId = groupResultsHostId(result, liveItemId);
   const seq = escapeHtml(String(result?.group_response_seq || ""));
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
-  if (
-    String(result?.response_mode || "") === "team_draw" ||
-    result?.draw
-  ) {
+  const drawMode =
+    String(result?.response_mode || "") === "team_draw" || Boolean(result?.draw);
+  if (drawMode) {
+    if (!(featureOn("team_draw") || featureOn("group_draw"))) return "";
     return `${open}${teamDrawStatusBoardHtml(result)}</div>`;
   }
   if (result?.rank) {
@@ -8973,6 +9100,7 @@ function liveClassSeedMedia() {
  * ``challenge=C1`` would overwrite a persisted C2/C3 session on refresh.
  */
 async function ensureC1MediaSeeded() {
+  if (!featureOn("media")) return;
   const seed = liveClassSeedMedia();
   if (!seed) {
     const sessionId = liveSessionId || readLiveSessionId();
@@ -9041,6 +9169,7 @@ async function ensureC1MediaSeeded() {
  * @param {Record<string, unknown>} body
  */
 async function postActiveMedia(body) {
+  if (!featureOn("media")) return lastActiveMedia;
   if (mediaPushInFlight) {
     mediaPushQueued = body;
     return lastActiveMedia;
@@ -9409,6 +9538,7 @@ async function applyHeldArtifactGroupQ(asGroup) {
  */
 function bindActiveMediaControls() {
   paintActiveMediaStatus(null);
+  if (!featureOn("media")) return;
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
@@ -11580,7 +11710,14 @@ function applySessionTimerUi(state = overlayState) {
   const stepper = $("ap-meet-stepper");
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
-  const running = Boolean(game.round_ends_at_ms) && !game.timer_paused;
+  const restart = $("ap-meet-restart");
+  const stop = $("ap-meet-stop");
+  const endsAt = Number(game.round_ends_at_ms) || 0;
+  const expired =
+    Boolean(game.round_ends_at_ms) &&
+    !game.timer_paused &&
+    remainingUntilMs(endsAt) <= 0;
+  const running = Boolean(game.round_ends_at_ms) && !game.timer_paused && !expired;
   const paused = Boolean(game.timer_paused);
   if (stepper) {
     stepper.hidden = false;
@@ -11597,11 +11734,14 @@ function applySessionTimerUi(state = overlayState) {
     clock.hidden = false;
     clock.removeAttribute("hidden");
     if (running) {
-      sessionEndsAtMs = Number(game.round_ends_at_ms) || 0;
+      sessionEndsAtMs = endsAt;
       clock.textContent = formatCountdown(remainingUntilMs(sessionEndsAtMs));
     } else if (paused) {
       sessionEndsAtMs = 0;
       clock.textContent = formatCountdown(Number(game.round_remaining_sec) || 0);
+    } else if (expired) {
+      sessionEndsAtMs = endsAt;
+      clock.textContent = formatCountdown(0);
     } else {
       sessionEndsAtMs = 0;
       clock.textContent = formatCountdown(sessionTimerMinutes() * 60);
@@ -11614,10 +11754,25 @@ function applySessionTimerUi(state = overlayState) {
     } else if (paused) {
       btn.textContent = "Resume";
       btn.dataset.meetState = "paused";
+    } else if (expired) {
+      btn.textContent = "Start";
+      btn.dataset.meetState = "expired";
     } else {
       btn.textContent = "Start";
       btn.dataset.meetState = "idle";
     }
+  }
+  if (restart) {
+    const showRestart = paused || running || expired;
+    restart.hidden = !showRestart;
+    if (showRestart) restart.removeAttribute("hidden");
+    else restart.setAttribute("hidden", "");
+  }
+  if (stop) {
+    const showStop = paused || running || expired;
+    stop.hidden = !showStop;
+    if (showStop) stop.removeAttribute("hidden");
+    else stop.setAttribute("hidden", "");
   }
 }
 
@@ -11632,11 +11787,36 @@ function paintSessionClock() {
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
   if (!clock) return;
-  if (btn?.dataset.meetState !== "running") return;
+  if (btn?.dataset.meetState !== "running" && btn?.dataset.meetState !== "expired") return;
   if (!sessionEndsAtMs) return;
   const left = remainingUntilMs(sessionEndsAtMs);
   clock.textContent = formatCountdown(left);
-  if (left <= 0) void closeAnswersAtZero(sessionEndsAtMs);
+  if (left <= 0) {
+    if (btn && btn.dataset.meetState === "running") {
+      btn.textContent = "Start";
+      btn.dataset.meetState = "expired";
+      const restart = $("ap-meet-restart");
+      if (restart) {
+        restart.hidden = false;
+        restart.removeAttribute("hidden");
+      }
+      const stop = $("ap-meet-stop");
+      if (stop) {
+        stop.hidden = false;
+        stop.removeAttribute("hidden");
+      }
+      const stepper = $("ap-meet-stepper");
+      if (stepper) {
+        stepper.setAttribute("aria-disabled", "false");
+        for (const el of stepper.querySelectorAll("button, input")) {
+          if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) {
+            el.disabled = false;
+          }
+        }
+      }
+    }
+    void closeAnswersAtZero(sessionEndsAtMs);
+  }
 }
 
 /** Deadline (epoch ms) already sent to ``timer-expired``. */
@@ -12063,6 +12243,28 @@ $("ap-meet-start")?.addEventListener("click", async () => {
       return;
     }
     await startSessionTimer();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-meet-restart")?.addEventListener("click", async () => {
+  try {
+    hideError("#ap-overlay-error");
+    await startSessionTimer();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-meet-stop")?.addEventListener("click", async () => {
+  try {
+    hideError("#ap-overlay-error");
+    overlayState = await api(`/api/classes/${classId}/game/timer/stop`, {
+      method: "POST",
+      body: "{}",
+    });
+    applySessionTimerUi(overlayState);
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -12997,6 +13199,7 @@ function teacherStateNeedsQuestionRefresh(body) {
   return Boolean(
     body.advance ||
       body.stage ||
+      body.page_number ||
       body.live_slot ||
       body.live_module ||
       body.round ||
@@ -13183,25 +13386,11 @@ $("teams-spark-reveal")?.addEventListener("click", () => {
 });
 
 $("live-stage-prev")?.addEventListener("click", () => {
-  if (slidesRailActive()) {
-    if (slidePostInFlight) return;
-    const deck = googleSlidesDeck();
-    const index = Number(deck?.current_index) || 0;
-    showGoogleSlideIndex(index - 1).catch((err) => showError("#ap-overlay-error", err));
-    return;
-  }
   advanceLivePage(-1);
 });
 $("live-stage-next")?.addEventListener("click", () => {
   if (setupPhase) {
     applyValidateDateChoice().catch((err) => showError("#ap-overlay-error", err));
-    return;
-  }
-  if (slidesRailActive()) {
-    if (slidePostInFlight) return;
-    const deck = googleSlidesDeck();
-    const index = Number(deck?.current_index) || 0;
-    showGoogleSlideIndex(index + 1).catch((err) => showError("#ap-overlay-error", err));
     return;
   }
   advanceLivePage(1);
@@ -13759,6 +13948,91 @@ $("live-slides-unpublish")?.addEventListener("click", () => {
 });
 $("set-class-slides-form")?.addEventListener("submit", (event) => {
   addSetClassSlides(event).catch((err) => showError("#ap-overlay-error", err));
+});
+
+/**
+ * Re-pull a PowerPoint onto this live class.
+ *
+ * A different slide count opens the confirm dialog. Cancel leaves the
+ * current deck and its page numbers in place.
+ *
+ * @param {Event} event
+ * @returns {Promise<void>}
+ */
+async function replaceLiveSlides(event) {
+  event.preventDefault();
+  const error = $("live-slides-replace-error");
+  const fileInput = $("live-slides-replace-file");
+  const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : null;
+  const module = String(
+    (!setupPhase && teacherState.live_module) ||
+      $("live-module-select")?.value ||
+      teacherState.live_module ||
+      "M1"
+  ).toUpperCase();
+  const slot = String(
+    (!setupPhase && teacherState.live_slot) ||
+      $("live-class-select")?.value ||
+      teacherState.live_slot ||
+      "C1"
+  ).toUpperCase();
+  if (error instanceof HTMLElement) {
+    error.hidden = true;
+    error.textContent = "";
+  }
+  if (!file) {
+    if (error instanceof HTMLElement) {
+      error.hidden = false;
+      error.textContent = "Choose a PowerPoint.";
+    }
+    return;
+  }
+  let confirmPageLoss = false;
+  const postDeck = async () => {
+    /** @type {Record<string, string>} */
+    const fields = { module, slot };
+    if (confirmPageLoss) fields.confirm_page_loss = "1";
+    return postSlideUpload(`/api/classes/${classId}/slide-deck`, file, fields);
+  };
+  try {
+    let started;
+    try {
+      started = await postDeck();
+    } catch (err) {
+      if (!(err && err.needsPageCountConfirm) || confirmPageLoss) throw err;
+      const accepted = await confirmSlideCountChange(
+        err instanceof Error ? err.message : String(err || "")
+      );
+      if (!accepted) return;
+      confirmPageLoss = true;
+      started = await postDeck();
+    }
+    let data;
+    try {
+      data = await finishSlideImport(started);
+    } catch (err) {
+      if (!(err && err.needsPageCountConfirm) || confirmPageLoss) throw err;
+      const accepted = await confirmSlideCountChange(
+        err instanceof Error ? err.message : String(err || "")
+      );
+      if (!accepted) return;
+      confirmPageLoss = true;
+      data = await finishSlideImport(await postDeck());
+    }
+    if (data?.google_slides) lastGoogleSlides = data.google_slides;
+    if (fileInput instanceof HTMLInputElement) fileInput.value = "";
+    paintSlidesMetadata();
+    paintGoogleSlidesChrome();
+  } catch (err) {
+    if (error instanceof HTMLElement) {
+      error.hidden = false;
+      error.textContent = err instanceof Error ? err.message : "Could not replace that deck.";
+    }
+  }
+}
+
+$("live-slides-replace-form")?.addEventListener("submit", (event) => {
+  replaceLiveSlides(event).catch((err) => showError("#live-slides-replace-error", err));
 });
 $("set-class-slides-remove")?.addEventListener("click", () => {
   removeSetClassSlides().catch((err) => showError("#ap-overlay-error", err));

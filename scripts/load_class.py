@@ -566,6 +566,10 @@ def _attach_load_deck(school: Any, session_id: int, pages: int) -> int:
         page_pngs=pngs,
         default_published=False,
         title="Load deck",
+        # Class start freezes the lesson page list. This harness is the
+        # teacher's confirm for the synthetic deck. Production import
+        # without this flag still raises SlideCountMismatch.
+        confirm_page_loss=True,
     )
     school.publish_google_slide_page(int(session_id), 0)
     stored = deck.get("pages") if isinstance(deck, dict) else None
@@ -1614,6 +1618,9 @@ def _budget_attach_slide_deck(school: Any, fx: dict[str, Any], pages: int = 22) 
         page_pngs=[png] * int(pages),
         default_published=False,
         title="Load deck",
+        # Class start freezes the lesson page list. This harness is the
+        # teacher's confirm so the budget can attach its synthetic deck.
+        confirm_page_loss=True,
     )
 
 

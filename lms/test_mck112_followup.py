@@ -92,6 +92,7 @@ const tick = async (n = 12) => { for (let i = 0; i < n; i += 1) await new Promis
   const mediaRow = { id: 11, kind: "media", status: "active", publish_mode: "individual", item: { item_type: "media" } };
   const ctx = {
     console,
+    featureOn() { return true; },
     Promise,
     JSON,
     Map,

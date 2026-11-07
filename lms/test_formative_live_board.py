@@ -471,14 +471,17 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertIn(solo, self._board_keys(run_key))
 
     def test_individual_pen_persists_during_round(self) -> None:
-        """An Individual board stores solo strokes while ROUND hides the canvas.
+        """An Individual board stores solo strokes while the canvas is frozen.
 
-        ROUND sets ``canvas_align`` to teacher, which used to accept the
-        stroke and save nothing. Group already overrides that. Individual
-        publish does too, and the rows stay on ``solo:<id>``.
+        Individual publish opens the student canvas. Round no longer forces
+        it shut. The old drop happened when ``canvas_align`` was teacher, so
+        this test freezes that align and the rows still stay on ``solo:<id>``.
         """
         self.school.set_live_session_teacher_state(self.session_id, stage="round")
         self._publish("individual")
+        self.school.set_live_session_teacher_state(
+            self.session_id, canvas_align="teacher"
+        )
         teacher = self.school.live_session_teacher_state_payload(self.session_id)
         self.assertEqual(str(teacher.get("stage") or ""), "round")
         self.assertEqual(str(teacher.get("canvas_align") or ""), "teacher")

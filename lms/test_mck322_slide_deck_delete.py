@@ -125,6 +125,7 @@ class CourseSlideDeleteTests(unittest.TestCase):
             title="Graphs",
             source="pptx",
             page_pngs=[_PNG],
+            confirm_page_loss=True,
             source_bytes=_PPTX,
             source_suffix=".pptx",
         )
@@ -135,6 +136,7 @@ class CourseSlideDeleteTests(unittest.TestCase):
             title="Tables",
             source="public_export",
             page_pngs=[_PNG],
+            confirm_page_loss=True,
         )
         self.school.save_course_slide_deck(
             self.other_class_id,
@@ -143,6 +145,7 @@ class CourseSlideDeleteTests(unittest.TestCase):
             title="Other class",
             source="public_export",
             page_pngs=[_PNG],
+            confirm_page_loss=True,
         )
         shared = self._page_path(self.class_id, "M1", "C1")
         other_page = self._page_path(self.other_class_id, "M1", "C1")
@@ -234,6 +237,7 @@ class CourseSlideDeleteTests(unittest.TestCase):
             title="Graphs",
             source="public_export",
             page_pngs=[_PNG],
+            confirm_page_loss=True,
         )
         blocked = self.staff.delete(
             f"/api/classes/{self.class_id}/slide-deck?module=M1&slot=C1",
@@ -259,6 +263,7 @@ class CourseSlideDeleteTests(unittest.TestCase):
             title="Graphs",
             source="public_export",
             page_pngs=[_PNG],
+            confirm_page_loss=True,
         )
         deck = self.school.conn.execute(
             """

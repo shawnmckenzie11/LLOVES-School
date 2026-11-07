@@ -340,6 +340,8 @@
             </div>
             <span class="ap-meet-live-clock" id="ap-meet-live-clock" aria-live="polite">3:00</span>
             <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
+            <button type="button" id="ap-meet-restart" class="ap-meet-start" hidden>Restart</button>
+            <button type="button" id="ap-meet-stop" class="ap-meet-start" hidden>Stop</button>
             <label class="live-unlock-toggle live-timer-closes" for="live-timer-closes" title="When the timer reaches 0:00, open questions stop taking answers.">
               <input type="checkbox" id="live-timer-closes">
               <span>Close answers at 0:00</span>
@@ -650,7 +652,7 @@
                 <button type="button" class="live-content-tab" data-tab="media">Media</button>
                 {% endif %}
                 <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Questions</button>
-                {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
+                {% if teacher_features.whiteboard %}
                 <button type="button" class="live-content-tab" data-tab="canvas">Whiteboard</button>
                 {% endif %}
                 <button type="button" class="live-content-tab" data-tab="slides">Slides</button>
@@ -660,6 +662,7 @@
               <div class="live-frame-slot" data-frame="A" data-drop-frame="A"><span class="live-frame-label">A</span></div>
               <div class="live-frame-slot" data-frame="B" data-drop-frame="B"><span class="live-frame-label">B</span></div>
               <div class="live-frame-slot" data-frame="C" data-drop-frame="C"><span class="live-frame-label">C</span></div>
+              {% if teacher_features.media %}
               <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-parked" data-content-id="media" data-flag="media" data-slot="">
                 <section class="ap-active-media" id="ap-active-media">
                   <div class="live-content-pane-head">
@@ -701,6 +704,7 @@
                   </form>
                 </section>
               </section>
+              {% endif %}
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
                 <div class="live-content-pane-head live-questions-head">
                   <h2 class="live-pane-title">Questions</h2>
@@ -791,6 +795,7 @@
                   </section>
                 </section>
               </section>
+              {% if teacher_features.whiteboard %}
               <section id="canvas-zone" class="live-content-slot is-parked" data-content-id="canvas" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Whiteboard</h2>
@@ -859,6 +864,7 @@
                   </div>
                 </section>
               </section>
+              {% endif %}
               <section id="slides-zone" class="live-content-slot is-parked" data-content-id="slides" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Slides</h2>
@@ -872,6 +878,13 @@
                 <p class="hint compact" id="live-slides-empty">{# copy: Wonder #}No slides yet. Add a deck when you start a live class, at step 3 (Which deck?).</p>
                 <p class="hint compact" id="live-google-slides-count" hidden></p>
                 {% if teacher_features.slides_import %}
+                <form id="live-slides-replace-form" class="live-google-slides-form">
+                  <label class="live-google-slides-label" for="live-slides-replace-file">Replace slides
+                    <input id="live-slides-replace-file" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+                  </label>
+                  <button type="submit" class="secondary" id="live-slides-replace">Replace slides</button>
+                  <p class="hint compact" id="live-slides-replace-error" hidden></p>
+                </form>
                 <div class="live-google-slides-stage" id="live-google-slides-stage" hidden>
                   <img id="live-google-slides-card" class="live-google-slides-card" alt="">
                 </div>
@@ -925,18 +938,25 @@
         </section>
       </div>
     </dialog>
+    <dialog id="live-slide-count-dialog" class="live-relocate-dialog" aria-labelledby="live-slide-count-title">
+      <form id="live-slide-count-form" class="live-relocate-dialog-card">
+        <header class="live-relocate-head">
+          <h2 id="live-slide-count-title" class="live-pane-title">Slide count changed</h2>
+        </header>
+        <p id="live-slide-count-message" class="hint compact"></p>
+        <div class="live-relocate-move-row">
+          <button type="button" class="secondary live-q-btn" id="live-slide-count-keep">Keep current slides</button>
+          <button type="submit" class="live-q-btn" id="live-slide-count-continue">Use the new slide count</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="live-add-page-dialog" class="live-relocate-dialog" aria-labelledby="live-add-page-title">
       <form id="live-add-page-form" class="live-relocate-dialog-card">
         <header class="live-relocate-head">
           <h2 id="live-add-page-title" class="live-pane-title">Add page</h2>
           <button type="button" class="secondary live-q-btn" data-live-add-page-close aria-label="Close">Close</button>
         </header>
-        <fieldset class="live-add-page-kinds">
-          <legend class="live-relocate-move-field">Page type</legend>
-          <label><input type="radio" name="live-add-page-kind" value="blank" checked> Blank page</label>
-          <label><input type="radio" name="live-add-page-kind" value="welcome"> Welcome Page</label>
-          <label><input type="radio" name="live-add-page-kind" value="winner"> Winner Page</label>
-        </fieldset>
+        <p class="hint compact">This adds a numbered page. It is not a welcome or winner page.</p>
         <label class="live-relocate-move-field" for="live-add-page-name" id="live-add-page-name-label">Page name</label>
         <input id="live-add-page-name" type="text" maxlength="80" autocomplete="off" required>
         <p id="live-add-page-error" class="error compact" hidden></p>

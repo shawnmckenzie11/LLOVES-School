@@ -115,69 +115,27 @@ class LivePlaylistPageOverlayTests(unittest.TestCase):
         self.assertEqual(SEED_C2.read_text(encoding="utf-8"), self.seed_before)
         teacher = self.school.live_session_teacher_state_payload(self.session_id)
         self.assertEqual(teacher.get("page_id"), page["id"])
-        self.assertEqual(teacher.get("stage"), "play")
+        self.assertEqual(teacher.get("page_number"), page.get("page_number"))
+        self.assertEqual(teacher.get("stage"), "join")
 
-    def test_add_welcome_page_uses_teams_stage(self) -> None:
-        """Welcome pages land on TEAMS and show the VLC welcome card."""
+    def test_welcome_and_winner_are_not_page_types(self) -> None:
+        """Special page kinds are refused. The seed file stays readable."""
 
-        maple = self.school.game.find_student_by_codename(self.class_id, "Maple")
-        assert maple is not None
-        result = self.school.add_class_playlist_page(
-            self.class_id,
-            "M1",
-            "C2",
-            name="",
-            after_page_id="join",
-            kind="welcome",
-        )
-        page = result["page"]
-        self.assertEqual(page["stage"], "teams")
-        self.assertEqual(page["name"], "Welcome")
+        before = self.school.live_session_teacher_state_payload(self.session_id)
+        for kind in ("welcome", "winner"):
+            with self.assertRaises(ValueError):
+                self.school.add_class_playlist_page(
+                    self.class_id,
+                    "M1",
+                    "C2",
+                    name="",
+                    after_page_id="join",
+                    kind=kind,
+                )
         self.assertEqual(SEED_C2.read_text(encoding="utf-8"), self.seed_before)
         teacher = self.school.live_session_teacher_state_payload(self.session_id)
-        self.assertEqual(teacher.get("page_id"), page["id"])
-        self.assertEqual(teacher.get("stage"), "teams")
-        welcome = self.school.student_game_show_welcome(self.session_id)
-        self.assertTrue(welcome)
-        student = self.school.student_live_prompt_payload(
-            self.session_id, int(maple["id"])
-        )
-        self.assertTrue(student.get("game_show_welcome"))
-
-    def test_add_winner_page_uses_summary_stage(self) -> None:
-        """Winner pages land on Summary and attach the winner snapshot."""
-
-        result = self.school.add_class_playlist_page(
-            self.class_id,
-            "M1",
-            "C2",
-            name="",
-            after_page_id="join",
-            kind="winner",
-        )
-        page = result["page"]
-        self.assertEqual(page["stage"], "summary")
-        self.assertEqual(page["name"], "Winner")
-        self.assertEqual(SEED_C2.read_text(encoding="utf-8"), self.seed_before)
-        teacher = self.school.live_session_teacher_state_payload(self.session_id)
-        self.assertEqual(teacher.get("page_id"), page["id"])
-        self.assertEqual(teacher.get("stage"), "summary")
-        reloaded = self.school.live_class_metadata_for_class_lesson(
-            self.class_id, "M1", "C2"
-        )
-        persisted = next(
-            row
-            for row in reloaded.get("pages") or []
-            if isinstance(row, dict) and str(row.get("id") or "") == page["id"]
-        )
-        self.assertEqual(persisted.get("stage"), "summary")
-        self.assertEqual(persisted.get("name"), "Winner")
-        payload = {"teacher_state": teacher}
-        self.school.apply_student_summary_winner(
-            payload, self.session_id, self.class_id
-        )
-        self.assertTrue(payload.get("summary_winner"))
-        self.assertTrue(payload.get("winner"))
+        self.assertEqual(teacher.get("stage"), before.get("stage"))
+        self.assertEqual(teacher.get("page_number"), before.get("page_number"))
 
     def test_delete_custom_page_lands_on_next(self) -> None:
         """Deleting a mid-deck overlay page lands on the following page."""
