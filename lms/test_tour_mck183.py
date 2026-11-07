@@ -64,10 +64,10 @@ class TourPageTests(unittest.TestCase):
             "Add a class first to start the tour.",
             "Populate your class",
             "Open the Question Bank",
-            "Run a test live class",
             "Take attendance",
             "Check Participation",
-            "Getting started 0 of 5",
+            "Getting started 0 of 4",
+            "Getting started 0/4",
             "You're all set. Replay the tour anytime from Help.",
             "▾",
         ):
@@ -90,6 +90,9 @@ class TourPageTests(unittest.TestCase):
         self.assertIn('href="/staff?tour=1"', html)
         self.assertIn("data-help-whats-new", html)
         self.assertIn('href="mailto:solutions@mckenzian.com?subject=ALC%20help">Get help', html)
+        self.assertNotIn('data-task="test_live"', html)
+        self.assertEqual(len(re.findall(r'<li data-task="', html)), 4)
+        self.assertNotIn("test_live", script)
 
     def test_help_contact_env(self) -> None:
         self._teacher_with_class()
@@ -227,20 +230,28 @@ const out = {};
   out.part = Boolean(part.done.participation);
   const saved = tour.applySignals(part, { attendanceSaved: true, now: "t4" });
   out.attendance = saved.done.attendance && saved.done.take_attendance;
+  out.saved = {
+    status: saved.status,
+    toast: saved.checklist.toast,
+    collapsed: saved.checklist.collapsed,
+    count: tour.checklistCount(saved.done),
+  };
   const unknownEnd = tour.applySignals(saved, { liveEnded: true, runType: "", live: true, now: "t5" });
-  out.unknownNoTick = !unknownEnd.done.test_live;
-  const liveEnd = tour.applySignals(saved, { liveEnded: true, runType: "live", live: true, now: "t5" });
-  out.liveNoTick = !liveEnd.done.test_live && liveEnd.liveTest == null;
-  const started = tour.applySignals(saved, { runType: "test", live: true, session: "9", now: "t6" });
+  out.unknownNoTick = tour.checklistCount(unknownEnd.done) === 4 && unknownEnd.liveTest == null;
+  const liveEnd = tour.applySignals(part, { liveEnded: true, runType: "live", live: true, now: "t5" });
+  out.liveNoTick = tour.checklistCount(liveEnd.done) === 3 && liveEnd.liveTest == null && liveEnd.status !== "done";
+  const started = tour.applySignals(part, { runType: "test", live: true, session: "9", now: "t6" });
   out.started = started.liveTest;
   const ended = tour.applySignals(started, { liveEnded: true, runType: "test", live: true, session: "9", now: "t7" });
   out.ended = {
-    test: ended.done.test_live, run: ended.done.run_live, end: ended.done.end_live,
-    status: ended.status, toast: ended.checklist.toast, collapsed: ended.checklist.collapsed,
+    count: tour.checklistCount(ended.done),
+    run: Boolean(ended.done.run_live),
+    end: Boolean(ended.done.end_live),
+    status: ended.status,
   };
   out.kinds = [tour.liveRunIsTest(""), tour.liveRunIsTest("test"), tour.liveRunIsTest("live")];
   const click = tour.completeStep(rostered, "run_live", "t8");
-  out.clickKeepsChecklist = Boolean(click.done.run_live) && !click.done.test_live;
+  out.clickKeepsChecklist = Boolean(click.done.run_live) && tour.checklistCount(click.done) === 1;
   const replay = tour.replayPage(click, "dashboard");
   out.replay = { run: replay.done.run_live || "", populate: Boolean(replay.done.populate), status: replay.status };
   out.skip = tour.skipTour(fresh).checklist.collapsed && tour.skipTour(fresh).status;
@@ -265,7 +276,7 @@ const out = {};
   });
   out.noLiveSteps = explicitLive.mode;
   out.defaultTest = tour.stepsFor("live", "").map((step) => step.id);
-  tour.writeTour(storage, "5", ended);
+  tour.writeTour(storage, "5", saved);
   out.roundTrip = tour.readTour(storage, "5").status;
 }
 function El(attrs = {}) {
@@ -347,7 +358,7 @@ function makeDoc(dataset, catalog) {
   const fill = new El({ "data-check-fill": "" });
   const bar = new El({ "data-check-bar": "" });
   bar.kids = [fill];
-  const rows = ["populate", "question_bank", "test_live", "attendance", "participation"].map(taskRow);
+  const rows = ["populate", "question_bank", "attendance", "participation"].map(taskRow);
   const list = new El();
   list.kids = rows;
   const card = new El({ "data-check-card": "" });
@@ -369,7 +380,7 @@ function makeDoc(dataset, catalog) {
   const doc = {
     body: { dataset },
     listeners,
-    root, pop, copy, count, show, skip, empty, check, title, rows, toast, dim,
+    root, pop, copy, count, show, skip, empty, check, title, rows, toast, dim, pillLabel,
     getElementById: (id) => ({ "onb-tour": root, "onb-check": check, "onb-toast": toast })[id] || null,
     querySelectorAll: (sel) => (catalog[sel] || []).slice(),
     querySelector: (sel) => (catalog[sel] || [])[0] || null,
@@ -407,14 +418,18 @@ function memory() {
   out.count = doc.count.textContent;
   out.copy = doc.copy.innerHTML;
   out.lit = live.classList.contains("onb-spotlight");
+  out.taskCount = tour.TASKS.length;
   out.checkTitle = doc.title.textContent;
+  out.titleMatchesLength = doc.title.textContent === `Getting started 1 of ${tour.TASKS.length}`;
+  out.pill = doc.pillLabel.textContent;
+  out.pillMatchesLength = doc.pillLabel.textContent === `Getting started 1/${tour.TASKS.length}`;
   out.nextShow = doc.rows[1].querySelector("[data-check-show]").hidden === false;
   fire(doc.show, "click", { preventDefault() {}, target: doc.show });
   out.afterShow = JSON.parse(storage.getItem("alc-onboarding:5")).done.run_live || "";
   for (const fn of doc.listeners.click || []) fn({ target: live });
   const afterClick = JSON.parse(storage.getItem("alc-onboarding:5"));
   out.afterClick = Boolean(afterClick.done.run_live);
-  out.clickNotChecklist = !afterClick.done.test_live;
+  out.clickNotChecklist = tour.checklistCount(afterClick.done) === 1;
   out.ends = ends.slice();
   fire(doc.skip, "click", { preventDefault() {}, target: doc.skip });
   const skipped = JSON.parse(storage.getItem("alc-onboarding:5"));
@@ -490,6 +505,54 @@ function memory() {
   doc.dispatchEvent(new CE("alc-tour-end", { detail: { status: "skipped" } }));
   out.wnOpenAfter = dialog.open;
 }
+{
+  const mem = memory();
+  mem.setItem("alc-onboarding:5", JSON.stringify({
+    version: 2,
+    status: "active",
+    page: "ap",
+    step: "take_attendance",
+    done: { populate: "t1", set_class: "t1", question_bank: "t2", participation: "t3" },
+    checklist: { collapsed: false, hidden: false, toast: false },
+  }));
+  const listeners = {};
+  const win = {
+    location: {
+      href: "http://127.0.0.1:8787/staff/class/7?tab=ap&view=attendance",
+      pathname: "/staff/class/7",
+      search: "",
+    },
+    assign() {},
+    CustomEvent: CE,
+    matchMedia: () => ({ matches: false }),
+    innerWidth: 1280,
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+  };
+  const doc = makeDoc({
+    userId: "5", tourOffer: "1", tourPage: "ap", tourView: "attendance", tourRoster: "2",
+    tourLive: "0", tourBlock: "0", tourRunType: "live", tourSession: "9",
+    tourDashboard: "/staff", tourNav: "/staff/class/7",
+    tourAp: "/staff/class/7?tab=ap&view=attendance",
+    tourLiveHref: "/staff/class/7?tab=live",
+  }, {});
+  tour.initTour({
+    document: doc, window: win, storage: mem, now: () => "t4", schedule: () => 0,
+  });
+  out.beforeFinishTitle = doc.title.textContent;
+  out.beforeFinishCollapsed = doc.check.querySelector("[data-check-card]").hidden;
+  for (const fn of listeners["alc-attendance-saved"] || []) fn();
+  const finished = JSON.parse(mem.getItem("alc-onboarding:5"));
+  out.finishStatus = finished.status;
+  out.finishCollapsed = finished.checklist.collapsed;
+  out.finishTitle = doc.title.textContent;
+  out.finishPill = doc.pillLabel.textContent;
+  out.finishToast = doc.toast.hidden ? "" : doc.toast.textContent;
+  out.finishCardHidden = doc.check.querySelector("[data-check-card]").hidden;
+  out.finishPillShown = doc.check.querySelector("[data-check-pill]").hidden === false;
+  out.finishRows = doc.rows.map((row) => (
+    `${row.getAttribute("data-task")}:${row.classList.contains("is-done") ? "done" : "open"}`
+  ));
+}
 process.stdout.write(JSON.stringify(out));
 """
 
@@ -525,13 +588,17 @@ class TourScriptTests(unittest.TestCase):
         self.assertTrue(o["bank"])
         self.assertTrue(o["part"])
         self.assertTrue(o["attendance"])
+        self.assertEqual(o["saved"]["status"], "done")
+        self.assertTrue(o["saved"]["toast"])
+        self.assertTrue(o["saved"]["collapsed"])
+        self.assertEqual(o["saved"]["count"], 4)
         self.assertTrue(o["unknownNoTick"])
         self.assertTrue(o["liveNoTick"])
-        self.assertEqual(o["started"]["kind"], "test")
-        self.assertEqual(o["ended"]["status"], "done")
-        self.assertTrue(o["ended"]["toast"])
-        self.assertTrue(o["ended"]["collapsed"])
-        self.assertEqual(o["ended"]["test"], "t7")
+        self.assertIsNone(o["started"])
+        self.assertEqual(o["ended"]["count"], 3)
+        self.assertFalse(o["ended"]["run"])
+        self.assertFalse(o["ended"]["end"])
+        self.assertNotEqual(o["ended"]["status"], "done")
         self.assertEqual(o["kinds"], [None, True, False])
         self.assertTrue(o["clickKeepsChecklist"])
         self.assertEqual(o["replay"]["run"], "")
@@ -552,7 +619,11 @@ class TourScriptTests(unittest.TestCase):
         self.assertEqual(o["count"], "Step 4 of 4")
         self.assertIn("Run Live Class", o["copy"])
         self.assertTrue(o["lit"])
-        self.assertEqual(o["checkTitle"], "Getting started 1 of 5")
+        self.assertEqual(o["taskCount"], 4)
+        self.assertEqual(o["checkTitle"], "Getting started 1 of 4")
+        self.assertTrue(o["titleMatchesLength"])
+        self.assertEqual(o["pill"], "Getting started 1/4")
+        self.assertTrue(o["pillMatchesLength"])
         self.assertTrue(o["nextShow"])
         self.assertEqual(o["afterShow"], "")
         self.assertTrue(o["afterClick"])
@@ -571,6 +642,28 @@ class TourScriptTests(unittest.TestCase):
         self.assertFalse(o["narrowCheck"])
         self.assertEqual(o["owner"], "")
         self.assertTrue(o["ownerCheck"])
+
+    def test_four_steps_finish_the_checklist(self) -> None:
+        """Attendance, the fourth tick, collapses the list and shows the toast."""
+        o = self.out
+        self.assertEqual(o["beforeFinishTitle"], "Getting started 3 of 4")
+        self.assertFalse(o["beforeFinishCollapsed"])
+        self.assertEqual(o["finishStatus"], "done")
+        self.assertTrue(o["finishCollapsed"])
+        self.assertEqual(o["finishTitle"], "Getting started 4 of 4")
+        self.assertEqual(o["finishPill"], "✓ Getting started 4/4")
+        self.assertEqual(
+            o["finishToast"],
+            "You're all set. Replay the tour anytime from Help.",
+        )
+        self.assertTrue(o["finishCardHidden"])
+        self.assertTrue(o["finishPillShown"])
+        self.assertEqual(o["finishRows"], [
+            "populate:done",
+            "question_bank:done",
+            "attendance:done",
+            "participation:done",
+        ])
 
     def test_whats_new_waits_for_the_tour(self) -> None:
         o = self.out
