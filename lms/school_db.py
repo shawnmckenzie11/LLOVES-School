@@ -128,7 +128,6 @@ try:
         match_reason,
         match_tally,
         member_ids_from_json,
-        old_rank_scale,
         send_earned,
     )
     from live_rank import (
@@ -306,7 +305,6 @@ except ImportError:  # ``python3 lms/app.py`` package import
         match_reason,
         match_tally,
         member_ids_from_json,
-        old_rank_scale,
         send_earned,
     )
     from lms.live_rank import (
@@ -3070,9 +3068,10 @@ class LovesDB:
     ) -> dict[int, str]:
         """``earned/possible`` per student. Discarded runs are left out.
 
-        A rank row still stored as 1 possible (the older scale) is added
-        on the 2-point scale: earned 2 counts as 4, 1 as 2, and 0 as 0.
-        The stored numbers are not changed.
+        A doubled rank (possible 2) is added in 1-point terms: earned 4
+        counts as 2, earned 2 as 1, and earned 0 as 0, each with 1
+        possible. The stored numbers are not changed. A forward rank
+        (possible 1, earned 0, 1, or 2) is added as stored.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -3123,8 +3122,9 @@ class LovesDB:
         """Points this student would earn from group questions still live.
 
         Uses the same rules as End. A keyed rank sent all correct, with
-        no check, is 4 on a maximum of 2. Every other rank completion is
-        2. A group multiple-choice send is 1 on a maximum of 1.
+        no check, is 2 on a maximum of 1. Every other rank completion is
+        1. A group multiple-choice send is 1 on a maximum of 1. An
+        unsent rank contributes 0.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -3188,10 +3188,10 @@ class LovesDB:
         """Group points for the student live card.
 
         While the session is still active, this is the live total. A
-        correct rank with no check is 4/2. Every other rank completion
-        is 2/2. A group multiple-choice send is 1/1. After End, saved
-        rows are shown, including an older rank of 1 possible (earned
-        2, 1, and 0 display as 4, 2, and 0 on a maximum of 2).
+        correct rank with no check is 2/1. Every other rank completion
+        is 1/1. A group multiple-choice send is 1/1. After End, saved
+        rows are shown. A doubled rank still stored as possible 2
+        displays as 2/1, 1/1, or 0/1 and is not rewritten.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -21463,7 +21463,7 @@ class SchoolDB(LovesDB):
             return ARTIFACT_KIND
         if token == "poll":
             return "poll"
-        if token == "rank":
+        if token in {"rank", "ranking", "team_rank"}:
             return "rank"
         if token == "team_draw":
             return "team_draw"
@@ -40331,7 +40331,9 @@ class SchoolDB(LovesDB):
         """Points for one team's send on one group question.
 
         An unsent team is ``(0, possible)`` so a question another team
-        sent still counts. Ranking possible is 2. Multiple choice is 1.
+        sent still counts. That 0 is not a completion. Ranking possible
+        is 1, and a no-check all-correct send earns 2. Multiple choice
+        is 1.
 
         Args:
             kind: ``rank`` or ``mc``.
@@ -40404,14 +40406,16 @@ class SchoolDB(LovesDB):
         close-without-End never call this. Rows are keyed by class and
         run, not by ``live_session_id``.
 
-        A keyed rank sent all correct, with no check, stores 4 on a
-        question whose maximum is 2. Every other rank completion stores
-        2. A group multiple-choice send stores 1 on a maximum of 1.
+        A keyed rank sent all correct, with no check, stores 2 on a
+        question whose maximum is 1. Every other rank completion stores
+        1. A group multiple-choice send stores 1 on a maximum of 1.
         A question counts only when at least one team sent. When nobody
         sent, the question is skipped: no item row and no member rows.
         When at least one team sent, a team that never sent stores 0
         for the members still on the live roster. The send-time
-        snapshot wins when the team did send.
+        snapshot wins when the team did send. An existing rank row is
+        left as stored, including a doubled possible of 2, so End does
+        not rewrite history to change scale.
 
         Caller holds ``self._lock`` inside the End transaction.
 
@@ -40537,23 +40541,19 @@ class SchoolDB(LovesDB):
                         ON CONFLICT(class_id, run_key, question_key, student_id)
                         DO UPDATE SET
                             earned = CASE
-                                WHEN group_engagement.possible = 1 AND ? = 'rank'
-                                    THEN group_engagement.earned
+                                WHEN ? = 'rank' THEN group_engagement.earned
                                 ELSE excluded.earned
                             END,
                             possible = CASE
-                                WHEN group_engagement.possible = 1 AND ? = 'rank'
-                                    THEN group_engagement.possible
+                                WHEN ? = 'rank' THEN group_engagement.possible
                                 ELSE excluded.possible
                             END,
                             source = CASE
-                                WHEN group_engagement.possible = 1 AND ? = 'rank'
-                                    THEN group_engagement.source
+                                WHEN ? = 'rank' THEN group_engagement.source
                                 ELSE 'live'
                             END,
                             recorded_at = CASE
-                                WHEN group_engagement.possible = 1 AND ? = 'rank'
-                                    THEN group_engagement.recorded_at
+                                WHEN ? = 'rank' THEN group_engagement.recorded_at
                                 ELSE excluded.recorded_at
                             END
                         """,
@@ -41999,6 +41999,111 @@ class SchoolDB(LovesDB):
                 row["mode"] = "group"
                 row["group_completed"] = int(group_counts.get(key, 0))
             out.append(row)
+        if run_key:
+            self._apply_lesson_slide_group_engagement(cid, run_key, out, test_ids)
+        return out
+
+    def _apply_lesson_slide_group_engagement(
+        self,
+        class_id: int,
+        run_key: str,
+        questions: list[dict[str, Any]],
+        excluded_student_ids: set[int],
+    ) -> None:
+        """Show group rank and group MC from ``group_engagement``.
+
+        Read-only. A captured rank uses weight ``2/1`` and catch-up
+        ``max 1/1``, with the count of saved catch-up completions.
+        A captured group multiple choice uses ``1/1`` and is not catch-up.
+        ``team_rank`` and a plain group rank or group MC whose weight is
+        still 0 get the same labels when no engagement row exists yet.
+        A question that already has a participation weight is left alone,
+        so individual and group-consensus rows keep their numbers. Stored
+        engagement rows are not updated.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
+            questions: Lesson Slides question dicts, updated in place.
+            excluded_student_ids: Roster ids left out of the catch-up count.
+        """
+        from lesson_slides_table import (
+            apply_lesson_slide_engagement_labels,
+            lesson_slide_engagement_kind,
+        )
+
+        index = self._lesson_slides_group_engagement_index(
+            int(class_id), str(run_key), excluded_student_ids
+        )
+        for question in questions:
+            key = str(question.get("question_key") or "")
+            info = index.get(key)
+            if info and info["kind"] in {"rank", "mc"}:
+                apply_lesson_slide_engagement_labels(
+                    question,
+                    kind=str(info["kind"]),
+                    catchup_available=info["kind"] == "rank",
+                    catchup_completed=int(info["catchup_completed"]),
+                )
+                continue
+            guess = lesson_slide_engagement_kind(question)
+            if guess and int(question.get("weight") or 0) <= 0:
+                apply_lesson_slide_engagement_labels(
+                    question,
+                    kind=guess,
+                    catchup_available=False,
+                    catchup_completed=0,
+                )
+
+    def _lesson_slides_group_engagement_index(
+        self,
+        class_id: int,
+        run_key: str,
+        excluded_student_ids: set[int],
+    ) -> dict[str, dict[str, Any]]:
+        """Kind and catch-up count per question for one run. Does not write.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
+            excluded_student_ids: Roster ids left out of the catch-up count.
+
+        Returns:
+            ``question_key`` to ``kind`` and ``catchup_completed``.
+        """
+        exclude = sorted({int(sid) for sid in excluded_student_ids})
+        student_sql = ""
+        params: list[Any] = []
+        if exclude:
+            student_sql = f"AND g.student_id NOT IN ({','.join('?' * len(exclude))})"
+            params.extend(exclude)
+        params.extend([int(class_id), str(run_key)])
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT i.question_key, i.prompt_kind,
+                       SUM(CASE
+                           WHEN g.source = 'catchup' AND COALESCE(g.earned, 0) > 0
+                           THEN 1 ELSE 0 END) AS catchup_n
+                FROM group_engagement_items i
+                LEFT JOIN group_engagement g
+                  ON g.class_id = i.class_id AND g.run_key = i.run_key
+                 AND g.question_key = i.question_key
+                 {student_sql}
+                WHERE i.class_id = ? AND i.run_key = ?
+                GROUP BY i.question_key, i.prompt_kind
+                """,
+                params,
+            ).fetchall()
+        out: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            kind = str(row["prompt_kind"] or "").strip().lower()
+            if kind not in {"rank", "mc"}:
+                continue
+            out[str(row["question_key"])] = {
+                "kind": kind,
+                "catchup_completed": int(row["catchup_n"] or 0),
+            }
         return out
 
     def module_complete(self, class_id: int, module: str) -> bool:
@@ -45339,13 +45444,14 @@ class SchoolDB(LovesDB):
     def _group_engagement_catchup_questions(
         self, link: dict[str, Any], student_id: int
     ) -> list[dict[str, Any]]:
-        """Group ranks this student has not already earned in the live class.
+        """Group ranks this student has not already completed.
 
-        A live 2 or 4 is omitted. A rank row still stored as 1 possible
-        is the older scale and is omitted too. Catch-up never offers the
-        4. A catch-up completion stays on the page as answered. Multiple
-        choice is not a catch-up question. The content is the student
-        payload: no answer order.
+        A stored earned above 0 is a completion, on the forward scale
+        (1 or 2) or the doubled scale (2 or 4), and a live completion is
+        omitted. Earned 0 is not a completion and is offered. Catch-up
+        never offers the no-check bonus. A catch-up completion stays on
+        the page as answered. Multiple choice is not a catch-up question.
+        The content is the student payload: no answer order.
 
         Args:
             link: Catch-up row for one run.
@@ -45373,12 +45479,8 @@ class SchoolDB(LovesDB):
                 continue
             earned = int(row["earned"] or 0) if row["earned"] is not None else 0
             source = str(row["source"] or "")
-            # A stored 1-possible rank is the older scale and already done.
-            if row["earned"] is not None and old_rank_scale(
-                int(row["possible"] or 0), kind
-            ):
-                continue
-            if source == "live" and earned >= RANK_POSSIBLE:
+            # Any stored points are a completion. Earned 0 is not.
+            if row["earned"] is not None and earned > 0 and source != "catchup":
                 continue
             try:
                 item = json.loads(row["item_json"] or "{}")
@@ -45390,18 +45492,19 @@ class SchoolDB(LovesDB):
                 "content": self._student_public_item_payload(item, class_id=class_id),
                 "prompt_kind": str(row["prompt_kind"] or "rank"),
                 "group_rank": True,
-                "answered": source == "catchup" and earned >= RANK_POSSIBLE,
+                "answered": source == "catchup" and earned >= 1,
             })
         return out
 
     def _store_group_engagement_catchup(
         self, link: dict[str, Any], student_id: int, question_key: str, answer: Any
     ) -> bool:
-        """Record a solo catch-up rank. Completion is 2, never 4.
+        """Record a solo catch-up rank. The saved row is at most 1/1.
 
         Any full permutation counts. The answer order is not scored.
-        A live 2 or 4 already stored is left as it is. A rank row still
-        stored as 1 possible is left as it is. Multiple choice rows are
+        A row that already has earned points is left as stored, including
+        a no-check 2/1 and a doubled 4/2 or 2/2. An incomplete 0 is
+        updated to earned 1 and possible 1. Multiple choice rows are
         refused.
 
         Args:
@@ -45461,11 +45564,9 @@ class SchoolDB(LovesDB):
                     int(student_id),
                 ),
             ).fetchone()
-            if current is not None and old_rank_scale(int(current["possible"]), "rank"):
+            if current is not None and int(current["earned"] or 0) > 0:
                 return True
-            earned = catchup_earned(
-                int(current["earned"]) if current is not None else None
-            )
+            earned = catchup_earned(None)
             self.conn.execute(
                 """
                 INSERT INTO group_engagement (
@@ -45474,22 +45575,19 @@ class SchoolDB(LovesDB):
                 ) VALUES (?, ?, ?, ?, ?, ?, 'catchup', ?)
                 ON CONFLICT(class_id, run_key, question_key, student_id) DO UPDATE SET
                     earned = CASE
-                        WHEN group_engagement.possible = 1 THEN group_engagement.earned
-                        WHEN group_engagement.earned >= ? THEN group_engagement.earned
-                        ELSE ?
+                        WHEN group_engagement.earned > 0 THEN group_engagement.earned
+                        ELSE excluded.earned
                     END,
                     possible = CASE
-                        WHEN group_engagement.possible = 1 THEN group_engagement.possible
-                        ELSE ?
+                        WHEN group_engagement.earned > 0 THEN group_engagement.possible
+                        ELSE excluded.possible
                     END,
                     source = CASE
-                        WHEN group_engagement.possible = 1 THEN group_engagement.source
-                        WHEN group_engagement.earned >= ? THEN group_engagement.source
+                        WHEN group_engagement.earned > 0 THEN group_engagement.source
                         ELSE 'catchup'
                     END,
                     recorded_at = CASE
-                        WHEN group_engagement.possible = 1 THEN group_engagement.recorded_at
-                        WHEN group_engagement.earned >= ? THEN group_engagement.recorded_at
+                        WHEN group_engagement.earned > 0 THEN group_engagement.recorded_at
                         ELSE excluded.recorded_at
                     END
                 """,
@@ -45501,11 +45599,6 @@ class SchoolDB(LovesDB):
                     int(earned),
                     RANK_POSSIBLE,
                     now,
-                    RANK_POSSIBLE,
-                    RANK_POSSIBLE,
-                    RANK_POSSIBLE,
-                    RANK_POSSIBLE,
-                    RANK_POSSIBLE,
                 ),
             )
             if self.conn.in_transaction:
