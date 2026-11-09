@@ -10,6 +10,84 @@ from bank_question_types import TYPE_LABELS, bank_question_type
 from participation_weight import count_participation_opportunities, item_participation_weight
 
 _GROUP_PUBLISH = frozenset({"group_consensus", "group_shared", "group"})
+_GROUP_ENGAGEMENT_MODES = _GROUP_PUBLISH | frozenset({"group_submit", "team_draw"})
+_RANK_TYPE_TOKENS = frozenset({"rank", "ranking", "team_rank"})
+_MC_TYPE_TOKENS = frozenset({"mc", "poll", "multiple_choice", "multiple_choice_question"})
+_DRAW_TYPE_TOKENS = frozenset({"team_draw", "draw"})
+# Lesson Slides shows the 1-point rank scale. 2/1 is the no-check maximum.
+RANK_WEIGHT_LABEL = "2/1"
+RANK_CATCHUP_LABEL = "max 1/1"
+MC_WEIGHT_LABEL = "1/1"
+
+
+def lesson_slide_engagement_kind(question: dict[str, Any]) -> str:
+    """Return ``rank``, ``mc``, or ``""`` for one Lesson Slides question.
+
+    ``team_rank`` is a group rank even when an older row left the mode as
+    individual. A plain ``group`` mode with a rank or multiple-choice type
+    is that group question. An individual rank stays empty so its
+    participation weight is unchanged. Team draw is not group MC.
+
+    Args:
+        question: One Lesson Slides question dict.
+    """
+    type_token = str(question.get("type") or question.get("kind") or "").strip().lower()
+    if type_token in _DRAW_TYPE_TOKENS:
+        return ""
+    mode = str(question.get("mode") or "").strip().lower()
+    publish = str(question.get("publish_mode") or "").strip().lower()
+    response = str(question.get("response_mode") or "").strip().lower()
+    groupish = (
+        mode == "group"
+        or publish in _GROUP_ENGAGEMENT_MODES
+        or response in _GROUP_ENGAGEMENT_MODES
+    )
+    if type_token == "team_rank" or (type_token in _RANK_TYPE_TOKENS and groupish):
+        return "rank"
+    if type_token in _MC_TYPE_TOKENS and groupish:
+        return "mc"
+    return ""
+
+
+def apply_lesson_slide_engagement_labels(
+    question: dict[str, Any],
+    *,
+    kind: str,
+    catchup_available: bool,
+    catchup_completed: int,
+) -> None:
+    """Fill weight and catch-up display fields. Does not write storage.
+
+    Group rank weight reads ``2/1``. When that rank was captured, catch-up
+    reads ``max 1/1`` and ``catchup_completed`` is how many students saved
+    a catch-up completion. Group MC weight reads ``1/1`` and is not a
+    catch-up question. Numeric ``weight`` stays 1, the 1-point scale.
+
+    Args:
+        question: Lesson Slides question, updated in place.
+        kind: ``rank`` or ``mc``.
+        catchup_available: True when a group-rank item was captured.
+        catchup_completed: Students who saved a catch-up completion.
+    """
+    token = str(kind or "").strip().lower()
+    if token not in {"rank", "mc"}:
+        return
+    question["mode"] = "group"
+    question["weight"] = 1
+    if token == "rank":
+        question["weight_label"] = RANK_WEIGHT_LABEL
+        if catchup_available:
+            question["in_catchup"] = True
+            question["catchup_label"] = RANK_CATCHUP_LABEL
+            question["catchup_completed"] = max(int(catchup_completed), 0)
+        else:
+            question["in_catchup"] = False
+            question["catchup_label"] = "no"
+            question["catchup_completed"] = 0
+        return
+    question["weight_label"] = MC_WEIGHT_LABEL
+    question["in_catchup"] = False
+    question["catchup_label"] = "no"
 
 
 def _publish_mode_label(publish_mode: str) -> str:
@@ -32,6 +110,9 @@ _TYPE_LABELS = {
 
 def _type_label(item: dict[str, Any]) -> str:
     """Human type label for one live question."""
+    explicit = str(item.get("type") or item.get("kind") or "").strip().lower()
+    if explicit == "team_rank":
+        return _TYPE_LABELS["team_rank"]
     try:
         token = bank_question_type(
             item,

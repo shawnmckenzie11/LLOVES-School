@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """MCK-301: ranking check does not send, and group MC sends only on a match.
 
-A correct rank with no check stores 4/2. Any other rank completion stores
-2/2. Catch-up stores 2/2 and never 4. A group multiple-choice send stores
-1/1, and the server refuses the send until every present member matches.
+A correct rank with no check stores 2/1. Any other rank completion stores
+1/1. Catch-up stores 1/1 and never the no-check 2. A group multiple-choice
+send stores 1/1, and the server refuses the send until every present
+member matches.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ class CheckDoesNotSendTests(GroupEngagementTests):
         self.assertEqual(again.status_code, 400)
         self.assertEqual(self._submit_count(item, "Ava"), 0)
 
-    def test_send_is_final_and_scores_two_after_a_check(self) -> None:
+    def test_send_is_final_and_scores_one_after_a_check(self) -> None:
         item = self._open()
         self._place_only(item, TEAM_A, KEY_IDS)
         self._check(item)
@@ -100,32 +101,32 @@ class CheckDoesNotSendTests(GroupEngagementTests):
         self.assertEqual(self._submit_count(item, "Ava"), 1)
         key = self._question_key(item)
         self._end()
-        self._assert_team(key, TEAM_A, 2)
+        self._assert_team(key, TEAM_A, 1)
         self._assert_team(key, TEAM_B, 0)
 
-    def test_correct_without_a_check_is_four_of_two(self) -> None:
+    def test_correct_without_a_check_is_two_of_one(self) -> None:
         item = self._open()
         self._place_only(item, TEAM_A, KEY_IDS)
         sent = self._post("Ava", item, "group-submit", {})
         self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
         key = self._question_key(item)
         self._end()
-        self._assert_team(key, TEAM_A, 4)
+        self._assert_team(key, TEAM_A, 2)
         dash = self.school.student_dashboard_payload(self.class_id, self.ids["Ava"])
-        self.assertEqual(dash["group_engagement"], "4/2")
+        self.assertEqual(dash["group_engagement"], "2/1")
 
-    def test_wrong_order_is_two_of_two(self) -> None:
+    def test_wrong_order_is_one_of_one(self) -> None:
         item = self._open()
         self._place_only(item, TEAM_A, list(reversed(KEY_IDS)))
         sent = self._post("Ava", item, "group-submit", {})
         self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
         key = self._question_key(item)
         self._end()
-        self._assert_team(key, TEAM_A, 2)
+        self._assert_team(key, TEAM_A, 1)
         dash = self.school.student_dashboard_payload(self.class_id, self.ids["Ava"])
-        self.assertEqual(dash["group_engagement"], "2/2")
+        self.assertEqual(dash["group_engagement"], "1/1")
 
-    def test_catchup_caps_at_two_of_two(self) -> None:
+    def test_catchup_saves_one_of_one(self) -> None:
         item = self._open()
         self._place_only(item, TEAM_A, KEY_IDS)
         self._post("Ava", item, "group-submit", {})
@@ -150,10 +151,10 @@ class CheckDoesNotSendTests(GroupEngagementTests):
         options = content.get("rank_options") or content.get("options") or []
         public_ids = [str(opt["id"]) for opt in options]
         self.assertTrue(self.school.submit_catchup_answer(token, ben, key, public_ids))
-        self.assertEqual(self._rows()[(ben, key)], (2, 2, "catchup"))
+        self.assertEqual(self._rows()[(ben, key)], (1, 1, "catchup"))
         self.assertTrue(self.school._store_group_engagement_catchup(link, ben, key, list(reversed(public_ids))))
-        self.assertEqual(self._rows()[(ben, key)], (2, 2, "catchup"))
-        self.assertEqual(self._rows()[(ava, key)], (4, 2, "live"))
+        self.assertEqual(self._rows()[(ben, key)], (1, 1, "catchup"))
+        self.assertEqual(self._rows()[(ava, key)], (2, 1, "live"))
         self.assertFalse(any(q.get("group_rank") for q in self.school.catchup_questions(token, ava)))
 
 
@@ -205,10 +206,10 @@ if __name__ == "__main__":
 
 
 class OldScaleRowTests(GroupEngagementTests):
-    """Old 1-possible rank rows stay stored and are only rescaled on screen."""
+    """Stored 1-possible rank rows stay stored and display as 1/1 or 2/1."""
 
     def test_old_one_point_rank_is_not_rewritten_or_offered(self) -> None:
-        """End and catch-up leave a 1/1 rank row. Teachers see 2/2.
+        """End and catch-up leave a 1/1 rank row. Teachers see 1/1.
 
         The row is inserted before End, which is the write that would
         otherwise replace it with the current scale. Catch-up does not
@@ -235,16 +236,16 @@ class OldScaleRowTests(GroupEngagementTests):
         shown = self.school.group_engagement_fractions(
             self.class_id, run_key=run_key
         )
-        self.assertEqual(shown[ava], "2/2")
+        self.assertEqual(shown[ava], "1/1")
         summary = self.school.engagement_summary_for_run(self.class_id, run_key)
         stamped = {}
         for group in list(summary["groups"]) + [{"students": summary["ungrouped"]}]:
             for student in group.get("students") or []:
                 if "group_engagement" in student:
                     stamped[int(student["student_id"])] = student["group_engagement"]
-        self.assertEqual(stamped.get(ava), "2/2")
+        self.assertEqual(stamped.get(ava), "1/1")
         grid = self.school.participation_week_grid(self.class_id)
-        self.assertEqual(grid["group_engagement"].get(str(ava)), "2/2")
+        self.assertEqual(grid["group_engagement"].get(str(ava)), "1/1")
         with self.school._lock:
             link_row = self.school.conn.execute(
                 """
@@ -336,12 +337,12 @@ class OldScaleRowTests(GroupEngagementTests):
         )
         return str(dash["group_engagement"]), card
 
-    def test_old_two_of_one_displays_as_four_of_two(self) -> None:
-        """An old 2/1 rank shows as 4/2. The stored row stays 2/1.
+    def test_stored_two_of_one_stays_two_of_one(self) -> None:
+        """A stored 2/1 rank stays 2/1. Teachers see 2/1, not 4/2.
 
         While the session is active the live card shows the checked
-        send, 2/2. The dashboard stays on the stored 4/2. After End the
-        card shows that saved 4/2 as well.
+        send, 1/1. The dashboard stays on the stored 2/1. After End the
+        card shows that saved 2/1 as well.
         """
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS[:2])
@@ -353,26 +354,26 @@ class OldScaleRowTests(GroupEngagementTests):
         live_earned, live_possible = self.school._live_group_engagement_totals(
             self.session_id, ava
         )
-        self.assertEqual((live_earned, live_possible), (2, 2))
+        self.assertEqual((live_earned, live_possible), (1, 1))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
-        self.assertEqual(teacher[ava], "4/2")
+        self.assertEqual(teacher[ava], "2/1")
         dash, card = self._student_points(ava)
-        self.assertEqual(dash, "4/2")
-        self.assertEqual(card, "2/2")
+        self.assertEqual(dash, "2/1")
+        self.assertEqual(card, "1/1")
         self._end()
         self.assertEqual(self._rows()[(ava, key)], (2, 1, "live"))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
-        self.assertEqual(teacher[ava], "4/2")
+        self.assertEqual(teacher[ava], "2/1")
         dash, card = self._student_points(ava)
-        self.assertEqual(dash, "4/2")
-        self.assertEqual(card, "4/2")
+        self.assertEqual(dash, "2/1")
+        self.assertEqual(card, "2/1")
 
-    def test_old_zero_of_one_displays_as_zero_of_two(self) -> None:
-        """An old 0/1 rank shows as 0/2. The stored row stays 0/1.
+    def test_stored_zero_of_one_stays_zero_of_one(self) -> None:
+        """A stored 0/1 rank stays 0/1. Teachers see 0/1, not 0/2.
 
         While the session is active the live card shows the no-check
-        send, 4/2. The dashboard stays on the stored 0/2. After End the
-        card shows that saved 0/2 as well.
+        send, 2/1. The dashboard stays on the stored 0/1. After End the
+        card shows that saved 0/1 as well.
         """
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
@@ -381,26 +382,26 @@ class OldScaleRowTests(GroupEngagementTests):
         live_earned, live_possible = self.school._live_group_engagement_totals(
             self.session_id, ava
         )
-        self.assertEqual((live_earned, live_possible), (4, 2))
+        self.assertEqual((live_earned, live_possible), (2, 1))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
-        self.assertEqual(teacher[ava], "0/2")
+        self.assertEqual(teacher[ava], "0/1")
         dash, card = self._student_points(ava)
-        self.assertEqual(dash, "0/2")
-        self.assertEqual(card, "4/2")
+        self.assertEqual(dash, "0/1")
+        self.assertEqual(card, "2/1")
         self._end()
         self.assertEqual(self._rows()[(ava, key)], (0, 1, "live"))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
-        self.assertEqual(teacher[ava], "0/2")
+        self.assertEqual(teacher[ava], "0/1")
         dash, card = self._student_points(ava)
-        self.assertEqual(dash, "0/2")
-        self.assertEqual(card, "0/2")
+        self.assertEqual(dash, "0/1")
+        self.assertEqual(card, "0/1")
 
-    def test_old_two_plus_new_four_displays_eight_of_four(self) -> None:
-        """An old 2/1 plus a new 4/2 shows as 8/4. Both stored rows stay put.
+    def test_stored_two_plus_new_two_displays_four_of_two(self) -> None:
+        """A stored 2/1 plus a new 2/1 shows as 4/2. Both stored rows stay put.
 
-        While the session is active the live card rescores both sends
-        as 8/4. The dashboard stays on the stored old row, 4/2. After
-        End the card shows the saved 8/4.
+        While the session is active the live card scores both no-check
+        sends as 4/2. The dashboard stays on the stored 2/1. After End
+        the card shows the saved 4/2.
         """
         first = self._open()
         self._place(first, TEAM_A, KEY_IDS)
@@ -412,21 +413,21 @@ class OldScaleRowTests(GroupEngagementTests):
         live_earned, live_possible = self.school._live_group_engagement_totals(
             self.session_id, ava
         )
-        self.assertEqual((live_earned, live_possible), (8, 4))
+        self.assertEqual((live_earned, live_possible), (4, 2))
         dash, card = self._student_points(ava)
-        self.assertEqual(dash, "4/2")
-        self.assertEqual(card, "8/4")
+        self.assertEqual(dash, "2/1")
+        self.assertEqual(card, "4/2")
         self._end()
         rows = self._rows()
         self.assertEqual(rows[(ava, first_key)], (2, 1, "live"))
-        self.assertEqual(rows[(ava, second_key)][:2], (4, 2))
+        self.assertEqual(rows[(ava, second_key)][:2], (2, 1))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
-        self.assertEqual(teacher[ava], "8/4")
+        self.assertEqual(teacher[ava], "4/2")
         dash, card = self._student_points(ava)
-        self.assertEqual(dash, "8/4")
-        self.assertEqual(card, "8/4")
+        self.assertEqual(dash, "4/2")
+        self.assertEqual(card, "4/2")
         grid = self.school.participation_week_grid(self.class_id)
-        self.assertEqual(grid["group_engagement"].get(str(ava)), "8/4")
+        self.assertEqual(grid["group_engagement"].get(str(ava)), "4/2")
 
 
 class LiveCardDuringClassTests(GroupEngagementTests):
@@ -445,10 +446,10 @@ class LiveCardDuringClassTests(GroupEngagementTests):
         return str(payload["me"]["group_engagement"])
 
     def test_card_shows_live_points_then_saved_rows(self) -> None:
-        """During class a no-check send is 4/2 and a checked send adds 2/2.
+        """During class a no-check send is 2/1 and a checked send adds 1/1.
 
         Saved rows are still empty, so the card is not 0/0. After End
-        the card shows the saved total, 6/4.
+        the card shows the saved total, 3/2.
         """
         ava = self.ids["Ava"]
         first = self._open()
@@ -457,7 +458,7 @@ class LiveCardDuringClassTests(GroupEngagementTests):
         self.assertEqual(self._rows(), {})
         dash = self.school.student_dashboard_payload(self.class_id, ava)
         self.assertEqual(dash["group_engagement"], "0/0")
-        self.assertEqual(self._live_card(ava), "4/2")
+        self.assertEqual(self._live_card(ava), "2/1")
         second = self._open()
         second_key = self._question_key(second)
         self._place(second, TEAM_A, KEY_IDS[:2])
@@ -466,11 +467,11 @@ class LiveCardDuringClassTests(GroupEngagementTests):
         self._place(second, TEAM_A, KEY_IDS[2:])
         dash = self.school.student_dashboard_payload(self.class_id, ava)
         self.assertEqual(dash["group_engagement"], "0/0")
-        self.assertEqual(self._live_card(ava), "6/4")
+        self.assertEqual(self._live_card(ava), "3/2")
         self._end()
         rows = self._rows()
-        self.assertEqual(rows[(ava, first_key)][:2], (4, 2))
-        self.assertEqual(rows[(ava, second_key)][:2], (2, 2))
+        self.assertEqual(rows[(ava, first_key)][:2], (2, 1))
+        self.assertEqual(rows[(ava, second_key)][:2], (1, 1))
         dash = self.school.student_dashboard_payload(self.class_id, ava)
-        self.assertEqual(dash["group_engagement"], "6/4")
-        self.assertEqual(self._live_card(ava), "6/4")
+        self.assertEqual(dash["group_engagement"], "3/2")
+        self.assertEqual(self._live_card(ava), "3/2")

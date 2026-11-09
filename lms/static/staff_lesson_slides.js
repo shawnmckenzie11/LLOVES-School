@@ -91,6 +91,30 @@ export function liveDoneLabel(question) {
 }
 
 /**
+ * Weight cell. Group rank shows 2/1 and group MC shows 1/1.
+ * Individual questions keep the numeric weight.
+ * @param {Record<string, unknown>} question
+ * @returns {string}
+ */
+export function weightLabel(question) {
+  const label = String(question?.weight_label || "").trim();
+  if (label) return label;
+  return String(question?.weight ?? 0);
+}
+
+/**
+ * Catch-up cell. A captured group rank reads "max 1/1".
+ * Other questions stay yes or no.
+ * @param {Record<string, unknown>} question
+ * @returns {string}
+ */
+export function catchupAvailabilityLabel(question) {
+  const label = String(question?.catchup_label || "").trim();
+  if (label) return label;
+  return question?.in_catchup ? "yes" : "no";
+}
+
+/**
  * Filter question rows client-side.
  * @param {Array<Record<string, unknown>>} questions
  * @returns {Array<Record<string, unknown>>}
@@ -160,8 +184,8 @@ function questionsDetailRow(row) {
       String(q.stem || "").slice(0, 120),
       q.type_label || q.type || "",
       q.mode || "",
-      q.weight ?? 0,
-      q.in_catchup ? "yes" : "no",
+      weightLabel(q),
+      catchupAvailabilityLabel(q),
       lint,
       liveDoneLabel(q),
       q.catchup_completed ?? 0,

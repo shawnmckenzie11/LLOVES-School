@@ -3738,8 +3738,8 @@ def _mck293_send(school: Any, session_id: int, live_item_id: int, student_id: in
     """Send a group rank after the last card is placed.
 
     Placing the last card leaves the order unsent. This is the pinned
-    send. A checked completion stores 2/2. A correct send with no check
-    stores 4/2.
+    send. A checked completion stores 1/1. A correct send with no check
+    stores 2/1.
 
     Args:
         school: School database for this scenario.
@@ -3759,8 +3759,8 @@ def _mck293_send(school: Any, session_id: int, live_item_id: int, student_id: in
 def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) -> None:
     """Send the checked rank, send a second rank with no check, then End.
 
-    The checked completion stores 2/2. The second matches the answer
-    order with no check, so it stores 4/2. Catch-up is not offered
+    The checked completion stores 1/1. The second matches the answer
+    order with no check, so it stores 2/1. Catch-up is not offered
     the check.
 
     Args:

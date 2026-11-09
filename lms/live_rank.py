@@ -33,7 +33,8 @@ def is_rank_prompt(prompt: Any) -> bool:
     if not isinstance(payload, dict):
         payload = {}
     token = str(payload.get("type") or payload.get("kind") or "").strip().lower()
-    return kind == "rank" or token == "rank"
+    rank_tokens = {"rank", "ranking", "team_rank"}
+    return kind in rank_tokens or token in rank_tokens
 
 
 def mint_rank_option_id(used: set[str]) -> str:

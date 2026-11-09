@@ -1,12 +1,14 @@
-"""Participation points for a completed group question (MCK-301).
+"""Participation points for a completed group question (MCK-442).
 
 A real live class records one row per student when the class ends.
-A keyed rank sent all correct, without Check our ranking, is 4 on a
-question whose maximum is 2. Every other rank completion is 2.
-Catch-up never writes 4. A rank row still stored as 1 possible is
-the older scale and is already finished: catch-up does not offer it
-and nothing rewrites it. Teacher totals show that row on the 2-point
-scale: earned 2 displays as 4, earned 1 as 2, and earned 0 as 0. A group multiple-choice send is 1 on a question whose maximum
+A keyed rank sent all correct, without Check our ranking, stores 2
+on a question whose maximum is 1 (shown 2/1). Every other rank
+completion stores 1 (shown 1/1). An unsent rank is 0 and is not a
+completion. Catch-up stores at most 1. Rows already stored on the
+doubled scale (possible 2, earned 0, 2, or 4) stay as written.
+Teacher totals show those rows in the same 1-point terms: 4/2 as
+2/1, 2/2 as 1/1, and 0/2 as 0/1. Nothing in this module rewrites a
+row. A group multiple-choice send is 1 on a question whose maximum
 is 1.
 
 This module is pure. It does not read the database or the answer order.
@@ -17,22 +19,25 @@ from __future__ import annotations
 import json
 from typing import Any
 
-# Ranking questions are worth 2. The no-check bonus doubles that to 4.
-RANK_POSSIBLE = 2
-RANK_EARNED_BASE = 2
-RANK_EARNED_BONUS = 4
+# Ranking questions are worth 1. A no-check all-correct send earns 2.
+RANK_POSSIBLE = 1
+RANK_EARNED_BASE = 1
+RANK_EARNED_BONUS = 2
+# MCK-301 stored the same ratios with both numbers doubled. Those rows
+# stay in the database. Display halves them; writers do not.
+RANK_DOUBLED_POSSIBLE = 2
 # A matching group multiple-choice send is one engagement point.
 MC_POSSIBLE = 1
 MC_EARNED = 1
 
 
 def format_fraction(earned: int, possible: int) -> str:
-    """Return ``earned/possible``, including ``0/0`` and ``4/2``.
+    """Return ``earned/possible``, including ``0/0``, ``1/1``, and ``2/1``.
 
     Args:
         earned: Points recorded for the student.
-        possible: Points offered. A ranking question offers 2. A group
-            multiple-choice question offers 1.
+        possible: Points offered. A ranking question offers 1. A group
+            multiple-choice question offers 1. A no-check rank can earn 2.
     """
     return f"{int(earned)}/{int(possible)}"
 
@@ -72,10 +77,10 @@ def check_message(right: int, total: int) -> str:
 
 
 def send_earned(*, keyed: bool, all_correct: bool, check_used: bool) -> int:
-    """Points for one completed group rank. The question maximum is 2.
+    """Points for one completed group rank. The question maximum is 1.
 
-    A keyed rank sent all correct, without a check, is 4. Every other
-    completion is 2. An unsent question is not passed here.
+    A keyed rank sent all correct, without a check, is 2. Every other
+    completion is 1. An unsent question is not passed here.
 
     Args:
         keyed: The question has an answer order.
@@ -88,11 +93,12 @@ def send_earned(*, keyed: bool, all_correct: bool, check_used: bool) -> int:
 
 
 def catchup_earned(current: int | None) -> int:
-    """Catch-up completion for a group rank. Never raises a score to 4.
+    """Catch-up completion for a group rank. The saved cap is 1.
 
-    A student who already earned 2 or 4 keeps that value. Anyone else
-    earns 2. This does not see ``possible``. A stored rank of 1 possible
-    is the older scale and is handled by ``old_rank_scale``, not here.
+    A student who already earned 1 or more keeps that value, including a
+    no-check bonus of 2 or a doubled-scale 4. Anyone else earns 1.
+    Catch-up never writes the no-check bonus. This does not see
+    ``possible``. A doubled-scale completion is left stored by the caller.
 
     Args:
         current: Points already stored for this question, if any.
@@ -102,13 +108,13 @@ def catchup_earned(current: int | None) -> int:
     return RANK_EARNED_BASE
 
 
-def old_rank_scale(possible: int | None, kind: str) -> bool:
-    """True when a rank row is still stored on the one-point scale.
+def legacy_doubled_rank(possible: int | None, kind: str) -> bool:
+    """True when a rank row is stored on the doubled MCK-301 scale.
 
-    Those rows (1 possible, from the scale in #388) are already
-    finished. Catch-up must not offer them, and no writer may change
-    their earned or possible values. Multiple choice is also 1 possible
-    and is not this scale.
+    Those rows use possible 2. Earned 4, 2, and 0 are the doubled forms
+    of 2/1, 1/1, and 0/1. They are not rewritten. The forward scale is
+    possible 1, so a new rank is not this row. Multiple choice is also
+    possible 1 and is not this scale.
 
     Args:
         possible: Stored ``group_engagement.possible``, if a row exists.
@@ -116,17 +122,18 @@ def old_rank_scale(possible: int | None, kind: str) -> bool:
     """
     if str(kind or "") != "rank" or possible is None:
         return False
-    return int(possible) == 1
+    return int(possible) == RANK_DOUBLED_POSSIBLE
 
 
 def display_points(earned: int, possible: int, kind: str) -> tuple[int, int]:
     """Normalize one stored row for teacher totals. Does not write.
 
-    A rank row stored with 1 possible stays in the database and is shown
-    on the 2-point scale. Earned 2 displays as 4, earned 1 as 2, and
-    earned 0 as 0, each with 2 possible. An old 2/1 plus a new 4/2
-    therefore totals 8/4. Multiple choice and the current rank scale
-    pass through unchanged.
+    A doubled rank (possible 2) is shown in 1-point terms. Earned 4
+    displays as 2, earned 2 as 1, and earned 0 as 0, each with 1
+    possible, so 4/2 and 2/1 stay the same ratio. The forward scale
+    (possible 1) and multiple choice pass through. An unrecognized
+    earned value on the doubled scale is shown unchanged so a bad row
+    is not given a new meaning.
 
     Args:
         earned: Stored points for this question.
@@ -136,9 +143,11 @@ def display_points(earned: int, possible: int, kind: str) -> tuple[int, int]:
     Returns:
         ``(earned, possible)`` to add into a displayed total.
     """
-    if old_rank_scale(possible, kind):
+    if legacy_doubled_rank(possible, kind):
         stored = int(earned)
-        shown = {0: 0, 1: RANK_EARNED_BASE, 2: RANK_EARNED_BONUS}.get(stored, stored * 2)
+        shown = {0: 0, 2: RANK_EARNED_BASE, 4: RANK_EARNED_BONUS}.get(stored)
+        if shown is None:
+            return stored, int(possible)
         return shown, RANK_POSSIBLE
     return int(earned), int(possible)
 
