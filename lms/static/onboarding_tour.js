@@ -4,8 +4,8 @@
  * State per teacher in localStorage ``alc-onboarding:<user id>`` =
  * ``{version:2, status, page, step, done:{task:iso}, checklist:{collapsed, hidden}}``.
  * A step finishes when the teacher clicks its real control. Checklist rows
- * tick from real events (roster, page view, a Test run started and ended,
- * attendance saved), not from the tour itself. ``/staff?tour=1`` (Help →
+ * tick from real events (roster, Question Bank, attendance saved,
+ * Participation), not from the tour itself. ``/staff?tour=1`` (Help →
  * Take the tour again) resets the current page's steps and keeps ticks.
  * The tour dispatches ``alc-tour-end`` when it is skipped or finished so
  * What's new can open after it. It never starts over a live class.
@@ -82,7 +82,6 @@ export const PAGES = {
 export const TASKS = [
   { id: "populate", step: "set_class", label: "Populate your class", href: "dashboard" },
   { id: "question_bank", step: "question_bank", label: "Open the Question Bank", href: "nav" },
-  { id: "test_live", step: "run_live", label: "Run a test live class", href: "dashboard" },
   { id: "attendance", step: "take_attendance", label: "Take attendance", href: "ap" },
   { id: "participation", step: "participation", label: "Check Participation", href: "ap" },
 ];
@@ -115,8 +114,8 @@ export function tourKey(userId) {
  *
  * TODO(MCK-269): Test/Live is chosen at the date step. The page passes
  * that field through as ``data-tour-run-type``. Until the field exists the
- * value is empty: live-class steps still run (they default to a Test class)
- * and the checklist does not tick, so a Live run is not counted.
+ * value is empty and the live-class spotlight still runs. An explicit Live
+ * value skips those steps.
  *
  * @param {string|null|undefined} value
  * @returns {boolean|null} true when Test, false when Live, null when unknown
@@ -265,11 +264,6 @@ export function syncTicks(state) {
   const done = { ...(state.done || {}) };
   if (done.populate) done.set_class = done.set_class || done.populate;
   if (done.attendance) done.take_attendance = done.take_attendance || done.attendance;
-  if (done.test_live) {
-    done.run_live = done.run_live || done.test_live;
-    done.end_live = done.end_live || done.test_live;
-    done.test_toggle = done.test_toggle || done.test_live;
-  }
   return { ...state, done };
 }
 
@@ -304,23 +298,6 @@ export function applySignals(state, signals = {}) {
     if (!done.attendance) done.attendance = now;
     if (!done.take_attendance) done.take_attendance = now;
   }
-  let liveTest = state.liveTest || null;
-  const kind = liveRunIsTest(signals.runType);
-  if (kind === true && signals.live) {
-    const session = String(signals.session || "");
-    if (!liveTest || liveTest.kind !== "test" || liveTest.session !== session) {
-      liveTest = { session, started: now, kind: "test" };
-    }
-  }
-  if (signals.liveEnded && kind === true) {
-    if (!liveTest || liveTest.kind !== "test") {
-      liveTest = { session: String(signals.session || ""), started: now, kind: "test" };
-    }
-    if (!done.test_live) done.test_live = now;
-    if (!done.run_live) done.run_live = now;
-    if (!done.end_live) done.end_live = now;
-    if (!done.test_toggle) done.test_toggle = now;
-  }
   let status = state.status;
   let checklist = { ...(state.checklist || {}) };
   const complete = checklistCount(done) === TASK_IDS.length;
@@ -328,7 +305,7 @@ export function applySignals(state, signals = {}) {
     status = "done";
     checklist = { ...checklist, collapsed: true, toast: checklist.toast || !wasComplete };
   }
-  return syncTicks({ ...state, version: 2, status, done, liveTest, checklist });
+  return syncTicks({ ...state, version: 2, status, done, checklist });
 }
 
 /**
@@ -407,8 +384,7 @@ export function skipTour(state) {
 export function showMeTask(state, taskId) {
   const task = TASKS.find((row) => row.id === taskId);
   if (!task) return state;
-  let focus = task.step;
-  if (taskId === "test_live" && !(state.done || {}).test_toggle) focus = "test_toggle";
+  const focus = task.step;
   return {
     ...state,
     status: "active",
@@ -654,9 +630,6 @@ export function initTour(env) {
       roster: Number((body.dataset && body.dataset.tourRoster) || 0),
       page,
       view: String((body.dataset && body.dataset.tourView) || ""),
-      runType: String((body.dataset && body.dataset.tourRunType) || ""),
-      live: Boolean(body.dataset && body.dataset.tourLive === "1"),
-      session: String((body.dataset && body.dataset.tourSession) || ""),
       now: nowFn(),
     });
     writeTour(storage, userId, state);
@@ -696,8 +669,9 @@ export function initTour(env) {
     const hidden = Boolean(state.checklist && state.checklist.hidden);
     const visible = !hidden && engaged;
     const done = state.done || {};
+    const total = TASK_IDS.length;
     const n = checklistCount(done);
-    const collapsed = Boolean(state.checklist && state.checklist.collapsed) || n === TASK_IDS.length;
+    const collapsed = Boolean(state.checklist && state.checklist.collapsed) || n === total;
     let nextId = "";
     for (const task of TASKS) {
       if (!done[task.id]) {
@@ -718,10 +692,10 @@ export function initTour(env) {
     const dismiss = check.querySelector("[data-check-dismiss]");
     if (card) card.hidden = collapsed;
     if (pill) pill.hidden = !collapsed;
-    if (title) title.textContent = `Getting started ${n} of 5`;
-    if (bar) bar.style.width = `${(n / TASK_IDS.length) * 100}%`;
-    if (pillLabel) pillLabel.textContent = n === TASK_IDS.length ? "✓ Getting started 5/5" : `Getting started ${n}/5`;
-    if (dismiss) dismiss.hidden = n !== TASK_IDS.length;
+    if (title) title.textContent = `Getting started ${n} of ${total}`;
+    if (bar) bar.style.width = `${total ? (n / total) * 100 : 0}%`;
+    if (pillLabel) pillLabel.textContent = n === total ? `✓ Getting started ${total}/${total}` : `Getting started ${n}/${total}`;
+    if (dismiss) dismiss.hidden = n !== total;
     for (const row of check.querySelectorAll("[data-task]")) {
       const id = row.getAttribute("data-task");
       const ticked = Boolean(done[id]);
@@ -932,19 +906,6 @@ export function initTour(env) {
       if (el === currentEl || (typeof currentEl.contains === "function" && currentEl.contains(el))) {
         finishStep(state.step);
       }
-    }, true);
-    doc.addEventListener("submit", (event) => {
-      const form = event && event.target;
-      if (!form || (form.id !== "live-end-class-form" && form.id !== "end-live-form")) return;
-      const ended = applySignals(state, {
-        runType: String((body.dataset && body.dataset.tourRunType) || ""),
-        live: true,
-        session: String((body.dataset && body.dataset.tourSession) || ""),
-        liveEnded: true,
-        now: nowFn(),
-      });
-      const became = state.status !== "done" && ended.status === "done";
-      persist(ended, became ? "done" : "");
     }, true);
   }
 
