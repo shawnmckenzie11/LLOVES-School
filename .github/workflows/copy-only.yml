@@ -1,0 +1,82 @@
+name: Copy-only fast lane
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  copy-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Detect copy-only label
+        id: lane
+        env:
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python3 .github/scripts/copy_only_lane_active.py
+
+      - name: Copy-only lane not used
+        if: steps.lane.outputs.active != 'true'
+        run: |
+          echo "No copy-only label on this PR; lane checks were not run."
+          echo "Do not add this job to required branch protection checks."
+
+      - uses: actions/checkout@v4
+        if: steps.lane.outputs.active == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+
+      - uses: actions/checkout@v4
+        if: steps.lane.outputs.active == 'true'
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          path: base
+
+      - uses: actions/setup-python@v5
+        if: steps.lane.outputs.active == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pr/lms/requirements.txt
+
+      - name: Install dependencies
+        if: steps.lane.outputs.active == 'true'
+        run: python -m pip install -r lms/requirements.txt
+        working-directory: pr
+
+      - name: Copy-only diff guard (checker from base branch)
+        if: steps.lane.outputs.active == 'true'
+        working-directory: pr
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          COPY_ONLY_GIT_DIR: ${{ github.workspace }}/pr
+          COPY_ONLY_CHECKER: ${{ github.workspace }}/base/scripts/copy_only_check.py
+        run: python "$COPY_ONLY_CHECKER" "$BASE" "$HEAD"
+
+      - name: Workflow checker invocation self-test
+        if: steps.lane.outputs.active == 'true'
+        working-directory: pr
+        env:
+          COPY_ONLY_GIT_DIR: ${{ github.workspace }}/pr
+          COPY_ONLY_CHECKER: ${{ github.workspace }}/base/scripts/copy_only_check.py
+        run: python scripts/copy_only_workflow_selftest.py
+
+      - name: Template render smoke (Flask test client)
+        if: steps.lane.outputs.active == 'true'
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          COPY_ONLY_GIT_DIR: ${{ github.workspace }}/pr
+        working-directory: pr
+        run: python scripts/copy_only_template_smoke.py "$BASE" "$HEAD"
