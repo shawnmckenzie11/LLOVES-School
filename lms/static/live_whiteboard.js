@@ -130,6 +130,13 @@ export function noteBoardRun(state, runKey) {
   }
   if (prev === next) return "same";
   state.key = next;
+  if (
+    boardRunBase(prev) === boardRunBase(next) &&
+    !isFreshBoardRunKey(prev) &&
+    !isFreshBoardRunKey(next)
+  ) {
+    return "same";
+  }
   return "changed";
 }
 
@@ -203,6 +210,30 @@ export function showBoardRefreshCue(anchor, text) {
  */
 export function isFreshBoardRunKey(runKey) {
   return /~g[0-9]+$/.test(String(runKey || "").trim());
+}
+
+/**
+ * Session run key with a Fresh, question, or catch-up suffix removed.
+ * @param {unknown} runKey
+ * @returns {string}
+ */
+export function boardRunBase(runKey) {
+  let key = String(runKey || "").trim();
+  key = key.replace(/~cu~q[0-9]+$/, "");
+  key = key.replace(/~q[0-9]+$/, "");
+  key = key.replace(/~g[0-9]+$/, "");
+  key = key.replace(/~cu$/, "");
+  return key;
+}
+
+/**
+ * True for a live question board (`<run>~q<prompt id>`), not catch-up.
+ * @param {unknown} runKey
+ * @returns {boolean}
+ */
+export function isQuestionBoardRunKey(runKey) {
+  const key = String(runKey || "").trim();
+  return /~q[0-9]+$/.test(key) && !/~cu~q[0-9]+$/.test(key);
 }
 
 /**

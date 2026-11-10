@@ -547,3 +547,134 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   font-size: 0.8rem;
   text-align: center;
 }
+
+.qboard-dash-grid,
+.qboard-phone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.qboard-head,
+.qboard-filters,
+.qboard-panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.qboard-chip {
+  background: #2563eb;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.qboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 0.6rem;
+  max-height: 520px;
+}
+
+.qboard-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+  overflow: auto;
+}
+
+button.qboard-tile,
+button.qboard-tile .qboard-tile-name,
+button.qboard-tile .qboard-tile-status,
+button.qboard-tile .qboard-tile-text,
+button.qboard-tile .qboard-tile-members,
+.qboard-panel,
+.qboard-panel-name,
+.qboard-panel-text {
+  color: #0f172a;
+}
+
+button.qboard-filter {
+  color: #f8fafc;
+}
+
+button.qboard-filter.is-on {
+  background: #0f172a;
+  color: #fff;
+}
+
+.qboard-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.35rem;
+  text-align: left;
+}
+
+.qboard-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.35rem 0;
+}
+
+.qboard-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #0f172a;
+  font-size: 0.8rem;
+}
+
+.qboard-legend-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+}
+
+.qboard-thumb,
+.qboard-panel-canvas,
+.qboard-canvas {
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.qboard-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.6rem;
+  background: #fff;
+}
+
+.qboard-line {
+  color: #9a3412;
+  margin: 0;
+}
+
+.qboard-status {
+  color: #e2e8f0;
+  margin: 0;
+}
+
+.qboard-tools {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 800px) {
+  .qboard-layout {
+    grid-template-columns: 1fr;
+  }
+  .qboard-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

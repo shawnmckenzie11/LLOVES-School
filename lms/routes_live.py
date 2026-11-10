@@ -759,6 +759,10 @@ def register_live(app, school, shared):
                         "team_draw_prompt_id",
                         "team_draw_custom_text",
                         "team_draw_mystery_steps",
+                        "answer_with",
+                        "answerWith",
+                        "image_as_board_background",
+                        "imageAsBoardBackground",
                     )
                     if key in body
                 },
@@ -5233,6 +5237,262 @@ def register_live(app, school, shared):
             reply = school.release_whiteboard_feedback(session_id, board_key)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        return jsonify(reply)
+
+    def _question_board_error(exc: Exception):
+        """JSON for a refused question-board request.
+
+        Args:
+            exc: ``QuestionBoardError`` from the question-board helper.
+        """
+        status = int(getattr(exc, "status", 400) or 400)
+        return jsonify({"ok": False, "error": str(exc)}), status
+
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards",
+        methods=["GET"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_question_board_dashboard(session_id: int, prompt_id: int):
+        """Teacher tiles for one board question. Students are refused."""
+        from question_board import QuestionBoardError
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            return jsonify(school.question_dashboard(session_id, prompt_id))
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/ink",
+        methods=["POST"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_question_board_ink(session_id: int, prompt_id: int, board_key: str):
+        """Teacher pen on one question board. Ink shows on the phone immediately."""
+        from question_board import QuestionBoardError
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        try:
+            school.append_question_board_ops(
+                session_id,
+                prompt_id,
+                0,
+                ops,
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+                owner="teacher",
+                board_key=board_key,
+            )
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify({"ok": True})
+
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/show",
+        methods=["POST"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_question_board_show(session_id: int, prompt_id: int, board_key: str):
+        """Project one question board. Works for a solo board and a team board."""
+        from question_board import question_run_key
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            base, _gen = school._live_board_base_run_key(int(session_id))
+            school._set_projected_whiteboard(
+                int(session_id),
+                str(board_key),
+                run_key=question_run_key(base, int(prompt_id)),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True})
+
+    @bp.route("/api/student/question-board/<int:prompt_id>", methods=["GET"])
+    @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_student_question_board(prompt_id: int):
+        """This student's question board, including ink drawn before a reload."""
+        from question_board import QuestionBoardError
+
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        try:
+            reply = school.read_student_question_board(
+                int(ctx["live_session_id"]),
+                int(prompt_id),
+                int(ctx["student_id"]),
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route("/api/student/question-board/<int:prompt_id>/ops", methods=["POST"])
+    @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_student_question_board_ops(prompt_id: int):
+        """Append this student's ink on the published question board."""
+        from question_board import QuestionBoardError
+
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        try:
+            reply = school.append_question_board_ops(
+                int(ctx["live_session_id"]),
+                int(prompt_id),
+                int(ctx["student_id"]),
+                ops,
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+            )
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route("/api/student/question-board/<int:prompt_id>/submit", methods=["POST"])
+    @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_student_question_board_submit(prompt_id: int):
+        """Submit the question board for this student, or for the whole team."""
+        from question_board import QuestionBoardError
+
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        try:
+            reply = school.submit_question_board(
+                int(ctx["live_session_id"]),
+                int(prompt_id),
+                int(ctx["student_id"]),
+                body.get("text") or "",
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route("/api/student/question-board/<int:prompt_id>/draft", methods=["POST"])
+    @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_student_question_board_draft(prompt_id: int):
+        """Save the shared team text box. Writes are debounced to one per 2s."""
+        from question_board import QuestionBoardError
+
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        try:
+            reply = school.save_team_draft(
+                int(ctx["live_session_id"]),
+                int(prompt_id),
+                int(ctx["student_id"]),
+                body.get("text") or "",
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    def _catchup_board_student(token: str):
+        """Roster id for a catch-up login on this link, or an error response.
+
+        Args:
+            token: Catch-up link token. Not logged.
+        """
+        from catchup_session import identity_for_class
+
+        link = school.get_catchup_link(str(token or ""))
+        if link is None:
+            return None, (jsonify({"ok": False, "error": "Not found"}), 404)
+        student_id = identity_for_class(session, school, int(link["class_id"]))
+        if student_id is None:
+            return None, (jsonify({"ok": False, "error": "Not joined."}), 401)
+        return (link, int(student_id)), None
+
+    @bp.route(
+        "/api/catchup/<token>/questions/<int:item_id>/board",
+        methods=["GET"],
+    )
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_catchup_question_board(token: str, item_id: int):
+        """Solo catch-up board, or the saved live drawing when one exists."""
+        from question_board import QuestionBoardError
+
+        found, denied = _catchup_board_student(token)
+        if denied is not None:
+            return denied
+        _link, student_id = found
+        try:
+            reply = school.read_catchup_board(token, int(student_id), int(item_id))
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
+        "/api/catchup/<token>/questions/<int:item_id>/board/ops",
+        methods=["POST"],
+    )
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_catchup_question_board_ops(token: str, item_id: int):
+        """Append ink on this student's catch-up board only."""
+        from question_board import QuestionBoardError
+
+        found, denied = _catchup_board_student(token)
+        if denied is not None:
+            return denied
+        _link, student_id = found
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        try:
+            reply = school.append_catchup_board_ops(
+                token,
+                int(student_id),
+                int(item_id),
+                ops,
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
+        "/api/catchup/<token>/questions/<int:item_id>/board/submit",
+        methods=["POST"],
+    )
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_catchup_question_board_submit(token: str, item_id: int):
+        """Submit a catch-up board. A live answer is never overwritten."""
+        from question_board import QuestionBoardError
+
+        found, denied = _catchup_board_student(token)
+        if denied is not None:
+            return denied
+        _link, student_id = found
+        body = request.get_json(silent=True) or {}
+        try:
+            reply = school.submit_catchup_board(
+                token, int(student_id), int(item_id), body.get("text") or ""
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
         return jsonify(reply)
 
     @bp.route(

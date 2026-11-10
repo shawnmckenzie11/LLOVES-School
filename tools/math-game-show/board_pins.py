@@ -110,11 +110,12 @@ def record_board_assignment(
               AND (
                 run_key = ?
                 OR ? LIKE run_key || '~g%'
+                OR ? LIKE run_key || '~q%'
               )
             ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, id DESC
             LIMIT 1
             """,
-            (int(class_id), key, key),
+            (int(class_id), key, key, key),
         ).fetchone()
         if found is not None:
             try:

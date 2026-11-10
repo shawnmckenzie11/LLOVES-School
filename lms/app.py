@@ -1208,6 +1208,17 @@ def board_write_closed(exc: BoardSessionClosed):
     Returns:
         A 409 response.
     """
+    if getattr(exc, "question_closed", False):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "This question is closed.",
+                    "question_closed": True,
+                }
+            ),
+            409,
+        )
     if getattr(exc, "stale_run", False):
         return (
             jsonify(

@@ -29,6 +29,23 @@
             <span>Rank</span>
           </label>
         </div>
+        <div id="live-add-q-answer-with" class="live-add-answer-with" hidden>
+          <span class="live-relocate-move-field">Answer with <span class="live-question-new-chip">new</span></span>
+          <div class="live-add-type-chip-row" role="radiogroup" aria-label="Answer with">
+            <label class="live-add-type-chip">
+              <input type="radio" name="live-add-q-answer-with" value="text" checked>
+              <span>Typing</span>
+            </label>
+            <label class="live-add-type-chip">
+              <input type="radio" name="live-add-q-answer-with" value="board">
+              <span>Whiteboard</span>
+            </label>
+            <label class="live-add-type-chip">
+              <input type="radio" name="live-add-q-answer-with" value="both">
+              <span>Typing and whiteboard</span>
+            </label>
+          </div>
+        </div>
       </fieldset>
       <label class="live-add-q-kind live-add-q-side" for="live-add-q-bank-kind">Kind
         <select id="live-add-q-bank-kind" aria-label="Kind">
@@ -97,6 +114,10 @@
       <div class="live-add-q-image live-add-q-main">
         <label class="live-relocate-move-field" for="live-add-q-image">Image (optional)</label>
         <input id="live-add-q-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+        <label id="live-add-q-image-bg" class="live-add-q-image-bg" hidden>
+          <input id="live-add-q-image-bg-check" type="checkbox" checked> Use image as the board background <span class="live-question-new-chip">new</span>
+        </label>
+        <p id="live-add-q-image-bg-hint" class="hint compact" hidden>Only shows when an image is added and Answer with is Whiteboard.</p>
       </div>
       <div class="live-add-q-save live-add-q-side">
         <label class="live-add-q-bank">
@@ -116,7 +137,8 @@
           <span class="live-relocate-move-field">Live defaults</span>
           <label><input type="radio" name="live-add-q-response" value="individual" checked> Individual</label>
           <label><input type="radio" name="live-add-q-response" value="group"> Group</label>
-          <label><input type="checkbox" id="live-add-q-show-results" checked> Show results</label>
+          <p id="live-add-q-group-hint" class="hint compact" hidden>Group gives each team one shared board.</p>
+          <label id="live-add-q-show-results-label"><input type="checkbox" id="live-add-q-show-results" checked> Show results</label>
           <label class="live-add-q-points-label">Points <input id="live-add-q-points" type="text" inputmode="decimal" value="1"></label>
         </div>
       </div>

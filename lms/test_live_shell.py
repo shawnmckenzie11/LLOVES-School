@@ -456,10 +456,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Stage pills are display-only", js)
 
     def test_whiteboard_tab_stays_and_parked_canvas_leaves_the_grid(self) -> None:
-        """Content tabs keep Whiteboard, and a parked canvas leaves the grid.
+        """Content tabs are Media, Questions, and Slides.
 
-        The parked zone is clipped, taken out of flow, and hidden from Tab.
-        Opening the zone drops ``is-parked``, so it is visible again.
+        The standalone Whiteboard tab is hidden. The parked canvas zone
+        stays in the page so an existing whiteboard item can still run.
         """
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
@@ -467,8 +467,8 @@ class LiveShellTests(unittest.TestCase):
         tabs = html[html.index('id="live-content-tabs"') : html.index('id="live-frames"')]
         self.assertIn('data-tab="media"', tabs)
         self.assertIn('data-tab="questions"', tabs)
-        self.assertIn('data-tab="canvas"', tabs)
-        self.assertIn(">Whiteboard<", tabs)
+        self.assertNotIn('data-tab="canvas"', tabs)
+        self.assertNotIn(">Whiteboard<", tabs)
         self.assertIn('data-tab="slides"', tabs)
         self.assertIn('id="canvas-zone"', html)
         self.assertIn('id="formative-live-board"', html)

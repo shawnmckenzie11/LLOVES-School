@@ -77,6 +77,24 @@ export function legendChipLabels(members) {
 }
 
 /**
+ * Rows a legend should paint.
+ *
+ * A name paints with its swatch. A colour with a blank name still paints
+ * the swatch, which is the student projection after names are stripped.
+ * A row with neither is left out.
+ *
+ * @param {any[] | undefined} members
+ * @returns {any[]}
+ */
+export function legendRowsToPaint(members) {
+  return (Array.isArray(members) ? members : []).filter((member) => {
+    const name = String((member && member.name) || "").trim();
+    const color = String((member && member.color) || "").trim();
+    return Boolean(name || color);
+  });
+}
+
+/**
  * Legend rows for a board shown on a student screen.
  *
  * Colours stay so ink still matches. Names are omitted. The teacher
@@ -277,10 +295,7 @@ export function wireFormativeWhiteboard(boardApi, opts) {
 
   function paintLegend() {
     legend.replaceChildren();
-    const labels = new Set(legendChipLabels(opts.members));
-    const rows = (opts.members || []).filter((member) =>
-      labels.has(String(member.name || "").trim())
-    );
+    const rows = legendRowsToPaint(opts.members);
     for (const member of rows) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -289,7 +304,9 @@ export function wireFormativeWhiteboard(boardApi, opts) {
       const dot = document.createElement("span");
       dot.className = "wb-legend-dot";
       dot.style.background = String(member.color || "#94a3b8");
-      btn.append(dot, document.createTextNode(String(member.name || "")));
+      const name = String(member.name || "").trim();
+      btn.append(dot);
+      if (name) btn.append(document.createTextNode(name));
       btn.addEventListener("click", () => {
         const id = btn.dataset.member || "";
         const items = boardItemsFromInk(
