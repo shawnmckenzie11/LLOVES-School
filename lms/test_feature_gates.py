@@ -196,6 +196,7 @@ class WhiteboardGateTests(_School):
         staff_paths = (
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery",
             f"/api/live-sessions/{self.session_id}/board/teacher",
+            f"/api/live-sessions/{self.session_id}/questions/1/boards",
         )
         for path in staff_paths:
             got = self.staff.get(path)
@@ -208,6 +209,8 @@ class WhiteboardGateTests(_School):
         phone = self._join("One")
         student_board = phone.get("/api/student/board/mine?since=0")
         self.assertEqual(student_board.status_code, 404)
+        student_question = phone.get("/api/student/question-board/1")
+        self.assertEqual(student_question.status_code, 404)
         student_ink = phone.post(
             "/api/student/canvas-presence",
             json={"x": 0.2, "y": 0.3, "stroke_id": "pen"},

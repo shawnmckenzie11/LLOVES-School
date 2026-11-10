@@ -5253,6 +5253,7 @@ def register_live(app, school, shared):
         methods=["GET"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_question_board_dashboard(session_id: int, prompt_id: int):
         """Teacher tiles for one board question. Students are refused."""
         from question_board import QuestionBoardError
@@ -5270,6 +5271,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_question_board_ink(session_id: int, prompt_id: int, board_key: str):
         """Teacher pen on one question board. Ink shows on the phone immediately."""
         from question_board import QuestionBoardError
@@ -5300,6 +5302,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_question_board_show(session_id: int, prompt_id: int, board_key: str):
         """Project one question board. Works for a solo board and a team board."""
         from question_board import question_run_key
@@ -5320,6 +5323,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/question-board/<int:prompt_id>", methods=["GET"])
     @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_student_question_board(prompt_id: int):
         """This student's question board, including ink drawn before a reload."""
         from question_board import QuestionBoardError
@@ -5339,6 +5343,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/question-board/<int:prompt_id>/ops", methods=["POST"])
     @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_student_question_board_ops(prompt_id: int):
         """Append this student's ink on the published question board."""
         from question_board import QuestionBoardError
@@ -5364,6 +5369,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/question-board/<int:prompt_id>/submit", methods=["POST"])
     @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_student_question_board_submit(prompt_id: int):
         """Submit the question board for this student, or for the whole team."""
         from question_board import QuestionBoardError
@@ -5385,6 +5391,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/question-board/<int:prompt_id>/draft", methods=["POST"])
     @student_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_student_question_board_draft(prompt_id: int):
         """Save the shared team text box. Writes are debounced to one per 2s."""
         from question_board import QuestionBoardError
@@ -5424,6 +5431,7 @@ def register_live(app, school, shared):
         "/api/catchup/<token>/questions/<int:item_id>/board",
         methods=["GET"],
     )
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_catchup_question_board(token: str, item_id: int):
         """Solo catch-up board, or the saved live drawing when one exists."""
         from question_board import QuestionBoardError
@@ -5442,6 +5450,7 @@ def register_live(app, school, shared):
         "/api/catchup/<token>/questions/<int:item_id>/board/ops",
         methods=["POST"],
     )
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_catchup_question_board_ops(token: str, item_id: int):
         """Append ink on this student's catch-up board only."""
         from question_board import QuestionBoardError
@@ -5468,6 +5477,7 @@ def register_live(app, school, shared):
         "/api/catchup/<token>/questions/<int:item_id>/board/submit",
         methods=["POST"],
     )
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_catchup_question_board_submit(token: str, item_id: int):
         """Submit a catch-up board. A live answer is never overwritten."""
         from question_board import QuestionBoardError

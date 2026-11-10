@@ -15,6 +15,7 @@ import {
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { canvasToPngDataUrl, catchupDrawControlsHtml } from "/static/team_draw.js";
 import { featureOn } from "/static/teacher_features.js";
+import { mountCatchupQuestionBoards } from "./question_board_ui.js";
 
 /**
  * True when this catch-up's teacher may show a draw board.
@@ -185,6 +186,9 @@ function mountCatchup() {
   }
   const questions = Array.isArray(data.questions) ? data.questions : [];
   root.innerHTML = questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  const token = parts.length ? parts[parts.length - 1] : "";
+  mountCatchupQuestionBoards(token);
   if (catchupDrawOn()) root.querySelectorAll("canvas.catchup-draw-canvas").forEach((canvas) => {
     if (!(canvas instanceof HTMLCanvasElement)) return;
     const submit = canvas.closest(".student-live-card")?.querySelector("[data-live-submit]");

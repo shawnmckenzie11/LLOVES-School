@@ -540,10 +540,10 @@ def feature_map_for_catchup_token(token: str) -> dict[str, bool]:
 
 
 def _catchup_surface() -> bool:
-    """True when this request is a catch-up page.
+    """True when this request is a catch-up page or catch-up board API.
 
-    Catch-up students have no account. The page must not use a staff
-    login that happens to share the browser.
+    Catch-up students have no account. The page and its board routes
+    must not use a staff login that happens to share the browser.
     """
     try:
         from flask import has_request_context, request
@@ -551,13 +551,15 @@ def _catchup_surface() -> bool:
         return False
     if not has_request_context():
         return False
-    return str(getattr(request, "path", "") or "").startswith("/catchup/")
+    path = str(getattr(request, "path", "") or "")
+    return path.startswith("/catchup/") or path.startswith("/api/catchup/")
 
 
 def _catchup_token_from_request() -> str:
     """Token from the catch-up path. The query string is ignored.
 
-    Canonical and legacy URLs both end in the token.
+    Canonical and legacy page URLs both end in the token. Board API
+    paths keep it in ``/api/catchup/<token>/``.
     """
     try:
         from flask import has_request_context, request
@@ -566,6 +568,8 @@ def _catchup_token_from_request() -> str:
     if not has_request_context():
         return ""
     parts = [part for part in str(request.path or "").split("/") if part]
+    if len(parts) >= 3 and parts[0] == "api" and parts[1] == "catchup":
+        return str(parts[2])[:80]
     if len(parts) < 2 or parts[0] != "catchup":
         return ""
     return str(parts[-1])[:80]
@@ -611,6 +615,21 @@ def _student_owner_session_id(kwargs: dict[str, Any]) -> int | None:
         found = _positive_int(session.get("student_live_session_id"))
         if found is not None:
             return found
+        try:
+            from student_portal import visit_token_from_request
+        except ImportError:
+            from lms.student_portal import visit_token_from_request
+
+        token = visit_token_from_request()
+        if token:
+            try:
+                resolved = _school().resolve_student_visit_token(token, allow_left=True)
+            except Exception:
+                resolved = None
+            if resolved is not None:
+                visit_session = _positive_int(resolved.get("live_session_id"))
+                if visit_session is not None:
+                    return visit_session
     for name in ("session_id", "live_session_id"):
         found = _positive_int(kwargs.get(name))
         if found is not None:

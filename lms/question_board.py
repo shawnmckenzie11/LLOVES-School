@@ -1155,10 +1155,37 @@ def _cards_for_question(
                 "name": team_names.get(order, ""),
                 "member_names": [names.get(sid, "") for sid in member_ids],
                 "student_ids": member_ids,
+                "team_sort_order": order,
                 "away": all(bool(str(row.get("left_at") or "").strip()) for row in members),
             }
         )
     return cards
+
+
+def question_board_legend(
+    school: Any, session_id: int, card: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Colour chips for one question tile.
+
+    Names stay here. MCK-280 strips them on the student projection and
+    keeps them on the teacher panel.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        card: Tile from ``_cards_for_question``.
+    """
+    from formative_live_board import legend_entries
+
+    return legend_entries(
+        school,
+        int(session_id),
+        {
+            "board_key": str(card.get("board_key") or ""),
+            "team_sort_order": card.get("team_sort_order"),
+            "student_ids": list(card.get("student_ids") or []),
+        },
+    )
 
 
 def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str, Any]:
@@ -1241,6 +1268,7 @@ def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str
                 "submitted_by": who_id,
                 "submitted_by_name": names.get(who_id, "") if who_id is not None else "",
                 "canvas_view": view,
+                "legend": question_board_legend(school, int(session_id), card),
                 "run_key": run_key,
             }
         )
@@ -1265,6 +1293,7 @@ def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str
         "filters": [
             {"id": "all", "label": "All", "count": len(tiles)},
             {"id": "Not started", "label": "Not started", "count": counts["Not started"]},
+            {"id": "Drawing", "label": "Drawing", "count": counts["Drawing"]},
             {"id": "Submitted", "label": "Submitted", "count": counts["Submitted"]},
             {"id": "Teacher wrote", "label": "Teacher wrote", "count": counts["Teacher wrote"]},
         ],
@@ -1854,14 +1883,23 @@ def read_catchup_board(
             "board_key": board_key,
         }
     rows, seq = _board_rows(school, run_key, board_key)
+    with school._lock:
+        copy = school.conn.execute(
+            """
+            SELECT text, submitted_at FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(link["class_id"]), run_key, board_key),
+        ).fetchone()
+    submitted = copy is not None and str(copy["submitted_at"] or "").strip()
     return {
         "ok": True,
         "read_only": False,
         "snapshot": True,
         "canvas_view": fold_one_board(rows, include_feedback=False),
         "board_seq": seq,
-        "text": "",
-        "status_line": "",
+        "text": str(copy["text"] or "") if submitted else "",
+        "status_line": "Submitted. You can still make changes." if submitted else "",
         "run_key": run_key,
         "board_key": board_key,
     }
@@ -1895,6 +1933,30 @@ def append_catchup_board_ops(
     link = school.get_catchup_link(str(token or ""))
     if link is None or not link_still_open(school, {**link, "class_id": int(link["class_id"])}):
         raise QuestionBoardError(CLOSED_LINE, 409)
+    with school._lock:
+        item = school.conn.execute(
+            """
+            SELECT question_key FROM participation_items
+            WHERE id = ? AND class_id = ? AND run_key = ?
+            """,
+            (int(item_id), int(link["class_id"]), str(link["run_key"])),
+        ).fetchone()
+        existing = None
+        if item is not None:
+            existing = school.conn.execute(
+                """
+                SELECT source FROM participation_answers
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(item["question_key"]),
+                    int(student_id),
+                ),
+            ).fetchone()
+    if existing is not None and str(existing["source"] or "") == "live":
+        raise QuestionBoardError("That answer was saved in class.", 409)
     run_key = catchup_run_key(str(link["run_key"]), int(item_id))
     board_key = f"solo:{int(student_id)}"
     cleaned = [scrub_op(op) for op in ops if isinstance(op, dict)]

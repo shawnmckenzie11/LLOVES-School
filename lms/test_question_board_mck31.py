@@ -494,6 +494,137 @@ class QuestionBoardTests(unittest.TestCase):
         self.assertEqual(by_student[self.ids[2]]["source"], "catchup")
         self.assertIn("updated after class", by_student[self.ids[2]]["answer_json"])
 
+    def test_catchup_page_routes_draw_reload_and_resubmit(self) -> None:
+        """Catch-up ink, reload, submit, and resubmit use the page's routes.
+
+        A live answer stays put. The status line is the solo wording.
+        """
+        from catchup_session import establish_catchup_identity
+
+        prompt_id = self._add("Board catch page", answer_with="both")
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("live")
+        )
+        self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "live text")
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        with self.school._lock:
+            live = self.school.conn.execute(
+                """
+                SELECT id, question_key, answer_json FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND source = 'live'
+                """,
+                (self.class_id, self.ids[0]),
+            ).fetchone()
+            part = self.school.conn.execute(
+                """
+                SELECT id FROM participation_items
+                WHERE class_id = ? AND question_key = ?
+                """,
+                (self.class_id, live["question_key"]),
+            ).fetchone()
+            link = self.school.conn.execute(
+                "SELECT token FROM catchup_links WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        item_id = int(part["id"])
+        original = live["answer_json"]
+        live_phone = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, self.ids[0])
+        with live_phone.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, self.ids[0], stamp
+            )
+        base = f"/api/catchup/{link['token']}/questions/{item_id}/board"
+        refused_ops = live_phone.post(f"{base}/ops", json={"ops": _stroke("nope")})
+        self.assertEqual(refused_ops.status_code, 409)
+        refused = live_phone.post(f"{base}/submit", json={"text": "no"})
+        self.assertEqual(refused.status_code, 409)
+        phone = self.app.test_client()
+        other_stamp = self.school.catchup_pin_stamp(self.class_id, self.ids[2])
+        with phone.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, self.ids[2], other_stamp
+            )
+        drawn = phone.post(f"{base}/ops", json={"ops": _stroke("page")})
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        loaded = phone.get(base)
+        self.assertEqual(loaded.status_code, 200, loaded.get_json())
+        strokes = (loaded.get_json().get("canvas_view") or {}).get("strokes") or []
+        self.assertTrue(any(str(row.get("id") or "") == "page" for row in strokes))
+        submitted = phone.post(f"{base}/submit", json={"text": "shown work"})
+        self.assertEqual(submitted.status_code, 200, submitted.get_json())
+        self.assertIn("Submitted.", str(submitted.get_json().get("status_line") or ""))
+        self.assertNotIn("team", str(submitted.get_json().get("status_line") or "").lower())
+        again = phone.post(
+            f"{base}/ops",
+            json={"ops": _stroke("page-2", salt=3)},
+        )
+        self.assertEqual(again.status_code, 200, again.get_json())
+        updated = phone.post(f"{base}/submit", json={"text": "shown work again"})
+        self.assertEqual(updated.status_code, 200, updated.get_json())
+        reloaded = phone.get(base)
+        self.assertEqual(reloaded.status_code, 200)
+        reloaded_ids = {
+            str(row.get("id") or "")
+            for row in (reloaded.get_json().get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertIn("page", reloaded_ids)
+        self.assertIn("page-2", reloaded_ids)
+        self.assertEqual(reloaded.get_json().get("text"), "shown work again")
+        with self.school._lock:
+            rows = self.school.conn.execute(
+                """
+                SELECT student_id, source, answer_json FROM participation_answers
+                WHERE class_id = ? AND question_key = ?
+                """,
+                (self.class_id, live["question_key"]),
+            ).fetchall()
+        by_student = {int(row["student_id"]): row for row in rows}
+        self.assertEqual(by_student[self.ids[0]]["source"], "live")
+        self.assertEqual(by_student[self.ids[0]]["answer_json"], original)
+        self.assertEqual(by_student[self.ids[2]]["source"], "catchup")
+        self.assertEqual(
+            sum(1 for row in rows if int(row["student_id"]) == self.ids[2]),
+            1,
+        )
+        self.assertIn("shown work again", by_student[self.ids[2]]["answer_json"])
+
+    def test_teacher_pen_and_undo_show_on_the_student_board(self) -> None:
+        """Teacher ink is stored in red and undo removes that stroke."""
+        prompt_id = self._add("Board pen")
+        key = f"solo:{self.ids[0]}"
+        ink = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/boards/{key}/ink",
+            json={
+                "ops": [
+                    {
+                        "type": "stroke_add",
+                        "id": "pen",
+                        "points": [[0.1, 0.2], [0.4, 0.5], [0.7, 0.3]],
+                        "color": "#dc2626",
+                    },
+                    {"type": "stroke_end", "id": "pen"},
+                ]
+            },
+        )
+        self.assertEqual(ink.status_code, 200, ink.get_json())
+        shown = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0]
+        )
+        strokes = shown.get("canvas_view", {}).get("strokes") or []
+        self.assertEqual(strokes[0].get("id"), "pen")
+        self.assertEqual(strokes[0].get("color"), "#dc2626")
+        undo = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/boards/{key}/ink",
+            json={"ops": [{"type": "stroke_remove", "id": "pen"}]},
+        )
+        self.assertEqual(undo.status_code, 200, undo.get_json())
+        after = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0]
+        )
+        left = after.get("canvas_view", {}).get("strokes") or []
+        self.assertFalse(any(str(row.get("id") or "") == "pen" for row in left))
+
     def test_non_staff_cannot_read_the_dashboard(self) -> None:
         """A student session and an anonymous client do not receive tiles."""
         prompt_id = self._add("Board dash")

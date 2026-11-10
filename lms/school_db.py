@@ -39319,12 +39319,47 @@ class SchoolDB(LovesDB):
                 except Exception:
                     return None
                 view = fold_one_board(rows, include_feedback=True)
+                # MCK-280: the teacher panel keeps names. This payload is
+                # the student projection, so names are stripped and the
+                # colour chips stay.
+                name = ""
+                legend: list[dict[str, str]] = []
+                try:
+                    from question_board import (
+                        _cards_for_question,
+                        _question_item,
+                        question_board_legend,
+                    )
+                except ImportError:
+                    from lms.question_board import (
+                        _cards_for_question,
+                        _question_item,
+                        question_board_legend,
+                    )
+                try:
+                    _prompt, item = _question_item(
+                        self, int(session_id), int(parsed_run.n or 0)
+                    )
+                    card = next(
+                        (
+                            row
+                            for row in _cards_for_question(self, int(session_id), item)
+                            if str(row.get("board_key") or "") == key
+                        ),
+                        None,
+                    )
+                    if card is not None:
+                        name = str(card.get("name") or "")
+                        legend = question_board_legend(self, int(session_id), card)
+                except Exception:
+                    name = ""
+                    legend = []
                 return strip_shown_board_names(
                     public_board_payload(
                         {
                             "board_key": key,
-                            "name": "",
-                            "legend": [],
+                            "name": name,
+                            "legend": legend,
                             "canvas_view": view,
                         }
                     )

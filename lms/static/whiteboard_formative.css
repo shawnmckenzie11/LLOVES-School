@@ -587,6 +587,23 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   overflow: auto;
 }
 
+button.qboard-tile,
+button.qboard-tile .qboard-tile-name,
+button.qboard-tile .qboard-tile-status,
+button.qboard-tile .qboard-tile-text,
+button.qboard-tile .qboard-tile-members,
+.qboard-panel,
+.qboard-panel-name,
+.qboard-panel-text,
+button.qboard-filter {
+  color: #0f172a;
+}
+
+button.qboard-filter.is-on {
+  background: #0f172a;
+  color: #fff;
+}
+
 .qboard-tile {
   display: flex;
   flex-direction: column;
@@ -596,6 +613,27 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   background: #fff;
   padding: 0.35rem;
   text-align: left;
+}
+
+.qboard-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.35rem 0;
+}
+
+.qboard-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #0f172a;
+  font-size: 0.8rem;
+}
+
+.qboard-legend-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
 }
 
 .qboard-thumb,
@@ -616,6 +654,11 @@ body.student-home:has(#canvas-pane:not([hidden])) {
 
 .qboard-line {
   color: #9a3412;
+  margin: 0;
+}
+
+.qboard-status {
+  color: #e2e8f0;
   margin: 0;
 }
 
