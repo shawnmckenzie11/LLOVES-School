@@ -652,6 +652,16 @@ class QuestionBoardTests(unittest.TestCase):
                 ops=[{"type": "stroke_end", "id": "x"}],
             )
 
+    def test_inactive_filter_chips_use_light_text(self) -> None:
+        """An unselected filter chip is light text, not the tile ink color."""
+        css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
+        tile_rule, filter_rule = css.split("button.qboard-filter {", 1)
+        self.assertNotIn("button.qboard-filter", tile_rule[tile_rule.rfind("button.qboard-tile") :])
+        self.assertIn("color: #f8fafc", filter_rule.split("}", 1)[0])
+        selected = css.split("button.qboard-filter.is-on {", 1)[1].split("}", 1)[0]
+        self.assertIn("background: #0f172a", selected)
+        self.assertIn("color: #fff", selected)
+
     def test_content_tabs_omit_the_whiteboard_tab(self) -> None:
         """The Content nav lists Media, Questions, and Slides."""
         html = self.client.get(f"/staff/class/{self.class_id}?tab=live").get_data(

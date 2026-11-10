@@ -1465,7 +1465,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
     def test_student_shown_legend_dom_has_no_name(self) -> None:
         """The student shown-board legend paints no name. The teacher legend does."""
         script = r"""
-import { legendChipLabels, studentShownMembers, wireFormativeWhiteboard } from './lms/static/whiteboard_formative.js';
+import { legendChipLabels, legendRowsToPaint, studentShownMembers, wireFormativeWhiteboard } from './lms/static/whiteboard_formative.js';
 import { snapshotReplacesInk } from './lms/static/live_whiteboard.js';
 
 class HTMLElement {}
@@ -1509,6 +1509,11 @@ const label = 'Ink label';
 const members = [{ id: '7', name: label, color: '#2563eb' }];
 if (legendChipLabels(studentShownMembers(members)).length !== 0) process.exit(2);
 if (legendChipLabels(members).join('|') !== label) process.exit(3);
+const stripped = studentShownMembers(members);
+if (legendRowsToPaint(stripped).length !== 1) process.exit(8);
+if (String(legendRowsToPaint(stripped)[0].name || "").trim()) process.exit(9);
+if (legendRowsToPaint(stripped)[0].color !== "#2563eb") process.exit(10);
+if (legendRowsToPaint([{ id: "x" }]).length !== 0) process.exit(11);
 if (!snapshotReplacesInk(1, 8, 8)) process.exit(4);
 if (snapshotReplacesInk(9, 2, 2)) process.exit(5);
 
@@ -1559,6 +1564,12 @@ wireFormativeWhiteboard({ setFormative() {}, getInk: () => ({ strokes: [], texts
 if (labels(legend).includes(label)) {
   console.error('student legend ' + labels(legend));
   process.exit(6);
+}
+const studentChip = (legend.children || [])[0];
+const studentDot = (studentChip && studentChip.children || []).find((node) => node.className === "wb-legend-dot");
+if (!studentDot || studentDot.style.background !== "#2563eb") {
+  console.error("student legend missing swatch");
+  process.exit(12);
 }
 legend.replaceChildren();
 wireFormativeWhiteboard({ setFormative() {}, getInk: () => ({ strokes: [], texts: [] }) }, {

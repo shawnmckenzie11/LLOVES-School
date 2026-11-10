@@ -594,9 +594,12 @@ button.qboard-tile .qboard-tile-text,
 button.qboard-tile .qboard-tile-members,
 .qboard-panel,
 .qboard-panel-name,
-.qboard-panel-text,
-button.qboard-filter {
+.qboard-panel-text {
   color: #0f172a;
+}
+
+button.qboard-filter {
+  color: #f8fafc;
 }
 
 button.qboard-filter.is-on {
