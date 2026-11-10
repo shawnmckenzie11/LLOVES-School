@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,7 @@ if str(LMS_DIR) not in sys.path:
     sys.path.insert(0, str(LMS_DIR))
 
 from live_news_wire import NewsAudience, event_visible, log_for
-from school_db import QuestionSkipStale
+from school_db import QuestionSkipStale, SchoolDB
 from test_rank_challenge_mck171 import KEY_IDS, ChallengeHarness
 
 STAFF_JS = LMS_DIR / "static" / "staff_ap.js"
@@ -198,6 +200,27 @@ class QuestionSkipTests(ChallengeHarness):
         return self.school.live_student_poll_stamp(
             self.session_id, self.class_id, self.ids[name]
         )
+
+    def _snapshot_ids(self, item: dict[str, Any], name: str) -> list[int]:
+        """Send-time roster stored on this student's team row.
+
+        Args:
+            item: Published lifecycle row.
+            name: Synthetic codename on that team.
+        """
+        team_id = int(self._card(name, item)["team_id"])
+        with self.school._lock:
+            row = self.school.conn.execute(
+                """
+                SELECT submit_count, engagement_member_ids_json
+                FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), team_id),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["submit_count"] or 0), 1)
+        return [int(sid) for sid in json.loads(row["engagement_member_ids_json"] or "[]")]
 
     def test_group_mc_skip_unblocks_and_caps_catchup(self) -> None:
         """Skip one waiter. The others score 1/1. Catch-up for the skip is 1/1."""
@@ -454,6 +477,118 @@ class QuestionSkipTests(ChallengeHarness):
         self.assertEqual(self._rows()[(self.ids["Eli"], key)], (2, 1, "live"))
         self.assertEqual(self._skip_rows(), [])
         self.assertIsInstance(QuestionSkipStale("already saved"), QuestionSkipStale)
+
+    def test_send_that_wins_the_write_lock_rejects_skip(self) -> None:
+        """A final send committed on another connection makes Skip a 409.
+
+        The other connection holds ``BEGIN IMMEDIATE`` with ``submit_count``
+        already 1 and this student on the send snapshot, then commits while
+        Skip is waiting on that write lock. Skip writes nothing. End keeps
+        the saved live award.
+        """
+        item = self._mc()
+        self._post("Ava", item, "group-pick", {"choice": "2"})
+        self._post("Cy", item, "group-pick", {"choice": "2"})
+        team_id = int(self._card("Eli", item)["team_id"])
+        members = [self.ids[name] for name in ("Ava", "Cy", "Eli")]
+        other = SchoolDB(self.school.db_path, self.school.data_dir, live_database_url="")
+        started = threading.Event()
+        try:
+            other.conn.execute("BEGIN IMMEDIATE")
+            updated = other.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = 'submitted', submit_count = 1,
+                    final_answer_json = ?, engagement_member_ids_json = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ? AND COALESCE(submit_count, 0) = 0
+                """,
+                (
+                    json.dumps({"kind": "choice", "value": "2", "why": ""}),
+                    json.dumps(members),
+                    "2026-11-10T01:00:00",
+                    int(item["id"]),
+                    team_id,
+                ),
+            )
+            self.assertEqual(updated.rowcount, 1)
+
+            def release() -> None:
+                """Commit the send after Skip is blocked on the write lock."""
+                started.wait(10)
+                time.sleep(0.2)
+                other.conn.execute("COMMIT")
+
+            thread = threading.Thread(target=release)
+            thread.start()
+            started.set()
+            rv = self._skip(item, "Eli")
+            thread.join(15)
+            self.assertFalse(thread.is_alive())
+        finally:
+            if other.conn.in_transaction:
+                other.conn.execute("ROLLBACK")
+            other.close()
+        self.assertEqual(rv.status_code, 409, rv.status_code)
+        self.assertEqual(self._skip_rows(), [])
+        self.assertEqual(self._snapshot_ids(item, "Eli"), members)
+        again = self._skip(item, "Eli")
+        self.assertEqual(again.status_code, 409, again.status_code)
+        self.assertEqual(self._skip_rows(), [])
+        key = self._question_key(item)
+        self._end()
+        self._assert_team(key, ("Ava", "Cy", "Eli"), 1)
+        eli_open = [
+            q["question_key"]
+            for q in self.school.catchup_questions(self._token(), self.ids["Eli"])
+            if q.get("question_skip") and not q.get("answered")
+        ]
+        self.assertNotIn(key, eli_open)
+
+    def test_skip_committed_on_another_connection_excludes_the_send(self) -> None:
+        """A committed skip is excluded by a send on a second connection.
+
+        The snapshot is the one the send wrote. End does not invent a live
+        row for the skipped student. Catch-up settles once at 1/1.
+        """
+        item = self._mc()
+        self._post("Ava", item, "group-pick", {"choice": "2"})
+        self._post("Cy", item, "group-pick", {"choice": "2"})
+        first = self._skip(item, "Eli")
+        self.assertEqual(first.status_code, 200, first.status_code)
+        again = self._skip(item, "Eli")
+        self.assertTrue(again.get_json()["repeated"])
+        other = SchoolDB(self.school.db_path, self.school.data_dir, live_database_url="")
+        try:
+            other.submit_group_mc_answer(
+                self.session_id,
+                int(item["id"]),
+                self.ids["Ava"],
+                choice="2",
+                why="",
+            )
+        finally:
+            other.close()
+        snap = self._snapshot_ids(item, "Ava")
+        self.assertIn(self.ids["Ava"], snap)
+        self.assertIn(self.ids["Cy"], snap)
+        self.assertNotIn(self.ids["Eli"], snap)
+        key = self._question_key(item)
+        self._end()
+        self._assert_team(key, ("Ava", "Cy"), 1)
+        self.assertNotIn((self.ids["Eli"], key), self._rows())
+        token = self._token()
+        offered = [
+            q
+            for q in self.school.catchup_questions(token, self.ids["Eli"])
+            if q["question_key"] == key
+        ]
+        self.assertEqual(len(offered), 1)
+        self.assertFalse(offered[0]["answered"])
+        self.assertTrue(self.school.submit_catchup_answer(token, self.ids["Eli"], key, "2"))
+        self.assertEqual(self._rows()[(self.ids["Eli"], key)], (1, 1, "catchup"))
+        self.assertFalse(self.school.submit_catchup_answer(token, self.ids["Eli"], key, "1"))
+        self.assertEqual(self._rows()[(self.ids["Eli"], key)], (1, 1, "catchup"))
 
     def test_other_teacher_cannot_skip(self) -> None:
         """Only the teacher who owns the class can skip."""

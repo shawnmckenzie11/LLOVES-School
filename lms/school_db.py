@@ -3184,11 +3184,19 @@ class LovesDB:
                 if submitted:
                     members = member_ids_from_json(response["engagement_member_ids_json"])
                     if not members:
-                        members = live_members.get(team_id, [])
+                        skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                        members = [
+                            sid
+                            for sid in live_members.get(team_id, [])
+                            if sid not in skipped
+                        ]
                 else:
-                    members = live_members.get(team_id, [])
-                skipped = self._skipped_ids_for_live_item(int(item["id"]))
-                members = [sid for sid in members if sid not in skipped]
+                    skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                    members = [
+                        sid
+                        for sid in live_members.get(team_id, [])
+                        if sid not in skipped
+                    ]
                 if int(student_id) not in members:
                     continue
                 points, offered = self._group_engagement_points(kind, stored, response)
@@ -25775,8 +25783,11 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Skip one waiting student for this question only.
 
-        The skip row is committed before the team's wait is released.
-        A second request for the same student, session, and question
+        The finality check and the insert share one ``BEGIN IMMEDIATE``
+        (see :meth:`_rank_order_txn`), so a send that commits on another
+        connection first is visible and this call writes nothing. The
+        skip row is committed before the team's wait is released. A
+        second request for the same student, session, and question
         changes nothing. The student stays in the class and in the group.
         This does not write an answer or a score.
 
@@ -25809,53 +25820,64 @@ class SchoolDB(LovesDB):
             raise ValueError("That student is not in a group on this question.")
         question_key = self._live_question_key(item)
         run_key = self._session_run_key(session_row)
-        with self._lock:
+        catalogue = item.get("item") if isinstance(item.get("item"), dict) else {}
+        kind = self._question_answer_kind(item) or ""
+        now = _now()
+        # ``BEGIN IMMEDIATE`` (``_rank_order_txn``) is the write lock shared
+        # with a send on another connection. The finality check and the
+        # insert commit together, so a send that landed first is visible
+        # here and this call writes nothing.
+        repeated = False
+        with self._rank_order_txn():
             existing = self.conn.execute(
                 """
-                SELECT team_id, created_at FROM live_question_skips
+                SELECT team_id FROM live_question_skips
                 WHERE live_session_id = ? AND question_key = ? AND student_id = ?
                 """,
                 (int(session_id), question_key, int(student_id)),
             ).fetchone()
-        if existing is not None:
+            if existing is not None:
+                repeated = True
+                team_id = int(existing["team_id"])
+            elif self._group_answer_is_final(item, int(team_id)):
+                raise QuestionSkipStale("That question is already in. Skip was not applied.")
+            else:
+                saved = self._saved_group_award(
+                    class_id, run_key, question_key, int(student_id)
+                )
+                if saved is not None and saved > 0:
+                    raise QuestionSkipStale("That score is already saved. Skip was not applied.")
+                if int(student_id) not in self._waiting_student_ids(item, int(team_id)):
+                    raise ValueError("That student is not waiting on this question.")
+                inserted = self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO live_question_skips (
+                        live_session_id, question_key, student_id, class_id, run_key,
+                        live_item_id, team_id, prompt_kind, item_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(session_id),
+                        question_key,
+                        int(student_id),
+                        class_id,
+                        run_key,
+                        int(item["id"]),
+                        int(team_id),
+                        kind,
+                        json.dumps(catalogue),
+                        now,
+                    ),
+                )
+                if inserted.rowcount == 0:
+                    repeated = True
+        if repeated:
             return {
                 "repeated": True,
-                "team_id": int(existing["team_id"]),
+                "team_id": int(team_id),
                 "student_id": int(student_id),
                 "view": self.live_session_item_results(session_id, int(item["id"])),
             }
-        if self._group_answer_is_final(item, int(team_id)):
-            raise QuestionSkipStale("That question is already in. Skip was not applied.")
-        saved = self._saved_group_award(class_id, run_key, question_key, int(student_id))
-        if saved is not None and saved > 0:
-            raise QuestionSkipStale("That score is already saved. Skip was not applied.")
-        if int(student_id) not in self._waiting_student_ids(item, int(team_id)):
-            raise ValueError("That student is not waiting on this question.")
-        catalogue = item.get("item") if isinstance(item.get("item"), dict) else {}
-        kind = self._question_answer_kind(item) or ""
-        now = _now()
-        with self._lock:
-            self.conn.execute(
-                """
-                INSERT OR IGNORE INTO live_question_skips (
-                    live_session_id, question_key, student_id, class_id, run_key,
-                    live_item_id, team_id, prompt_kind, item_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    int(session_id),
-                    question_key,
-                    int(student_id),
-                    class_id,
-                    run_key,
-                    int(item["id"]),
-                    int(team_id),
-                    kind,
-                    json.dumps(catalogue),
-                    now,
-                ),
-            )
-            self.conn.commit()
         with self._lock:
             self.conn.execute(
                 """
@@ -25865,7 +25887,8 @@ class SchoolDB(LovesDB):
                 """,
                 (now, int(item["id"]), int(team_id)),
             )
-            self.conn.commit()
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
         if mode == "group_consensus":
             try:
                 self._advance_group_team_if_ready(item, int(team_id))
@@ -26159,7 +26182,7 @@ class SchoolDB(LovesDB):
         """
         now = _now()
         final = {"kind": "rank", "order": list(order), "why": "", "locked_by": locked_by}
-        with self._lock:
+        with self._rank_order_txn():
             cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -26194,7 +26217,6 @@ class SchoolDB(LovesDB):
                             int(session["live_session_id"]), int(team_id)
                         ),
                     )
-            self.conn.commit()
         return cursor.rowcount == 1
 
     def _rank_race_maybe_lock(self, item: dict[str, Any], team_id: int) -> bool:
@@ -27478,7 +27500,7 @@ class SchoolDB(LovesDB):
         ids = self._group_submitter_ids(row)
         ids.append(int(student_id))
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -27510,7 +27532,6 @@ class SchoolDB(LovesDB):
                     int(team_id),
                     self._roster_team_member_ids(int(item["live_session_id"]), int(team_id)),
                 )
-            self.conn.commit()
         if cursor.rowcount != 1:
             return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
         return self.student_group_submit_state(item, student_id) or {}
@@ -27634,7 +27655,7 @@ class SchoolDB(LovesDB):
         team_id = self._require_group_submit_member(item, student_id)
         allowed = [opt["id"] for opt in self._rank_option_rows(item)]
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             current = self.conn.execute(
                 """
                 SELECT proposed_answer_json, final_answer_json, submit_count,
@@ -27708,7 +27729,6 @@ class SchoolDB(LovesDB):
                     int(team_id),
                     self._roster_team_member_ids(session_id, int(team_id)),
                 )
-                self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
     def _submit_group_rank_answer(
@@ -27767,7 +27787,7 @@ class SchoolDB(LovesDB):
         ids.append(int(student_id))
         stored = {"kind": "rank", "order": order_ids, "why": ""}
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -27793,7 +27813,6 @@ class SchoolDB(LovesDB):
                 int(team_id),
                 self._roster_team_member_ids(session_id, int(team_id)),
             )
-            self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
     def check_group_rank(
@@ -28504,7 +28523,7 @@ class SchoolDB(LovesDB):
             raise ValueError("Student is not a member of this group.")
         answer = self._normalize_group_answer(response)
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -28523,7 +28542,6 @@ class SchoolDB(LovesDB):
                     int(team_id),
                 ),
             )
-            self.conn.commit()
         if cursor.rowcount != 1:
             raise ValueError("Team answer is already finalized or voting is open.")
         return self._public_student_group_state(item, team_id, int(student_id))
@@ -40920,11 +40938,19 @@ class SchoolDB(LovesDB):
                 if submitted:
                     members = member_ids_from_json(response["engagement_member_ids_json"])
                     if not members:
-                        members = live_members.get(team_id, [])
+                        skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                        members = [
+                            sid
+                            for sid in live_members.get(team_id, [])
+                            if sid not in skipped
+                        ]
                 else:
-                    members = live_members.get(team_id, [])
-                skipped = self._skipped_ids_for_live_item(int(item["id"]))
-                members = [sid for sid in members if sid not in skipped]
+                    skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                    members = [
+                        sid
+                        for sid in live_members.get(team_id, [])
+                        if sid not in skipped
+                    ]
                 earned, _offered = self._group_engagement_points(kind, stored, response)
                 for student_id in sorted(set(members)):
                     self.conn.execute(
