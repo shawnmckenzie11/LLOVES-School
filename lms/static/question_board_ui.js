@@ -20,6 +20,25 @@ import { studentShownMembers } from "./whiteboard_formative.js";
 const SIZE_LINE = "Your board is too full to submit. Erase a little and try again.";
 const DOWN_LINE = "That didn't go through. Your drawing is safe, so press Submit again.";
 
+/**
+ * Presence body for one text label.
+ *
+ * ``commitEditor`` already passes ``x`` and ``y`` in the 0–1 board
+ * (``dataset.nx`` / ``dataset.ny``). Dividing by the canvas size again
+ * pins a centered label in the top-left corner.
+ *
+ * @param {{id?: string, text?: string, x?: number, y?: number}} label
+ * @returns {{text_id: string, text: string, x: number, y: number}}
+ */
+export function questionBoardTextPost(label) {
+  return {
+    text_id: String(label?.id || ""),
+    text: String(label?.text || ""),
+    x: Number(label?.x),
+    y: Number(label?.y),
+  };
+}
+
 /** @type {Set<{kick: (force?: boolean) => void}>} */
 const polls = new Set();
 
@@ -277,9 +296,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     },
     owner: () => viewer || "student",
     onText: (label) => {
-      const norm = normalizeBoardPoint(canvas, label);
-      if (!norm) return;
-      queue.push({ text_id: label.id, text: label.text, x: norm.x, y: norm.y });
+      queue.push(questionBoardTextPost(label));
       submit.disabled = false;
     },
     onPoints: (points, ended, strokeId) => postPoints(points, ended, strokeId),

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -666,6 +667,60 @@ class QuestionBoardTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
         self.assertNotIn("qboard-filter", css)
         self.assertIn(".wb-live-filter", css)
+
+    def test_centered_text_is_not_normalized_twice(self) -> None:
+        """Text committed at (0.5, 0.5) stays there on the teacher board.
+
+        ``commitEditor`` already hands 0–1 coordinates. Dividing by the
+        canvas size again would store a point in the top-left corner.
+        """
+        script = """
+import { questionBoardTextPost } from './lms/static/question_board_ui.js';
+import { normalizeBoardPoint } from './lms/static/live_whiteboard.js';
+const label = { id: 'center', text: 'mid', x: 0.5, y: 0.5 };
+const posted = questionBoardTextPost(label);
+const doubled = normalizeBoardPoint({ width: 720, height: 360 }, label);
+if (posted.x !== 0.5 || posted.y !== 0.5) {
+  console.error(JSON.stringify({ posted, doubled }));
+  process.exit(1);
+}
+if (posted.x === doubled.x && posted.y === doubled.y) {
+  console.error('double-normalized');
+  process.exit(1);
+}
+console.log(JSON.stringify(posted));
+"""
+        proc = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        posted = json.loads(proc.stdout)
+        prompt_id = self._add("Board text center")
+        saved = self.school.apply_question_presence(
+            self.session_id,
+            prompt_id,
+            self.ids[0],
+            {
+                "text_id": posted["text_id"],
+                "text": posted["text"],
+                "x": posted["x"],
+                "y": posted["y"],
+            },
+        )
+        self.assertTrue(saved.get("ok"))
+        opened = self.school.question_open_board(
+            self.session_id, prompt_id, f"solo:{self.ids[0]}"
+        )
+        labels = (opened.get("canvas_view") or {}).get("texts") or []
+        self.assertEqual(len(labels), 1)
+        self.assertAlmostEqual(float(labels[0]["x"]), 0.5, places=3)
+        self.assertAlmostEqual(float(labels[0]["y"]), 0.5, places=3)
+        self.assertNotAlmostEqual(float(labels[0]["x"]), 0.5 / 720, places=3)
 
     def test_presence_batch_gets_a_student_colour_and_a_since_cursor(self) -> None:
         """A presence batch is stored by the live board store, one colour per student."""
