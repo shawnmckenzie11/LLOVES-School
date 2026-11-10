@@ -2064,6 +2064,18 @@ class RankAgreeConflict(ValueError):
         self.card = card or {}
 
 
+class QuestionSkipStale(Exception):
+    """MCK-467: Skip would change an award that is already final.
+
+    Nothing is written. The route answers 409. A repeat of a skip that
+    was already stored is not this error.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.stale = True
+
+
 class RankRaceStepConflict(ValueError):
     """MCK-171 Team challenge: a reveal step that is not exactly the next one
     (a double-click, a second tab, or a lost race). Nothing is written (409).
@@ -2435,6 +2447,7 @@ class LovesDB:
             self._ensure_live_item_schema()
             self._ensure_group_engagement_schema()
             self._ensure_rank_race_schema()
+            self._ensure_question_skip_schema()
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
@@ -3171,9 +3184,19 @@ class LovesDB:
                 if submitted:
                     members = member_ids_from_json(response["engagement_member_ids_json"])
                     if not members:
-                        members = live_members.get(team_id, [])
+                        skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                        members = [
+                            sid
+                            for sid in live_members.get(team_id, [])
+                            if sid not in skipped
+                        ]
                 else:
-                    members = live_members.get(team_id, [])
+                    skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                    members = [
+                        sid
+                        for sid in live_members.get(team_id, [])
+                        if sid not in skipped
+                    ]
                 if int(student_id) not in members:
                     continue
                 points, offered = self._group_engagement_points(kind, stored, response)
@@ -4846,6 +4869,39 @@ class LovesDB:
             );
             """
         )
+
+    def _ensure_question_skip_schema(self) -> None:
+        """MCK-467: one skip row per student, session, and question.
+
+        The primary key is the live session, the stable question key, and
+        the roster id. Group membership is stored only so the affected
+        team can be notified. Rows are not tied to ``live_class_sessions``
+        with a foreign key, so End can delete the session and catch-up
+        can still read the obligation by class and run.
+        """
+
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS live_question_skips (
+                live_session_id INTEGER NOT NULL,
+                question_key TEXT NOT NULL,
+                student_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                run_key TEXT NOT NULL,
+                live_item_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                prompt_kind TEXT NOT NULL DEFAULT '',
+                item_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (live_session_id, question_key, student_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_question_skips_run
+                ON live_question_skips (class_id, run_key, student_id);
+            CREATE INDEX IF NOT EXISTS idx_live_question_skips_item
+                ON live_question_skips (live_item_id, team_id);
+            """
+        )
+        self.conn.commit()
 
     def _ensure_live_item_schema(self) -> None:
         """Create idempotent publish and group-consensus session tables."""
@@ -24675,9 +24731,7 @@ class SchoolDB(LovesDB):
                 picked = {int(vote["student_id"]) for vote in picks}
                 waiting = [
                     sid
-                    for sid in self._active_team_member_ids(
-                        int(item["live_session_id"]), int(team_id)
-                    )
+                    for sid in self._present_without_skips(item, int(team_id))
                     if sid not in picked
                 ]
                 card["waiting_count"] = len(waiting)
@@ -25064,6 +25118,7 @@ class SchoolDB(LovesDB):
         item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         if not self._group_mc_picks_flow(item):
             raise ValueError("This question has no pick step.")
+        self._reject_question_skipped(item, int(student_id))
         team_id = self._require_group_submit_member(item, student_id)
         choice_text = str(choice or "").strip()[:500]
         labels = self._mc_option_labels(item)
@@ -25172,7 +25227,7 @@ class SchoolDB(LovesDB):
             item: Group multiple-choice lifecycle row.
             team_id: Team.
         """
-        active = self._active_team_member_ids(int(item["live_session_id"]), int(team_id))
+        active = self._present_without_skips(item, int(team_id))
         by_student: dict[int, str] = {}
         for vote in self._group_mc_pick_rows(item, int(team_id)):
             by_student[int(vote["student_id"])] = str(
@@ -25234,7 +25289,8 @@ class SchoolDB(LovesDB):
         """
         options = self._rank_option_rows(item)
         labels = {opt["id"]: opt["label"] for opt in options}
-        active = self._active_team_member_ids(int(item["live_session_id"]), int(team_id))
+        skipped_ids = self._skipped_ids_for_live_item(int(item["id"]))
+        active = self._present_without_skips(item, int(team_id))
         placers = [
             (int(event[0]), str(event[2]))
             for event in state.get("events") or []
@@ -25271,8 +25327,10 @@ class SchoolDB(LovesDB):
             ],
         }
         if viewer_id is not None:
-            block["can_place"] = turn_can_place(state, int(viewer_id), active) and (
-                str(item.get("status") or "") == "active"
+            block["can_place"] = (
+                int(viewer_id) not in skipped_ids
+                and turn_can_place(state, int(viewer_id), active)
+                and str(item.get("status") or "") == "active"
             )
             block["waiting_names"] = [
                 name
@@ -25347,6 +25405,8 @@ class SchoolDB(LovesDB):
             team_id: Team that just sent.
             member_ids: Roster ids on that team at send time.
         """
+        skipped = self._skipped_ids_for_live_item(int(live_item_id))
+        member_ids = [int(sid) for sid in member_ids if int(sid) not in skipped]
         self.conn.execute(
             """
             UPDATE live_group_responses
@@ -25424,12 +25484,13 @@ class SchoolDB(LovesDB):
         if self._group_rank_mode(item) != "turns":
             raise ValueError("This question does not take turns.")
         team_id = self._require_group_submit_member(item, student_id)
+        self._reject_question_skipped(item, int(student_id))
         allowed = [opt["id"] for opt in self._rank_option_rows(item)]
         aliases = self.student_rank_aliases(item)
         if aliases is not None and not undo and option_id not in (None, ""):
             # MCK-176: students send aliases; unknown ones are refused.
             option_id = aliases.back(option_id)
-        active = self._active_team_member_ids(session_id, int(team_id))
+        active = self._present_without_skips(item, int(team_id))
         now = _now()
         conflict: TurnConflict | None = None
         with self._lock:
@@ -25512,6 +25573,334 @@ class SchoolDB(LovesDB):
             raise RankTurnConflict(message, conflict.reason, card)
         return card
 
+    def _live_question_key(self, item: dict[str, Any]) -> str:
+        """Stable question key for one lifecycle row (``item:<placement>``).
+
+        Args:
+            item: Lifecycle row.
+        """
+        placement = str(item.get("placement_key") or "").strip() or str(item.get("id") or "")
+        return f"item:{placement}"
+
+    def _session_run_key(self, session_row: dict[str, Any]) -> str:
+        """Run key End and catch-up use for this live session.
+
+        Args:
+            session_row: ``live_class_sessions`` row.
+        """
+        key = str(session_row.get("run_key") or "").strip()
+        if key:
+            return key
+        return f"session:{int(session_row['id'])}:{session_row.get('started_at')}"
+
+    def _skipped_ids_for_live_item(self, live_item_id: int) -> set[int]:
+        """Roster ids already skipped on this lifecycle item.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT student_id FROM live_question_skips
+            WHERE live_item_id = ?
+            """,
+            (int(live_item_id),),
+        ).fetchall()
+        return {int(row["student_id"]) for row in rows}
+
+    def _reject_question_skipped(self, item: dict[str, Any], student_id: int) -> None:
+        """Refuse a live group action from a student skipped on this question.
+
+        Args:
+            item: Lifecycle row.
+            student_id: Roster id.
+
+        Raises:
+            ValueError: This student was skipped for this question.
+        """
+        if int(student_id) in self._skipped_ids_for_live_item(int(item["id"])):
+            raise ValueError("This question was skipped. Finish it in catch-up.")
+
+    def _group_answer_is_final(self, item: dict[str, Any], team_id: int) -> bool:
+        """True when this team's answer is already submitted or finalized.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team on that item.
+        """
+        state = self._group_response_row(int(item["id"]), int(team_id)) or {}
+        if int(state.get("submit_count") or 0) > 0:
+            return True
+        if str(state.get("status") or "") == "finalized":
+            return True
+        final = state.get("final_answer")
+        return bool(state.get("finalized_at") and final not in (None, "", {}))
+
+    def _saved_group_award(
+        self, class_id: int, run_key: str, question_key: str, student_id: int
+    ) -> int | None:
+        """Stored group points for one student and question, if a row exists.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Ended or live run key.
+            question_key: ``item:`` key.
+            student_id: Roster id.
+        """
+        row = self.conn.execute(
+            """
+            SELECT earned FROM group_engagement
+            WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+            """,
+            (int(class_id), str(run_key), str(question_key), int(student_id)),
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["earned"] or 0)
+
+    def _present_without_skips(self, item: dict[str, Any], team_id: int) -> list[int]:
+        """Present teammates who still count toward this question's wait.
+
+        Skipped students stay on the team. They are left out of the wait
+        only.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+        """
+        skipped = self._skipped_ids_for_live_item(int(item["id"]))
+        return [
+            sid
+            for sid in self._active_team_member_ids(int(item["live_session_id"]), int(team_id))
+            if sid not in skipped
+        ]
+
+    def _waiting_student_ids(self, item: dict[str, Any], team_id: int) -> list[int]:
+        """Present teammates this group is still held up by, in roster order.
+
+        A take-turns rank is waiting only when someone has already moved
+        and the remaining turn is a smaller set. Group multiple choice
+        waits on present members with no pick. Consensus waits on present
+        members with no vote. Skipped students are not in this list.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+        """
+        if str(item.get("status") or "") != "active":
+            return []
+        if self._group_answer_is_final(item, int(team_id)):
+            return []
+        mode = str(item.get("response_mode") or "")
+        if mode == "group_consensus":
+            state = self._group_response_row(int(item["id"]), int(team_id)) or {}
+            if str(state.get("status") or "") != "collecting_votes":
+                return []
+            votes = self._group_vote_rows(int(item["id"]), int(team_id))
+            return self._group_waiting_ids(item, int(team_id), votes)
+        if mode == "group_submit" and self._group_mc_picks_flow(item):
+            picked = {
+                int(vote["student_id"])
+                for vote in self._group_mc_pick_rows(item, int(team_id))
+            }
+            return [sid for sid in self._present_without_skips(item, int(team_id)) if sid not in picked]
+        if (
+            mode == "group_submit"
+            and self._question_answer_kind(item) == "rank"
+            and self._group_rank_mode(item) == "turns"
+        ):
+            row = self._group_response_row(int(item["id"]), int(team_id)) or {}
+            state = self._rank_turns_for_row(item, row)
+            if state.get("complete"):
+                return []
+            active = self._present_without_skips(item, int(team_id))
+            nxt = turn_next_ids(state, active)
+            if nxt and len(nxt) < len(active):
+                return nxt
+        return []
+
+    def _question_wait_rows(
+        self, item: dict[str, Any], team_id: int, class_id: int
+    ) -> list[dict[str, Any]]:
+        """Teacher lines for who is waiting and who was skipped.
+
+        Waiting students come first. Skipped students stay on the list
+        for this team even after the wait is released.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+            class_id: Game-show class id, for display names.
+        """
+        waiting = self._waiting_student_ids(item, int(team_id))
+        skipped_rows = self.conn.execute(
+            """
+            SELECT student_id FROM live_question_skips
+            WHERE live_item_id = ? AND team_id = ?
+            ORDER BY student_id
+            """,
+            (int(item["id"]), int(team_id)),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for sid in waiting:
+            name = self._first_name(int(class_id), int(sid))
+            if not name:
+                continue
+            out.append({"student_id": int(sid), "name": name, "skipped": False})
+        for row in skipped_rows:
+            sid = int(row["student_id"])
+            name = self._first_name(int(class_id), sid)
+            if not name:
+                continue
+            out.append({"student_id": sid, "name": name, "skipped": True})
+        return out
+
+    def _stamp_question_waits(
+        self, item: dict[str, Any], class_id: int, teams: list[dict[str, Any]]
+    ) -> None:
+        """Add ``question_waits`` onto teacher team rows when someone is listed.
+
+        Args:
+            item: Lifecycle row.
+            class_id: Game-show class id.
+            teams: Thin or full team dicts with ``team_id``.
+        """
+        if (
+            self._question_answer_kind(item) == "rank"
+            and self._group_rank_mode(item) == "turns"
+        ):
+            return
+        for team in teams:
+            team_id = int(team.get("team_id") or 0)
+            if not team_id:
+                continue
+            waits = self._question_wait_rows(item, team_id, int(class_id))
+            if waits:
+                team["question_waits"] = waits
+
+    def skip_question_for_student(
+        self, session_id: int, live_item_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """Skip one waiting student for this question only.
+
+        The finality check and the insert share one ``BEGIN IMMEDIATE``
+        (see :meth:`_rank_order_txn`), so a send that commits on another
+        connection first is visible and this call writes nothing. The
+        skip row is committed before the team's wait is released. A
+        second request for the same student, session, and question
+        changes nothing. The student stays in the class and in the group.
+        This does not write an answer or a score.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id the group is waiting on.
+
+        Returns:
+            ``repeated``, ``team_id``, ``student_id``, and the teacher view.
+
+        Raises:
+            QuestionSkipStale: The team answer or a positive saved award
+                is already final. Nothing is written.
+            ValueError: Not a group question, or that student is not waiting.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if str(item.get("status") or "") != "active":
+            raise ValueError("This question is not open.")
+        mode = str(item.get("response_mode") or "")
+        if mode not in {"group_submit", "group_consensus"}:
+            raise ValueError("Skip is for a group question.")
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        class_id = int(session_row["class_id"])
+        team_id = self.student_team_id_for_class(class_id, int(student_id))
+        if team_id is None:
+            raise ValueError("That student is not in a group on this question.")
+        question_key = self._live_question_key(item)
+        run_key = self._session_run_key(session_row)
+        catalogue = item.get("item") if isinstance(item.get("item"), dict) else {}
+        kind = self._question_answer_kind(item) or ""
+        now = _now()
+        # ``BEGIN IMMEDIATE`` (``_rank_order_txn``) is the write lock shared
+        # with a send on another connection. The finality check and the
+        # insert commit together, so a send that landed first is visible
+        # here and this call writes nothing.
+        repeated = False
+        with self._rank_order_txn():
+            existing = self.conn.execute(
+                """
+                SELECT team_id FROM live_question_skips
+                WHERE live_session_id = ? AND question_key = ? AND student_id = ?
+                """,
+                (int(session_id), question_key, int(student_id)),
+            ).fetchone()
+            if existing is not None:
+                repeated = True
+                team_id = int(existing["team_id"])
+            elif self._group_answer_is_final(item, int(team_id)):
+                raise QuestionSkipStale("That question is already in. Skip was not applied.")
+            else:
+                saved = self._saved_group_award(
+                    class_id, run_key, question_key, int(student_id)
+                )
+                if saved is not None and saved > 0:
+                    raise QuestionSkipStale("That score is already saved. Skip was not applied.")
+                if int(student_id) not in self._waiting_student_ids(item, int(team_id)):
+                    raise ValueError("That student is not waiting on this question.")
+                inserted = self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO live_question_skips (
+                        live_session_id, question_key, student_id, class_id, run_key,
+                        live_item_id, team_id, prompt_kind, item_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(session_id),
+                        question_key,
+                        int(student_id),
+                        class_id,
+                        run_key,
+                        int(item["id"]),
+                        int(team_id),
+                        kind,
+                        json.dumps(catalogue),
+                        now,
+                    ),
+                )
+                if inserted.rowcount == 0:
+                    repeated = True
+        if repeated:
+            return {
+                "repeated": True,
+                "team_id": int(team_id),
+                "student_id": int(student_id),
+                "view": self.live_session_item_results(session_id, int(item["id"])),
+            }
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (now, int(item["id"]), int(team_id)),
+            )
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+        if mode == "group_consensus":
+            try:
+                self._advance_group_team_if_ready(item, int(team_id))
+            except KeyError:
+                pass
+        return {
+            "repeated": False,
+            "team_id": int(team_id),
+            "student_id": int(student_id),
+            "view": self.live_session_item_results(session_id, int(item["id"])),
+        }
+
     def rank_turn_skip(
         self, session_id: int, placement_or_item: str | int, *, team_id: int
     ) -> dict[str, Any]:
@@ -25530,7 +25919,7 @@ class SchoolDB(LovesDB):
         if self._group_rank_mode(item) != "turns" or item["status"] != "active":
             raise ValueError("This question does not take turns.")
         allowed = [opt["id"] for opt in self._rank_option_rows(item)]
-        active = self._active_team_member_ids(session_id, int(team_id))
+        active = self._present_without_skips(item, int(team_id))
         now = _now()
         with self._lock:
             current = self.conn.execute(
@@ -25583,8 +25972,9 @@ class SchoolDB(LovesDB):
             block = self._rank_turns_public(
                 item, int(team_id), class_id, state, viewer_id=None
             )
-            active = self._active_team_member_ids(session_id, int(team_id))
+            active = self._present_without_skips(item, int(team_id))
             next_ids = turn_next_ids(state, active)
+            waits = self._question_wait_rows(item, int(team_id), class_id)
             rows.append(
                 {
                     "team_id": int(team_id),
@@ -25599,6 +25989,7 @@ class SchoolDB(LovesDB):
                         and next_ids
                         and len(next_ids) < len(active)
                     ),
+                    **({"question_waits": waits} if waits else {}),
                 }
             )
         return rows
@@ -25791,7 +26182,7 @@ class SchoolDB(LovesDB):
         """
         now = _now()
         final = {"kind": "rank", "order": list(order), "why": "", "locked_by": locked_by}
-        with self._lock:
+        with self._rank_order_txn():
             cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -25826,7 +26217,6 @@ class SchoolDB(LovesDB):
                             int(session["live_session_id"]), int(team_id)
                         ),
                     )
-            self.conn.commit()
         return cursor.rowcount == 1
 
     def _rank_race_maybe_lock(self, item: dict[str, Any], team_id: int) -> bool:
@@ -27110,7 +27500,7 @@ class SchoolDB(LovesDB):
         ids = self._group_submitter_ids(row)
         ids.append(int(student_id))
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -27142,7 +27532,6 @@ class SchoolDB(LovesDB):
                     int(team_id),
                     self._roster_team_member_ids(int(item["live_session_id"]), int(team_id)),
                 )
-            self.conn.commit()
         if cursor.rowcount != 1:
             return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
         return self.student_group_submit_state(item, student_id) or {}
@@ -27266,7 +27655,7 @@ class SchoolDB(LovesDB):
         team_id = self._require_group_submit_member(item, student_id)
         allowed = [opt["id"] for opt in self._rank_option_rows(item)]
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             current = self.conn.execute(
                 """
                 SELECT proposed_answer_json, final_answer_json, submit_count,
@@ -27340,7 +27729,6 @@ class SchoolDB(LovesDB):
                     int(team_id),
                     self._roster_team_member_ids(session_id, int(team_id)),
                 )
-                self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
     def _submit_group_rank_answer(
@@ -27399,7 +27787,7 @@ class SchoolDB(LovesDB):
         ids.append(int(student_id))
         stored = {"kind": "rank", "order": order_ids, "why": ""}
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -27425,7 +27813,6 @@ class SchoolDB(LovesDB):
                 int(team_id),
                 self._roster_team_member_ids(session_id, int(team_id)),
             )
-            self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
     def check_group_rank(
@@ -27652,6 +28039,13 @@ class SchoolDB(LovesDB):
                 )
                 board_row["member_count"] = len(
                     self._active_team_member_ids(session_id, int(team_id))
+                )
+            if not (
+                self._question_answer_kind(item) == "rank"
+                and self._group_rank_mode(item) == "turns"
+            ):
+                board_row["question_waits"] = self._question_wait_rows(
+                    item, int(team_id), class_id
                 )
             status_board.append(board_row)
             submitter_log.append(
@@ -27978,9 +28372,7 @@ class SchoolDB(LovesDB):
             raise KeyError(f"group response {item['id']}:{team_id}")
         if state["status"] != "collecting_votes":
             return state
-        active_ids = self._active_team_member_ids(
-            int(item["live_session_id"]), int(team_id)
-        )
+        active_ids = self._present_without_skips(item, int(team_id))
         if not active_ids:
             return state
         voted = {
@@ -28011,6 +28403,7 @@ class SchoolDB(LovesDB):
             or item["response_mode"] != "group_consensus"
         ):
             raise ValueError("Group voting is not active for this item.")
+        self._reject_question_skipped(item, int(student_id))
         if not self.student_is_active_live_attendee(session_id, student_id):
             raise ValueError("Student is not active in this session.")
         session_row = self.get_live_session(session_id)
@@ -28130,7 +28523,7 @@ class SchoolDB(LovesDB):
             raise ValueError("Student is not a member of this group.")
         answer = self._normalize_group_answer(response)
         now = _now()
-        with self._lock:
+        with self._rank_order_txn():
             cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
@@ -28149,7 +28542,6 @@ class SchoolDB(LovesDB):
                     int(team_id),
                 ),
             )
-            self.conn.commit()
         if cursor.rowcount != 1:
             raise ValueError("Team answer is already finalized or voting is open.")
         return self._public_student_group_state(item, team_id, int(student_id))
@@ -28168,9 +28560,7 @@ class SchoolDB(LovesDB):
             votes: That team's vote rows.
         """
         voted = {int(row["student_id"]) for row in votes}
-        active = self._active_team_member_ids(
-            int(item["live_session_id"]), int(team_id)
-        )
+        active = self._present_without_skips(item, int(team_id))
         return [sid for sid in active if sid not in voted]
 
     def _group_waiting_first_names(
@@ -28310,6 +28700,8 @@ class SchoolDB(LovesDB):
 
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
+        session_row = self.get_live_session(session_id)
+        class_id = int(session_row["class_id"]) if session_row else 0
         teams = {
             int(team["id"]): team
             for team in self._named_teams_for_live_session(session_id)
@@ -28395,6 +28787,8 @@ class SchoolDB(LovesDB):
                     "awarded_points": state.get("awarded_points"),
                 }
             )
+        if class_id:
+            self._stamp_question_waits(item, class_id, summaries)
         return {"item": item, "teams": summaries}
 
     @emits("points.team", _ev_team_points)
@@ -28418,9 +28812,13 @@ class SchoolDB(LovesDB):
             raise ValueError("amount cannot be 0")
         session_row = self.get_live_session(session_id)
         assert session_row is not None
-        student_ids = self._teammate_ids_for_class(
-            int(session_row["class_id"]), int(team_id)
-        )
+        student_ids = [
+            sid
+            for sid in self._teammate_ids_for_class(
+                int(session_row["class_id"]), int(team_id)
+            )
+            if sid not in self._skipped_ids_for_live_item(int(item["id"]))
+        ]
         game = None
         for student_id in student_ids:
             game = self.game.award_points(
@@ -28807,6 +29205,7 @@ class SchoolDB(LovesDB):
                 run_key=run_key,
                 roster_by_team=roster_by_team,
             )
+            self._stamp_question_waits(item, class_id, teams)
             entry: dict[str, Any] = {
                 "response_mode": mode,
                 "response_seq": self._group_results_seq(teams),
@@ -28821,6 +29220,7 @@ class SchoolDB(LovesDB):
                 entry["response_seq"] += ":t" + ",".join(
                     f"{row['placed']}{'d' if row['done'] else ''}{'s' if row['can_skip'] else ''}"
                     f"{'|'.join(row['next_names'])}"
+                    f"{''.join('S' if w.get('skipped') else 'W' for w in (row.get('question_waits') or []))}"
                     for row in turns
                 )
             if mode == "group_submit" and self._rank_race_on(item):
@@ -28954,6 +29354,17 @@ class SchoolDB(LovesDB):
         )
         if quiet:
             seq += f":q{quiet}"
+        wait_bits = [
+            f"{int(team.get('team_id') or 0)}:"
+            + "|".join(
+                f"{int(row.get('student_id') or 0)}:{'s' if row.get('skipped') else 'w'}"
+                for row in (team.get("question_waits") or [])
+            )
+            for team in teams
+            if team.get("question_waits")
+        ]
+        if wait_bits:
+            seq += ":w" + ",".join(wait_bits)
         return seq
 
     def _light_group_submit_teams(
@@ -40527,9 +40938,19 @@ class SchoolDB(LovesDB):
                 if submitted:
                     members = member_ids_from_json(response["engagement_member_ids_json"])
                     if not members:
-                        members = live_members.get(team_id, [])
+                        skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                        members = [
+                            sid
+                            for sid in live_members.get(team_id, [])
+                            if sid not in skipped
+                        ]
                 else:
-                    members = live_members.get(team_id, [])
+                    skipped = self._skipped_ids_for_live_item(int(item["id"]))
+                    members = [
+                        sid
+                        for sid in live_members.get(team_id, [])
+                        if sid not in skipped
+                    ]
                 earned, _offered = self._group_engagement_points(kind, stored, response)
                 for student_id in sorted(set(members)):
                     self.conn.execute(
@@ -40572,7 +40993,16 @@ class SchoolDB(LovesDB):
                         ),
                     )
         if not wrote:
-            return
+            skipped_any = self.conn.execute(
+                """
+                SELECT 1 FROM live_question_skips
+                WHERE class_id = ? AND run_key = ?
+                LIMIT 1
+                """,
+                (class_id, run_key),
+            ).fetchone()
+            if skipped_any is None:
+                return
         existing = self.conn.execute(
             """
             SELECT 1 FROM catchup_links
@@ -45439,6 +45869,13 @@ class SchoolDB(LovesDB):
                 "answered": r["source"] == "catchup",
             })
         out.extend(self._group_engagement_catchup_questions(link, int(student_id)))
+        out.extend(
+            self._question_skip_catchup_questions(
+                link,
+                int(student_id),
+                already={str(q["question_key"]) for q in out},
+            )
+        )
         return out
 
     def _group_engagement_catchup_questions(
@@ -45522,7 +45959,20 @@ class SchoolDB(LovesDB):
                 (int(link["class_id"]), str(link["run_key"]), str(question_key)),
             ).fetchone()
         if row is None or str(row["prompt_kind"] or "") != "rank":
-            return False
+            row = self.conn.execute(
+                """
+                SELECT item_json, prompt_kind FROM live_question_skips
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(question_key),
+                    int(student_id),
+                ),
+            ).fetchone()
+            if row is None or str(row["prompt_kind"] or "") != "rank":
+                return False
         try:
             stored = json.loads(row["item_json"] or "{}")
         except (TypeError, ValueError):
@@ -45605,6 +46055,180 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return True
 
+    def _question_skip_catchup_questions(
+        self,
+        link: dict[str, Any],
+        student_id: int,
+        *,
+        already: set[str],
+    ) -> list[dict[str, Any]]:
+        """Skipped questions this student still finishes alone.
+
+        A group multiple choice is listed only for the skipped student.
+        A rank already on the page is not repeated. A positive live award
+        is left off. A catch-up completion stays visible as answered.
+
+        Args:
+            link: Catch-up row for one run.
+            student_id: Roster id.
+            already: Question keys already included.
+        """
+        class_id = int(link["class_id"])
+        run_key = str(link["run_key"])
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT s.question_key, s.item_json, s.prompt_kind,
+                       g.earned, g.source
+                FROM live_question_skips s
+                LEFT JOIN group_engagement g
+                    ON g.class_id = s.class_id AND g.run_key = s.run_key
+                   AND g.question_key = s.question_key AND g.student_id = s.student_id
+                WHERE s.class_id = ? AND s.run_key = ? AND s.student_id = ?
+                ORDER BY s.created_at, s.question_key
+                """,
+                (class_id, run_key, int(student_id)),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            key = str(row["question_key"])
+            if key in already:
+                continue
+            earned = int(row["earned"] or 0) if row["earned"] is not None else 0
+            source = str(row["source"] or "")
+            if row["earned"] is not None and earned > 0 and source != "catchup":
+                continue
+            try:
+                item = json.loads(row["item_json"] or "{}")
+            except (TypeError, ValueError):
+                item = {}
+            item = item if isinstance(item, dict) else {}
+            kind = str(row["prompt_kind"] or "")
+            entry: dict[str, Any] = {
+                "question_key": key,
+                "content": self._student_public_item_payload(item, class_id=class_id),
+                "prompt_kind": kind,
+                "question_skip": True,
+                "answered": source == "catchup" and earned >= 1,
+            }
+            if kind == "rank":
+                entry["group_rank"] = True
+            out.append(entry)
+        return out
+
+    def _store_skipped_question_catchup(
+        self,
+        link: dict[str, Any],
+        student_id: int,
+        question_key: str,
+        answer: Any,
+    ) -> bool:
+        """Settle one skipped non-rank question at 1/1.
+
+        A second call does not add points. Rank uses the rank catch-up
+        store. A blank answer is refused. Multiple choice must be one of
+        the options. This never writes 2.
+
+        Args:
+            link: Open catch-up row.
+            student_id: Roster id.
+            question_key: ``item:`` key.
+            answer: The student's catch-up answer.
+
+        Returns:
+            True when a completion is stored or was already stored.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT item_json, prompt_kind FROM live_question_skips
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(question_key),
+                    int(student_id),
+                ),
+            ).fetchone()
+        if row is None or str(row["prompt_kind"] or "") == "rank":
+            return False
+        try:
+            stored = json.loads(row["item_json"] or "{}")
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(stored, dict):
+            return False
+        if not self._skipped_catchup_answer_ok(str(row["prompt_kind"] or ""), stored, answer):
+            return False
+        current = self._saved_group_award(
+            int(link["class_id"]), str(link["run_key"]), str(question_key), int(student_id)
+        )
+        if current is not None and current > 0:
+            return True
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO group_engagement (
+                    class_id, run_key, question_key, student_id,
+                    earned, possible, source, recorded_at
+                ) VALUES (?, ?, ?, ?, 1, 1, 'catchup', ?)
+                ON CONFLICT(class_id, run_key, question_key, student_id) DO UPDATE SET
+                    earned = CASE
+                        WHEN group_engagement.earned > 0 THEN group_engagement.earned
+                        ELSE 1
+                    END,
+                    possible = CASE
+                        WHEN group_engagement.earned > 0 THEN group_engagement.possible
+                        ELSE 1
+                    END,
+                    source = CASE
+                        WHEN group_engagement.earned > 0 THEN group_engagement.source
+                        ELSE 'catchup'
+                    END,
+                    recorded_at = CASE
+                        WHEN group_engagement.earned > 0 THEN group_engagement.recorded_at
+                        ELSE excluded.recorded_at
+                    END
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(question_key),
+                    int(student_id),
+                    now,
+                ),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return True
+
+    def _skipped_catchup_answer_ok(self, kind: str, stored: dict[str, Any], answer: Any) -> bool:
+        """True when a skipped-question catch-up answer is finished.
+
+        Args:
+            kind: Stored prompt kind.
+            stored: Catalogue dict saved with the skip.
+            answer: Value posted from catch-up.
+        """
+        text = str(answer or "").strip()
+        if not text:
+            return False
+        token = str(kind or "").strip().lower()
+        if token in {"mc", "poll"}:
+            labels = self._mc_option_labels({"item": stored})
+            if labels:
+                return text in labels
+            return True
+        if token == "numeric":
+            try:
+                float(text)
+            except ValueError:
+                return False
+            return True
+        return True
+
     def submit_catchup_answer(
         self, token: str, student_id: int, question_key: str, answer: Any
     ) -> bool:
@@ -45627,6 +46251,10 @@ class SchoolDB(LovesDB):
         matched = next(q for q in questions if q["question_key"] == question_key)
         if matched.get("group_rank"):
             return self._store_group_engagement_catchup(link, int(student_id), str(question_key), answer)
+        if matched.get("question_skip"):
+            return self._store_skipped_question_catchup(
+                link, int(student_id), str(question_key), answer
+            )
         if self._catchup_question_is_draw(matched):
             return self._store_draw_catchup_answer(
                 link, int(student_id), str(question_key), answer
@@ -49862,6 +50490,11 @@ class SchoolDB(LovesDB):
                                || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
                                     THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
                                     ELSE 0 END)
+                               || '|k' || COALESCE(SUM((
+                                    SELECT COUNT(*) FROM live_question_skips s
+                                    WHERE s.live_item_id = g.live_item_id
+                                      AND s.team_id = g.team_id
+                               )), 0)
                         FROM live_group_responses g
                         INNER JOIN live_session_items i ON i.id = g.live_item_id
                         WHERE i.live_session_id = ?

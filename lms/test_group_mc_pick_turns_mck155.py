@@ -829,6 +829,8 @@ class GroupFlowsClientTests(unittest.TestCase):
                 _function_source(staff, "questionsMaskStudentDetail"),
                 _function_source(staff, "maskedGroupLabel"),
                 _function_source(staff, "skipNameList"),
+                staff[staff.index("const QUESTION_SKIP_COPY") : staff.index("});", staff.index("const QUESTION_SKIP_COPY")) + 3],
+                _function_source(staff, "questionWaitHtml"),
                 _function_source(staff, "rankTurnsTeacherHtml"),
             ]
         )

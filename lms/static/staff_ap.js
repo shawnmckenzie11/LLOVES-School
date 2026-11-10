@@ -1615,6 +1615,44 @@ const TURNS_COPY = Object.freeze({
   sent: "Sent",
 });
 
+/** MCK-467: per student, this question only. */
+const QUESTION_SKIP_COPY = Object.freeze({
+  action: "Skip for this question",
+  status: "Skipped — catch-up required.",
+  label: "Skip {name} for this question",
+});
+
+/**
+ * One row per student the group is waiting on, plus anyone already skipped.
+ * Names stay hidden while Student view or Hide names is on.
+ * @param {unknown} waits ``[{student_id, name, skipped}]``.
+ * @param {number} liveItemId
+ * @param {number} teamId
+ * @returns {string}
+ */
+function questionWaitHtml(waits, liveItemId, teamId) {
+  if (questionsMaskStudentDetail()) return "";
+  const rows = Array.isArray(waits) ? waits : [];
+  if (!rows.length) return "";
+  const itemId = Number(liveItemId) || 0;
+  const groupId = Number(teamId) || 0;
+  return `<ul class="question-skip-list">${rows
+    .map((row) => {
+      const name = String(row?.name || "").trim();
+      if (!name) return "";
+      if (row?.skipped) {
+        return `<li><span class="question-skip-name">${escapeHtml(name)}</span> <span class="question-skip-status">${escapeHtml(
+          QUESTION_SKIP_COPY.status
+        )}</span></li>`;
+      }
+      const label = QUESTION_SKIP_COPY.label.replace("{name}", name);
+      return `<li><span class="question-skip-name">${escapeHtml(name)}</span> <button type="button" class="secondary live-q-btn" data-question-skip="${itemId}" data-team-id="${groupId}" data-student-id="${
+        Number(row?.student_id) || 0
+      }" aria-label="${escapeHtml(label)}">${escapeHtml(QUESTION_SKIP_COPY.action)}</button></li>`;
+    })
+    .join("")}</ul>`;
+}
+
 /** Gate LOW-1: last Skip per group, shown until the next placement. */
 const turnSkipNotes = new Map();
 
@@ -2092,8 +2130,9 @@ function rankTurnsTeacherHtml(result, liveItemId) {
         note && note.placed === placed
           ? `<span class="rank-turn-skip-note" role="status">${escapeHtml(note.text)}</span>`
           : "";
+      const questionWaits = questionWaitHtml(row.question_waits, liveItemId, row.team_id);
       const teamLabel = maskedGroupLabel(index, row.team_name);
-      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(teamLabel)}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}${noteHtml}</li>`;
+      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(teamLabel)}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}${noteHtml}${questionWaits}</li>`;
     })
     .join("")}</ul>`;
 }
@@ -2103,7 +2142,7 @@ function rankTurnsTeacherHtml(result, liveItemId) {
  * @param {any} result
  * @returns {string}
  */
-function groupStatusBoardHtml(result) {
+function groupStatusBoardHtml(result, liveItemId) {
   const board = Array.isArray(result?.status_board) ? result.status_board : [];
   const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
   const rows = board.length ? board : log;
@@ -2128,6 +2167,7 @@ function groupStatusBoardHtml(result) {
         ${keyMark}
         ${line ? `<span class="group-submitter-log">${escapeHtml(line)}</span>` : ""}
         ${groupPicksHtml(row)}
+        ${questionWaitHtml(row.question_waits, liveItemId || result?.item?.id, row.team_id)}
         ${quietStrip}
       </li>`;
     })
@@ -2199,8 +2239,9 @@ function adoptLightGroupResults(bag) {
             vote_count: Number(team.vote_count) || 0,
             eligible_count: Number(team.eligible_count) || 0,
             last_submitter: team.last_submitter || null,
-            ...(Array.isArray(team.quiet_dots) ? { quiet_dots: team.quiet_dots } : {}),
-            final_answer: keepAnswers ? old.final_answer || null : null,
+          ...(Array.isArray(team.quiet_dots) ? { quiet_dots: team.quiet_dots } : {}),
+          ...(Array.isArray(team.question_waits) ? { question_waits: team.question_waits } : {}),
+          final_answer: keepAnswers ? old.final_answer || null : null,
             member_answers: keepAnswers ? old.member_answers : undefined,
             vote_summary: keepAnswers ? old.vote_summary : undefined,
           };
@@ -2226,6 +2267,7 @@ function adoptLightGroupResults(bag) {
             : {}),
           // MCK-62: quiet-member strip (bools only; no names).
           ...(Array.isArray(team.quiet_dots) ? { quiet_dots: team.quiet_dots } : {}),
+          ...(Array.isArray(team.question_waits) ? { question_waits: team.question_waits } : {}),
         })),
         ...(teams.some((team) => Array.isArray(team.picks))
           ? { any_picking: teams.some((team) => team.pick_step) }
@@ -5982,7 +6024,7 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
           .join("")}</tbody>
       </table>`
       : "";
-  return `${open}${groupCorrectSummaryHtml(result)}${groupStatusBoardHtml(result)}${revealHtml}</div>`;
+  return `${open}${groupCorrectSummaryHtml(result)}${groupStatusBoardHtml(result, liveItemId)}${revealHtml}</div>`;
 }
 
 /**
@@ -6621,6 +6663,7 @@ function groupConsensusResultsHtml(result, revealed, liveItemId) {
             : ""
         }
         ${quietStrip}
+        ${questionWaitHtml(team.question_waits, liveItemId, team.team_id)}
         ${answer}
         ${award}
         ${inspect}
@@ -7044,6 +7087,22 @@ async function endLifecycleVoting(liveItemId) {
  * @param {number} liveItemId
  * @param {number} teamId
  */
+/**
+ * MCK-467: skip one waiting student for this question. Does not change the group.
+ * @param {number} liveItemId
+ * @param {number} studentId
+ */
+async function skipQuestionForStudent(liveItemId, studentId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId || !studentId) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/question-skip`,
+    { method: "POST", body: JSON.stringify({ student_id: studentId }) }
+  );
+  if (result?.view) lifecycleResults.set(liveItemId, { ...result.view, live_item_id: liveItemId });
+  paintLiveQuestionCards();
+}
+
 async function skipRankTurn(liveItemId, teamId) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !liveItemId || !teamId) return;
@@ -14126,6 +14185,7 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   const publish = event.target.closest("button[data-publish-live-item]");
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");
+  const questionSkip = event.target.closest("button[data-question-skip]");
   const turnSkip = event.target.closest("button[data-rank-turn-skip]");
   const raceLock = event.target.closest("button[data-race-lock]");
   const raceSkip = event.target.closest("button[data-race-skip]");
@@ -14200,6 +14260,14 @@ $("live-question-list")?.addEventListener("click", async (event) => {
       if (!window.confirm(raceFill(RACE_COPY.skipConfirm, { team }))) return;
       raceSkip.disabled = true;
       await skipRankTurn(Number(raceSkip.dataset.raceSkip) || 0, Number(raceSkip.dataset.teamId) || 0);
+      return;
+    }
+    if (questionSkip instanceof HTMLButtonElement) {
+      questionSkip.disabled = true;
+      await skipQuestionForStudent(
+        Number(questionSkip.dataset.questionSkip) || 0,
+        Number(questionSkip.dataset.studentId) || 0
+      );
       return;
     }
     if (turnSkip instanceof HTMLButtonElement) {

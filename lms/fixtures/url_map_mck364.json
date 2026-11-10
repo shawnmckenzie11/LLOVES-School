@@ -919,6 +919,14 @@
       "api_publish_live_item"
     ],
     [
+      "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/question-skip",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_skip"
+    ],
+    [
       "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/race-step",
       [
         "OPTIONS",
