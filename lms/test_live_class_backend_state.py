@@ -1775,6 +1775,8 @@ class LiveBackendStateTests(unittest.TestCase):
             "picks",
             # MCK-62: quiet-member strip (bools only).
             "quiet_dots",
+            # MCK-467: who the group is waiting on, staff only.
+            "question_waits",
         }
         for team in bag["teams"]:
             self.assertTrue(set(team).issubset(allowed), team)

@@ -7899,6 +7899,31 @@ body.staff-shell .rank-turn-dots {
   letter-spacing: 0.1rem;
   color: #0f766e;
 }
+/* MCK-467: one student, this question. The name stays after Skip. */
+body.staff-shell .question-skip-list {
+  flex: 1 0 100%;
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+body.staff-shell .group-status-board .question-skip-list li,
+body.staff-shell .live-consensus-team .question-skip-list li,
+body.staff-shell .rank-turns-teacher .question-skip-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.4rem;
+  width: auto;
+  padding: 0;
+  background: transparent;
+}
+body.staff-shell .question-skip-status {
+  color: #9a3412;
+  font-weight: 600;
+}
 /* MCK-155 gate LOW-1: "Skipped Eli and Gus." on the group's row. */
 body.staff-shell .rank-turn-skip-note {
   flex-basis: 100%;

@@ -4580,6 +4580,42 @@ def register_live(app, school, shared):
         return jsonify({"ok": True, **result})
 
     @bp.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/question-skip",
+        methods=["POST"],
+    )
+    @login_required
+    def api_question_skip(session_id: int, live_item_id: int):
+        """MCK-467: skip one waiting student for this question only."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            student_id = int(body.get("student_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Choose a student to skip."}), 400
+        try:
+            from school_db import QuestionSkipStale
+
+            result = school.skip_question_for_student(
+                session_id, live_item_id, student_id
+            )
+        except QuestionSkipStale as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        if not result.get("repeated"):
+            emit_answer_landed(
+                school,
+                session_id,
+                student_id=None,
+                team_id=int(result.get("team_id") or 0) or None,
+                scope="group",
+            )
+        return jsonify({"ok": True, **result})
+
+    @bp.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/rank-lock",
         methods=["POST"],
     )
