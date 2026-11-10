@@ -136,8 +136,8 @@ export function classBoardPaintMode(ownKey, shownKey) {
  * @returns {HTMLElement}
  */
 function legendHost(canvas, stage) {
-  const root = canvas.closest("#formative-live-board, #canvas-pane") || stage.parentElement;
-  const found = root?.querySelector("#wb-live-legend, #class-board-legend");
+  const root = canvas.closest("#formative-live-board, .wb-live, #canvas-pane") || stage.parentElement;
+  const found = root?.querySelector("#wb-live-legend, [data-wb-part='legend'], #class-board-legend");
   if (found instanceof HTMLElement) {
     found.classList.add("wb-formative-legend");
     return found;

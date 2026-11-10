@@ -329,7 +329,7 @@
   color: #ecfdf5;
 }
 
-#formative-live-board .wb-live-show[aria-pressed="true"] {
+.wb-live .wb-live-show[aria-pressed="true"] {
   background: #7f1d1d;
   color: #fff;
 }
@@ -360,7 +360,7 @@
   visibility: hidden;
 }
 
-#formative-live-board:not([hidden]) {
+.wb-live:not([hidden]) {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -369,7 +369,7 @@
   margin-top: 0.35rem;
 }
 
-#formative-live-board:not([hidden]) .wb-live-body {
+.wb-live:not([hidden]) .wb-live-body {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
@@ -378,13 +378,13 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
-#formative-live-board .wb-live-grid {
+.wb-live .wb-live-grid {
   overflow: auto;
   min-height: 0;
   align-content: start;
 }
 
-#formative-live-board .wb-live-panel:not([hidden]) {
+.wb-live .wb-live-panel:not([hidden]) {
   position: fixed;
   right: 0.5rem;
   bottom: 0;
@@ -397,36 +397,36 @@
   flex-direction: column;
 }
 
-#formative-live-board .wb-live-panel-bar,
-#formative-live-board .wb-live-age,
-#formative-live-board .wb-live-panel-tools {
+.wb-live .wb-live-panel-bar,
+.wb-live .wb-live-age,
+.wb-live .wb-live-panel-tools {
   flex: 0 0 auto;
   flex-wrap: nowrap;
   overflow-x: auto;
 }
 
-#formative-live-board:has(.wb-live-panel:not([hidden])) .wb-live-grid {
+.wb-live:has(.wb-live-panel:not([hidden])) .wb-live-grid {
   padding-right: min(560px, 48%);
 }
 
-#formative-live-board .wb-live-panel[hidden] {
+.wb-live .wb-live-panel[hidden] {
   display: none !important;
 }
 
-#formative-live-board .wb-live-panel-stage {
+.wb-live .wb-live-panel-stage {
   position: relative;
   flex: 1 1 auto;
   min-height: max(320px, calc(100dvh - 20.5rem));
   height: calc(100dvh - 20.5rem);
 }
 
-#formative-live-board .wb-live-panel-stage > .wb-live-panel-canvas {
+.wb-live .wb-live-panel-stage > .wb-live-panel-canvas {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-#formative-live-board .wb-live-panel-tools {
+.wb-live .wb-live-panel-tools {
   flex: 0 0 auto;
 }
 
@@ -548,7 +548,6 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   text-align: center;
 }
 
-.qboard-dash-grid,
 .qboard-phone {
   display: flex;
   flex-direction: column;
@@ -556,125 +555,21 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   min-width: 0;
 }
 
-.qboard-head,
-.qboard-filters,
-.qboard-panel-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
+.qboard-dash .wb-live {
+  min-height: 28rem;
 }
 
-.qboard-chip {
-  background: #2563eb;
-  color: #fff;
-  border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.75rem;
-}
-
-.qboard-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 0.6rem;
-  max-height: 520px;
-}
-
-.qboard-tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.45rem;
-  overflow: auto;
-}
-
-button.qboard-tile,
-button.qboard-tile .qboard-tile-name,
-button.qboard-tile .qboard-tile-status,
-button.qboard-tile .qboard-tile-text,
-button.qboard-tile .qboard-tile-members,
-.qboard-panel,
-.qboard-panel-name,
-.qboard-panel-text {
-  color: #0f172a;
-}
-
-button.qboard-filter {
-  color: #f8fafc;
-}
-
-button.qboard-filter.is-on {
-  background: #0f172a;
-  color: #fff;
-}
-
-.qboard-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #fff;
-  padding: 0.35rem;
-  text-align: left;
-}
-
-.qboard-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0.35rem 0;
-}
-
-.qboard-legend-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: #0f172a;
-  font-size: 0.8rem;
-}
-
-.qboard-legend-swatch {
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 999px;
-}
-
-.qboard-thumb,
-.qboard-panel-canvas,
-.qboard-canvas {
-  width: 100%;
+.qboard-dash .wb-live .wb-live-body {
   height: auto;
-  background: #f8fafc;
-  border-radius: 8px;
+  min-height: 22rem;
+  overflow: visible;
 }
 
-.qboard-panel {
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 0.6rem;
-  background: #fff;
-}
-
-.qboard-line {
-  color: #9a3412;
-  margin: 0;
-}
-
-.qboard-status {
-  color: #e2e8f0;
-  margin: 0;
+.qboard-dash .wb-live .wb-live-grid {
+  min-height: 16rem;
 }
 
 .qboard-tools {
   display: flex;
   justify-content: flex-end;
-}
-
-@media (max-width: 800px) {
-  .qboard-layout {
-    grid-template-columns: 1fr;
-  }
-  .qboard-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }

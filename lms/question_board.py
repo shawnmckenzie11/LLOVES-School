@@ -41,15 +41,17 @@ class QuestionBoardError(Exception):
         status: HTTP status. Default 400.
     """
 
-    def __init__(self, message: str, status: int = 400) -> None:
+    def __init__(self, message: str, status: int = 400, *, stale_run: bool = False) -> None:
         """Record the line and the HTTP status.
 
         Args:
             message: Calm line.
             status: HTTP status.
+            stale_run: True when the client named a run this class has left.
         """
         super().__init__(message)
         self.status = int(status)
+        self.stale_run = bool(stale_run)
 
 
 @dataclass(frozen=True)
@@ -1188,20 +1190,31 @@ def question_board_legend(
     )
 
 
-def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str, Any]:
+def question_dashboard(
+    school: Any,
+    session_id: int,
+    prompt_id: int,
+    cursors: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """Teacher tile list for one published board question.
+
+    Tiles use the live gallery's since-seq shape so the existing teacher
+    board can paint them. Status counts stay on the tile.
 
     Args:
         school: Open school database.
         session_id: ``live_class_sessions.id``.
         prompt_id: ``live_session_prompts.id``.
+        cursors: Board key to the last sequence the gallery has applied.
 
     Returns:
         Header counts, filter counts, and one tile per board.
     """
-    from board_ops import fold_one_board
+    from formative_live_board import build_gallery_tile
 
     session, base = _session_base(school, int(session_id))
+    if str(session.get("status") or "") != "active":
+        return {"ok": True, "ended": True, "visible": False, "tiles": []}
     prompt, item = _question_item(school, int(session_id), int(prompt_id))
     payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
     if not uses_board(payload):
@@ -1212,15 +1225,21 @@ def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str
     run_key = question_run_key(base, int(prompt_id))
     cards = _cards_for_question(school, int(session_id), item)
     keys = [str(card["board_key"]) for card in cards]
-    rows: list[dict[str, Any]] = []
+    supplied = cursors or {}
+    query = {key: int(supplied.get(key) or 0) for key in keys}
+    try:
+        deltas = school._formative_deltas(
+            int(session_id), query, include_feedback=True, run_key=run_key
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
+    by_key: dict[str, list[dict[str, Any]]] = {}
     if keys:
         try:
-            rows = list(school.boards.load_keys(run_key, keys))
+            for row in school.boards.load_keys(run_key, keys):
+                by_key.setdefault(str(row.get("board_key") or ""), []).append(row)
         except Exception as exc:  # noqa: BLE001
             raise QuestionBoardError(DOWN_LINE, 503) from exc
-    by_key: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        by_key.setdefault(str(row.get("board_key") or ""), []).append(row)
     names = school._student_display_names(int(session["class_id"]))
     copies: dict[str, dict[str, Any]] = {}
     with school._lock:
@@ -1253,25 +1272,25 @@ def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str
             who_id = int(who) if who not in (None, "") else None
         except (TypeError, ValueError):
             who_id = None
-        view = fold_one_board(by_key.get(key) or [], include_feedback=True)
         text = str(copy.get("text") or "")
         if not submitted_at:
             text = draft
-        tiles.append(
-            {
-                "board_key": key,
-                "name": str(card.get("name") or ""),
-                "member_names": list(card.get("member_names") or []),
-                "status": status,
-                "away": bool(card.get("away")),
-                "text": text,
-                "submitted_by": who_id,
-                "submitted_by_name": names.get(who_id, "") if who_id is not None else "",
-                "canvas_view": view,
-                "legend": question_board_legend(school, int(session_id), card),
-                "run_key": run_key,
-            }
+        tile = build_gallery_tile(
+            board_key=key,
+            name=str(card.get("name") or ""),
+            team_sort_order=card.get("team_sort_order"),
+            away=bool(card.get("away")),
+            delta=deltas.get(key),
+            student_ids=list(card.get("student_ids") or []),
         )
+        tile["status"] = status
+        tile["text"] = text
+        tile["member_names"] = list(card.get("member_names") or [])
+        tile["submitted_by"] = who_id
+        tile["submitted_by_name"] = names.get(who_id, "") if who_id is not None else ""
+        tile["teacher_wrote"] = status == "Teacher wrote"
+        tile["run_key"] = run_key
+        tiles.append(tile)
     order = {"Not started": 0, "Drawing": 1, "Submitted": 2, "Teacher wrote": 3}
     tiles.sort(key=lambda tile: (order.get(str(tile["status"]), 9), str(tile["name"]).casefold()))
     counts = {"Not started": 0, "Drawing": 0, "Submitted": 0, "Teacher wrote": 0}
@@ -1280,26 +1299,87 @@ def question_dashboard(school: Any, session_id: int, prompt_id: int) -> dict[str
     label = "Typing and whiteboard" if mode == "both" else "Whiteboard"
     stem = str(payload.get("text") or payload.get("prompt") or "").strip()
     submitted = counts["Submitted"] + counts["Teacher wrote"]
+    teacher = school.live_session_teacher_state_payload(int(session_id))
+    projected = ""
+    if str(teacher.get("whiteboard_projected_run") or "") == run_key:
+        projected = str(teacher.get("whiteboard_projected_board") or "")
     return {
         "ok": True,
+        "visible": True,
+        "ended": False,
         "run_key": run_key,
         "answer_with": mode,
         "label": label,
         "stem": stem,
+        "context": stem,
         "total": len(tiles),
         "submitted": submitted,
         "drawing": counts["Drawing"],
         "summary": f"{submitted} of {len(tiles)} submitted · {counts['Drawing']} drawing",
+        "projected_board": projected,
         "filters": [
-            {"id": "all", "label": "All", "count": len(tiles)},
-            {"id": "Not started", "label": "Not started", "count": counts["Not started"]},
-            {"id": "Drawing", "label": "Drawing", "count": counts["Drawing"]},
-            {"id": "Submitted", "label": "Submitted", "count": counts["Submitted"]},
-            {"id": "Teacher wrote", "label": "Teacher wrote", "count": counts["Teacher wrote"]},
+            {"id": "all", "label": f"All {len(tiles)}", "count": len(tiles)},
+            {
+                "id": "Not started",
+                "label": f"Not started {counts['Not started']}",
+                "count": counts["Not started"],
+            },
+            {"id": "Drawing", "label": f"Drawing {counts['Drawing']}", "count": counts["Drawing"]},
+            {
+                "id": "Submitted",
+                "label": f"Submitted {counts['Submitted']}",
+                "count": counts["Submitted"],
+            },
+            {
+                "id": "Teacher wrote",
+                "label": f"Teacher wrote {counts['Teacher wrote']}",
+                "count": counts["Teacher wrote"],
+            },
         ],
         "tiles": tiles,
         "image_url": str(payload.get("image_url") or "") if image_is_background(payload) else "",
     }
+
+
+def _legend_card(board_key: str, student_id: int) -> dict[str, Any]:
+    """Card shape ``question_board_legend`` reads for one board key.
+
+    Args:
+        board_key: ``solo:<id>`` or ``team:<n>``.
+        student_id: Roster id of the viewer. Used for a solo card.
+    """
+    key = str(board_key or "")
+    if key.startswith("team:"):
+        try:
+            order = int(key.split(":", 1)[1])
+        except (TypeError, ValueError):
+            order = None
+        return {"board_key": key, "team_sort_order": order, "student_ids": []}
+    return {"board_key": key, "team_sort_order": None, "student_ids": [int(student_id)]}
+
+
+def _since_view(
+    school: Any, run_key: str, board_key: str, since: int, view: dict[str, Any]
+) -> dict[str, Any]:
+    """Since-seq fields for one board, using the folded view on a snapshot.
+
+    Args:
+        school: Open school database.
+        run_key: Question or catch-up run key.
+        board_key: Board the caller may read.
+        since: Last sequence the caller has applied.
+        view: Full fold, used when the gap is a snapshot.
+    """
+    delta = school.boards.since(run_key, board_key, int(since))
+    snapshot = bool(delta.get("snapshot")) or int(since) <= 0
+    body = {
+        "board_seq": int(delta.get("board_seq") or 0),
+        "snapshot": snapshot,
+        "ops": [] if snapshot else list(delta.get("ops") or []),
+    }
+    if snapshot:
+        body["canvas_view"] = view
+    return body
 
 
 def read_student_question_board(
@@ -1307,17 +1387,20 @@ def read_student_question_board(
     session_id: int,
     prompt_id: int,
     student_id: int,
+    since: int | None = None,
 ) -> dict[str, Any]:
     """Whole board for one student, including their own ink.
 
     After Close the phone is read-only and shows the saved copy when one
-    exists. Teacher ink is included immediately.
+    exists. Teacher ink is included immediately. ``since`` selects the
+    same since-seq shape the live whiteboard poll uses.
 
     Args:
         school: Open school database.
         session_id: ``live_class_sessions.id``.
         prompt_id: ``live_session_prompts.id``.
         student_id: Roster id.
+        since: Last sequence the phone has applied. Omit for a snapshot.
     """
     from board_ops import fold_one_board
 
@@ -1359,7 +1442,7 @@ def read_student_question_board(
             line = f"Updated by {who_name}."
     elif submitted_at:
         line = "Submitted. You can still make changes."
-    return {
+    body = {
         "ok": True,
         "run_key": run_key,
         "board_key": board_key,
@@ -1368,12 +1451,22 @@ def read_student_question_board(
         "canvas_view": view,
         "read_only": closed or str(session.get("status") or "") != "active",
         "group": group,
+        "viewer_id": int(student_id),
         "answer_with": answer_with_of(payload),
         "text": str(saved.get("text") or saved.get("draft_text") or ""),
         "status_line": line,
         "image_url": str(payload.get("image_url") or "") if image_is_background(payload) else "",
         "stem": str(payload.get("text") or payload.get("prompt") or ""),
+        "formative": {
+            "members": question_board_legend(
+                school, int(session_id), _legend_card(board_key, int(student_id))
+            ),
+            "always_show_names": False,
+        },
     }
+    if since is not None and not (closed and submitted_at):
+        body.update(_since_view(school, run_key, board_key, int(since), view))
+    return body
 
 
 def append_question_board_ops(
@@ -1430,6 +1523,272 @@ def append_question_board_ops(
         ops=cleaned,
         client_batch_id=client_batch_id,
         claimed_run_key=run_key,
+    )
+
+
+def body_is_presence(body: Any) -> bool:
+    """True when a write is a live-whiteboard presence batch, not an op list.
+
+    The gallery posts ``ops``. Phones post points, text, or stroke_remove,
+    the same body ``/api/student/canvas-presence`` accepts.
+
+    Args:
+        body: JSON object from the client.
+    """
+    if not isinstance(body, dict):
+        return False
+    ops = body.get("ops")
+    if isinstance(ops, list) and ops:
+        return False
+    if str(body.get("text_id") or "").strip():
+        return True
+    kind = str(body.get("op") or body.get("type") or "")
+    if kind == "stroke_remove":
+        return True
+    return isinstance(body.get("points"), list)
+
+
+def _require_claimed_run(claimed: Any, current: str) -> str:
+    """Refuse a run key that is not the board the server is writing.
+
+    Args:
+        claimed: Run key from the client. Empty means the current key.
+        current: Run key this write belongs on.
+
+    Returns:
+        ``current``.
+
+    Raises:
+        QuestionBoardError: The client named a different run. Status 409.
+    """
+    token = str(claimed or "").strip()
+    if token and token != current:
+        raise QuestionBoardError("That board was restarted.", 409, stale_run=True)
+    return current
+
+
+def _presence_delta(
+    school: Any, run_key: str, board_key: str, since: Any
+) -> dict[str, Any]:
+    """Since-seq reply after a presence write.
+
+    Args:
+        school: Open school database.
+        run_key: Generation the write landed on.
+        board_key: Board that was written.
+        since: Cursor from the client. Missing means a snapshot.
+    """
+    from board_ops import fold_one_board
+
+    if since in (None, ""):
+        rows = list(school.boards.load_keys(run_key, [board_key]))
+        view = fold_one_board(rows, include_feedback=True)
+        seq = 0
+        for row in rows:
+            try:
+                seq = max(seq, int(row.get("board_seq") or 0))
+            except (TypeError, ValueError):
+                continue
+        return {
+            "ok": True,
+            "run_key": run_key,
+            "board_key": board_key,
+            "board_seq": seq,
+            "snapshot": True,
+            "canvas_view": view,
+            "ops_since": [],
+        }
+    try:
+        cursor = int(since)
+    except (TypeError, ValueError):
+        cursor = 0
+    delta = school.boards.since(run_key, board_key, cursor)
+    snapshot = bool(delta.get("snapshot"))
+    view = None
+    if snapshot:
+        rows = list(school.boards.load_keys(run_key, [board_key]))
+        view = fold_one_board(rows, include_feedback=True)
+    return {
+        "ok": True,
+        "run_key": run_key,
+        "board_key": board_key,
+        "board_seq": int(delta.get("board_seq") or 0),
+        "snapshot": snapshot,
+        "canvas_view": view,
+        "ops_since": [] if snapshot else list(delta.get("ops") or []),
+    }
+
+
+def apply_question_presence(
+    school: Any,
+    session_id: int,
+    prompt_id: int,
+    student_id: int,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Store one presence batch on this question's board.
+
+    Points, text, and undo use the same board store as the live
+    whiteboard. The question run key keeps this ink off the deck board.
+    Names are not copied onto the stroke.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        prompt_id: ``live_session_prompts.id``.
+        student_id: Roster id.
+        body: Presence JSON.
+    """
+    from board_ops import BoardOpRejected, BoardSessionClosed
+
+    _session, base = _session_base(school, int(session_id))
+    _prompt, item = _question_item(school, int(session_id), int(prompt_id))
+    _require_open_item(item)
+    board_key, _group = _resolve_board_key(
+        school, int(session_id), int(student_id), item
+    )
+    run_key = _require_claimed_run(body.get("run_key"), question_run_key(base, int(prompt_id)))
+    boards = getattr(school, "boards", None)
+    if boards is None:
+        raise QuestionBoardError(DOWN_LINE, 503)
+    who = str(int(student_id))
+    color = school.ink_color_for_new_stroke(int(session_id), board_key, who)
+    batch = str(body.get("client_batch_id") or "").strip() or None
+    try:
+        text_id = str(body.get("text_id") or "").strip()
+        if text_id:
+            boards.append_text(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                text_id=text_id,
+                text=str(body.get("text") if body.get("text") is not None else ""),
+                x=body.get("x"),
+                y=body.get("y"),
+                color=color,
+                team_id=None,
+                client_batch_id=batch,
+            )
+        elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+            boards.append_remove(
+                run_key,
+                board_key,
+                owner=who,
+                stroke_id=str(body.get("stroke_id") or body.get("id") or ""),
+                client_batch_id=batch,
+            )
+        else:
+            points = body.get("points") if isinstance(body.get("points"), list) else None
+            boards.append_ink(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                color=color,
+                team_id=None,
+                stroke_id=str(body.get("stroke_id") or "") or None,
+                points=points,
+                point=body.get("point"),
+                ended=bool(body.get("ended")),
+                batched=isinstance(points, list),
+                x=body.get("x"),
+                y=body.get("y"),
+                client_batch_id=batch,
+            )
+    except BoardSessionClosed as exc:
+        raise QuestionBoardError(CLOSED_LINE, 409) from exc
+    except BoardOpRejected as exc:
+        raise QuestionBoardError("That stroke is not yours.", 403) from exc
+    except QuestionBoardError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
+    return _presence_delta(school, run_key, board_key, body.get("since"))
+
+
+def question_open_board(
+    school: Any, session_id: int, prompt_id: int, board_key: str, *, since: int = 0
+) -> dict[str, Any]:
+    """Teacher side panel for one question board.
+
+    The payload matches the live gallery panel: name, legend, and a
+    since-seq delta. Names stay here. The student projection strips them.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        prompt_id: ``live_session_prompts.id``.
+        board_key: ``solo:<id>`` or ``team:<n>``.
+        since: Last sequence the panel has applied.
+    """
+    from board_ops import fold_one_board
+    from formative_live_board import gallery_board_key, public_board_payload
+
+    _session, base = _session_base(school, int(session_id))
+    _prompt, item = _question_item(school, int(session_id), int(prompt_id))
+    try:
+        key = gallery_board_key(board_key)
+    except ValueError as exc:
+        raise QuestionBoardError("Board not found", 404) from exc
+    card = next(
+        (row for row in _cards_for_question(school, int(session_id), item) if str(row.get("board_key") or "") == key),
+        None,
+    )
+    if card is None:
+        raise QuestionBoardError("Board not found", 404)
+    run_key = question_run_key(base, int(prompt_id))
+    rows = list(school.boards.load_keys(run_key, [key]))
+    view = fold_one_board(rows, include_feedback=True)
+    delta = school.boards.since(run_key, key, int(since))
+    snapshot = bool(delta.get("snapshot")) or int(since) <= 0
+    if snapshot and not delta.get("canvas_view"):
+        delta_view = view
+    else:
+        delta_view = delta.get("canvas_view") if isinstance(delta.get("canvas_view"), dict) else view
+    return public_board_payload(
+        {
+            "ok": True,
+            "board_key": key,
+            "name": str(card.get("name") or ""),
+            "run_key": run_key,
+            "board_seq": int(delta.get("board_seq") or 0),
+            "snapshot": snapshot,
+            "ops": [] if snapshot else list(delta.get("ops") or []),
+            "canvas_view": delta_view if snapshot else None,
+            "legend": question_board_legend(school, int(session_id), card),
+        }
+    )
+
+
+def clear_question_board(
+    school: Any, session_id: int, prompt_id: int, board_key: str
+) -> dict[str, Any]:
+    """Clear student ink on one question board. Teacher ink stays.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        prompt_id: ``live_session_prompts.id``.
+        board_key: Tile key.
+    """
+    from formative_live_board import gallery_board_key
+
+    _session, base = _session_base(school, int(session_id))
+    _prompt, item = _question_item(school, int(session_id), int(prompt_id))
+    _require_open_item(item)
+    try:
+        key = gallery_board_key(board_key)
+    except ValueError as exc:
+        raise QuestionBoardError("Board not found", 404) from exc
+    found = any(
+        str(row.get("board_key") or "") == key
+        for row in _cards_for_question(school, int(session_id), item)
+    )
+    if not found:
+        raise QuestionBoardError("Board not found", 404)
+    return school.clear_whiteboard_board(
+        int(session_id), key, run_key=question_run_key(base, int(prompt_id))
     )
 
 
@@ -1794,8 +2153,30 @@ def submit_catchup_board(
     return {"ok": True, "answer": pointer, "status_line": "Submitted. You can still make changes."}
 
 
+def _solo_phone(student_id: int) -> dict[str, Any]:
+    """Viewer id and a nameless colour chip for one solo phone.
+
+    Args:
+        student_id: Roster id.
+    """
+    from live_canvas import cursor_color_for
+
+    who = str(int(student_id))
+    return {
+        "viewer_id": int(student_id),
+        "formative": {
+            "members": [{"id": who, "name": "", "color": cursor_color_for(who)}],
+            "always_show_names": False,
+        },
+    }
+
+
 def read_catchup_board(
-    school: Any, token: str, student_id: int, item_id: int
+    school: Any,
+    token: str,
+    student_id: int,
+    item_id: int,
+    since: int | None = None,
 ) -> dict[str, Any]:
     """Solo catch-up board, or the saved live drawing when one exists.
 
@@ -1804,6 +2185,7 @@ def read_catchup_board(
         token: Catch-up link token. Not logged.
         student_id: Roster id.
         item_id: ``participation_items.id``.
+        since: Last sequence the phone has applied. Omit for a snapshot.
     """
     from board_ops import fold_one_board
     from catchup_landing import link_still_open
@@ -1859,6 +2241,7 @@ def read_catchup_board(
             "status_line": "",
             "run_key": copy_run,
             "board_key": f"solo:{int(student_id)}",
+            **_solo_phone(int(student_id)),
         }
     run_key = catchup_run_key(str(link["run_key"]), int(item_id))
     board_key = f"solo:{int(student_id)}"
@@ -1881,6 +2264,7 @@ def read_catchup_board(
             "status_line": "Submitted. You can still make changes." if copy is not None else "",
             "run_key": run_key,
             "board_key": board_key,
+            **_solo_phone(int(student_id)),
         }
     rows, seq = _board_rows(school, run_key, board_key)
     with school._lock:
@@ -1892,17 +2276,22 @@ def read_catchup_board(
             (int(link["class_id"]), run_key, board_key),
         ).fetchone()
     submitted = copy is not None and str(copy["submitted_at"] or "").strip()
-    return {
+    view = fold_one_board(rows, include_feedback=False)
+    body = {
         "ok": True,
         "read_only": False,
         "snapshot": True,
-        "canvas_view": fold_one_board(rows, include_feedback=False),
+        "canvas_view": view,
         "board_seq": seq,
         "text": str(copy["text"] or "") if submitted else "",
         "status_line": "Submitted. You can still make changes." if submitted else "",
         "run_key": run_key,
         "board_key": board_key,
+        **_solo_phone(int(student_id)),
     }
+    if since is not None:
+        body.update(_since_view(school, run_key, board_key, int(since), view))
+    return body
 
 
 def append_catchup_board_ops(
@@ -1980,6 +2369,122 @@ def append_catchup_board_ops(
         raise QuestionBoardError(CLOSED_LINE, 409) from exc
     except Exception as exc:  # noqa: BLE001
         raise QuestionBoardError(DOWN_LINE, 503) from exc
+
+
+def apply_catchup_presence(
+    school: Any,
+    token: str,
+    student_id: int,
+    item_id: int,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Store one presence batch on a catch-up board.
+
+    The board is ``solo:<id>`` under the ``~cu`` key. A live answer is
+    left untouched. Names are not stored.
+
+    Args:
+        school: Open school database.
+        token: Catch-up link token. Not logged.
+        student_id: Roster id.
+        item_id: ``participation_items.id``.
+        body: Presence JSON.
+    """
+    from board_ops import BoardOpRejected, BoardSessionClosed
+    from catchup_landing import link_still_open
+    from live_canvas import cursor_color_for
+
+    link = school.get_catchup_link(str(token or ""))
+    if link is None or not link_still_open(school, {**link, "class_id": int(link["class_id"])}):
+        raise QuestionBoardError(CLOSED_LINE, 409)
+    with school._lock:
+        item = school.conn.execute(
+            """
+            SELECT question_key FROM participation_items
+            WHERE id = ? AND class_id = ? AND run_key = ?
+            """,
+            (int(item_id), int(link["class_id"]), str(link["run_key"])),
+        ).fetchone()
+        existing = None
+        if item is not None:
+            existing = school.conn.execute(
+                """
+                SELECT source FROM participation_answers
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(item["question_key"]),
+                    int(student_id),
+                ),
+            ).fetchone()
+    if item is None:
+        raise QuestionBoardError("Question not found", 404)
+    if existing is not None and str(existing["source"] or "") == "live":
+        raise QuestionBoardError("That answer was saved in class.", 409)
+    run_key = _require_claimed_run(
+        body.get("run_key"), catchup_run_key(str(link["run_key"]), int(item_id))
+    )
+    board_key = f"solo:{int(student_id)}"
+    boards = getattr(school, "boards", None)
+    if boards is None:
+        raise QuestionBoardError(DOWN_LINE, 503)
+    who = str(int(student_id))
+    color = cursor_color_for(who)
+    batch = str(body.get("client_batch_id") or "").strip() or None
+    try:
+        assert_board_run_key(run_key)
+        text_id = str(body.get("text_id") or "").strip()
+        if text_id:
+            boards.append_text(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                text_id=text_id,
+                text=str(body.get("text") if body.get("text") is not None else ""),
+                x=body.get("x"),
+                y=body.get("y"),
+                color=color,
+                team_id=None,
+                client_batch_id=batch,
+            )
+        elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+            boards.append_remove(
+                run_key,
+                board_key,
+                owner=who,
+                stroke_id=str(body.get("stroke_id") or body.get("id") or ""),
+                client_batch_id=batch,
+            )
+        else:
+            points = body.get("points") if isinstance(body.get("points"), list) else None
+            boards.append_ink(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                color=color,
+                team_id=None,
+                stroke_id=str(body.get("stroke_id") or "") or None,
+                points=points,
+                point=body.get("point"),
+                ended=bool(body.get("ended")),
+                batched=isinstance(points, list),
+                x=body.get("x"),
+                y=body.get("y"),
+                client_batch_id=batch,
+            )
+    except BoardSessionClosed as exc:
+        raise QuestionBoardError(CLOSED_LINE, 409) from exc
+    except BoardOpRejected as exc:
+        raise QuestionBoardError("That stroke is not yours.", 403) from exc
+    except QuestionBoardError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
+    return _presence_delta(school, run_key, board_key, body.get("since"))
 
 
 def copy_group_participation(school: Any, session_id: int) -> None:

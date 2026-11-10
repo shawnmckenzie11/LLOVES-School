@@ -25,8 +25,8 @@ let overviewTap = false;
  * Poll gap for this page. Submit-only whiteboards use the server minimum.
  * @returns {number}
  */
-function overviewPollMs() {
-  const node = document.getElementById("formative-live-board");
+function overviewPollMs(root) {
+  const node = root || document.getElementById("formative-live-board");
   const asked = Number(node && node.dataset ? node.dataset.refreshMs : TILE_POLL_MS);
   if (Number.isFinite(asked) && asked >= SUBMIT_REFRESH_MS) return asked;
   return TILE_POLL_MS;
@@ -105,6 +105,7 @@ function tileName(tile) {
 function tileMatches(tile, selected) {
   if (selected === "all") return true;
   if (selected === "teacher_wrote") return Boolean(tile?.teacher_wrote);
+  if (tile?.status && tile.status === selected) return true;
   return tile?.team_board === selected;
 }
 
@@ -316,13 +317,31 @@ function strokeOps(canvas, openIds, points, ended, strokeId, color) {
 /**
  * @param {HTMLElement} root
  */
-export function mountTeacherGrid(root) {
-  const grid = root.querySelector("#wb-live-grid");
-  const panel = root.querySelector("#wb-live-panel");
-  const filters = root.querySelector("#wb-live-filters");
-  const summary = root.querySelector("#wb-live-summary");
-  const context = root.querySelector("#wb-live-context");
-  const canvas = root.querySelector("#wb-live-panel-canvas");
+export function mountTeacherGrid(root, options = {}) {
+  /**
+   * A control in this gallery, by the live-board part name.
+   *
+   * The deck gallery uses ids. A question gallery uses data-wb-part so
+   * two boards on one page do not share an id.
+   * @param {string} name
+   * @returns {Element | null}
+   */
+  function part(name) {
+    return (
+      root.querySelector(`[data-wb-part="${name}"]`) ||
+      root.querySelector(`#wb-live-${name}`)
+    );
+  }
+  if (root.dataset.wbMounted === "1") {
+    return { stop() {} };
+  }
+  root.dataset.wbMounted = "1";
+  const grid = part("grid");
+  const panel = part("panel");
+  const filters = part("filters");
+  const summary = part("summary");
+  const context = part("context");
+  const canvas = part("panel-canvas");
   if (!(grid instanceof HTMLElement) || !(canvas instanceof HTMLCanvasElement)) return;
 
   /** @type {Record<string, {strokes: Record<string, any>, texts: Record<string, any>}>} */
@@ -341,13 +360,14 @@ export function mountTeacherGrid(root) {
   let runKey = "";
   let projectedKey = "";
   const openStrokes = new Set();
-  const cols = root.querySelector("#wb-live-cols");
+  const cols = part("cols");
 
   const board = bindWhiteboard(canvas, {
-    penBtn: root.querySelector("#wb-live-pen"),
-    textBtn: root.querySelector("#wb-live-text"),
-    eraseBtn: root.querySelector("#wb-live-erase"),
-    undoBtn: root.querySelector("#wb-live-undo"),
+    penBtn: part("pen"),
+    textBtn: part("text"),
+    eraseBtn: part("erase"),
+    undoBtn: part("undo"),
+    redoBtn: part("redo"),
     formative: {
       enabled: true,
       members: [],
@@ -382,6 +402,16 @@ export function mountTeacherGrid(root) {
       if (!openKey || !stroke?.id) return;
       postFeedback([{ type: "stroke_remove", id: stroke.id }]);
     },
+    onRedo: (stroke) => {
+      if (!openKey || !stroke?.id) return;
+      const samples = [];
+      for (const point of stroke.points || []) {
+        const norm = normalizeBoardPoint(canvas, point);
+        if (norm) samples.push([norm.x, norm.y]);
+      }
+      if (!samples.length) return;
+      postFeedback([{ type: "stroke_add", id: stroke.id, points: samples, color: TEACHER_INK }]);
+    },
   });
   board.setCollab(true);
 
@@ -389,6 +419,8 @@ export function mountTeacherGrid(root) {
    * @returns {string}
    */
   function sessionId() {
+    if (typeof options.sessionId === "function") return String(options.sessionId() || "").trim();
+    if (options.sessionId) return String(options.sessionId).trim();
     const ap = document.getElementById("ap-root");
     return String(ap?.dataset.liveSessionId || "").trim();
   }
@@ -400,6 +432,7 @@ export function mountTeacherGrid(root) {
    * @returns {string}
    */
   function boardUrl(id, key, suffix) {
+    if (typeof options.boardUrl === "function") return options.boardUrl(id, key, suffix);
     return `/api/live-sessions/${id}/whiteboard-gallery/${encodeURIComponent(key)}${suffix || ""}`;
   }
 
@@ -514,6 +547,12 @@ export function mountTeacherGrid(root) {
       team.className = "wb-live-team";
       team.textContent = tile.team_sort_order == null ? "" : "";
       meta.append(dot, name, team);
+      if (tile.text) {
+        const typed = document.createElement("span");
+        typed.className = "wb-live-status";
+        typed.textContent = String(tile.text);
+        meta.append(typed);
+      }
       if (tile.status) {
         const wrote = document.createElement("span");
         wrote.className = "wb-live-status";
@@ -568,7 +607,7 @@ export function mountTeacherGrid(root) {
     }
     paintGrid(tiles);
     projectedKey = String(payload.projected_board || "");
-    const status = root.querySelector("#wb-live-projected");
+    const status = part("projected");
     if (status) {
       const projected = tiles.find(
         (tile) => String(tile.board_key || "") === projectedKey
@@ -582,7 +621,7 @@ export function mountTeacherGrid(root) {
    * Show to class, or Stop showing when this board is the one up.
    */
   function paintShowButton() {
-    const button = root.querySelector("#wb-live-show");
+    const button = part("show");
     if (!(button instanceof HTMLButtonElement)) return;
     const state = showControlState(openKey, projectedKey);
     button.textContent = state.label;
@@ -602,9 +641,9 @@ export function mountTeacherGrid(root) {
     board.resetRun?.({ strokes: [], texts: [] });
     if (panel instanceof HTMLElement) panel.hidden = false;
     const tile = tiles.find((row) => String(row.board_key || "") === openKey);
-    const title = root.querySelector("#wb-live-panel-name");
-    const age = root.querySelector("#wb-live-panel-age");
-    const team = root.querySelector("#wb-live-panel-team");
+    const title = part("panel-name");
+    const age = part("panel-age");
+    const team = part("panel-team");
     if (title) title.textContent = tile ? tileName(tile) : "Board";
     if (age) age.textContent = tile ? strokeAge(tile.last_stroke_at) : "";
     if (team) team.textContent = tile && tile.team_sort_order != null ? tileName(tile) : "";
@@ -643,7 +682,7 @@ export function mountTeacherGrid(root) {
     );
     if (!data || String(data.board_key || "") !== openKey) return;
     applyPanelLegend(data.legend);
-    const title = root.querySelector("#wb-live-panel-name");
+    const title = part("panel-name");
     if (title) title.textContent = String(data.name || "").trim() || title.textContent;
     const nextRun = String(data.run_key || "").trim();
     const seq = Number(data.board_seq);
@@ -681,10 +720,11 @@ export function mountTeacherGrid(root) {
     const query = encodeURIComponent(JSON.stringify(cursors));
     const tap = overviewTap ? "&tap=1" : "";
     overviewTap = false;
-    const data = await readJson(
-      `/api/live-sessions/${id}/whiteboard-gallery?cursors=${query}${tap}`,
-      { credentials: "same-origin" }
-    );
+    const galleryUrl =
+      typeof options.galleryUrl === "function"
+        ? options.galleryUrl(id, query, tap)
+        : `/api/live-sessions/${id}/whiteboard-gallery?cursors=${query}${tap}`;
+    const data = await readJson(galleryUrl, { credentials: "same-origin" });
     if (!data) return;
     const next = String(data.run_key || "").trim();
     const changed = galleryRunChanged(runKey, next);
@@ -720,10 +760,10 @@ export function mountTeacherGrid(root) {
     });
   }
 
-  root.querySelector("#wb-live-prev")?.addEventListener("click", () => stepPanel(-1));
-  root.querySelector("#wb-live-next")?.addEventListener("click", () => stepPanel(1));
-  root.querySelector("#wb-live-close")?.addEventListener("click", closePanel);
-  root.querySelector("#wb-live-clear")?.addEventListener("click", () => {
+  part("prev")?.addEventListener("click", () => stepPanel(-1));
+  part("next")?.addEventListener("click", () => stepPanel(1));
+  part("close")?.addEventListener("click", closePanel);
+  part("clear")?.addEventListener("click", () => {
     const id = sessionId();
     const key = openKey;
     if (!id || !key) return;
@@ -754,7 +794,7 @@ export function mountTeacherGrid(root) {
       })
       .catch(() => {});
   });
-  root.querySelector("#wb-live-show")?.addEventListener("click", () => {
+  part("show")?.addEventListener("click", () => {
     const id = sessionId();
     const key = openKey;
     if (!id || !key) return;
@@ -784,14 +824,14 @@ export function mountTeacherGrid(root) {
     });
     observer.observe(ap, { attributes: true, attributeFilter: ["data-live-session-id"] });
   }
-  const refreshButton = document.getElementById("wb-live-refresh");
+  const refreshButton = part("refresh");
   if (refreshButton) {
     refreshButton.addEventListener("click", () => {
       overviewTap = true;
       pollTiles();
     });
   }
-  const pollMs = overviewPollMs();
+  const pollMs = overviewPollMs(root);
   const panelMs = pollMs >= SUBMIT_REFRESH_MS ? pollMs : PANEL_POLL_MS;
   pollTiles();
   tileTimer = window.setInterval(pollTiles, pollMs);
@@ -800,6 +840,16 @@ export function mountTeacherGrid(root) {
   }, panelMs);
   void tileTimer;
   void panelTimer;
+  return {
+    /**
+     * Stop this gallery's polls. Used when a question card is repainted.
+     */
+    stop() {
+      window.clearInterval(tileTimer);
+      window.clearInterval(panelTimer);
+      root.dataset.wbMounted = "";
+    },
+  };
 }
 
 if (typeof document !== "undefined") {

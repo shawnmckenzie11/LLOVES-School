@@ -38545,23 +38545,26 @@ class SchoolDB(LovesDB):
         cursors: dict[str, int],
         *,
         include_feedback: bool = True,
+        run_key: str | None = None,
     ) -> dict[str, dict[str, Any]]:
         """One since-seq read for every requested board.
 
         A board whose gap is too wide gets a folded canvas view from one
-        follow-up load of just those keys.
+        follow-up load of just those keys. ``run_key`` selects a question
+        board generation. The session board is used when it is omitted.
 
         Args:
             session_id: ``live_class_sessions.id``.
             cursors: Board key to last sequence. Built by the caller from
                 the roster, not from an unchecked client list.
             include_feedback: True keeps teacher feedback ink in a snapshot.
+            run_key: Board generation to read. Defaults to the live run.
         """
         from board_ops import fold_one_board
 
         if not cursors:
             return {}
-        run_key = self.live_board_run_key(int(session_id))
+        run_key = str(run_key or "").strip() or self.live_board_run_key(int(session_id))
         deltas = self.boards.since_many(run_key, cursors)
         snap_keys = [
             key for key, delta in deltas.items() if delta.get("snapshot")
@@ -39077,7 +39080,7 @@ class SchoolDB(LovesDB):
         )
 
     def clear_whiteboard_board(
-        self, session_id: int, board_key: str
+        self, session_id: int, board_key: str, *, run_key: str | None = None
     ) -> dict[str, Any]:
         """Erase student ink on the current generation of one board.
 
@@ -39094,6 +39097,8 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             board_key: Card to clear.
+            run_key: Question generation to clear. The session board is
+                used when this is omitted.
 
         Returns:
             ``cleared`` plus a snapshot of the ink that remains, so a
@@ -39132,10 +39137,18 @@ class SchoolDB(LovesDB):
                     found.add(sid)
             return found
 
-        card = self._require_gallery_card(int(session_id), board_key)
-        key = str(card["board_key"])
-        run_key = self.live_board_run_key(int(session_id))
-        rows = self._board_rows(int(session_id), key)
+        claimed = str(run_key or "").strip()
+        if claimed:
+            from formative_live_board import gallery_board_key
+
+            key = gallery_board_key(board_key)
+            run_key = claimed
+            rows = list(self.boards.load_keys(run_key, [key]))
+        else:
+            card = self._require_gallery_card(int(session_id), board_key)
+            key = str(card["board_key"])
+            run_key = self.live_board_run_key(int(session_id))
+            rows = self._board_rows(int(session_id), key)
         view = fold_one_board(rows, include_feedback=True)
         feedback_ids = feedback_ids_on(rows)
         released = feedback_released(rows)
@@ -39186,13 +39199,14 @@ class SchoolDB(LovesDB):
                     key,
                     owner="teacher",
                     ops=kept[start : start + MAX_OPS_PER_BATCH],
+                    claimed_run_key=run_key,
                 )
         else:
             # A board with no teacher ink still has to wake the devices
             # that share this copy. Purge itself does not tap the wire.
             self._emit_board_ink(int(session_id), key)
         remaining = fold_one_board(
-            self._board_rows(int(session_id), key), include_feedback=True
+            list(self.boards.load_keys(run_key, [key])), include_feedback=True
         )
         return public_board_payload(
             {
@@ -39430,19 +39444,29 @@ class SchoolDB(LovesDB):
             self._boards_purged = done
         done.add(base)
 
-    def question_dashboard(self, session_id: int, prompt_id: int) -> dict[str, Any]:
+    def question_dashboard(
+        self,
+        session_id: int,
+        prompt_id: int,
+        cursors: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
         """Teacher tiles for one board question.
 
         Args:
             session_id: ``live_class_sessions.id``.
             prompt_id: ``live_session_prompts.id``.
+            cursors: Board key to the last sequence the gallery applied.
         """
         from question_board import question_dashboard as _dashboard
 
-        return _dashboard(self, int(session_id), int(prompt_id))
+        return _dashboard(self, int(session_id), int(prompt_id), cursors)
 
     def read_student_question_board(
-        self, session_id: int, prompt_id: int, student_id: int
+        self,
+        session_id: int,
+        prompt_id: int,
+        student_id: int,
+        since: int | None = None,
     ) -> dict[str, Any]:
         """One student's question board, including their own ink.
 
@@ -39450,10 +39474,13 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             prompt_id: ``live_session_prompts.id``.
             student_id: Roster id.
+            since: Last sequence the phone has applied.
         """
         from question_board import read_student_question_board as _read
 
-        return _read(self, int(session_id), int(prompt_id), int(student_id))
+        return _read(
+            self, int(session_id), int(prompt_id), int(student_id), since=since
+        )
 
     def append_question_board_ops(
         self,
@@ -39490,6 +39517,52 @@ class SchoolDB(LovesDB):
             board_key=board_key,
         )
 
+    def apply_question_presence(
+        self, session_id: int, prompt_id: int, student_id: int, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store one presence batch on a question board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id.
+            body: Presence JSON from the phone.
+        """
+        from question_board import apply_question_presence as _apply
+
+        return _apply(self, int(session_id), int(prompt_id), int(student_id), body)
+
+    def question_open_board(
+        self, session_id: int, prompt_id: int, board_key: str, *, since: int = 0
+    ) -> dict[str, Any]:
+        """Teacher panel for one question board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            board_key: Tile key.
+            since: Last sequence the panel has applied.
+        """
+        from question_board import question_open_board as _open
+
+        return _open(
+            self, int(session_id), int(prompt_id), str(board_key), since=int(since)
+        )
+
+    def clear_question_board(
+        self, session_id: int, prompt_id: int, board_key: str
+    ) -> dict[str, Any]:
+        """Clear student ink on one question board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            board_key: Tile key.
+        """
+        from question_board import clear_question_board as _clear
+
+        return _clear(self, int(session_id), int(prompt_id), str(board_key))
+
     def submit_question_board(
         self, session_id: int, prompt_id: int, student_id: int, text: Any = ""
     ) -> dict[str, Any]:
@@ -39523,7 +39596,7 @@ class SchoolDB(LovesDB):
         return _draft(self, int(session_id), int(prompt_id), int(student_id), text)
 
     def read_catchup_board(
-        self, token: str, student_id: int, item_id: int
+        self, token: str, student_id: int, item_id: int, since: int | None = None
     ) -> dict[str, Any]:
         """Catch-up board for one student, or their saved live drawing.
 
@@ -39531,10 +39604,26 @@ class SchoolDB(LovesDB):
             token: Catch-up link token. Not logged.
             student_id: Roster id.
             item_id: ``participation_items.id``.
+            since: Last sequence the phone has applied.
         """
         from question_board import read_catchup_board as _read
 
-        return _read(self, token, int(student_id), int(item_id))
+        return _read(self, token, int(student_id), int(item_id), since=since)
+
+    def apply_catchup_presence(
+        self, token: str, student_id: int, item_id: int, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store one presence batch on a catch-up board.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            item_id: ``participation_items.id``.
+            body: Presence JSON.
+        """
+        from question_board import apply_catchup_presence as _apply
+
+        return _apply(self, token, int(student_id), int(item_id), body)
 
     def append_catchup_board_ops(
         self,

@@ -652,15 +652,67 @@ class QuestionBoardTests(unittest.TestCase):
                 ops=[{"type": "stroke_end", "id": "x"}],
             )
 
-    def test_inactive_filter_chips_use_light_text(self) -> None:
-        """An unselected filter chip is light text, not the tile ink color."""
+    def test_question_board_reuses_the_live_whiteboard(self) -> None:
+        """The phone and the teacher gallery use the existing board, not a second canvas."""
+        js = (LMS_DIR / "static" / "question_board_ui.js").read_text(encoding="utf-8")
+        self.assertIn("mountTeacherGrid", js)
+        self.assertIn("createPresenceQueue", js)
+        self.assertIn("createBoardDeltaPoll", js)
+        self.assertNotIn("paintBoardThumb", js)
+        self.assertIn(">Text<", js)
+        self.assertIn(">Undo<", js)
+        self.assertIn(">Redo<", js)
+        self.assertIn(">Clear<", js)
         css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
-        tile_rule, filter_rule = css.split("button.qboard-filter {", 1)
-        self.assertNotIn("button.qboard-filter", tile_rule[tile_rule.rfind("button.qboard-tile") :])
-        self.assertIn("color: #f8fafc", filter_rule.split("}", 1)[0])
-        selected = css.split("button.qboard-filter.is-on {", 1)[1].split("}", 1)[0]
-        self.assertIn("background: #0f172a", selected)
-        self.assertIn("color: #fff", selected)
+        self.assertNotIn("qboard-filter", css)
+        self.assertIn(".wb-live-filter", css)
+
+    def test_presence_batch_gets_a_student_colour_and_a_since_cursor(self) -> None:
+        """A presence batch is stored by the live board store, one colour per student."""
+        prompt_id = self._add("Board presence", group=True)
+        first = self.school.apply_question_presence(
+            self.session_id,
+            prompt_id,
+            self.ids[0],
+            {
+                "points": [[0.2, 0.3], [0.5, 0.6]],
+                "stroke_id": "p1",
+                "ended": True,
+                "x": 0.5,
+                "y": 0.6,
+            },
+        )
+        second = self.school.apply_question_presence(
+            self.session_id,
+            prompt_id,
+            self.ids[1],
+            {
+                "points": [[0.1, 0.2], [0.3, 0.4]],
+                "stroke_id": "p2",
+                "ended": True,
+                "x": 0.3,
+                "y": 0.4,
+                "since": 0,
+            },
+        )
+        self.assertTrue(first.get("ok"))
+        self.assertTrue(second.get("ok"))
+        base, _gen = self.school._live_board_base_run_key(self.session_id)
+        rows = self.school.boards.load_keys(f"{base}~q{prompt_id}", ["team:0"])
+        colours = set()
+        for row in rows:
+            op = row.get("op")
+            if isinstance(op, str):
+                op = json.loads(op)
+            if isinstance(op, dict) and op.get("color"):
+                colours.add(str(op["color"]))
+            blob = json.dumps(op)
+            self.assertNotIn("Seat", blob)
+        self.assertGreaterEqual(len(colours), 2)
+        caught_up = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0], since=int(second.get("board_seq") or 0)
+        )
+        self.assertFalse(caught_up.get("ops"))
 
     def test_content_tabs_omit_the_whiteboard_tab(self) -> None:
         """The Content nav lists Media, Questions, and Slides."""
