@@ -41,6 +41,21 @@ class ParticipationWeightTests(unittest.TestCase):
             1,
         )
 
+    def test_board_poll_counts_when_the_stored_kind_is_share(self) -> None:
+        """A poll board is prompt kind share. It still counts as one opportunity."""
+        payload = {"type": "poll", "answer_with": "board", "text": "Show your work"}
+        self.assertTrue(item_counts_for_participation("share", payload))
+        self.assertEqual(
+            item_participation_weight("share", publish_mode="individual", item_json=payload),
+            1,
+        )
+        self.assertEqual(
+            item_participation_weight(
+                "share", publish_mode="individual", item_json={"type": "poll", "answer_with": "both"}
+            ),
+            1,
+        )
+
     def test_scope_filter_sums_weights(self) -> None:
         """Checkbox scope limits which deck rows count toward the denominator."""
         items = [

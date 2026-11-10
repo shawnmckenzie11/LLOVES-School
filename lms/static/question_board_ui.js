@@ -127,6 +127,37 @@ function toolBar() {
   return tools;
 }
 
+/**
+ * Show a teacher note under the question card. The live overlay stays
+ * on the old question frame; this block sits in the card flow.
+ * @param {HTMLElement} slot
+ * @param {string} text
+ */
+function paintBoardFeedback(slot, text) {
+  const card = slot.closest("article");
+  if (!(card instanceof HTMLElement)) return;
+  let block = card.querySelector(".qboard-feedback");
+  const note = String(text || "").trim();
+  if (!note) {
+    if (block instanceof HTMLElement) block.remove();
+    return;
+  }
+  if (!(block instanceof HTMLElement)) {
+    block = document.createElement("div");
+    block.className = "prompt-feedback qboard-feedback";
+    block.setAttribute("role", "note");
+    const lead = document.createElement("p");
+    lead.className = "prompt-feedback-lead";
+    lead.textContent = "Feedback";
+    const why = document.createElement("p");
+    why.className = "prompt-feedback-why";
+    block.append(lead, why);
+    card.appendChild(block);
+  }
+  const why = block.querySelector(".prompt-feedback-why");
+  if (why) why.textContent = note;
+}
+
 /** @type {Map<string, HTMLElement>} */
 const phoneRoots = new Map();
 
@@ -173,6 +204,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   submit.type = "button";
   submit.className = "prompt-submit";
   submit.textContent = options.team ? "Submit our board" : "Submit";
+  submit.disabled = Boolean(options.team);
   const submitRow = document.createElement("div");
   submitRow.className = "qboard-tools";
   submitRow.appendChild(submit);
@@ -209,6 +241,21 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     board.applyDelta?.(data);
     if (data.status_line) showLine(root, String(data.status_line), "status");
     if (data.text && !text.value) text.value = String(data.text);
+    if (options.team && typeof data.submit_ready === "boolean") {
+      submit.disabled = !data.submit_ready;
+    }
+    if (typeof data.feedback === "string") {
+      paintBoardFeedback(slot, data.feedback);
+      const promptId = slot.getAttribute("data-qboard-prompt") || "";
+      if (promptId && root._feedback !== data.feedback) {
+        root._feedback = data.feedback;
+        window.dispatchEvent(
+          new CustomEvent("lloves-question-board-note", {
+            detail: { promptId, feedback: data.feedback },
+          })
+        );
+      }
+    }
     const locked = Boolean(data.read_only) || slot.getAttribute("data-qboard-readonly") === "1";
     if (locked) {
       board.setEnabled?.(false);
@@ -359,6 +406,12 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     showLine(root, String(payload.status_line || "Submitted. You can still make changes."), "status");
     since = 0;
     poll.kick(true);
+    const promptId = slot.getAttribute("data-qboard-prompt") || "";
+    if (promptId) {
+      window.dispatchEvent(
+        new CustomEvent("lloves-question-board-submitted", { detail: { promptId } })
+      );
+    }
   });
   text.addEventListener("input", () => {
     const ink = board.getInk?.().strokes || [];
@@ -449,6 +502,12 @@ function teacherGalleryHtml() {
           <button type="button" data-wb-part="close" aria-label="Close board">×</button>
         </div>
         <p class="wb-live-age" data-wb-part="panel-age"></p>
+        <div class="qboard-waits" data-wb-part="waits"></div>
+        <label class="qboard-note-label">Feedback
+          <textarea data-wb-part="note" rows="3" maxlength="500" aria-label="Feedback for this board"></textarea>
+        </label>
+        <button type="button" data-wb-part="save-note">Save feedback</button>
+        <p class="qboard-note hint" data-wb-part="note-status" hidden></p>
         <div class="wb-live-panel-tools" role="toolbar" aria-label="Whiteboard tools">
           <button type="button" data-wb-part="pen" class="is-on" aria-pressed="true">Pen</button>
           <button type="button" data-wb-part="text" aria-pressed="false">Text</button>
@@ -470,6 +529,95 @@ function teacherGalleryHtml() {
 const galleries = new Map();
 
 /**
+ * Waiting students use the same Skip button the other group questions use.
+ * @param {HTMLElement} root
+ * @param {any} tile
+ */
+function paintWaits(root, tile) {
+  const host = root.querySelector("[data-wb-part='waits']");
+  if (!(host instanceof HTMLElement)) return;
+  host.replaceChildren();
+  const waits = Array.isArray(tile?.question_waits) ? tile.question_waits : [];
+  if (!waits.length) return;
+  const list = document.createElement("ul");
+  list.className = "question-skip-list";
+  const itemId = Number(tile?.live_item_id) || 0;
+  for (const row of waits) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "question-skip-name";
+    name.textContent = String(row?.name || "");
+    li.appendChild(name);
+    if (row?.skipped) {
+      const status = document.createElement("span");
+      status.className = "question-skip-status";
+      status.textContent = " Skipped — catch-up required.";
+      li.appendChild(status);
+    } else if (itemId) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary live-q-btn";
+      button.dataset.questionSkip = String(itemId);
+      button.dataset.studentId = String(Number(row?.student_id) || 0);
+      button.dataset.teamId = String(Number(tile?.team_id) || 0);
+      const who = name.textContent || "this student";
+      button.textContent = "Skip for this question";
+      button.setAttribute("aria-label", `Skip ${who} for this question`);
+      li.appendChild(document.createTextNode(" "));
+      li.appendChild(button);
+    }
+    list.appendChild(li);
+  }
+  host.appendChild(list);
+}
+
+/**
+ * Save the side-panel note onto the open board.
+ * @param {HTMLElement} root
+ * @param {(key: string) => string} noteUrl
+ */
+function wireBoardNote(root, noteUrl) {
+  /** @type {any} */
+  let openTile = null;
+  const save = root.querySelector("[data-wb-part='save-note']");
+  if (!(save instanceof HTMLButtonElement)) return { open() {} };
+  save.addEventListener("click", async () => {
+    const key = String(openTile?.copy_run_key ? openTile.board_key : openTile?.board_key || "");
+    if (!key) return;
+    const field = root.querySelector("[data-wb-part='note']");
+    const text = field instanceof HTMLTextAreaElement ? field.value : "";
+    const status = root.querySelector("[data-wb-part='note-status']");
+    save.disabled = true;
+    try {
+      const response = await fetch(noteUrl(key), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (status instanceof HTMLElement) {
+        status.hidden = false;
+        status.textContent = response.ok ? "Feedback saved." : String(payload.error || "That didn't save.");
+      }
+    } finally {
+      save.disabled = false;
+    }
+  });
+  return {
+    /**
+     * @param {any} tile
+     */
+    open(tile) {
+      openTile = tile;
+      const field = root.querySelector("[data-wb-part='note']");
+      if (field instanceof HTMLTextAreaElement) field.value = String(tile?.feedback || "");
+      paintWaits(root, tile);
+    },
+  };
+}
+
+/**
  * Paint the existing teacher whiteboard for one question.
  * @param {HTMLElement} slot
  * @param {string} sessionId
@@ -484,8 +632,19 @@ function paintTeacherDash(slot, sessionId) {
   root.className = "wb-live";
   root.innerHTML = teacherGalleryHtml();
   slot.replaceChildren(root);
+  const notes = wireBoardNote(
+    root,
+    (key) =>
+      `/api/live-sessions/${sessionId}/questions/${promptId}/boards/${encodeURIComponent(key)}/note`
+  );
   const mounted = mountTeacherGrid(root, {
     sessionId,
+    /**
+     * @param {any} tile
+     */
+    onOpen(tile) {
+      notes.open(tile);
+    },
     /**
      * @param {string} id
      * @param {string} cursors
@@ -513,6 +672,56 @@ function paintTeacherDash(slot, sessionId) {
       mounted?.stop?.();
     },
   });
+}
+
+/**
+ * Lesson Slides submissions. Same gallery and side panel, drawing left as stored.
+ * @param {HTMLElement} slot
+ * @param {{classId: string, runKey: string, questionKey: string}} options
+ * @returns {{stop: () => void}}
+ */
+export function mountSubmissionDashboard(slot, options) {
+  const classId = String(options?.classId || "");
+  const runKey = String(options?.runKey || "");
+  const questionKey = String(options?.questionKey || "");
+  const root = document.createElement("section");
+  root.className = "wb-live";
+  root.innerHTML = teacherGalleryHtml();
+  slot.replaceChildren(root);
+  const notes = wireBoardNote(
+    root,
+    (key) => `/api/classes/${classId}/lesson-slides/boards/${encodeURIComponent(key)}`
+  );
+  const mounted = mountTeacherGrid(root, {
+    sessionId: classId,
+    readOnly: true,
+    /**
+     * @param {any} tile
+     */
+    onOpen(tile) {
+      notes.open(tile);
+    },
+    /**
+     * @returns {string}
+     */
+    galleryUrl() {
+      const params = new URLSearchParams({ run_key: runKey, question_key: questionKey });
+      return `/api/classes/${classId}/lesson-slides/boards?${params.toString()}`;
+    },
+    /**
+     * @param {string} _id
+     * @param {string} key
+     * @returns {string}
+     */
+    boardUrl(_id, key) {
+      return `/api/classes/${classId}/lesson-slides/boards/${encodeURIComponent(key)}`;
+    },
+  });
+  return {
+    stop() {
+      mounted?.stop?.();
+    },
+  };
 }
 
 /**

@@ -77,6 +77,20 @@ function groupRankCatchupHtml(content) {
 }
 
 /**
+ * Teacher note under a catch-up question card.
+ * @param {string} text
+ * @returns {string}
+ */
+function boardFeedbackBlock(text) {
+  const note = String(text || "").trim();
+  if (!note) return "";
+  return `<div class="prompt-feedback qboard-feedback" role="note">
+    <p class="prompt-feedback-lead">Feedback</p>
+    <p class="prompt-feedback-why">${escapeText(note)}</p>
+  </div>`;
+}
+
+/**
  * One catch-up question as a live question card.
  * Rank and Artifact need the live session, so they take a typed answer.
  * A group rank is ordered here and sent as a complete list.
@@ -108,6 +122,7 @@ export function catchupCardHtml(question, tag) {
   )}"${question?.group_rank ? ' data-group-rank="1"' : ""}>
         ${liveQuestionHeadHtml(content, promptKind, formatQuestionHtml)}
         ${body}
+        ${boardFeedbackBlock(question?.board_feedback)}
       </article>`;
 }
 

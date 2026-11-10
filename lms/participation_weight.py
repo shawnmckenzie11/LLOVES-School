@@ -76,11 +76,21 @@ def item_is_multiple_choice(prompt_kind: str, item_json: Any = None) -> bool:
 
 
 def item_counts_for_participation(prompt_kind: str, item_json: Any = None) -> bool:
-    """True when a deck row counts toward Participation numerators/denominators."""
+    """True when a deck row counts toward Participation numerators/denominators.
+
+    A poll board is stored with prompt kind ``share`` and JSON type
+    ``poll``. Neither token is a counted kind by itself, so a submitted
+    board never entered the 1/1 fraction. ``answer_with`` of ``board`` or
+    ``both`` is one opportunity, the same way an individual drawing is,
+    with no correctness check.
+    """
+    payload = _parse_item_json(item_json)
+    answer_with = str(payload.get("answer_with") or "").strip().lower()
+    if answer_with in {"board", "both"}:
+        return True
     kind = str(prompt_kind or "").strip().lower()
     if kind in _COUNTED_PROMPT_KINDS:
         return True
-    payload = _parse_item_json(item_json)
     qtype = str(payload.get("type") or payload.get("question_type") or "").strip().lower()
     return qtype in _COUNTED_JSON_TYPES
 

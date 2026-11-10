@@ -2363,6 +2363,23 @@ body.staff-shell table.ls-run-table {
   min-width: 34rem;
   border-collapse: collapse;
 }
+body.staff-shell dialog.ls-board-dialog {
+  width: min(1100px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+}
+body.staff-shell dialog.ls-board-dialog .wb-live {
+  min-width: 720px;
+}
+body.staff-shell dialog.ls-board-dialog .wb-live-grid {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  min-width: 480px;
+}
+body.staff-shell .qboard-note-label,
+body.staff-shell .qboard-waits {
+  display: block;
+  margin: 0.45rem 0.6rem;
+}
 body.staff-shell table.ls-run-table th,
 body.staff-shell table.ls-run-table td {
   padding: 0.45rem 0.55rem;

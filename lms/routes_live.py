@@ -5309,6 +5309,32 @@ def register_live(app, school, shared):
         return jsonify({"ok": True})
 
     @bp.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/note",
+        methods=["POST"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_question_board_note(session_id: int, prompt_id: int, board_key: str):
+        """Teacher note for one student or one team board.
+
+        The note is stored on the compact copy and shown under the
+        student's question card. It is not a second drawing.
+        """
+        from question_board import QuestionBoardError
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        try:
+            reply = school.save_question_board_feedback(
+                session_id, prompt_id, board_key, body.get("text")
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
         "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>",
         methods=["GET"],
     )
@@ -5812,6 +5838,53 @@ def register_live(app, school, shared):
         from lesson_slides_table import build_lesson_slides_table
 
         payload = build_lesson_slides_table(school, class_id)
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @bp.route("/api/classes/<int:class_id>/lesson-slides/boards")
+    @login_required
+    def api_lesson_slides_boards(class_id: int):
+        """Read-only submission tiles for one board question."""
+        from question_board import QuestionBoardError
+
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        try:
+            payload = school.lesson_submission_gallery(
+                class_id,
+                str(request.args.get("run_key") or ""),
+                str(request.args.get("question_key") or ""),
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @bp.route(
+        "/api/classes/<int:class_id>/lesson-slides/boards/<path:gallery_key>",
+        methods=["GET", "POST"],
+    )
+    @login_required
+    def api_lesson_slides_board(class_id: int, gallery_key: str):
+        """One stored board, or a teacher note on that copy."""
+        from question_board import QuestionBoardError
+
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        try:
+            if request.method == "POST":
+                body = request.get_json(silent=True) or {}
+                payload = school.save_lesson_board_feedback(
+                    class_id, gallery_key, body.get("text")
+                )
+            else:
+                payload = school.lesson_submission_board(class_id, gallery_key)
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
         response = jsonify(payload)
         response.headers["Cache-Control"] = "no-store"
         return response

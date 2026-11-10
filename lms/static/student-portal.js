@@ -3578,27 +3578,58 @@ function lifecycleConsensusHtml(item) {
 }
 
 /**
- * Render dock chips for media / whiteboard / slides only.
+ * Teacher note under a question card. Uses the feedback lead and why styles.
+ * @param {string} text
+ * @returns {string}
+ */
+function boardFeedbackHtml(text) {
+  const note = String(text || "").trim();
+  if (!note) return "";
+  return `<div class="prompt-feedback qboard-feedback" role="note">
+    <p class="prompt-feedback-lead">Feedback</p>
+    <p class="prompt-feedback-why">${escapeText(note)}</p>
+  </div>`;
+}
+
+/**
+ * Render dock chips for media, whiteboard, slides, and submitted questions.
  * Dismissed questions are removed from the student view, not docked.
- * @param {any} _items
+ * A submitted poll board docks here the same way a closed surface does.
+ * @param {any[]} items
  * @param {any} payload
  */
-function paintQuestionDock(_items, payload) {
+function paintQuestionDock(items, payload) {
   if (!studentQuestionDock) return;
   const proj = studentProjection(payload);
   const surfaces = [];
   if (proj.media && dockedLiveCardKeys.has("surface:media")) {
-    surfaces.push({ key: "surface:media", kind: "media", label: "Media" });
+    surfaces.push({ key: "surface:media", kind: "media", label: "Media", feedback: "" });
   }
   if (proj.canvas && dockedLiveCardKeys.has("surface:canvas")) {
-    surfaces.push({ key: "surface:canvas", kind: "whiteboard", label: "Whiteboard" });
+    surfaces.push({ key: "surface:canvas", kind: "whiteboard", label: "Whiteboard", feedback: "" });
   }
   if (proj.slides && dockedLiveCardKeys.has("surface:slides")) {
-    surfaces.push({ key: "surface:slides", kind: "slides", label: "Slides" });
+    surfaces.push({ key: "surface:slides", kind: "slides", label: "Slides", feedback: "" });
+  }
+  for (const item of Array.isArray(items) ? items : []) {
+    const key = liveCardDockKey(item);
+    if (!dockedLiveCardKeys.has(key)) continue;
+    const content = item?.content || item?.prompt?.payload || {};
+    const stem = String(content.text || content.prompt || "Question").trim();
+    surfaces.push({
+      key,
+      kind: "question",
+      label: stem.slice(0, 42) || "Question",
+      feedback: String(item?.board_feedback || ""),
+    });
   }
   const chips = surfaces.map(
     (row) => `<div class="student-question-dock-chip is-${row.kind}" data-dock-key="${escapeText(row.key)}">
-        <span class="student-question-dock-kind">${escapeText(row.label)}</span>
+        <span class="student-question-dock-copy">
+          <span class="student-question-dock-kind">${escapeText(row.kind === "question" ? "Question" : row.label)}</span>
+          ${row.kind === "question" ? `<span class="student-question-dock-label">${escapeText(row.label)}</span>` : ""}
+          ${row.feedback ? `<p class="qboard-feedback-line">${escapeText(row.feedback)}</p>` : ""}
+        </span>
         <button type="button" class="student-question-dock-pop" data-undock-live-card="${escapeText(row.key)}" aria-label="Pop ${escapeText(row.label)} back out">↗</button>
       </div>`
   );
@@ -4371,6 +4402,7 @@ function paintLifecycleQuestionStack(payload) {
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
         ${questionBoardSlot(item, content)}
+        ${boardFeedbackHtml(item.board_feedback)}
         ${questionBoardMode(content) ? "" : answerControls}
         ${ownAnswer}
         ${unsentDraftNoteHtml(item)}
@@ -6781,6 +6813,47 @@ document.getElementById("live-response")?.addEventListener("input", (event) => {
   } else if (field instanceof HTMLTextAreaElement) {
     liveCardDrafts.set(key, { text: field.value });
   }
+});
+
+window.addEventListener("lloves-question-board-submitted", (event) => {
+  const promptId = Number(event.detail?.promptId) || 0;
+  if (!promptId || !lastStudentPayload) return;
+  const pools = [
+    lastStudentPayload.active_questions,
+    lastStudentPayload.closed_results,
+    lastStudentPayload.saved_cards,
+  ];
+  for (const pool of pools) {
+    if (!Array.isArray(pool)) continue;
+    const item = pool.find((row) => Number(row?.prompt?.id) === promptId);
+    if (!item) continue;
+    dockedLiveCardKeys.add(liveCardDockKey(item));
+  }
+  paintLifecycleQuestionStack(lastStudentPayload);
+});
+
+window.addEventListener("lloves-question-board-note", (event) => {
+  const promptId = Number(event.detail?.promptId) || 0;
+  const text = String(event.detail?.feedback || "");
+  if (!promptId || !lastStudentPayload) return;
+  const pools = [
+    lastStudentPayload.active_questions,
+    lastStudentPayload.closed_results,
+    lastStudentPayload.saved_cards,
+  ];
+  let found = false;
+  for (const pool of pools) {
+    if (!Array.isArray(pool)) continue;
+    for (const item of pool) {
+      if (Number(item?.prompt?.id) !== promptId) continue;
+      item.board_feedback = text;
+      found = true;
+    }
+  }
+  if (!found) return;
+  const open = document.querySelector(`[data-live-prompt-id="${promptId}"]`);
+  if (open) return;
+  paintLifecycleQuestionStack(lastStudentPayload);
 });
 
 if (studentQuestionDock) {

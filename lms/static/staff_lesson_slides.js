@@ -190,17 +190,67 @@ function questionsDetailRow(row) {
       liveDoneLabel(q),
       q.catchup_completed ?? 0,
     ];
-    for (const value of cells) {
+    cells.forEach((value, index) => {
       const cell = document.createElement("td");
       cell.textContent = String(value);
+      const answerWith = String(q.answer_with || "");
+      if (
+        index === 1 &&
+        (answerWith === "board" || answerWith === "both") &&
+        row.run_key &&
+        q.question_key
+      ) {
+        cell.appendChild(document.createTextNode(" "));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "secondary";
+        button.textContent = "Submissions";
+        button.addEventListener("click", () => {
+          openSubmissionDialog(row, q);
+        });
+        cell.appendChild(button);
+      }
       qtr.appendChild(cell);
-    }
+    });
     body.appendChild(qtr);
   }
   table.appendChild(body);
   td.appendChild(table);
   tr.appendChild(td);
   return tr;
+}
+
+/** @type {{stop: () => void} | null} */
+let submissionGallery = null;
+
+/**
+ * Open one class's board submissions in the live teacher gallery.
+ * @param {Record<string, unknown>} row
+ * @param {Record<string, unknown>} question
+ */
+async function openSubmissionDialog(row, question) {
+  let dialog = document.getElementById("ls-board-dialog");
+  if (!(dialog instanceof HTMLDialogElement)) {
+    dialog = document.createElement("dialog");
+    dialog.id = "ls-board-dialog";
+    dialog.className = "end-live-dialog ls-board-dialog";
+    dialog.innerHTML = `<form method="dialog"><button type="submit" class="secondary">Close</button></form><div id="ls-board-slot"></div>`;
+    document.body.appendChild(dialog);
+    dialog.addEventListener("close", () => {
+      submissionGallery?.stop?.();
+      submissionGallery = null;
+    });
+  }
+  const slot = dialog.querySelector("#ls-board-slot");
+  if (!(slot instanceof HTMLElement) || !classId) return;
+  const { mountSubmissionDashboard } = await import("./question_board_ui.js");
+  submissionGallery?.stop?.();
+  submissionGallery = mountSubmissionDashboard(slot, {
+    classId: String(classId),
+    runKey: String(row.run_key || ""),
+    questionKey: String(question.question_key || ""),
+  });
+  if (typeof dialog.showModal === "function") dialog.showModal();
 }
 
 /**
