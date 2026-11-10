@@ -56,6 +56,35 @@ class ParticipationWeightTests(unittest.TestCase):
             1,
         )
 
+    def test_group_board_and_non_poll_do_not_take_the_board_weight(self) -> None:
+        """Group boards stay out. A stray answer_with does not count."""
+        group = {
+            "type": "poll",
+            "answer_with": "board",
+            "publish_mode": "group_shared",
+            "response_mode": "group_shared",
+        }
+        self.assertFalse(item_counts_for_participation("share", group))
+        self.assertFalse(item_counts_for_participation("poll", group))
+        self.assertEqual(
+            item_participation_weight("share", publish_mode="individual", item_json=group),
+            0,
+        )
+        self.assertEqual(
+            item_participation_weight(
+                "share",
+                publish_mode="group_shared",
+                item_json={"type": "poll", "answer_with": "board"},
+            ),
+            0,
+        )
+        stray = {"type": "media", "answer_with": "board"}
+        self.assertFalse(item_counts_for_participation("media", stray))
+        self.assertEqual(
+            item_participation_weight("media", publish_mode="individual", item_json=stray),
+            0,
+        )
+
     def test_scope_filter_sums_weights(self) -> None:
         """Checkbox scope limits which deck rows count toward the denominator."""
         items = [

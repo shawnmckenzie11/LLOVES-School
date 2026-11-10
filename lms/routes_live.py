@@ -5844,6 +5844,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/classes/<int:class_id>/lesson-slides/boards")
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_lesson_slides_boards(class_id: int):
         """Read-only submission tiles for one board question."""
         from question_board import QuestionBoardError
@@ -5868,6 +5869,7 @@ def register_live(app, school, shared):
         methods=["GET", "POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_lesson_slides_board(class_id: int, gallery_key: str):
         """One stored board, or a teacher note on that copy."""
         from question_board import QuestionBoardError

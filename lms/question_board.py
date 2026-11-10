@@ -898,13 +898,51 @@ def team_copy_submitted(school: Any, item: dict[str, Any], team_id: int) -> bool
         return work()
 
 
+def _present_roster_ids(school: Any, session_id: int) -> set[int]:
+    """Roster ids still in the live class.
+
+    A teammate with ``left_at`` set is absent. Group questions wait on
+    present members only, and the board gate uses that same set.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+    """
+    present: set[int] = set()
+    for row in school.list_live_session_attendees(int(session_id), present_only=True):
+        if row.get("student_id") in (None, ""):
+            continue
+        try:
+            present.add(int(row["student_id"]))
+        except (TypeError, ValueError):
+            continue
+    return present
+
+
+def _live_award_ids(
+    school: Any, item: dict[str, Any], member_ids: list[int]
+) -> list[int]:
+    """Roster ids who receive a live answer. A skip does not.
+
+    A skipped teammate finishes the question alone in catch-up. Writing
+    them a live row would make that catch-up a 409.
+
+    Args:
+        school: Open school database.
+        item: Lifecycle row.
+        member_ids: Roster ids on the board at submit time.
+    """
+    skipped = school._skipped_ids_for_live_item(int(item["id"]))
+    return [int(sid) for sid in member_ids if int(sid) not in skipped]
+
+
 def _gate_members(
     school: Any,
     item: dict[str, Any],
     member_ids: list[int],
     rows: list[dict[str, Any]],
 ) -> list[int]:
-    """Members who still block Submit. Skipped members do not.
+    """Members who still block Submit. Skipped and absent members do not.
 
     Args:
         school: Open school database.
@@ -913,9 +951,13 @@ def _gate_members(
         rows: Stored ink for the board.
     """
     skipped = school._skipped_ids_for_live_item(int(item["id"]))
+    session_id = int(item.get("live_session_id") or 0)
+    present = _present_roster_ids(school, session_id) if session_id else None
     contributed = contributor_ids(rows)
     blocked = []
     for sid in member_ids:
+        if present is not None and int(sid) not in present:
+            continue
         if int(sid) in skipped:
             continue
         if int(sid) not in contributed:
@@ -1235,7 +1277,7 @@ def submit_live_board(
                     school,
                     prompt_id=int(prompt_id),
                     pointer=pointer,
-                    member_ids=members,
+                    member_ids=_live_award_ids(school, item, members),
                     now=now,
                 )
             _finish_write(school, started)
@@ -2821,6 +2863,12 @@ def copy_group_participation(school: Any, session_id: int) -> None:
             json_extract(pr.payload, '$.answer_with') IN ('board', 'both')
             OR json_extract(i.item_json, '$.answer_with') IN ('board', 'both')
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM live_question_skips s
+            WHERE s.live_session_id = i.live_session_id
+              AND s.student_id = r.student_id
+              AND s.question_key = ('item:' || i.placement_key)
+          )
         """,
         (class_id, run_key, module, int(session_id)),
     )
@@ -2854,6 +2902,12 @@ def copy_group_participation(school: Any, session_id: int) -> None:
                 json_extract(pr.payload, '$.answer_with') IN ('board', 'both')
                 OR json_extract(i.item_json, '$.answer_with') IN ('board', 'both')
               )
+          AND NOT EXISTS (
+            SELECT 1 FROM live_question_skips s
+            WHERE s.live_session_id = i.live_session_id
+              AND s.student_id = r.student_id
+              AND s.question_key = ('item:' || i.placement_key)
+          )
           )
         """,
         (int(session_id), class_id, run_key, int(session_id)),

@@ -375,5 +375,173 @@ class QuestionBoardFollowupTests(unittest.TestCase):
         self.assertIn("mountTeacherGrid", board)
 
 
+    def _fraction(self, student_id: int) -> str:
+        """Participation fraction for one student in M1.
+
+        A missing module is an em dash. That is not 0/1.
+
+        Args:
+            student_id: Roster id.
+        """
+        data = self.school.class_participation(
+            self.class_id, include_test_students=True
+        )
+        match = next(row for row in data["students"] if row["student_id"] == student_id)
+        cell = (match.get("modules") or {}).get("M1")
+        if not cell:
+            return "—"
+        return participation_fraction(cell["answered"], cell["offered"])
+
+    def _mark_real(self) -> str:
+        """Count this ended test run on the participation tab.
+
+        Returns:
+            The participation run key.
+        """
+        with self.school._lock:
+            link = self.school.conn.execute(
+                "SELECT run_key FROM catchup_links WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+            self.school.conn.execute(
+                """
+                UPDATE participation_runs
+                SET is_real = 1, discarded = 0, teacher_kind_set = 1
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (self.class_id, str(link["run_key"])),
+            )
+            self.school.conn.commit()
+        return str(link["run_key"])
+
+    def test_group_board_is_not_an_individual_zero(self) -> None:
+        """A group board does not show 0/1 for the submitter or a skip.
+
+        The board weight is for an individual poll. A group board stays
+        out of that numerator and that denominator.
+        """
+        prompt_id, item_id = self._add("Group board credit", group=True)
+        self.school.skip_question_for_student(self.session_id, item_id, self.ids[1])
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("group-live")
+        )
+        sent = self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "")
+        self.assertTrue(sent["ok"])
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        self._mark_real()
+        self.assertNotEqual(self._fraction(self.ids[0]), "0/1")
+        self.assertNotEqual(self._fraction(self.ids[1]), "0/1")
+        with self.school._lock:
+            live = self.school.conn.execute(
+                """
+                SELECT student_id FROM participation_answers
+                WHERE class_id = ? AND source = 'live'
+                """,
+                (self.class_id,),
+            ).fetchall()
+        live_ids = {int(row["student_id"]) for row in live}
+        self.assertIn(self.ids[0], live_ids)
+        self.assertNotIn(self.ids[1], live_ids)
+
+    def test_skipped_teammate_catchup_is_one_of_one(self) -> None:
+        """A skip is not a live answer. Catch-up then counts 1/1."""
+        prompt_id, item_id = self._add("Skipped board", group=True)
+        self.school.skip_question_for_student(self.session_id, item_id, self.ids[1])
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("team-ink")
+        )
+        self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "")
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        run_key = self._mark_real()
+        with self.school._lock:
+            part = self.school.conn.execute(
+                """
+                SELECT id, question_key FROM participation_items
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (self.class_id, run_key),
+            ).fetchone()
+            link = self.school.conn.execute(
+                "SELECT token FROM catchup_links WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        self.assertNotEqual(self._fraction(self.ids[0]), "0/1")
+        self.assertNotEqual(self._fraction(self.ids[1]), "0/1")
+        board_run = f"{run_key}~cu~q{int(part['id'])}"
+        self.school.boards.append_ops(
+            board_run,
+            f"solo:{self.ids[1]}",
+            owner=str(self.ids[1]),
+            ops=_stroke("alone"),
+        )
+        from catchup_session import establish_catchup_identity
+
+        phone = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, self.ids[1])
+        with phone.session_transaction() as sess:
+            establish_catchup_identity(sess, self.school, self.class_id, self.ids[1], stamp)
+        submitted = phone.post(
+            f"/api/catchup/{link['token']}/questions/{int(part['id'])}/board/submit",
+            json={"text": ""},
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.get_json())
+        self.assertEqual(self._fraction(self.ids[1]), "1/1")
+        self.assertNotEqual(self._fraction(self.ids[0]), "0/1")
+        with self.school._lock:
+            stored = self.school.conn.execute(
+                """
+                SELECT source FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND question_key = ?
+                """,
+                (self.class_id, self.ids[1], part["question_key"]),
+            ).fetchone()
+        self.assertEqual(stored["source"], "catchup")
+
+    def test_left_teammate_does_not_block_group_submit(self) -> None:
+        """A teammate who has left is not a reason Submit stays shut."""
+        prompt_id, _item_id = self._add("Left teammate", group=True)
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("still-here")
+        )
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = '2026-11-10T12:00:00'
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (self.session_id, self.ids[1]),
+            )
+            self.school.conn.commit()
+        phone = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0]
+        )
+        self.assertTrue(phone["submit_ready"])
+        sent = self.school.submit_question_board(
+            self.session_id, prompt_id, self.ids[0], ""
+        )
+        self.assertTrue(sent["ok"])
+
+    def test_lesson_slides_boards_stay_dark_without_the_whiteboard_flags(self) -> None:
+        """The Lesson Slides board routes use the same gate as a live note."""
+        from features import set_feature_override
+
+        teacher_id = int(self.teacher["id"])
+        set_feature_override(self.school, teacher_id, "whiteboard", False)
+        set_feature_override(self.school, teacher_id, "whiteboard_submit", False)
+        listing = self.client.get(
+            f"/api/classes/{self.class_id}/lesson-slides/boards"
+        )
+        self.assertEqual(listing.status_code, 404)
+        one = self.client.get(
+            f"/api/classes/{self.class_id}/lesson-slides/boards/solo:1"
+        )
+        self.assertEqual(one.status_code, 404)
+        note = self.client.post(
+            f"/api/classes/{self.class_id}/lesson-slides/boards/solo:1",
+            json={"text": "A note"},
+        )
+        self.assertEqual(note.status_code, 404)
+
 if __name__ == "__main__":
     unittest.main()

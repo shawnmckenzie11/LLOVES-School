@@ -44487,6 +44487,142 @@ class SchoolDB(LovesDB):
         self.set_module_complete(class_id, mod, True, user_id=user_id)
         return dash
 
+    def _weighted_module_item_count(self, class_id: int, live_module: str) -> int:
+        """Individual opportunities stored on participation items for one module.
+
+        Each item is weighed from its own publish mode. A group board stays
+        out of this count, including when a deck query aliases every row
+        as individual.
+
+        Args:
+            class_id: Class primary key.
+            live_module: Module code such as ``M1``.
+        """
+        from participation_exclusion import sql_exclude_non_counted_participation_run
+        from participation_weight import item_matches_scope, item_participation_weight
+
+        mod = str(live_module or "").strip().upper()
+        real_run_clause = sql_exclude_non_counted_participation_run(
+            "p.class_id", "p.run_key"
+        )
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT p.live_slot, p.question_key, p.item_json, p.prompt_kind
+                FROM participation_items p
+                WHERE p.class_id = ? AND p.live_module = ?
+                  AND {self._module_class_slot_sql()}{real_run_clause}
+                """,
+                (int(class_id), mod),
+            ).fetchall()
+        pairs: set[str] = set()
+        for row in rows:
+            payload = row["item_json"]
+            mode = "individual"
+            parsed = payload
+            if not isinstance(parsed, dict):
+                try:
+                    import json as _json
+
+                    parsed = _json.loads(payload or "{}")
+                except (TypeError, ValueError):
+                    parsed = {}
+            if isinstance(parsed, dict):
+                mode = str(
+                    parsed.get("publish_mode") or parsed.get("response_mode") or "individual"
+                ).strip().lower() or "individual"
+            if not item_matches_scope(
+                mode, include_individual=True, include_group=False
+            ):
+                continue
+            if (
+                item_participation_weight(
+                    str(row["prompt_kind"] or ""),
+                    publish_mode=mode,
+                    item_json=parsed if isinstance(parsed, dict) else payload,
+                )
+                <= 0
+            ):
+                continue
+            slot = str(row["live_slot"] or "").strip().upper()
+            pairs.add(f"{slot}\x1f{row['question_key']}")
+        return len(pairs)
+
+    def _individual_module_offered(self, class_id: int, live_module: str) -> int:
+        """Individual participation opportunities in one module.
+
+        The live deck wins when it still has counted questions. Otherwise
+        stored items are weighed from their own publish mode, so a group
+        board is not an opportunity.
+
+        Args:
+            class_id: Class primary key.
+            live_module: Module code such as ``M1``.
+        """
+        counted = self.participation_module_offered(
+            class_id,
+            live_module,
+            include_individual=True,
+            include_group=False,
+        )
+        if counted > 0:
+            return counted
+        return self._weighted_module_item_count(class_id, live_module)
+
+    def _skipped_group_board_catchup_credit(
+        self, class_id: int, live_module: str, student_id: int
+    ) -> int:
+        """Solo catch-up credit for a group board this student was skipped on.
+
+        The live group board is not an individual opportunity, so a
+        teammate who submitted it is not shown 0/1. The skipped student
+        finishes that question alone, which is one opportunity they
+        answered.
+
+        Args:
+            class_id: Class primary key.
+            live_module: Module code such as ``M1``.
+            student_id: Roster id.
+        """
+        from participation_exclusion import sql_exclude_non_counted_participation_run
+
+        mod = str(live_module or "").strip().upper()
+        real_run_clause = sql_exclude_non_counted_participation_run(
+            "p.class_id", "p.run_key"
+        )
+        pair = "UPPER(p.live_slot) || char(31) || p.question_key"
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT {pair}) AS n
+                FROM participation_answers a
+                INNER JOIN participation_items p
+                    ON p.class_id = a.class_id AND p.run_key = a.run_key
+                   AND p.question_key = a.question_key
+                INNER JOIN live_question_skips s
+                    ON s.class_id = a.class_id AND s.run_key = a.run_key
+                   AND s.question_key = a.question_key AND s.student_id = a.student_id
+                WHERE a.class_id = ? AND a.student_id = ? AND a.source = 'catchup'
+                  AND p.live_module = ?
+                  AND {self._module_class_slot_sql()}{real_run_clause}
+                  AND json_extract(p.item_json, '$.answer_with') IN ('board', 'both')
+                  AND (
+                    lower(COALESCE(p.prompt_kind, '')) IN ('poll', 'share')
+                    OR lower(COALESCE(json_extract(p.item_json, '$.type'), '')) IN ('poll', 'share')
+                  )
+                  AND (
+                    lower(COALESCE(json_extract(p.item_json, '$.publish_mode'), ''))
+                        IN ('group', 'group_shared', 'group_consensus', 'group_submit')
+                    OR lower(COALESCE(json_extract(p.item_json, '$.response_mode'), ''))
+                        IN ('group', 'group_shared', 'group_consensus', 'group_submit')
+                    OR lower(COALESCE(json_extract(p.item_json, '$.live_response_mode'), ''))
+                        IN ('group', 'group_shared', 'group_submit')
+                  )
+                """,
+                (int(class_id), int(student_id), mod),
+            ).fetchone()
+        return int(row["n"] or 0) if row else 0
+
     def class_participation(
         self, class_id: int, *, include_test_students: bool = False
     ) -> dict[str, Any]:
@@ -44524,16 +44660,14 @@ class SchoolDB(LovesDB):
             cells = {}
             for mod in modules:
                 got = answered.get((int(stu["id"]), mod), {"n": 0, "catchup": 0})
-                deck_offered = self.participation_module_offered(
-                    class_id,
-                    mod,
-                    include_individual=True,
-                    include_group=False,
-                )
-                o = deck_offered if deck_offered > 0 else offered[mod]
-                a = self.participation_student_module_answered(
+                o = self._individual_module_offered(class_id, mod)
+                credit = self._skipped_group_board_catchup_credit(
                     class_id, mod, int(stu["id"])
                 )
+                o += credit
+                a = self.participation_student_module_answered(
+                    class_id, mod, int(stu["id"])
+                ) + credit
                 cell = summary(a, o)
                 cell["catchup"] = got["catchup"]
                 cells[mod] = cell
@@ -44542,10 +44676,7 @@ class SchoolDB(LovesDB):
             "modules": [
                 {
                     "module": m,
-                    "offered": self.participation_module_offered(
-                        class_id, m, include_individual=True, include_group=False
-                    )
-                    or offered[m],
+                    "offered": self._individual_module_offered(class_id, m),
                     "complete": self.module_complete(class_id, m),
                     "l4_needs_group": self.module_l4_needs_group(class_id, m),
                 }
@@ -44558,11 +44689,12 @@ class SchoolDB(LovesDB):
         from participation import level_line, summary
 
         mod = str(module or "").strip().upper()
-        _, answered = self._participation_counts(class_id, mod, student_id)
-        o = self.participation_module_offered(
-            class_id, mod, include_individual=True, include_group=False
+        o = self._individual_module_offered(class_id, mod)
+        credit = self._skipped_group_board_catchup_credit(
+            class_id, mod, int(student_id)
         )
-        a = self.participation_student_module_answered(class_id, mod, int(student_id))
+        o += credit
+        a = self.participation_student_module_answered(class_id, mod, int(student_id)) + credit
         out = summary(a, o)
         out["line"] = level_line(a, o)
         return out
