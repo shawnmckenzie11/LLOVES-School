@@ -1081,6 +1081,23 @@
       "api_question_board_dashboard"
     ],
     [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_question_board_one"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/clear",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_board_clear"
+    ],
+    [
       "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/ink",
       [
         "OPTIONS",

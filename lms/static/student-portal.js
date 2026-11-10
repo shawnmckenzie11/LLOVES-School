@@ -43,7 +43,7 @@ import {
   studentFallbackPollMs,
   studentSessionOver,
 } from "/static/live_news_wire.js";
-import { mountStudentQuestionBoards } from "/static/question_board_ui.js";
+import { kickQuestionBoardPolls, mountStudentQuestionBoards } from "/static/question_board_ui.js";
 import {
   bindWhiteboard,
   boardAuthLost,
@@ -1579,6 +1579,7 @@ function kickStudentBoardDelta(force) {
   if (studentBoardPoll && typeof studentBoardPoll.kick === "function") {
     studentBoardPoll.kick(Boolean(force));
   }
+  kickQuestionBoardPolls(Boolean(force));
 }
 
 /**

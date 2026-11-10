@@ -504,7 +504,8 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   display: none;
 }
 
-.canvas-pane .live-canvas-toolbar {
+.canvas-pane .live-canvas-toolbar,
+.qboard-slot .live-canvas-toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -514,7 +515,8 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
 .canvas-pane .student-pane-bar {
   margin: -0.85rem -0.85rem 0.5rem;
 }
-.canvas-pane .live-canvas-toolbar button {
+.canvas-pane .live-canvas-toolbar button,
+.qboard-slot .live-canvas-toolbar button {
   min-height: 2rem;
   padding: 0.2rem 0.65rem;
   font-size: 0.78rem;
