@@ -89,7 +89,11 @@ export function catchupCardHtml(question, tag) {
   const promptKind = String(question?.prompt_kind || "");
   const liveKind = lifecycleAnswerKind({ content, prompt: { kind: promptKind } });
   const kind = liveKind === "rank" || liveKind === "artifact" ? "text" : liveKind;
-  const body = question?.answered
+  const boardMode = String(content.answer_with || "");
+  const board = boardMode === "board" || boardMode === "both";
+  const body = board
+    ? `<div class="qboard-slot" data-qboard-catchup="${escapeText(String(question?.item_id || ""))}" data-qboard-mode="${escapeText(boardMode)}" data-qboard-readonly="${question?.read_only ? "1" : "0"}"></div>`
+    : question?.answered
     ? `<p class="student-live-own-answer">${escapeText(tag)}</p>`
     : question?.group_rank
       ? groupRankCatchupHtml(content)

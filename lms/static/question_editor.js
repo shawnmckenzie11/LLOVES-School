@@ -84,7 +84,35 @@ function syncTypeFields() {
   if (mc instanceof HTMLElement) mc.hidden = kind !== "mc";
   if (numeric instanceof HTMLElement) numeric.hidden = kind !== "numeric";
   if (rank instanceof HTMLElement) rank.hidden = kind !== "rank";
+  syncAnswerWith();
   syncRankOptionRows();
+}
+
+/**
+ * Show Answer with only for a poll, and the image checkbox only with a board.
+ */
+function syncAnswerWith() {
+  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
+  const kind = String(selected?.value || "mc").toLowerCase();
+  const answer = document.querySelector('input[name="live-add-q-answer-with"]:checked');
+  const mode = String(answer?.value || "text");
+  const host = $("live-add-q-answer-with");
+  if (host instanceof HTMLElement) host.hidden = kind !== "poll";
+  const image = $("live-add-q-image");
+  const hasImage =
+    (image instanceof HTMLInputElement && Boolean(image.files && image.files.length)) ||
+    Boolean(keptImageUrl);
+  const board = kind === "poll" && (mode === "board" || mode === "both");
+  const bg = $("live-add-q-image-bg");
+  const hint = $("live-add-q-image-bg-hint");
+  if (bg instanceof HTMLElement) bg.hidden = !(board && hasImage);
+  if (hint instanceof HTMLElement) hint.hidden = !(board && hasImage);
+  const groupHint = $("live-add-q-group-hint");
+  if (groupHint instanceof HTMLElement) groupHint.hidden = !board;
+  const showLabel = $("live-add-q-show-results-label");
+  const show = $("live-add-q-show-results");
+  if (showLabel instanceof HTMLElement) showLabel.hidden = board;
+  if (show instanceof HTMLInputElement && board) show.checked = false;
 }
 
 /**
@@ -313,6 +341,15 @@ function fillQuestion(question) {
   if (show instanceof HTMLInputElement) {
     show.checked = question.live_show_results == null ? true : Boolean(question.live_show_results);
   }
+  const storedWith = String(question.answer_with || "text");
+  const withInput = document.querySelector(
+    `input[name="live-add-q-answer-with"][value="${storedWith === "board" || storedWith === "both" ? storedWith : "text"}"]`
+  );
+  if (withInput instanceof HTMLInputElement) withInput.checked = true;
+  const bg = $("live-add-q-image-bg-check");
+  if (bg instanceof HTMLInputElement) {
+    bg.checked = question.image_as_board_background == null ? true : Boolean(question.image_as_board_background);
+  }
   const points = $("live-add-q-points");
   if (points instanceof HTMLInputElement) {
     points.value = questionPointsValue(question);
@@ -469,11 +506,19 @@ async function collectBody() {
   if (mode === "add" || scopeDirty) {
     body.bank_scope = String(scope instanceof HTMLSelectElement && scope.value ? scope.value : initialScope || "M1");
   }
+  if (kind === "poll") {
+    const answer = document.querySelector('input[name="live-add-q-answer-with"]:checked');
+    body.answer_with = String(answer?.value || "text");
+    const bg = $("live-add-q-image-bg-check");
+    body.image_as_board_background = Boolean(bg instanceof HTMLInputElement && bg.checked);
+  }
   if (defaultsDirty) {
     const response = document.querySelector('input[name="live-add-q-response"]:checked');
     body.live_response_mode = String(response?.value || "individual");
     const show = $("live-add-q-show-results");
-    body.live_show_results = Boolean(show instanceof HTMLInputElement && show.checked);
+    const answer = document.querySelector('input[name="live-add-q-answer-with"]:checked');
+    const board = kind === "poll" && (answer?.value === "board" || answer?.value === "both");
+    body.live_show_results = board ? false : Boolean(show instanceof HTMLInputElement && show.checked);
     body.live_points = String($("live-add-q-points")?.value || "").trim();
   }
   if (kind === "mc") {
@@ -600,6 +645,10 @@ function bindEditor() {
   document.querySelectorAll('input[name="live-add-q-type"]').forEach((input) => {
     input.addEventListener("change", () => syncTypeFields());
   });
+  document.querySelectorAll('input[name="live-add-q-answer-with"]').forEach((input) => {
+    input.addEventListener("change", () => syncAnswerWith());
+  });
+  $("live-add-q-image")?.addEventListener("change", () => syncAnswerWith());
   $("live-add-q-rank-add")?.addEventListener("click", () => {
     const hidden = document.querySelector("#live-add-q-rank-list .live-add-rank-row[hidden]");
     if (hidden instanceof HTMLElement) hidden.hidden = false;

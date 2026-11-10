@@ -180,15 +180,24 @@ class BoardSessionClosed(Exception):
         stale_run: True when the run key does not match the live run.
     """
 
-    def __init__(self, message: str = "session has ended", *, stale_run: bool = False) -> None:
+    def __init__(
+        self,
+        message: str = "session has ended",
+        *,
+        stale_run: bool = False,
+        question_closed: bool = False,
+    ) -> None:
         """Record whether the rejection is a stale run rather than an end.
 
         Args:
             message: Short reason.
             stale_run: True when the run key is missing or not current.
+            question_closed: True when a question board was closed. The
+                class itself has not ended.
         """
         super().__init__(message)
         self.stale_run = bool(stale_run)
+        self.question_closed = bool(question_closed)
 
 
 def normalize_board_key(raw: Any) -> str:
@@ -829,12 +838,15 @@ class _BoardStore:
         who = str(owner or "").strip() or "teacher"
         if len(ops) > MAX_OPS_PER_BATCH:
             raise ValueError("Too many board ops in one batch.")
+        from question_board import assert_board_run_key
+
+        stored_run = assert_board_run_key(run_key)
 
         def work(exec_: Exec) -> dict[str, Any]:
-            prepared = self._prepare_client_ops(exec_, _run_key(run_key), key, who, ops)
+            prepared = self._prepare_client_ops(exec_, _run_key(stored_run), key, who, ops)
             return self._insert_ops(
                 exec_,
-                _run_key(run_key),
+                _run_key(stored_run),
                 key,
                 who,
                 prepared,
@@ -1246,6 +1258,167 @@ class _BoardStore:
 
         return int(self._read(work))
 
+    def count_pattern_ops(self, like_pattern: str) -> int:
+        """Count ``board_ops`` rows whose run key matches a bound LIKE.
+
+        Args:
+            like_pattern: Bound pattern such as ``<base>~q%``.
+
+        Returns:
+            Row count. ``0`` when the pattern is empty.
+        """
+        token = str(like_pattern or "").strip()
+        if not token:
+            return 0
+
+        def work(exec_: Exec) -> int:
+            """Count matching op rows."""
+            cursor = exec_(
+                "SELECT COUNT(*) AS n FROM board_ops WHERE run_key LIKE ?",
+                (token,),
+            )
+            row = _row_dict(cursor.fetchone())
+            return int(row.get("n") or 0)
+
+        return int(self._read(work))
+
+    def count_pattern_sessions(self, like_pattern: str) -> int:
+        """Count ``board_sessions`` rows whose run key matches a bound LIKE.
+
+        Args:
+            like_pattern: Bound pattern such as ``<base>~q%``.
+        """
+        token = str(like_pattern or "").strip()
+        if not token:
+            return 0
+
+        def work(exec_: Exec) -> int:
+            """Count matching session rows."""
+            cursor = exec_(
+                "SELECT COUNT(*) AS n FROM board_sessions WHERE run_key LIKE ?",
+                (token,),
+            )
+            row = _row_dict(cursor.fetchone())
+            return int(row.get("n") or 0)
+
+        return int(self._read(work))
+
+    def list_run_keys(self, like_pattern: str) -> list[str]:
+        """Distinct run keys in ops, counters, or batches for a bound LIKE.
+
+        Args:
+            like_pattern: Bound pattern such as ``<base>~q%``.
+
+        Returns:
+            Keys in alphabetical order.
+        """
+        token = str(like_pattern or "").strip()
+        if not token:
+            return []
+
+        def work(exec_: Exec) -> list[str]:
+            """Collect keys from the three ink tables."""
+            found: set[str] = set()
+            for table in ("board_ops", "board_counters", "board_batches"):
+                cursor = exec_(
+                    f"SELECT DISTINCT run_key FROM {table} WHERE run_key LIKE ?",
+                    (token,),
+                )
+                for row in cursor.fetchall():
+                    item = _row_dict(row)
+                    key = str(item.get("run_key") or "")
+                    if key:
+                        found.add(key)
+            return sorted(found)
+
+        return list(self._read(work))
+
+    def purge_exact_question(self, run_key: str) -> None:
+        """Delete one question board's ink without opening a session row.
+
+        ``purge`` would insert a closed ``board_sessions`` row for this
+        key. Question boards must not have one.
+
+        Args:
+            run_key: ``<base>~q<prompt id>``.
+        """
+        sid = _run_key(run_key)
+
+        def work(exec_: Exec) -> None:
+            """Delete ink and any session row for this exact key."""
+            exec_("DELETE FROM board_ops WHERE run_key = ?", (sid,))
+            exec_("DELETE FROM board_counters WHERE run_key = ?", (sid,))
+            exec_("DELETE FROM board_batches WHERE run_key = ?", (sid,))
+            exec_("DELETE FROM board_sessions WHERE run_key = ?", (sid,))
+
+        self._transaction(work)
+
+    def purge_prefix(self, base: str) -> None:
+        """Close ``base`` and delete every ``<base>~q`` question board.
+
+        Catch-up passes ``<link run key>~cu``, which closes that lock and
+        deletes ``<link>~cu~q`` ink. No ``~q`` session row is created.
+
+        Args:
+            base: Session run key, or a catch-up lock key ending in ``~cu``.
+        """
+        sid = _run_key(base)
+        pattern = sid + "~q%"
+
+        def work(exec_: Exec) -> None:
+            """Close the lock row and delete question-board ink."""
+            exec_(
+                """
+                INSERT INTO board_sessions (run_key, closed)
+                VALUES (?, 1)
+                ON CONFLICT (run_key) DO UPDATE SET closed = 1
+                """,
+                (sid,),
+            )
+            exec_("DELETE FROM board_ops WHERE run_key LIKE ?", (pattern,))
+            exec_("DELETE FROM board_counters WHERE run_key LIKE ?", (pattern,))
+            exec_("DELETE FROM board_batches WHERE run_key LIKE ?", (pattern,))
+            exec_("DELETE FROM board_sessions WHERE run_key LIKE ?", (pattern,))
+
+        self._transaction(work)
+
+    def delete_session_row(self, run_key: str) -> None:
+        """Remove one board-session lock row.
+
+        Args:
+            run_key: Exact lock key, such as ``<link run key>~cu``.
+        """
+        sid = _run_key(run_key)
+
+        def work(exec_: Exec) -> None:
+            """Delete the lock row."""
+            exec_("DELETE FROM board_sessions WHERE run_key = ?", (sid,))
+
+        self._transaction(work)
+
+    def set_session_closed(self, run_key: str, closed: bool) -> None:
+        """Mark one board-session lock open or closed.
+
+        Args:
+            run_key: Lock key, such as ``<link run key>~cu``.
+            closed: True to refuse writes.
+        """
+        sid = _run_key(run_key)
+        flag = 1 if closed else 0
+
+        def work(exec_: Exec) -> None:
+            """Upsert the lock flag."""
+            exec_(
+                """
+                INSERT INTO board_sessions (run_key, closed)
+                VALUES (?, ?)
+                ON CONFLICT (run_key) DO UPDATE SET closed = excluded.closed
+                """,
+                (sid, flag),
+            )
+
+        self._transaction(work)
+
     def purge(self, run_key: str) -> None:
         """Close the session and delete its ops, counters, and batches.
 
@@ -1602,7 +1775,11 @@ class _BoardStore:
         Raises:
             BoardSessionClosed: The session is ending or has ended.
         """
-        if self._session_closed(exec_, run_key):
+        from question_board import session_lock_key
+
+        # Question boards lock the base session. Catch-up locks ``~cu``.
+        # Neither form inserts its own ``board_sessions`` row here.
+        if self._session_closed(exec_, session_lock_key(run_key)):
             raise BoardSessionClosed("session has ended")
         batch = str(client_batch_id or "").strip()[:80]
         if batch:

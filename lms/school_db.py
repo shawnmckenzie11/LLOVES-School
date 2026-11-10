@@ -906,6 +906,28 @@ CREATE TABLE IF NOT EXISTS live_board_assignments (
 CREATE INDEX IF NOT EXISTS idx_live_board_assignments_board
     ON live_board_assignments(class_id, run_key, board_key);
 
+-- MCK-31: one compact drawing per question board. No name columns.
+-- Created with the rest of the schema. Existing answer tables are not altered.
+CREATE TABLE IF NOT EXISTS board_answer_copies (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    board_key TEXT NOT NULL,
+    strokes_json TEXT NOT NULL DEFAULT '{}',
+    byte_size INTEGER NOT NULL DEFAULT 0,
+    board_seq INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL DEFAULT '',
+    draft_text TEXT NOT NULL DEFAULT '',
+    submitted_by INTEGER,
+    member_ids_json TEXT NOT NULL DEFAULT '[]',
+    submitted_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(class_id, run_key, board_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_board_answer_copies_run
+    ON board_answer_copies(class_id, run_key);
+
 -- Session index is created in _ensure_board_assignment_session_column
 -- after older databases gain live_session_id. Creating it here fails boot
 -- when the table already exists without that column.
@@ -11952,6 +11974,12 @@ class LovesDB:
                 stale,
             )
             self.conn.commit()
+        try:
+            from question_board import drop_unreferenced_copies
+        except ImportError:
+            from lms.question_board import drop_unreferenced_copies
+
+        drop_unreferenced_copies(self)
         return int(cur.rowcount or 0)
 
 
@@ -12846,6 +12874,8 @@ class SchoolDB(LovesDB):
                 payload.get("equation_latex") or payload.get("equation") or ""
             ),
             "image_url": str(payload.get("image_url") or ""),
+            "answer_with": str(payload.get("answer_with") or "text"),
+            "image_as_board_background": payload.get("image_as_board_background", True),
         }
         item["question_type"] = bank_question_type(
             item, item_type=item_type, payload=payload
@@ -14459,19 +14489,45 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT id, placement_key, item_id, kind, status
+                SELECT id, placement_key, item_id, kind, status, prompt_id
                 FROM live_session_items
                 WHERE live_session_id = ?
                 """,
                 (session_id,),
             ).fetchall()
             removed_item_ids: list[str] = []
+            pending_rows = []
             for row in rows:
                 if str(row["placement_key"] or "") in expected:
                     continue
                 kind = str(row["kind"] or "").strip().lower()
                 if kind in {"media", "whiteboard", "slides"}:
                     continue
+                pending_rows.append(row)
+            try:
+                base_key, _gen = self._live_board_base_run_key(session_id)
+            except KeyError:
+                base_key = ""
+            if base_key:
+                try:
+                    from question_board import delete_question_copies, purge_question_ink
+                except ImportError:
+                    from lms.question_board import delete_question_copies, purge_question_ink
+
+                session_row = self.get_live_session(session_id) or {}
+                class_id = int(session_row.get("class_id") or 0)
+                for row in pending_rows:
+                    prompt_id = row["prompt_id"]
+                    if prompt_id in (None, ""):
+                        continue
+                    purge_question_ink(self, base_key, int(prompt_id))
+                    if class_id:
+                        delete_question_copies(
+                            self,
+                            class_id,
+                            f"{base_key}~q{int(prompt_id)}",
+                        )
+            for row in pending_rows:
                 removed_item_ids.append(str(row["item_id"] or ""))
                 self.conn.execute(
                     "DELETE FROM live_session_items WHERE id = ?",
@@ -16792,6 +16848,26 @@ class SchoolDB(LovesDB):
             if not self._same_live_item_id(item.get("item_id"), token):
                 continue
             prompt_id = item.get("prompt_id")
+            if prompt_id not in (None, ""):
+                try:
+                    base_key, _gen = self._live_board_base_run_key(session_id)
+                except KeyError:
+                    base_key = ""
+                if base_key:
+                    try:
+                        from question_board import delete_question_copies, purge_question_ink
+                    except ImportError:
+                        from lms.question_board import (
+                            delete_question_copies,
+                            purge_question_ink,
+                        )
+
+                    purge_question_ink(self, base_key, int(prompt_id))
+                    delete_question_copies(
+                        self,
+                        int(class_id),
+                        f"{base_key}~q{int(prompt_id)}",
+                    )
             with self._lock:
                 if prompt_id not in (None, ""):
                     self.conn.execute(
@@ -19358,6 +19434,35 @@ class SchoolDB(LovesDB):
         else:
             item_payload["options"] = []
             item_payload["choices"] = []
+        if kind == "poll":
+            try:
+                from question_board import answer_with_of, image_is_background
+            except ImportError:
+                from lms.question_board import answer_with_of, image_is_background
+
+            raw_with = None
+            if isinstance(extra_item, dict):
+                raw_with = extra_item.get("answer_with", extra_item.get("answerWith"))
+            item_payload["answer_with"] = answer_with_of(
+                {"answer_with": raw_with if raw_with is not None else "text"}
+            )
+            if item_payload["answer_with"] in {"board", "both"}:
+                if image:
+                    flag = None
+                    if isinstance(extra_item, dict) and (
+                        "image_as_board_background" in extra_item
+                        or "imageAsBoardBackground" in extra_item
+                    ):
+                        flag = extra_item.get(
+                            "image_as_board_background",
+                            extra_item.get("imageAsBoardBackground"),
+                        )
+                    item_payload["image_as_board_background"] = (
+                        True if flag is None else bool(flag)
+                    )
+                item_payload["show_live_results"] = False
+                item_payload["live_show_results"] = False
+            del image_is_background
         try:
             from bank_kinds import apply_stored_bank_kind
         except ImportError:
@@ -19396,6 +19501,15 @@ class SchoolDB(LovesDB):
                 from lms.live_defaults import stamp_launch_defaults
 
             stamp_launch_defaults(item_payload, live_defaults)
+        if item_payload.get("answer_with") in {"board", "both"}:
+            item_payload["show_live_results"] = False
+            item_payload["live_show_results"] = False
+            if str(item_payload.get("live_response_mode") or "") == "group" or str(
+                item_payload.get("response_mode") or ""
+            ) == "group_submit":
+                item_payload["response_mode"] = "group_shared"
+                item_payload["publish_mode"] = "group_shared"
+                item_payload["publish_modes"] = ["individual", "group_shared"]
         source_question_id = None
         if save_to_bank:
             if library_id in (None, ""):
@@ -22313,6 +22427,23 @@ class SchoolDB(LovesDB):
                         "response_mode": "individual",
                     }
                     question.pop("import_group_preset", None)
+                try:
+                    from question_board import uses_board as _board_question
+                except ImportError:
+                    from lms.question_board import uses_board as _board_question
+
+                if _board_question(question) and live_mode == "group":
+                    default_publish = "group_shared"
+                    response_mode = "group_shared"
+                    question = {
+                        **dict(question),
+                        "publish_mode": "group_shared",
+                        "response_mode": "group_shared",
+                        "show_live_results": False,
+                        "publish_modes": ["individual", "group_shared"],
+                    }
+                elif _board_question(question):
+                    question = {**dict(question), "show_live_results": False}
                 prompt = prompt_by_item.get(item_id) or prompt_by_item.get(
                     self._live_item_alias(item_id)
                 )
@@ -23448,9 +23579,24 @@ class SchoolDB(LovesDB):
         """
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
-        if item["status"] == "closed":
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        question_body = item.get("item") if isinstance(item.get("item"), dict) else {}
+        board_question = uses_board(question_body)
+        if item["status"] == "closed" and not board_question:
             raise ValueError("Closed items cannot be republished.")
         mode = self._canonicalize_publish_mode(publish_mode)
+        if board_question and mode in {
+            "group",
+            "group_submit",
+            "group_consensus",
+            "group_shared",
+            "individual_in_group",
+        }:
+            mode = "group_shared"
         team_draw = self._question_answer_kind(item) == "team_draw"
         if team_draw and mode != "individual":
             self._require_group_mc_publish(session_id, item)
@@ -23458,6 +23604,11 @@ class SchoolDB(LovesDB):
             response_mode = "team_draw"
         elif team_draw:
             response_mode = "individual"
+        elif mode == "group_shared" and board_question:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            if not teacher.get("groups_configured"):
+                raise ValueError("Set up groups before publishing to groups.")
+            response_mode = "group_shared"
         elif mode == "group_submit":
             self._require_group_mc_publish(session_id, item)
             response_mode = "group_submit"
@@ -23509,7 +23660,7 @@ class SchoolDB(LovesDB):
                 UPDATE live_session_items
                 SET {stamp_sql}prompt_id = COALESCE(?, prompt_id),
                     status = 'active', publish_mode = ?,
-                    response_mode = ?, published_at = COALESCE(published_at, ?),
+                    response_mode = ?, {"" if not board_question else "show_live_results = 0, "}published_at = COALESCE(published_at, ?),
                     closed_at = NULL, updated_at = ?
                 WHERE id = ?
                 """,
@@ -38129,6 +38280,8 @@ class SchoolDB(LovesDB):
                         s.run_key = live_board_assignments.run_key
                         OR live_board_assignments.run_key
                            LIKE s.run_key || '~g%'
+                        OR live_board_assignments.run_key
+                           LIKE s.run_key || '~q%'
                       )
                     ORDER BY CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
                              s.id DESC
@@ -38184,7 +38337,18 @@ class SchoolDB(LovesDB):
         token = str(run_key or "").strip()
         if not token:
             return None
-        base = token.split("~g", 1)[0]
+        try:
+            from question_board import parse_board_run_key
+        except ImportError:
+            from lms.question_board import parse_board_run_key
+
+        try:
+            parsed = parse_board_run_key(token)
+        except ValueError:
+            return None
+        if parsed.kind == "catchup":
+            return None
+        base = parsed.base
         with self._lock:
             row = self.conn.execute(
                 """
@@ -38225,7 +38389,18 @@ class SchoolDB(LovesDB):
             KeyError: The session is missing or has no run key.
         """
         key, gen = self._live_board_base_run_key(session_id)
-        return [self.board_generation_key(key, n) for n in range(gen + 1)]
+        keys = [self.board_generation_key(key, n) for n in range(gen + 1)]
+        boards = getattr(self, "boards", None)
+        if boards is None:
+            return keys
+        try:
+            extra = boards.list_run_keys(str(key) + "~q%")
+        except (AttributeError, TypeError, ValueError):
+            extra = []
+        for item in extra:
+            if item not in keys:
+                keys.append(item)
+        return keys
 
     def _require_live_board_open(
         self, session_id: int, claimed_run_key: str | None = None
@@ -38264,7 +38439,41 @@ class SchoolDB(LovesDB):
         if claimed_run_key is None:
             return key
         claimed = str(claimed_run_key).strip()
-        if not claimed or claimed != key:
+        if not claimed:
+            raise BoardSessionClosed("board run is stale", stale_run=True)
+        try:
+            from question_board import parse_board_run_key
+        except ImportError:
+            from lms.question_board import parse_board_run_key
+
+        try:
+            parsed = parse_board_run_key(claimed)
+        except ValueError as exc:
+            raise BoardSessionClosed("board run is stale", stale_run=True) from exc
+        if parsed.kind == "question":
+            try:
+                current_base, _gen = self._live_board_base_run_key(int(session_id))
+            except KeyError as exc:
+                raise BoardSessionClosed("board run is stale", stale_run=True) from exc
+            if parsed.base != str(current_base):
+                raise BoardSessionClosed("board run is stale", stale_run=True)
+            with self._lock:
+                item = self.conn.execute(
+                    """
+                    SELECT status FROM live_session_items
+                    WHERE live_session_id = ? AND prompt_id = ?
+                    ORDER BY id ASC LIMIT 1
+                    """,
+                    (int(session_id), int(parsed.n or 0)),
+                ).fetchone()
+            if item is None or str(item["status"] or "") != "active":
+                raise BoardSessionClosed(
+                    "question is closed", question_closed=True
+                )
+            return claimed
+        if parsed.kind == "catchup":
+            raise BoardSessionClosed("board run is stale", stale_run=True)
+        if claimed != key:
             raise BoardSessionClosed("board run is stale", stale_run=True)
         return key
 
@@ -38814,7 +39023,9 @@ class SchoolDB(LovesDB):
 
         emit_board_ink(self, int(session_id), str(board_key))
 
-    def _set_projected_whiteboard(self, session_id: int, board_key: str) -> None:
+    def _set_projected_whiteboard(
+        self, session_id: int, board_key: str, *, run_key: str | None = None
+    ) -> None:
         """Store which board is shown without rebuilding every phone.
 
         Show and stop-showing write ``whiteboard_projected_board`` on the
@@ -38854,6 +39065,10 @@ class SchoolDB(LovesDB):
         if not isinstance(payload, dict):
             payload = {}
         payload["whiteboard_projected_board"] = text[:80] if text else None
+        if text and run_key:
+            payload["whiteboard_projected_run"] = str(run_key)[:80]
+        else:
+            payload.pop("whiteboard_projected_run", None)
         self._write_teacher_state(int(session_id), payload)
         emit_session_news(
             self,
@@ -39087,6 +39302,33 @@ class SchoolDB(LovesDB):
         key = str(teacher.get("whiteboard_projected_board") or "").strip()
         if not key:
             return None
+        projected_run = str(teacher.get("whiteboard_projected_run") or "").strip()
+        if projected_run:
+            try:
+                from question_board import parse_board_run_key
+            except ImportError:
+                from lms.question_board import parse_board_run_key
+
+            try:
+                parsed_run = parse_board_run_key(projected_run)
+            except ValueError:
+                parsed_run = None
+            if parsed_run is not None and parsed_run.kind == "question":
+                try:
+                    rows = self.boards.load_keys(projected_run, [key])
+                except Exception:
+                    return None
+                view = fold_one_board(rows, include_feedback=True)
+                return strip_shown_board_names(
+                    public_board_payload(
+                        {
+                            "board_key": key,
+                            "name": "",
+                            "legend": [],
+                            "canvas_view": view,
+                        }
+                    )
+                )
         row = session_row if isinstance(session_row, dict) else None
         if row is None or int(row.get("id") or 0) != int(session_id):
             row = self.get_live_session(int(session_id))
@@ -39130,13 +39372,178 @@ class SchoolDB(LovesDB):
             return
         # MCK-174: Fresh board keeps earlier generations as hidden rows.
         # End purges every generation, so none is orphaned.
+        try:
+            from question_board import parse_board_run_key
+        except ImportError:
+            from lms.question_board import parse_board_run_key
+
         for key in keys:
+            try:
+                kind = parse_board_run_key(key).kind
+            except ValueError:
+                kind = "session"
+            if kind == "question":
+                continue
             boards.purge(key)
+        try:
+            boards.purge_prefix(base)
+        except (AttributeError, TypeError, ValueError):
+            pass
         done = getattr(self, "_boards_purged", None)
         if done is None:
             done = set()
             self._boards_purged = done
         done.add(base)
+
+    def question_dashboard(self, session_id: int, prompt_id: int) -> dict[str, Any]:
+        """Teacher tiles for one board question.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+        """
+        from question_board import question_dashboard as _dashboard
+
+        return _dashboard(self, int(session_id), int(prompt_id))
+
+    def read_student_question_board(
+        self, session_id: int, prompt_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """One student's question board, including their own ink.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id.
+        """
+        from question_board import read_student_question_board as _read
+
+        return _read(self, int(session_id), int(prompt_id), int(student_id))
+
+    def append_question_board_ops(
+        self,
+        session_id: int,
+        prompt_id: int,
+        student_id: int,
+        ops: list[dict[str, Any]],
+        *,
+        client_batch_id: str | None = None,
+        owner: str = "",
+        board_key: str = "",
+    ) -> dict[str, Any]:
+        """Append ink on one question board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id. Ignored for a teacher write.
+            ops: Client ops.
+            client_batch_id: Retry token.
+            owner: ``teacher`` or empty for the student.
+            board_key: Tile key for a teacher write.
+        """
+        from question_board import append_question_board_ops as _append
+
+        return _append(
+            self,
+            int(session_id),
+            int(prompt_id),
+            int(student_id),
+            ops,
+            client_batch_id=client_batch_id,
+            owner=owner,
+            board_key=board_key,
+        )
+
+    def submit_question_board(
+        self, session_id: int, prompt_id: int, student_id: int, text: Any = ""
+    ) -> dict[str, Any]:
+        """Submit a question board for one student or a whole team.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id of the student who pressed Submit.
+            text: Typed part.
+        """
+        from question_board import submit_live_board
+
+        return submit_live_board(
+            self, int(session_id), int(prompt_id), int(student_id), text
+        )
+
+    def save_team_draft(
+        self, session_id: int, prompt_id: int, student_id: int, text: Any
+    ) -> dict[str, Any]:
+        """Debounce the shared team text box to one write per two seconds.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id of the typist.
+            text: Current text box.
+        """
+        from question_board import save_team_draft as _draft
+
+        return _draft(self, int(session_id), int(prompt_id), int(student_id), text)
+
+    def read_catchup_board(
+        self, token: str, student_id: int, item_id: int
+    ) -> dict[str, Any]:
+        """Catch-up board for one student, or their saved live drawing.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            item_id: ``participation_items.id``.
+        """
+        from question_board import read_catchup_board as _read
+
+        return _read(self, token, int(student_id), int(item_id))
+
+    def append_catchup_board_ops(
+        self,
+        token: str,
+        student_id: int,
+        item_id: int,
+        ops: list[dict[str, Any]],
+        *,
+        client_batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ink on one student's catch-up board.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            item_id: ``participation_items.id``.
+            ops: Client ops.
+            client_batch_id: Retry token.
+        """
+        from question_board import append_catchup_board_ops as _append
+
+        return _append(
+            self,
+            token,
+            int(student_id),
+            int(item_id),
+            ops,
+            client_batch_id=client_batch_id,
+        )
+
+    def submit_catchup_board(
+        self, token: str, student_id: int, item_id: int, text: Any = ""
+    ) -> dict[str, Any]:
+        """Submit a catch-up board without overwriting a live answer.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            item_id: ``participation_items.id``.
+            text: Typed part.
+        """
+        from question_board import submit_catchup_board as _submit
+
+        return _submit(self, token, int(student_id), int(item_id), text)
 
     def _purge_board_ops_if_ended(self, session_id: int) -> None:
         """Drop board ops when a swept session is already ended.
@@ -40571,6 +40978,12 @@ class SchoolDB(LovesDB):
                 """,
                 (class_id, run_key, module, sid),
             )
+            try:
+                from question_board import copy_group_participation
+            except ImportError:
+                from lms.question_board import copy_group_participation
+
+            copy_group_participation(self, sid)
             self._upsert_participation_run_kind_unlocked(
                 class_id,
                 run_key,
@@ -40613,6 +41026,12 @@ class SchoolDB(LovesDB):
             """,
             (class_id, run_key, module, sid),
         )
+        try:
+            from question_board import copy_group_participation
+        except ImportError:
+            from lms.question_board import copy_group_participation
+
+        copy_group_participation(self, sid)
         offered = self.conn.execute(
             "SELECT 1 FROM participation_items WHERE class_id = ? AND run_key = ? LIMIT 1",
             (class_id, run_key),
@@ -44264,6 +44683,15 @@ class SchoolDB(LovesDB):
                 )
             if self.conn.in_transaction:
                 self.conn.commit()
+        if cur.rowcount == 1:
+            try:
+                from question_board import sync_catchup_board_gate
+            except ImportError:
+                from lms.question_board import sync_catchup_board_gate
+
+            sync_catchup_board_gate(
+                self, str(link["run_key"] or ""), open_board=bool(is_open)
+            )
         return cur.rowcount == 1
 
     def _catchup_auto_close_days_unlocked(self, class_id: int) -> int:
@@ -45378,7 +45806,25 @@ class SchoolDB(LovesDB):
         }
 
     def discard_catchup_link(self, link_id: int) -> bool:
-        """Delete one catch-up link row by primary key (discard token; MCK-210)."""
+        """Delete one catch-up link row by primary key (discard token; MCK-210).
+
+        Catch-up board ink and saved copies for that link go with it.
+        A live answer is left in place.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT class_id, run_key FROM catchup_links WHERE id = ?",
+                (int(link_id),),
+            ).fetchone()
+        if row is not None and str(row["run_key"] or "").strip():
+            try:
+                from question_board import discard_catchup_boards
+            except ImportError:
+                from lms.question_board import discard_catchup_boards
+
+            discard_catchup_boards(
+                self, int(row["class_id"]), str(row["run_key"])
+            )
         with self._lock:
             cur = self.conn.execute(
                 "DELETE FROM catchup_links WHERE id = ?", (int(link_id),)
@@ -45406,6 +45852,27 @@ class SchoolDB(LovesDB):
         now = _now()
         token = new_token()
         portal_code = self._mint_unique_portal_join_code(cid, mod, sl)
+        with self._lock:
+            old_keys = [
+                str(row["run_key"] or "")
+                for row in self.conn.execute(
+                    """
+                    SELECT run_key FROM catchup_links
+                    WHERE class_id = ? AND (
+                        (live_module = ? AND live_slot = ?) OR run_key = ?
+                    )
+                    """,
+                    (cid, mod, sl, key),
+                ).fetchall()
+            ]
+        try:
+            from question_board import discard_catchup_boards
+        except ImportError:
+            from lms.question_board import discard_catchup_boards
+
+        for old_key in old_keys:
+            if old_key.strip():
+                discard_catchup_boards(self, cid, old_key)
         with self._lock:
             if discard_slot_link_id is not None:
                 self.conn.execute(
@@ -45838,7 +46305,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT p.question_key, p.item_json, p.prompt_kind,
+                SELECT p.id AS item_id, p.question_key, p.item_json, p.prompt_kind,
                        (SELECT a.source FROM participation_answers a
                         INNER JOIN participation_items ap
                             ON ap.class_id = a.class_id AND ap.run_key = a.run_key
@@ -45854,19 +46321,28 @@ class SchoolDB(LovesDB):
                 (int(student_id), int(link["class_id"]), str(link["run_key"])),
             ).fetchall()
         out = []
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
         for r in rows:
-            if r["source"] == "live":
-                continue
             try:
                 item = json.loads(r["item_json"] or "{}")
             except (TypeError, ValueError):
                 item = {}
             item = item if isinstance(item, dict) else {}
+            board = uses_board(item)
+            if r["source"] == "live" and not board:
+                continue
             out.append({
                 "question_key": r["question_key"],
+                "item_id": int(r["item_id"]),
                 "content": self._student_public_item_payload(item, class_id=class_id),
                 "prompt_kind": str(r["prompt_kind"] or ""),
-                "answered": r["source"] == "catchup",
+                "answered": r["source"] in {"catchup", "live"},
+                "read_only": bool(board and r["source"] == "live"),
+                "board_answer": board,
             })
         out.extend(self._group_engagement_catchup_questions(link, int(student_id)))
         out.extend(
@@ -46249,6 +46725,13 @@ class SchoolDB(LovesDB):
         if question_key not in allowed:
             return False
         matched = next(q for q in questions if q["question_key"] == question_key)
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        if uses_board(matched.get("content")):
+            return False
         if matched.get("group_rank"):
             return self._store_group_engagement_catchup(link, int(student_id), str(question_key), answer)
         if matched.get("question_skip"):
@@ -46377,6 +46860,28 @@ class SchoolDB(LovesDB):
         """
 
         self.purge_board_ops(int(session_id))
+        try:
+            from question_board import purge_run_copies
+        except ImportError:
+            from lms.question_board import purge_run_copies
+
+        purge_run_copies(self, int(session_id), keep_submitted=not bool(discard))
+        if discard:
+            try:
+                _base, _gen = self._live_board_base_run_key(int(session_id))
+            except KeyError:
+                _base = ""
+            if _base:
+                try:
+                    from question_board import discard_catchup_boards
+                except ImportError:
+                    from lms.question_board import discard_catchup_boards
+
+                session_row = self.get_live_session(int(session_id)) or {}
+                if session_row.get("class_id") not in (None, ""):
+                    discard_catchup_boards(
+                        self, int(session_row["class_id"]), str(_base)
+                    )
         self._delete_live_board_feedback(int(session_id))
         self._purge_team_draw_images(int(session_id))
         with self._lock:
@@ -46879,8 +47384,10 @@ class SchoolDB(LovesDB):
                 """
                 DELETE FROM live_board_assignments
                 WHERE run_key = ? OR run_key LIKE ? || '~g%'
+                   OR run_key LIKE ? || '~q%'
+                   OR run_key LIKE ? || '~cu%'
                 """,
-                (token, token),
+                (token, token, token, token),
             )
 
     def _delete_observation_history_unlocked(
@@ -49192,6 +49699,14 @@ class SchoolDB(LovesDB):
         game_conn = self.game.conn if getattr(self, "game", None) is not None else None
         self.purge_board_ops(sid)
         self._purge_team_draw_images(sid)
+        try:
+            from question_board import discard_catchup_boards, purge_run_copies
+        except ImportError:
+            from lms.question_board import discard_catchup_boards, purge_run_copies
+
+        purge_run_copies(self, sid, keep_submitted=False)
+        if run_key:
+            discard_catchup_boards(self, int(class_id), run_key)
         with self._lock:
             # Tracker tables live in this same sqlite file on a second
             # connection. Release any shared lock it still holds, then delete
@@ -49294,8 +49809,10 @@ class SchoolDB(LovesDB):
                 """
                 DELETE FROM live_board_assignments
                 WHERE run_key = ? OR run_key LIKE ? || '~g%'
+                   OR run_key LIKE ? || '~q%'
+                   OR run_key LIKE ? || '~cu%'
                 """,
-                (key, key),
+                (key, key, key, key),
             )
         session_row = self.conn.execute(
             "SELECT class_id FROM live_class_sessions WHERE id = ?",
@@ -49548,9 +50065,11 @@ class SchoolDB(LovesDB):
                 """
                 SELECT COUNT(*) AS n FROM live_board_assignments
                 WHERE run_key = ? OR run_key LIKE ? || '~g%'
+                   OR run_key LIKE ? || '~q%'
+                   OR run_key LIKE ? || '~cu%'
                    OR live_session_id = ?
                 """,
-                (key, key, sid),
+                (key, key, key, key, sid),
             ).fetchone()
             leftover += int(assign_left["n"] or 0)
             leftover += self._count_board_ops_for_run(key)
@@ -49558,6 +50077,20 @@ class SchoolDB(LovesDB):
             count_generations = getattr(boards, "count_generation_ops", None)
             if count_generations is not None:
                 leftover += int(count_generations(key))
+            if boards is not None:
+                for suffix in ("~q%", "~cu%"):
+                    counter = getattr(boards, "count_pattern_ops", None)
+                    sessions = getattr(boards, "count_pattern_sessions", None)
+                    if counter is not None:
+                        leftover += int(counter(key + suffix))
+                    if sessions is not None:
+                        leftover += int(sessions(key + suffix))
+            try:
+                from question_board import count_run_copies
+            except ImportError:
+                from lms.question_board import count_run_copies
+
+            leftover += count_run_copies(self, int(class_id), key)
         if tracker_ids:
             for tid in tracker_ids:
                 row = self.conn.execute(

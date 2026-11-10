@@ -43,6 +43,7 @@ import {
   studentFallbackPollMs,
   studentSessionOver,
 } from "/static/live_news_wire.js";
+import { mountStudentQuestionBoards } from "/static/question_board_ui.js";
 import {
   bindWhiteboard,
   boardAuthLost,
@@ -54,6 +55,7 @@ import {
   noteBoardRun,
   clearBoardRefreshCue,
   isFreshBoardRunKey,
+  isQuestionBoardRunKey,
   opsAboveCursor,
   showBoardRefreshCue,
   snapshotReplacesInk,
@@ -1531,7 +1533,7 @@ function refreshStudentBoard() {
     studentBoardSince = Number(data.board_seq) || 0;
     studentTeacherSince = Number(data.teacher_board_seq) || 0;
     if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
-    if (studentCanvas instanceof HTMLCanvasElement) {
+    if (studentCanvas instanceof HTMLCanvasElement && !isQuestionBoardRunKey(data.run_key)) {
       // MCK-174: a Fresh board reopen also changes the run key. Keep the
       // reopen line instead of the new-class line.
       // A run change onto a ~g<n> key without the /state cue (a frozen tab,
@@ -3430,6 +3432,35 @@ function parentChoiceRadiosHtml(content, groupId) {
  * @param {any} [initial]
  * @returns {string}
  */
+/**
+ * Board polls collect ink instead of the usual choice controls.
+ * @param {any} content
+ * @returns {"" | "board" | "both"}
+ */
+function questionBoardMode(content) {
+  const mode = String(content?.answer_with || "");
+  return mode === "board" || mode === "both" ? mode : "";
+}
+
+/**
+ * Host the per-question board. The canvas is mounted after the card paints.
+ * @param {any} item
+ * @param {any} content
+ * @returns {string}
+ */
+function questionBoardSlot(item, content) {
+  const mode = questionBoardMode(content);
+  if (!mode) return "";
+  const promptId = Number(item?.prompt?.id) || 0;
+  if (!promptId) return "";
+  const team = String(item?.response_mode || "") === "group_shared" ? "1" : "0";
+  const image =
+    content?.image_as_board_background !== false && content?.image_url
+      ? String(content.image_url)
+      : "";
+  return `<div class="qboard-slot" data-qboard-prompt="${promptId}" data-qboard-mode="${mode}" data-qboard-team="${team}" data-qboard-image="${escapeText(image)}"></div>`;
+}
+
 function lifecycleAnswerControls(item, action, initial = null) {
   const prompt = item?.prompt || {};
   const content = item?.content || prompt.payload || {};
@@ -4314,7 +4345,9 @@ function paintLifecycleQuestionStack(payload) {
           : individualControls;
       const ownAnswer = answerControls ? "" : studentOwnAnswerHtml(item);
       const results =
-        groupSubmit
+        questionBoardMode(content)
+          ? ""
+          : groupSubmit
           ? ""
           : !showResults
             ? ""
@@ -4336,7 +4369,8 @@ function paintLifecycleQuestionStack(payload) {
         </div>
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
-        ${answerControls}
+        ${questionBoardSlot(item, content)}
+        ${questionBoardMode(content) ? "" : answerControls}
         ${ownAnswer}
         ${unsentDraftNoteHtml(item)}
         ${unsentPendingNoteHtml(item)}
@@ -4344,6 +4378,7 @@ function paintLifecycleQuestionStack(payload) {
       </article>`;
   };
   liveQuestionStackBody.innerHTML = stacked.map(renderLiveCard).join("");
+  mountStudentQuestionBoards();
   // MCK-184: a card the student lifted (phone resize pill, desktop drag)
   // used to keep its old DOM forever: a Take turns pick greyed the
   // buttons, the server took it, and that phone never showed it or any

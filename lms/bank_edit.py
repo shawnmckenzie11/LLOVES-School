@@ -659,6 +659,28 @@ def apply_question_editor_save(
         payload["choices"] = []
         payload.pop("key", None)
         payload.pop("correct_answer", None)
+        try:
+            from question_board import answer_with_of
+        except ImportError:
+            from lms.question_board import answer_with_of
+
+        raw_with = body.get("answer_with", body.get("answerWith"))
+        if raw_with is None:
+            raw_with = payload.get("answer_with")
+        payload["answer_with"] = answer_with_of({"answer_with": raw_with})
+        if payload["answer_with"] in {"board", "both"}:
+            if "image_as_board_background" in body or "imageAsBoardBackground" in body:
+                payload["image_as_board_background"] = bool(
+                    body.get(
+                        "image_as_board_background",
+                        body.get("imageAsBoardBackground"),
+                    )
+                )
+            elif payload.get("image_url") and "image_as_board_background" not in payload:
+                payload["image_as_board_background"] = True
+            payload["show_live_results"] = False
+        else:
+            payload.pop("image_as_board_background", None)
         item_type = "essay_question"
         school.upsert_library_question_overlay(
             int(library_id),
@@ -714,6 +736,9 @@ def apply_question_editor_save(
             correct_answer="" if warmup else correct,
             points=None,
         )
+    if kind != "poll":
+        payload.pop("answer_with", None)
+        payload.pop("image_as_board_background", None)
     school.update_library_question_payload(
         int(library_id),
         int(question_id),

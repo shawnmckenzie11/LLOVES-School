@@ -46,11 +46,13 @@ import {
   normalizeBoardPoint,
   clearBoardRefreshCue,
   isFreshBoardRunKey,
+  isQuestionBoardRunKey,
   noteBoardRun,
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { teamDrawStatusBoardHtml } from "/static/team_draw.js";
+import { mountTeacherQuestionBoards } from "/static/question_board_ui.js";
 import { featureOn } from "/static/teacher_features.js";
 import {
   RECONNECT_PENDING_MS,
@@ -6266,8 +6268,16 @@ function paintLiveQuestionCards() {
         (drawQuestion
           ? { draw: true, response_mode: card.response_mode, status_board: [] }
           : null);
+      const answerWith = String(item.answer_with || card.answer_with || "");
+      const boardQuestion = answerWith === "board" || answerWith === "both";
+      const boardDash =
+        boardQuestion && promptId && (active || closed)
+          ? `<div class="qboard-dash" data-qboard-dash="${promptId}"></div>`
+          : "";
       const resultHtml =
-        card.response_mode === "team_draw" || drawQuestion
+        boardDash
+          ? boardDash
+          : card.response_mode === "team_draw" || drawQuestion
           ? groupSubmitTeacherHtml(drawResult, closed, liveItemId)
           : groupChrome
         ? groupSubmitTeacherHtml(result, closed, liveItemId)
@@ -6445,6 +6455,7 @@ function paintLiveQuestionCards() {
     .join(""));
   paintGroupResultsInPlace();
   void renderLiveQuestionMath(host);
+  mountTeacherQuestionBoards(liveSessionId || readLiveSessionId());
 }
 
 /**
@@ -14579,10 +14590,12 @@ function refreshTeacherBoard() {
     if (canvas instanceof HTMLCanvasElement && !teacherBoardQuietRefresh) {
       // A run change onto a ~g<n> key is a Fresh board mid-class, not a
       // new class (MCK-174 follow-up: stale teacher tab).
-      showBoardRefreshCue(
-        canvas,
-        isFreshBoardRunKey(data.run_key) ? WB_REOPEN_COPY.toastFresh : undefined
-      );
+      if (!isQuestionBoardRunKey(data.run_key)) {
+        showBoardRefreshCue(
+          canvas,
+          isFreshBoardRunKey(data.run_key) ? WB_REOPEN_COPY.toastFresh : undefined
+        );
+      }
     }
   })().finally(() => {
     teacherBoardRefresh = null;

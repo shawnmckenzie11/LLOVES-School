@@ -20,6 +20,31 @@
       "api_slides_status"
     ],
     [
+      "/api/catchup/<token>/questions/<int:item_id>/board",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_catchup_question_board"
+    ],
+    [
+      "/api/catchup/<token>/questions/<int:item_id>/board/ops",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_catchup_question_board_ops"
+    ],
+    [
+      "/api/catchup/<token>/questions/<int:item_id>/board/submit",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_catchup_question_board_submit"
+    ],
+    [
       "/api/celebrations",
       [
         "GET",
@@ -1047,6 +1072,31 @@
       "api_live_session_prompt_active"
     ],
     [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_question_board_dashboard"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/ink",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_board_ink"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/show",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_board_show"
+    ],
+    [
       "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/responses",
       [
         "GET",
@@ -1670,6 +1720,39 @@
         "POST"
       ],
       "api_student_mvp_vote"
+    ],
+    [
+      "/api/student/question-board/<int:prompt_id>",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_student_question_board"
+    ],
+    [
+      "/api/student/question-board/<int:prompt_id>/draft",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_student_question_board_draft"
+    ],
+    [
+      "/api/student/question-board/<int:prompt_id>/ops",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_student_question_board_ops"
+    ],
+    [
+      "/api/student/question-board/<int:prompt_id>/submit",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_student_question_board_submit"
     ],
     [
       "/api/student/state",
