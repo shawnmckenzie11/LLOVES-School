@@ -703,9 +703,10 @@ class FeatureScreenTests(_School):
         """A new teacher sees only Questions and Slides.
 
         ``whiteboard_submit`` stays on in the registry and still allows the
-        gallery route. It does not put the Whiteboard tab back. Turning
-        ``whiteboard`` on does. Student and catch-up pages follow the saved
-        run's teacher even when another teacher is signed in.
+        gallery route. The Content Whiteboard tab stays off. Turning
+        ``whiteboard`` on still shows the canvas zone for an existing item.
+        Student and catch-up pages follow the saved run's teacher even when
+        another teacher is signed in.
         """
         from werkzeug.serving import make_server
 
@@ -876,7 +877,7 @@ class FeatureScreenTests(_School):
         self.assertEqual(full["googleStage"], 1)
         self.assertEqual(full["questions"], 1)
         self.assertEqual(full["slides"], 1)
-        self.assertEqual(full["whiteboard"], 1)
+        self.assertEqual(full["whiteboard"], 0)
         self.assertEqual(full["livePill"], 1)
         self.assertTrue(full["flags"]["media"])
         self.assertEqual(boards["questions"], 1)
@@ -923,7 +924,7 @@ class FeatureScreenTests(_School):
         board_on = out["board_on"]["counts"]
         self.assertEqual(
             [board_on["questions"], board_on["slides"], board_on["media"], board_on["whiteboard"]],
-            [1, 1, 0, 1],
+            [1, 1, 0, 0],
         )
         self.assertEqual(board_on["canvasZone"], 1)
         self.assertEqual(board_on["livePill"], 1)
