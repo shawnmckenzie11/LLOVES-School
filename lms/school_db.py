@@ -28025,9 +28025,9 @@ class SchoolDB(LovesDB):
                 self._question_answer_kind(item) == "rank"
                 and self._group_rank_mode(item) == "turns"
             ):
-                waits = self._question_wait_rows(item, int(team_id), class_id)
-                if waits:
-                    board_row["question_waits"] = waits
+                board_row["question_waits"] = self._question_wait_rows(
+                    item, int(team_id), class_id
+                )
             status_board.append(board_row)
             submitter_log.append(
                 {

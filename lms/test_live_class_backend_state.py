@@ -3469,7 +3469,15 @@ class LiveBackendStateTests(unittest.TestCase):
             # MCK-155 S3: a keyed group MC adds a staff-only right/wrong
             # mark once a team sends; the answer text still waits.
             # MCK-155 option B adds each member's own pick (staff only).
-            allowed = {"team_id", "team_name", "submitted", "pick_step", "picks", "member_count"}
+            allowed = {
+                "team_id",
+                "team_name",
+                "submitted",
+                "pick_step",
+                "picks",
+                "member_count",
+                "question_waits",
+            }
             if row["submitted"] and open_view.get("answer_key"):
                 allowed = allowed | {"correct"}
             self.assertEqual(set(row), allowed)
