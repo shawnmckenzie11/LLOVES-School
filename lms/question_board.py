@@ -21,7 +21,9 @@ SIZE_LINE = "Your board is too full to submit. Erase a little and try again."
 DOWN_LINE = "That didn't go through. Your drawing is safe, so press Submit again."
 CLOSED_LINE = "This question is closed."
 EMPTY_LINE = "Add an answer before submitting."
+GATE_LINE = "Everyone on the team adds something to the board before Submit."
 TEXT_LINE = "That text is too long."
+FEEDBACK_CAP = 500
 ROUND_DIGITS = 3
 
 _CATCHUP_RE = re.compile(r"^(?P<base>[^~]+)~cu~q(?P<n>[0-9]+)$")
@@ -695,6 +697,286 @@ def _cap_text(raw: Any) -> str:
     return text
 
 
+def contributor_ids(rows: list[dict[str, Any]]) -> set[int]:
+    """Roster ids that left a stroke or a text label on one board.
+
+    Teacher ink does not count. A stroke that was erased is gone from
+    the fold, so that student is waiting again. An unfinished stroke
+    still counts: they have added to the board.
+
+    Args:
+        rows: Stored rows for one board.
+    """
+    from board_ops import fold_one_board
+
+    view = fold_one_board(rows, include_feedback=False)
+    found: set[int] = set()
+    for stroke in view.get("strokes") or []:
+        if not isinstance(stroke, dict) or not stroke.get("points"):
+            continue
+        owner = str(stroke.get("owner") or "")
+        if owner.isdigit():
+            found.add(int(owner))
+    for label in view.get("texts") or []:
+        if not isinstance(label, dict) or not str(label.get("text") or "").strip():
+            continue
+        owner = str(label.get("owner") or "")
+        if owner.isdigit():
+            found.add(int(owner))
+    return found
+
+
+def team_id_for_sort(school: Any, session_id: int, sort_order: int) -> int | None:
+    """Game team id whose board key is ``team:<sort_order>``.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        sort_order: Board suffix, including ``0``.
+    """
+    session = school.get_live_session(int(session_id)) or {}
+    class_id = int(session.get("class_id") or 0)
+    if not class_id:
+        return None
+    orders = school._open_game_team_sort_orders(class_id)
+    for team_id, sort in orders.items():
+        try:
+            if int(sort) == int(sort_order):
+                return int(team_id)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _rows_without_relock(school: Any, run_key: str, board_key: str) -> list[dict[str, Any]]:
+    """Read one board without taking the school lock twice.
+
+    Skip already holds ``school._lock`` inside ``BEGIN IMMEDIATE``.
+    The board store uses that same lock, so a nested read would stall.
+
+    Args:
+        school: Open school database.
+        run_key: Question run key.
+        board_key: ``team:`` or ``solo:`` key.
+    """
+
+    def work() -> list[dict[str, Any]]:
+        """Fetch stored ops for one board."""
+        fetched = school.conn.execute(
+            """
+            SELECT board_key, board_seq, op, owner, created_at, stroke_id
+            FROM board_ops
+            WHERE run_key = ? AND board_key = ?
+            ORDER BY board_seq ASC
+            """,
+            (str(run_key), str(board_key)),
+        ).fetchall()
+        return [dict(row) for row in fetched]
+
+    if school.conn.in_transaction:
+        return work()
+    with school._lock:
+        return work()
+
+
+def group_board_blocked(
+    school: Any, session_id: int, item: dict[str, Any], team_id: int
+) -> list[int]:
+    """Present teammates who have not added to this team's board.
+
+    Skipped students are left out. A submitted copy blocks nobody.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        item: Lifecycle row.
+        team_id: ``game_teams.id``.
+    """
+    if team_copy_submitted(school, item, int(team_id)):
+        return []
+    prompt_id = int(item.get("prompt_id") or 0)
+    if not prompt_id:
+        return []
+    try:
+        session, base = _base_run_sharing_lock(school, int(session_id))
+    except QuestionBoardError:
+        return []
+    orders = school._open_game_team_sort_orders(int(session["class_id"]))
+    sort = orders.get(int(team_id))
+    try:
+        sort_n = int(sort) if sort is not None else None
+    except (TypeError, ValueError):
+        sort_n = None
+    if sort_n is None:
+        return []
+    run_key = question_run_key(base, prompt_id)
+    sort = sort_n
+    try:
+        rows = _rows_without_relock(school, run_key, f"team:{int(sort)}")
+    except Exception:  # noqa: BLE001 - a missing table should not stall Skip
+        return []
+    contributed = contributor_ids(rows)
+    return [
+        sid
+        for sid in school._present_without_skips(item, int(team_id))
+        if int(sid) not in contributed
+    ]
+
+
+def _base_run_sharing_lock(school: Any, session_id: int) -> tuple[dict[str, Any], str]:
+    """Session row and run key without locking again inside a write.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+
+    Raises:
+        QuestionBoardError: The session is missing or has no run key.
+    """
+
+    def work() -> tuple[dict[str, Any], str]:
+        """Read the session on the caller's transaction."""
+        row = school.conn.execute(
+            "SELECT * FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if row is None:
+            raise QuestionBoardError("Session not found", 404)
+        item = dict(row)
+        token = str(item.get("run_key") or "").strip()
+        if not token:
+            raise QuestionBoardError("Session not found", 404)
+        return item, token
+
+    if school.conn.in_transaction:
+        return work()
+    with school._lock:
+        return work()
+
+
+def team_copy_submitted(school: Any, item: dict[str, Any], team_id: int) -> bool:
+    """True when this team's question board has been submitted.
+
+    Args:
+        school: Open school database.
+        item: Lifecycle row.
+        team_id: ``game_teams.id``.
+    """
+    session_id = int(item.get("live_session_id") or 0)
+    prompt_id = int(item.get("prompt_id") or 0)
+    if not session_id or not prompt_id:
+        return False
+    try:
+        session, base = _base_run_sharing_lock(school, session_id)
+    except QuestionBoardError:
+        return False
+    orders = school._open_game_team_sort_orders(int(session["class_id"]))
+    sort = orders.get(int(team_id))
+    try:
+        sort_n = int(sort) if sort is not None else None
+    except (TypeError, ValueError):
+        sort_n = None
+    if sort_n is None:
+        return False
+    run_key = question_run_key(base, prompt_id)
+    sort = sort_n
+
+    def work() -> bool:
+        """True when this team's copy has been submitted."""
+        row = school.conn.execute(
+            """
+            SELECT submitted_at FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(session["class_id"]), run_key, f"team:{int(sort)}"),
+        ).fetchone()
+        return bool(row and str(row["submitted_at"] or "").strip())
+
+    if school.conn.in_transaction:
+        return work()
+    with school._lock:
+        return work()
+
+
+def _present_roster_ids(school: Any, session_id: int) -> set[int]:
+    """Roster ids still in the live class.
+
+    A teammate with ``left_at`` set is absent. Group questions wait on
+    present members only, and the board gate uses that same set.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+    """
+    present: set[int] = set()
+    for row in school.list_live_session_attendees(int(session_id), present_only=True):
+        if row.get("student_id") in (None, ""):
+            continue
+        try:
+            present.add(int(row["student_id"]))
+        except (TypeError, ValueError):
+            continue
+    return present
+
+
+def _live_award_ids(
+    school: Any, item: dict[str, Any], member_ids: list[int]
+) -> list[int]:
+    """Roster ids who receive a live answer.
+
+    A skipped teammate, and a teammate who has left, finish the question
+    alone in catch-up. Writing either a live row would make that catch-up
+    a 409. Absent teammates are the same present-member set the gate uses.
+
+    Args:
+        school: Open school database.
+        item: Lifecycle row.
+        member_ids: Roster ids on the board at submit time.
+    """
+    skipped = school._skipped_ids_for_live_item(int(item["id"]))
+    mode = str(item.get("response_mode") or item.get("publish_mode") or "")
+    group = mode == "group_shared" or str(item.get("publish_mode") or "") == "group_shared"
+    session_id = int(item.get("live_session_id") or 0)
+    present = _present_roster_ids(school, session_id) if session_id and group else None
+    awarded = []
+    for sid in member_ids:
+        if int(sid) in skipped:
+            continue
+        if present is not None and int(sid) not in present:
+            continue
+        awarded.append(int(sid))
+    return awarded
+
+
+def _gate_members(
+    school: Any,
+    item: dict[str, Any],
+    member_ids: list[int],
+    rows: list[dict[str, Any]],
+) -> list[int]:
+    """Members who still block Submit. Skipped and absent members do not.
+
+    Args:
+        school: Open school database.
+        item: Lifecycle row.
+        member_ids: Roster ids on this board.
+        rows: Stored ink for the board.
+    """
+    skipped = school._skipped_ids_for_live_item(int(item["id"]))
+    session_id = int(item.get("live_session_id") or 0)
+    present = _present_roster_ids(school, session_id) if session_id else None
+    contributed = contributor_ids(rows)
+    blocked = []
+    for sid in member_ids:
+        if present is not None and int(sid) not in present:
+            continue
+        if int(sid) in skipped:
+            continue
+        if int(sid) not in contributed:
+            blocked.append(int(sid))
+    return blocked
+
+
 def _member_ids(school: Any, session_id: int, *, group: bool, student_id: int, board_key: str) -> list[int]:
     """Roster ids who share this board at submit time.
 
@@ -957,6 +1239,8 @@ def submit_live_board(
     members = _member_ids(
         school, int(session_id), group=group, student_id=int(student_id), board_key=board_key
     )
+    if group and _gate_members(school, item, members, rows):
+        raise QuestionBoardError(GATE_LINE, 409)
     now = _now_stamp(school)
     blob = copy_json(copy)
     prior = None
@@ -1005,7 +1289,7 @@ def submit_live_board(
                     school,
                     prompt_id=int(prompt_id),
                     pointer=pointer,
-                    member_ids=members,
+                    member_ids=_live_award_ids(school, item, members),
                     now=now,
                 )
             _finish_write(school, started)
@@ -1289,7 +1573,17 @@ def question_dashboard(
         tile["submitted_by"] = who_id
         tile["submitted_by_name"] = names.get(who_id, "") if who_id is not None else ""
         tile["teacher_wrote"] = status == "Teacher wrote"
+        tile["feedback"] = str(copy.get("feedback_text") or "")
         tile["run_key"] = run_key
+        sort_order = card.get("team_sort_order")
+        if sort_order is not None:
+            team_id = team_id_for_sort(school, int(session_id), int(sort_order))
+            if team_id is not None:
+                tile["question_waits"] = school._question_wait_rows(
+                    item, int(team_id), int(session["class_id"])
+                )
+                tile["live_item_id"] = int(item["id"])
+                tile["team_id"] = int(team_id)
         tiles.append(tile)
     order = {"Not started": 0, "Drawing": 1, "Submitted": 2, "Teacher wrote": 3}
     tiles.sort(key=lambda tile: (order.get(str(tile["status"]), 9), str(tile["name"]).casefold()))
@@ -1457,6 +1751,19 @@ def read_student_question_board(
         "status_line": line,
         "image_url": str(payload.get("image_url") or "") if image_is_background(payload) else "",
         "stem": str(payload.get("text") or payload.get("prompt") or ""),
+        "feedback": str(saved.get("feedback_text") or ""),
+        "submit_ready": (not group) or not _gate_members(
+            school,
+            item,
+            _member_ids(
+                school,
+                int(session_id),
+                group=True,
+                student_id=int(student_id),
+                board_key=board_key,
+            ),
+            rows,
+        ),
         "formative": {
             "members": question_board_legend(
                 school, int(session_id), _legend_card(board_key, int(student_id))
@@ -1913,7 +2220,7 @@ def purge_run_copies(school: Any, session_id: int, *, keep_submitted: bool) -> N
     sql = f"DELETE FROM board_answer_copies WHERE class_id = ? AND {clause}"
     values: list[Any] = [int(session["class_id"]), *params]
     if keep_submitted:
-        sql += " AND submitted_at IS NULL"
+        sql += " AND submitted_at IS NULL AND TRIM(COALESCE(feedback_text, '')) = ''"
     with school._lock:
         school.conn.execute(sql, values)
 
@@ -2226,7 +2533,7 @@ def read_catchup_board(
         with school._lock:
             copy = school.conn.execute(
                 """
-                SELECT strokes_json, text FROM board_answer_copies
+                SELECT strokes_json, text, feedback_text FROM board_answer_copies
                 WHERE class_id = ? AND run_key = ? AND board_key = ?
                 """,
                 (int(link["class_id"]), copy_run, copy_board),
@@ -2238,6 +2545,7 @@ def read_catchup_board(
             "snapshot": True,
             "canvas_view": view,
             "text": str(pointer.get("text") or ""),
+            "feedback": str(copy["feedback_text"] or "") if copy is not None else "",
             "status_line": "",
             "run_key": copy_run,
             "board_key": f"solo:{int(student_id)}",
@@ -2249,7 +2557,7 @@ def read_catchup_board(
         with school._lock:
             copy = school.conn.execute(
                 """
-                SELECT strokes_json, text FROM board_answer_copies
+                SELECT strokes_json, text, feedback_text FROM board_answer_copies
                 WHERE class_id = ? AND run_key = ? AND board_key = ?
                 """,
                 (int(link["class_id"]), run_key, board_key),
@@ -2261,6 +2569,7 @@ def read_catchup_board(
             "snapshot": True,
             "canvas_view": view,
             "text": str(copy["text"] or "") if copy is not None else "",
+            "feedback": str(copy["feedback_text"] or "") if copy is not None else "",
             "status_line": "Submitted. You can still make changes." if copy is not None else "",
             "run_key": run_key,
             "board_key": board_key,
@@ -2270,7 +2579,7 @@ def read_catchup_board(
     with school._lock:
         copy = school.conn.execute(
             """
-            SELECT text, submitted_at FROM board_answer_copies
+            SELECT text, submitted_at, feedback_text FROM board_answer_copies
             WHERE class_id = ? AND run_key = ? AND board_key = ?
             """,
             (int(link["class_id"]), run_key, board_key),
@@ -2284,6 +2593,7 @@ def read_catchup_board(
         "canvas_view": view,
         "board_seq": seq,
         "text": str(copy["text"] or "") if submitted else "",
+        "feedback": str(copy["feedback_text"] or "") if copy is not None else "",
         "status_line": "Submitted. You can still make changes." if submitted else "",
         "run_key": run_key,
         "board_key": board_key,
@@ -2565,6 +2875,12 @@ def copy_group_participation(school: Any, session_id: int) -> None:
             json_extract(pr.payload, '$.answer_with') IN ('board', 'both')
             OR json_extract(i.item_json, '$.answer_with') IN ('board', 'both')
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM live_question_skips s
+            WHERE s.live_session_id = i.live_session_id
+              AND s.student_id = r.student_id
+              AND s.question_key = ('item:' || i.placement_key)
+          )
         """,
         (class_id, run_key, module, int(session_id)),
     )
@@ -2598,6 +2914,12 @@ def copy_group_participation(school: Any, session_id: int) -> None:
                 json_extract(pr.payload, '$.answer_with') IN ('board', 'both')
                 OR json_extract(i.item_json, '$.answer_with') IN ('board', 'both')
               )
+          AND NOT EXISTS (
+            SELECT 1 FROM live_question_skips s
+            WHERE s.live_session_id = i.live_session_id
+              AND s.student_id = r.student_id
+              AND s.question_key = ('item:' || i.placement_key)
+          )
           )
         """,
         (int(session_id), class_id, run_key, int(session_id)),
@@ -2634,3 +2956,322 @@ def drop_unreferenced_copies(school: Any) -> None:
               )
             """
         )
+
+
+def _cap_feedback(raw: Any) -> str:
+    """Return a teacher note, or refuse anything over 500 characters.
+
+    Args:
+        raw: Note from the teacher panel.
+
+    Raises:
+        QuestionBoardError: The note is longer than 500 characters.
+    """
+    text = str(raw or "")
+    if len(text) > FEEDBACK_CAP:
+        raise QuestionBoardError(TEXT_LINE, 400)
+    return text
+
+
+def save_copy_feedback(
+    school: Any, class_id: int, run_key: str, board_key: str, text: Any
+) -> dict[str, Any]:
+    """Store one teacher note on the compact copy for a board.
+
+    The drawing is unchanged. A missing copy gets an empty stroke row so
+    the note has a place to live. End keeps that row. Quit still deletes it.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+        run_key: Question or catch-up copy run key.
+        board_key: ``solo:`` or ``team:`` key.
+        text: Teacher note. Empty clears it.
+    """
+    note = _cap_feedback(text)
+    key = str(board_key or "")
+    if not key.startswith(("solo:", "team:")):
+        raise QuestionBoardError("Question not found", 404)
+    try:
+        assert_board_run_key(run_key)
+    except ValueError as exc:
+        raise QuestionBoardError("Question not found", 404) from exc
+    now = _now_stamp(school)
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT id FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(class_id), str(run_key), key),
+        ).fetchone()
+        if row is None:
+            school.conn.execute(
+                """
+                INSERT INTO board_answer_copies (
+                    class_id, run_key, board_key, strokes_json, byte_size, board_seq,
+                    text, draft_text, submitted_by, member_ids_json, submitted_at,
+                    updated_at, feedback_text
+                ) VALUES (?, ?, ?, '{}', 2, 0, '', '', NULL, '[]', NULL, ?, ?)
+                """,
+                (int(class_id), str(run_key), key, now, note),
+            )
+        else:
+            school.conn.execute(
+                """
+                UPDATE board_answer_copies
+                SET feedback_text = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (note, now, int(row["id"])),
+            )
+        if school.conn.in_transaction:
+            school.conn.commit()
+    return {"ok": True, "feedback": note}
+
+
+def student_live_feedback(
+    school: Any, session_id: int, prompt_id: int, student_id: int
+) -> str:
+    """Teacher note for the board this student is on, or empty.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        prompt_id: ``live_session_prompts.id``.
+        student_id: Roster id.
+    """
+    try:
+        session, base = _session_base(school, int(session_id))
+        _prompt, item = _question_item(school, int(session_id), int(prompt_id))
+        board_key, _group = _resolve_board_key(
+            school, int(session_id), int(student_id), item
+        )
+    except QuestionBoardError:
+        return ""
+    run_key = question_run_key(base, int(prompt_id))
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT feedback_text FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(session["class_id"]), run_key, board_key),
+        ).fetchone()
+    if row is None:
+        return ""
+    return str(row["feedback_text"] or "")
+
+
+def _archive_tile(
+    school: Any,
+    *,
+    class_id: int,
+    copy_run: str,
+    board_key: str,
+    names: dict[int, str],
+    source: str,
+) -> dict[str, Any] | None:
+    """One read-only gallery tile from a stored copy.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+        copy_run: Run key of the copy.
+        board_key: ``solo:`` or ``team:`` key.
+        names: Roster id to codename.
+        source: ``live`` or ``catchup``.
+    """
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT * FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(class_id), str(copy_run), str(board_key)),
+        ).fetchone()
+    if row is None:
+        return None
+    view = _loads(row["strokes_json"])
+    if "strokes" not in view:
+        view = {"strokes": [], "texts": []}
+    label = ""
+    student_ids: list[int] = []
+    if str(board_key).startswith("solo:"):
+        try:
+            sid = int(str(board_key).split(":", 1)[1])
+        except (TypeError, ValueError):
+            sid = 0
+        if sid:
+            student_ids = [sid]
+            label = names.get(sid, "")
+    else:
+        try:
+            members = json.loads(row["member_ids_json"] or "[]")
+        except (TypeError, ValueError):
+            members = []
+        if isinstance(members, list):
+            for sid in members:
+                try:
+                    student_ids.append(int(sid))
+                except (TypeError, ValueError):
+                    continue
+        label = ", ".join(names.get(sid, "") for sid in student_ids if names.get(sid, ""))
+    gallery_key = f"{copy_run}|{board_key}"
+    return {
+        "board_key": gallery_key,
+        "copy_run_key": str(copy_run),
+        "copy_board_key": str(board_key),
+        "name": label,
+        "away": False,
+        "drawing": False,
+        "status": "Submitted" if str(row["submitted_at"] or "").strip() else "Drawing",
+        "text": str(row["text"] or ""),
+        "feedback": str(row["feedback_text"] or ""),
+        "source": source,
+        "student_ids": student_ids,
+        "board_seq": int(row["board_seq"] or 0),
+        "snapshot": True,
+        "ops": [],
+        "canvas_view": view,
+        "team_sort_order": None,
+        "team_label": "",
+    }
+
+
+def lesson_submission_gallery(
+    school: Any, class_id: int, run_key: str, question_key: str
+) -> dict[str, Any]:
+    """Submitted boards for one class question, including catch-up copies.
+
+    Tiles use the live gallery shape so ``mountTeacherGrid`` can paint
+    them. The drawing is the compact copy, not a raster image.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+        run_key: Participation run key, with no ``~q`` suffix.
+        question_key: ``item:`` key.
+    """
+    key = str(run_key or "").strip()
+    qkey = str(question_key or "").strip()
+    with school._lock:
+        item = school.conn.execute(
+            """
+            SELECT id, item_json FROM participation_items
+            WHERE class_id = ? AND run_key = ? AND question_key = ?
+            """,
+            (int(class_id), key, qkey),
+        ).fetchone()
+        answers = []
+        if item is not None:
+            answers = school.conn.execute(
+                """
+                SELECT student_id, source, answer_json FROM participation_answers
+                WHERE class_id = ? AND run_key = ? AND question_key = ?
+                """,
+                (int(class_id), key, qkey),
+            ).fetchall()
+    if item is None:
+        raise QuestionBoardError("Question not found", 404)
+    payload = _loads(item["item_json"])
+    if not uses_board(payload):
+        raise QuestionBoardError("This question does not use a board.", 400)
+    names = school._student_display_names(int(class_id))
+    seen: set[tuple[str, str]] = set()
+    tiles: list[dict[str, Any]] = []
+    for answer in answers:
+        pointer = _loads(answer["answer_json"])
+        copy_run = str(pointer.get("copy_run_key") or "")
+        copy_board = str(pointer.get("copy_board_key") or pointer.get("board_key") or "")
+        if not copy_run or not copy_board:
+            continue
+        pair = (copy_run, copy_board)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        tile = _archive_tile(
+            school,
+            class_id=int(class_id),
+            copy_run=copy_run,
+            board_key=copy_board,
+            names=names,
+            source=str(answer["source"] or ""),
+        )
+        if tile is not None:
+            tiles.append(tile)
+    stem = str(payload.get("text") or payload.get("prompt") or "").strip()
+    return {
+        "ok": True,
+        "visible": True,
+        "ended": False,
+        "archive": True,
+        "read_only": True,
+        "run_key": key,
+        "question_key": qkey,
+        "context": stem,
+        "summary": f"{len(tiles)} submitted",
+        "filters": [{"id": "all", "label": f"All {len(tiles)}", "count": len(tiles)}],
+        "tiles": tiles,
+        "projected_board": "",
+    }
+
+
+def lesson_submission_board(
+    school: Any, class_id: int, gallery_key: str
+) -> dict[str, Any]:
+    """One stored board for the Lesson Slides side panel.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+        gallery_key: ``<copy run key>|<board key>`` from the tile.
+    """
+    token = str(gallery_key or "")
+    if "|" not in token:
+        raise QuestionBoardError("Question not found", 404)
+    copy_run, board_key = token.split("|", 1)
+    names = school._student_display_names(int(class_id))
+    tile = _archive_tile(
+        school,
+        class_id=int(class_id),
+        copy_run=copy_run,
+        board_key=board_key,
+        names=names,
+        source="",
+    )
+    if tile is None:
+        raise QuestionBoardError("Question not found", 404)
+    return {
+        "ok": True,
+        "read_only": True,
+        "snapshot": True,
+        "board_key": tile["board_key"],
+        "name": tile["name"],
+        "run_key": copy_run,
+        "board_seq": tile["board_seq"],
+        "canvas_view": tile["canvas_view"],
+        "feedback": tile["feedback"],
+        "ops": [],
+    }
+
+
+def split_gallery_key(raw: str) -> tuple[str, str]:
+    """Split a Lesson Slides tile key into copy run key and board key.
+
+    Args:
+        raw: ``<copy run key>|<board key>``.
+
+    Returns:
+        ``(copy_run_key, board_key)``.
+
+    Raises:
+        QuestionBoardError: The key is not a stored board.
+    """
+    token = str(raw or "")
+    if "|" not in token:
+        raise QuestionBoardError("Question not found", 404)
+    copy_run, board_key = token.split("|", 1)
+    if not copy_run or not board_key.startswith(("solo:", "team:")):
+        raise QuestionBoardError("Question not found", 404)
+    return copy_run, board_key

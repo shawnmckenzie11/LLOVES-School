@@ -225,6 +225,9 @@ class QuestionBoardTests(unittest.TestCase):
             board_key="team:0",
             owner="teacher" if False else "",
         )
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[1], _stroke("team-b", salt=2)
+        )
         # The student write chooses team:0 from the group.
         result = self.school.submit_question_board(
             self.session_id, prompt_id, self.ids[0], ""

@@ -49,6 +49,10 @@ _COUNTED_JSON_TYPES = frozenset(
     }
 )
 _GROUP_PUBLISH = frozenset({"group_consensus", "group_shared"})
+_POLL_SHARE = frozenset({"poll", "share"})
+_GROUP_ITEM_MODES = frozenset(
+    {"group", "group_shared", "group_consensus", "group_submit"}
+)
 
 
 def _parse_item_json(raw: Any) -> dict[str, Any]:
@@ -75,12 +79,75 @@ def item_is_multiple_choice(prompt_kind: str, item_json: Any = None) -> bool:
     return False
 
 
+def _payload_modes(payload: dict[str, Any]) -> set[str]:
+    """Publish and response tokens stored on one item.
+
+    Args:
+        payload: Question JSON.
+    """
+    modes: set[str] = set()
+    for key in ("publish_mode", "response_mode", "live_response_mode"):
+        token = str(payload.get(key) or "").strip().lower()
+        if token:
+            modes.add(token)
+    return modes
+
+
+def _is_poll_or_share(prompt_kind: str, payload: dict[str, Any]) -> bool:
+    """True when the stored kind or the JSON type is a poll or a share.
+
+    Args:
+        prompt_kind: ``live_session_prompts.kind``.
+        payload: Question JSON.
+    """
+    tokens = {
+        str(prompt_kind or "").strip().lower(),
+        str(payload.get("type") or "").strip().lower(),
+        str(payload.get("question_type") or "").strip().lower(),
+        str(payload.get("kind") or "").strip().lower(),
+    }
+    return bool(tokens & _POLL_SHARE)
+
+
+def _group_board(payload: dict[str, Any], publish_mode: str = "") -> bool:
+    """True when this board was published to a group, not to one student.
+
+    The item's own mode wins over a caller that aliased every row as
+    individual. A poll that is not a board is not a group board.
+
+    Args:
+        payload: Question JSON.
+        publish_mode: Mode the caller passed, if any.
+    """
+    answer_with = str(payload.get("answer_with") or "").strip().lower()
+    if answer_with not in {"board", "both"}:
+        return False
+    modes = _payload_modes(payload)
+    caller = str(publish_mode or "").strip().lower()
+    if caller:
+        modes.add(caller)
+    return bool(modes & _GROUP_ITEM_MODES)
+
+
 def item_counts_for_participation(prompt_kind: str, item_json: Any = None) -> bool:
-    """True when a deck row counts toward Participation numerators/denominators."""
+    """True when a deck row counts toward Participation numerators/denominators.
+
+    A poll board is stored with prompt kind ``share`` and JSON type
+    ``poll``. Neither token is a counted kind by itself. An individually
+    published poll or share with ``answer_with`` of ``board`` or ``both``
+    is one opportunity, with no correctness check. A group board is not.
+    A non-poll that merely carries ``answer_with`` is not counted for
+    that flag.
+    """
+    payload = _parse_item_json(item_json)
+    answer_with = str(payload.get("answer_with") or "").strip().lower()
     kind = str(prompt_kind or "").strip().lower()
+    if answer_with in {"board", "both"} and _is_poll_or_share(kind, payload):
+        if _group_board(payload):
+            return False
+        return True
     if kind in _COUNTED_PROMPT_KINDS:
         return True
-    payload = _parse_item_json(item_json)
     qtype = str(payload.get("type") or payload.get("question_type") or "").strip().lower()
     return qtype in _COUNTED_JSON_TYPES
 
@@ -96,10 +163,18 @@ def item_participation_weight(
     An individual drawing counts as 1. The weight does not compare the
     drawing to a key. ``group_submit`` (a team drawing) stays 0.
     """
+    payload = _parse_item_json(item_json)
     mode = str(publish_mode or "individual").strip().lower()
+    if _group_board(payload, mode):
+        return 0
     if mode not in {"individual", *_GROUP_PUBLISH}:
         return 0
-    return 1 if item_counts_for_participation(prompt_kind, item_json=item_json) else 0
+    if not item_counts_for_participation(prompt_kind, item_json=item_json):
+        return 0
+    answer_with = str(payload.get("answer_with") or "").strip().lower()
+    if answer_with in {"board", "both"} and _is_poll_or_share(prompt_kind, payload):
+        return 1 if mode == "individual" else 0
+    return 1
 
 
 def participation_question_key(row: dict[str, Any]) -> str:

@@ -922,6 +922,7 @@ CREATE TABLE IF NOT EXISTS board_answer_copies (
     member_ids_json TEXT NOT NULL DEFAULT '[]',
     submitted_at TEXT,
     updated_at TEXT NOT NULL,
+    feedback_text TEXT NOT NULL DEFAULT '',
     UNIQUE(class_id, run_key, board_key)
 );
 
@@ -2470,6 +2471,7 @@ class LovesDB:
             self._ensure_group_engagement_schema()
             self._ensure_rank_race_schema()
             self._ensure_question_skip_schema()
+            self._ensure_board_copy_feedback_column()
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
@@ -4923,6 +4925,24 @@ class LovesDB:
                 ON live_question_skips (live_item_id, team_id);
             """
         )
+        self.conn.commit()
+
+    def _ensure_board_copy_feedback_column(self) -> None:
+        """Add teacher feedback text on the compact board copy.
+
+        Fresh databases create the column with the table. Older files
+        gain it here. The drawing stays in ``strokes_json``. Feedback is
+        a short note, not a second image.
+        """
+        cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(board_answer_copies)")
+        }
+        if "feedback_text" not in cols:
+            self.conn.execute(
+                "ALTER TABLE board_answer_copies "
+                "ADD COLUMN feedback_text TEXT NOT NULL DEFAULT ''"
+            )
         self.conn.commit()
 
     def _ensure_live_item_schema(self) -> None:
@@ -25772,6 +25792,23 @@ class SchoolDB(LovesDB):
         if int(student_id) in self._skipped_ids_for_live_item(int(item["id"])):
             raise ValueError("This question was skipped. Finish it in catch-up.")
 
+    def _is_group_board(self, item: dict[str, Any]) -> bool:
+        """True when this lifecycle row is a shared team question board.
+
+        Args:
+            item: Lifecycle row.
+        """
+        mode = str(item.get("response_mode") or item.get("publish_mode") or "")
+        if mode != "group_shared":
+            return False
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        body = item.get("item") if isinstance(item.get("item"), dict) else {}
+        return uses_board(body)
+
     def _group_answer_is_final(self, item: dict[str, Any], team_id: int) -> bool:
         """True when this team's answer is already submitted or finalized.
 
@@ -25779,6 +25816,14 @@ class SchoolDB(LovesDB):
             item: Lifecycle row.
             team_id: Team on that item.
         """
+        if self._is_group_board(item):
+            try:
+                from question_board import team_copy_submitted
+            except ImportError:
+                from lms.question_board import team_copy_submitted
+
+            if team_copy_submitted(self, item, int(team_id)):
+                return True
         state = self._group_response_row(int(item["id"]), int(team_id)) or {}
         if int(state.get("submit_count") or 0) > 0:
             return True
@@ -25843,6 +25888,15 @@ class SchoolDB(LovesDB):
         if self._group_answer_is_final(item, int(team_id)):
             return []
         mode = str(item.get("response_mode") or "")
+        if self._is_group_board(item):
+            try:
+                from question_board import group_board_blocked
+            except ImportError:
+                from lms.question_board import group_board_blocked
+
+            return group_board_blocked(
+                self, int(item.get("live_session_id") or 0), item, int(team_id)
+            )
         if mode == "group_consensus":
             state = self._group_response_row(int(item["id"]), int(team_id)) or {}
             if str(state.get("status") or "") != "collecting_votes":
@@ -25960,7 +26014,7 @@ class SchoolDB(LovesDB):
         if str(item.get("status") or "") != "active":
             raise ValueError("This question is not open.")
         mode = str(item.get("response_mode") or "")
-        if mode not in {"group_submit", "group_consensus"}:
+        if mode not in {"group_submit", "group_consensus"} and not self._is_group_board(item):
             raise ValueError("Skip is for a group question.")
         session_row = self.get_live_session(session_id)
         if session_row is None:
@@ -30457,6 +30511,18 @@ class SchoolDB(LovesDB):
                     else None,
                 }
             )
+            if student_id not in (None, "") and prompt is not None:
+                try:
+                    from question_board import student_live_feedback, uses_board
+                except ImportError:
+                    from lms.question_board import student_live_feedback, uses_board
+
+                if uses_board(raw_payload):
+                    note = student_live_feedback(
+                        self, int(session_id), int(prompt["id"]), int(student_id)
+                    )
+                    if note:
+                        public_items[-1]["board_feedback"] = note
             if str(item.get("kind") or "") == "whiteboard":
                 # MCK-174: tells a tab that saw this board before Close
                 # which cue line to show after Reopen. No ink rides here.
@@ -39461,6 +39527,68 @@ class SchoolDB(LovesDB):
 
         return _dashboard(self, int(session_id), int(prompt_id), cursors)
 
+    def save_question_board_feedback(
+        self, session_id: int, prompt_id: int, board_key: str, text: Any
+    ) -> dict[str, Any]:
+        """Save a teacher note on one live question board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            board_key: ``solo:`` or ``team:`` tile.
+            text: Note shown under that student's question card.
+        """
+        from question_board import _session_base, question_run_key, save_copy_feedback
+
+        session, base = _session_base(self, int(session_id))
+        return save_copy_feedback(
+            self,
+            int(session["class_id"]),
+            question_run_key(base, int(prompt_id)),
+            str(board_key),
+            text,
+        )
+
+    def lesson_submission_gallery(
+        self, class_id: int, run_key: str, question_key: str
+    ) -> dict[str, Any]:
+        """Read-only tiles for one class question, live and catch-up copies.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
+            question_key: ``item:`` key.
+        """
+        from question_board import lesson_submission_gallery as _gallery
+
+        return _gallery(self, int(class_id), str(run_key), str(question_key))
+
+    def lesson_submission_board(self, class_id: int, gallery_key: str) -> dict[str, Any]:
+        """One stored board for the Lesson Slides side panel.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            gallery_key: Tile key ``<copy run>|<board key>``.
+        """
+        from question_board import lesson_submission_board as _one
+
+        return _one(self, int(class_id), str(gallery_key))
+
+    def save_lesson_board_feedback(
+        self, class_id: int, gallery_key: str, text: Any
+    ) -> dict[str, Any]:
+        """Save a teacher note on a stored live or catch-up copy.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            gallery_key: Tile key ``<copy run>|<board key>``.
+            text: Note. Empty clears it.
+        """
+        from question_board import save_copy_feedback, split_gallery_key
+
+        copy_run, board_key = split_gallery_key(str(gallery_key))
+        return save_copy_feedback(self, int(class_id), copy_run, board_key, text)
+
     def read_student_question_board(
         self,
         session_id: int,
@@ -42641,6 +42769,7 @@ class SchoolDB(LovesDB):
                         publish_mode="individual",
                         item_json=payload,
                     ),
+                    "answer_with": str(payload.get("answer_with") or ""),
                     "in_catchup": True,
                     "bank_question_id": _bank_question_id(payload),
                 }
@@ -42732,6 +42861,7 @@ class SchoolDB(LovesDB):
                             publish_mode=str(row["publish_mode"] or "individual"),
                             item_json=payload,
                         ),
+                        "answer_with": str(payload.get("answer_with") or ""),
                         "in_catchup": qkey in catchup_keys,
                         "bank_question_id": _bank_question_id(payload),
                     }
@@ -44357,6 +44487,160 @@ class SchoolDB(LovesDB):
         self.set_module_complete(class_id, mod, True, user_id=user_id)
         return dash
 
+    def _weighted_module_item_count(self, class_id: int, live_module: str) -> int:
+        """Individual opportunities stored on participation items for one module.
+
+        An item counts only when someone answered it live. The board
+        weight applies on top of that rule. A group board stays out,
+        including when a deck query aliases every row as individual.
+
+        Args:
+            class_id: Class primary key.
+            live_module: Module code such as ``M1``.
+        """
+        from participation_exclusion import sql_exclude_non_counted_participation_run
+        from participation_weight import item_matches_scope, item_participation_weight
+
+        mod = str(live_module or "").strip().upper()
+        real_run_clause = sql_exclude_non_counted_participation_run(
+            "p.class_id", "p.run_key"
+        )
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT DISTINCT p.live_slot, p.question_key, p.item_json, p.prompt_kind
+                FROM participation_items p
+                INNER JOIN participation_answers a
+                    ON a.class_id = p.class_id AND a.run_key = p.run_key
+                   AND a.question_key = p.question_key AND a.source = 'live'
+                WHERE p.class_id = ? AND p.live_module = ?
+                  AND {self._module_class_slot_sql()}{real_run_clause}
+                """,
+                (int(class_id), mod),
+            ).fetchall()
+        pairs: set[str] = set()
+        for row in rows:
+            payload = row["item_json"]
+            mode = "individual"
+            parsed = payload
+            if not isinstance(parsed, dict):
+                try:
+                    import json as _json
+
+                    parsed = _json.loads(payload or "{}")
+                except (TypeError, ValueError):
+                    parsed = {}
+            if isinstance(parsed, dict):
+                mode = str(
+                    parsed.get("publish_mode") or parsed.get("response_mode") or "individual"
+                ).strip().lower() or "individual"
+            if not item_matches_scope(
+                mode, include_individual=True, include_group=False
+            ):
+                continue
+            if (
+                item_participation_weight(
+                    str(row["prompt_kind"] or ""),
+                    publish_mode=mode,
+                    item_json=parsed if isinstance(parsed, dict) else payload,
+                )
+                <= 0
+            ):
+                continue
+            slot = str(row["live_slot"] or "").strip().upper()
+            pairs.add(f"{slot}\x1f{row['question_key']}")
+        return len(pairs)
+
+    def _individual_module_offered(self, class_id: int, live_module: str) -> int:
+        """Individual participation opportunities in one module.
+
+        The live deck wins when it still has counted questions. Otherwise
+        stored items are weighed from their own publish mode, and only
+        when someone answered live. A module nobody answered stays at
+        zero. A group board is not an opportunity.
+
+        Args:
+            class_id: Class primary key.
+            live_module: Module code such as ``M1``.
+        """
+        counted = self.participation_module_offered(
+            class_id,
+            live_module,
+            include_individual=True,
+            include_group=False,
+        )
+        if counted > 0:
+            return counted
+        return self._weighted_module_item_count(class_id, live_module)
+
+    def _skipped_group_board_catchup_credit(
+        self, class_id: int, live_module: str, student_id: int
+    ) -> int:
+        """Solo catch-up credit for a group board this student did not inherit.
+
+        The live group board is not an individual opportunity, so a
+        teammate who submitted it is not shown 0/1. A student who was
+        skipped, or who was on the team and had already left, finishes
+        that question alone. That catch-up is one opportunity they
+        answered. End marks every attendee left, so the team copy's
+        member list is the record of who was on the board.
+
+        Args:
+            class_id: Class primary key.
+            live_module: Module code such as ``M1``.
+            student_id: Roster id.
+        """
+        from participation_exclusion import sql_exclude_non_counted_participation_run
+
+        mod = str(live_module or "").strip().upper()
+        real_run_clause = sql_exclude_non_counted_participation_run(
+            "p.class_id", "p.run_key"
+        )
+        pair = "UPPER(p.live_slot) || char(31) || p.question_key"
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT {pair}) AS n
+                FROM participation_answers a
+                INNER JOIN participation_items p
+                    ON p.class_id = a.class_id AND p.run_key = a.run_key
+                   AND p.question_key = a.question_key
+                WHERE a.class_id = ? AND a.student_id = ? AND a.source = 'catchup'
+                  AND (
+                    EXISTS (
+                      SELECT 1 FROM live_question_skips s
+                      WHERE s.class_id = a.class_id AND s.run_key = a.run_key
+                        AND s.question_key = a.question_key
+                        AND s.student_id = a.student_id
+                    )
+                    OR EXISTS (
+                      SELECT 1 FROM board_answer_copies c, json_each(c.member_ids_json) m
+                      WHERE c.class_id = a.class_id
+                        AND c.submitted_at IS NOT NULL
+                        AND c.run_key LIKE a.run_key || '~q%'
+                        AND CAST(m.value AS INTEGER) = a.student_id
+                    )
+                  )
+                  AND p.live_module = ?
+                  AND {self._module_class_slot_sql()}{real_run_clause}
+                  AND json_extract(p.item_json, '$.answer_with') IN ('board', 'both')
+                  AND (
+                    lower(COALESCE(p.prompt_kind, '')) IN ('poll', 'share')
+                    OR lower(COALESCE(json_extract(p.item_json, '$.type'), '')) IN ('poll', 'share')
+                  )
+                  AND (
+                    lower(COALESCE(json_extract(p.item_json, '$.publish_mode'), ''))
+                        IN ('group', 'group_shared', 'group_consensus', 'group_submit')
+                    OR lower(COALESCE(json_extract(p.item_json, '$.response_mode'), ''))
+                        IN ('group', 'group_shared', 'group_consensus', 'group_submit')
+                    OR lower(COALESCE(json_extract(p.item_json, '$.live_response_mode'), ''))
+                        IN ('group', 'group_shared', 'group_submit')
+                  )
+                """,
+                (int(class_id), int(student_id), mod),
+            ).fetchone()
+        return int(row["n"] or 0) if row else 0
+
     def class_participation(
         self, class_id: int, *, include_test_students: bool = False
     ) -> dict[str, Any]:
@@ -44394,16 +44678,14 @@ class SchoolDB(LovesDB):
             cells = {}
             for mod in modules:
                 got = answered.get((int(stu["id"]), mod), {"n": 0, "catchup": 0})
-                deck_offered = self.participation_module_offered(
-                    class_id,
-                    mod,
-                    include_individual=True,
-                    include_group=False,
-                )
-                o = deck_offered if deck_offered > 0 else offered[mod]
-                a = self.participation_student_module_answered(
+                o = self._individual_module_offered(class_id, mod)
+                credit = self._skipped_group_board_catchup_credit(
                     class_id, mod, int(stu["id"])
                 )
+                o += credit
+                a = self.participation_student_module_answered(
+                    class_id, mod, int(stu["id"])
+                ) + credit
                 cell = summary(a, o)
                 cell["catchup"] = got["catchup"]
                 cells[mod] = cell
@@ -44412,10 +44694,7 @@ class SchoolDB(LovesDB):
             "modules": [
                 {
                     "module": m,
-                    "offered": self.participation_module_offered(
-                        class_id, m, include_individual=True, include_group=False
-                    )
-                    or offered[m],
+                    "offered": self._individual_module_offered(class_id, m),
                     "complete": self.module_complete(class_id, m),
                     "l4_needs_group": self.module_l4_needs_group(class_id, m),
                 }
@@ -44428,11 +44707,12 @@ class SchoolDB(LovesDB):
         from participation import level_line, summary
 
         mod = str(module or "").strip().upper()
-        _, answered = self._participation_counts(class_id, mod, student_id)
-        o = self.participation_module_offered(
-            class_id, mod, include_individual=True, include_group=False
+        o = self._individual_module_offered(class_id, mod)
+        credit = self._skipped_group_board_catchup_credit(
+            class_id, mod, int(student_id)
         )
-        a = self.participation_student_module_answered(class_id, mod, int(student_id))
+        o += credit
+        a = self.participation_student_module_answered(class_id, mod, int(student_id)) + credit
         out = summary(a, o)
         out["line"] = level_line(a, o)
         return out
@@ -46413,6 +46693,66 @@ class SchoolDB(LovesDB):
             t3 = f"{round(100.0 * mc_correct / mc_total):.0f}%"
         return {"t1": t1, "t2": t2, "t3": t3}
 
+    def _catchup_board_feedback(
+        self, link: dict[str, Any], student_id: int, item_id: int, question_key: str
+    ) -> str:
+        """Teacher note on this student's catch-up board, or the live copy.
+
+        Args:
+            link: Catch-up row.
+            student_id: Roster id.
+            item_id: ``participation_items.id``.
+            question_key: ``item:`` key.
+        """
+        try:
+            from question_board import catchup_run_key
+        except ImportError:
+            from lms.question_board import catchup_run_key
+
+        class_id = int(link["class_id"])
+        cu_key = catchup_run_key(str(link["run_key"]), int(item_id))
+        solo = f"solo:{int(student_id)}"
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT feedback_text FROM board_answer_copies
+                WHERE class_id = ? AND run_key = ? AND board_key = ?
+                """,
+                (class_id, cu_key, solo),
+            ).fetchone()
+            if row is not None and str(row["feedback_text"] or "").strip():
+                return str(row["feedback_text"] or "")
+            answer = self.conn.execute(
+                """
+                SELECT answer_json FROM participation_answers
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (class_id, str(link["run_key"]), str(question_key), int(student_id)),
+            ).fetchone()
+        if answer is None:
+            return ""
+        try:
+            pointer = json.loads(answer["answer_json"] or "{}")
+        except (TypeError, ValueError):
+            return ""
+        if not isinstance(pointer, dict):
+            return ""
+        copy_run = str(pointer.get("copy_run_key") or "")
+        copy_board = str(pointer.get("copy_board_key") or "")
+        if not copy_run or not copy_board:
+            return ""
+        with self._lock:
+            live = self.conn.execute(
+                """
+                SELECT feedback_text FROM board_answer_copies
+                WHERE class_id = ? AND run_key = ? AND board_key = ?
+                """,
+                (class_id, copy_run, copy_board),
+            ).fetchone()
+        if live is None:
+            return ""
+        return str(live["feedback_text"] or "")
+
     def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
         """This class's individual questions for one student, for the catch-up page.
 
@@ -46467,6 +46807,13 @@ class SchoolDB(LovesDB):
                 "answered": r["source"] in {"catchup", "live"},
                 "read_only": bool(board and r["source"] == "live"),
                 "board_answer": board,
+                "board_feedback": (
+                    self._catchup_board_feedback(
+                        link, int(student_id), int(r["item_id"]), str(r["question_key"])
+                    )
+                    if board
+                    else ""
+                ),
             })
         out.extend(self._group_engagement_catchup_questions(link, int(student_id)))
         out.extend(

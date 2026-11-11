@@ -362,6 +362,17 @@ export function mountTeacherGrid(root, options = {}) {
   const openStrokes = new Set();
   const cols = part("cols");
 
+  const readOnly = Boolean(options.readOnly);
+  if (readOnly) {
+    for (const name of ["pen", "text", "erase", "undo", "redo", "clear", "show"]) {
+      const node = part(name);
+      if (node instanceof HTMLElement) {
+        node.hidden = true;
+        node.style.display = "none";
+      }
+    }
+  }
+
   const board = bindWhiteboard(canvas, {
     penBtn: part("pen"),
     textBtn: part("text"),
@@ -511,6 +522,7 @@ export function mountTeacherGrid(root, options = {}) {
    * @param {Record<string, any>[]} ops
    */
   function postFeedback(ops) {
+    if (readOnly) return;
     const key = openKey;
     if (!sessionId() || !key || !ops.length) return;
     inkQueue.push({ board_key: key, ops });
@@ -650,6 +662,7 @@ export function mountTeacherGrid(root, options = {}) {
     applyPanelLegend([]);
     paintGrid(tiles);
     paintShowButton();
+    if (typeof options.onOpen === "function") options.onOpen(tile || null);
     refreshPanel();
     window.setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
   }

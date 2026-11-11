@@ -409,6 +409,25 @@
       "api_class_lesson_slides"
     ],
     [
+      "/api/classes/<int:class_id>/lesson-slides/boards",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_lesson_slides_boards"
+    ],
+    [
+      "/api/classes/<int:class_id>/lesson-slides/boards/<path:gallery_key>",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "POST"
+      ],
+      "api_lesson_slides_board"
+    ],
+    [
       "/api/classes/<int:class_id>/lesson-slides/catchup-access",
       [
         "OPTIONS",
@@ -1104,6 +1123,14 @@
         "POST"
       ],
       "api_question_board_ink"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/note",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_board_note"
     ],
     [
       "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/show",
