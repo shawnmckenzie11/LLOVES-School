@@ -174,6 +174,78 @@ export function showControlState(openKey, projectedKey) {
   };
 }
 
+/** Logical board the panel canvas is created at. Tiles and the open board share it. */
+export const BOARD_LOGICAL = { width: 720, height: 360 };
+
+/** Narrowest tile before the grid drops a column, in CSS pixels. */
+export const GALLERY_MIN_TILE = 200;
+
+/**
+ * How many columns the teacher grid uses so the row fills `containerWidth`.
+ *
+ * `maxColumns` is a cap, not a fixed track count. A narrow pane drops
+ * columns once a tile would be thinner than `minTile`. Fewer boards than
+ * the cap still span the row, so unused tracks do not sit empty at the side.
+ *
+ * @param {number} containerWidth
+ * @param {number} tileCount
+ * @param {number} [maxColumns]
+ * @param {number} [minTile]
+ * @param {number} [gap]
+ * @returns {number}
+ */
+export function galleryColumnCount(
+  containerWidth,
+  tileCount,
+  maxColumns = 4,
+  minTile = GALLERY_MIN_TILE,
+  gap = 10
+) {
+  const width = Math.max(0, Number(containerWidth) || 0);
+  const tiles = Math.max(0, Math.floor(Number(tileCount) || 0));
+  let cap = Math.max(1, Math.floor(Number(maxColumns) || 4));
+  const floor = Math.max(1, Number(minTile) || GALLERY_MIN_TILE);
+  const gutter = Math.max(0, Number(gap) || 0);
+  if (width <= 0) return 1;
+  while (cap > 1) {
+    const tile = (width - (cap - 1) * gutter) / cap;
+    if (tile >= floor) break;
+    cap -= 1;
+  }
+  if (!tiles) return cap;
+  return Math.max(1, Math.min(cap, tiles));
+}
+
+/**
+ * Display box for an opened board: the full available width, logical aspect.
+ *
+ * One scale is used on both axes so strokes and text are not stretched.
+ *
+ * @param {number} availableWidth
+ * @param {{width?: number, height?: number}} [logical]
+ * @returns {{width: number, height: number, scale: number}}
+ */
+export function expandedBoardBox(availableWidth, logical) {
+  const lw = Number(logical?.width) > 0 ? Number(logical.width) : BOARD_LOGICAL.width;
+  const lh = Number(logical?.height) > 0 ? Number(logical.height) : BOARD_LOGICAL.height;
+  const width = Math.max(0, Math.floor(Number(availableWidth) || 0));
+  const height = lw > 0 ? (width * lh) / lw : 0;
+  const scale = lw > 0 ? width / lw : 1;
+  return { width, height, scale };
+}
+
+/**
+ * Bitmap size for a gallery tile. Same aspect as the live board.
+ *
+ * @param {number} [width]
+ * @returns {{width: number, height: number}}
+ */
+export function tileBitmapSize(width = 320) {
+  const w = Math.max(2, Math.round(Number(width) || 320));
+  const h = Math.max(1, Math.round((w * BOARD_LOGICAL.height) / BOARD_LOGICAL.width));
+  return { width: w, height: h };
+}
+
 /**
  * Fold one gallery delta into a tile's ink bag.
  *
@@ -455,10 +527,64 @@ export function mountTeacherGrid(root, options = {}) {
     root.classList.toggle("is-on", on);
   }
 
-  if (cols instanceof HTMLSelectElement) {
-    cols.addEventListener("change", () => {
-      grid.style.setProperty("--wb-live-cols", cols.value || "4");
+  let layoutObserver = null;
+
+  /**
+   * Size the tile row so it fills the gallery and drops columns when narrow.
+   */
+  function layoutGallery() {
+    if (!(grid instanceof HTMLElement)) return;
+    if (panel instanceof HTMLElement && !panel.hidden) return;
+    const width = grid.clientWidth;
+    if (width < 2) return;
+    const cap = cols instanceof HTMLSelectElement ? Number(cols.value) : 4;
+    const gap = Number.parseFloat(getComputedStyle(grid).columnGap);
+    const columns = galleryColumnCount(
+      width,
+      grid.childElementCount,
+      cap,
+      GALLERY_MIN_TILE,
+      Number.isFinite(gap) ? gap : 10
+    );
+    const next = `repeat(${columns}, minmax(0, 1fr))`;
+    if (grid.style.gridTemplateColumns !== next) {
+      grid.style.gridTemplateColumns = next;
+    }
+  }
+
+  /**
+   * Size the open board to the stage width without changing its aspect.
+   */
+  function layoutExpanded() {
+    if (!(panel instanceof HTMLElement) || panel.hidden) return;
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    const stage = canvas.parentElement;
+    const width = stage instanceof HTMLElement ? stage.clientWidth : 0;
+    if (width < 2) return;
+    const box = expandedBoardBox(width, {
+      width: Number(canvas.dataset.logicalWidth) || BOARD_LOGICAL.width,
+      height: Number(canvas.dataset.logicalHeight) || BOARD_LOGICAL.height,
     });
+    const nextW = `${box.width}px`;
+    const nextH = `${box.height}px`;
+    const current = Number.parseFloat(canvas.style.width);
+    if (Number.isFinite(current) && Math.abs(current - box.width) < 1 && canvas.style.height === nextH) {
+      return;
+    }
+    canvas.style.width = nextW;
+    canvas.style.height = nextH;
+  }
+
+  /**
+   * Reflow the grid, or the open board when one is showing.
+   */
+  function layoutBoards() {
+    layoutGallery();
+    layoutExpanded();
+  }
+
+  if (cols instanceof HTMLSelectElement) {
+    cols.addEventListener("change", () => layoutGallery());
   }
 
   /**
@@ -542,8 +668,9 @@ export function mountTeacherGrid(root, options = {}) {
       if (key && key === openKey) button.classList.add("is-open");
       button.dataset.boardKey = key;
       const stage = document.createElement("canvas");
-      stage.width = 280;
-      stage.height = 160;
+      const bitmap = tileBitmapSize(320);
+      stage.width = bitmap.width;
+      stage.height = bitmap.height;
       stage.className = "wb-live-tile-canvas";
       const bag = ink[key] || emptyInk();
       paintTile(stage, bag.strokes, bag.texts, STUDENT_INK);
@@ -575,6 +702,7 @@ export function mountTeacherGrid(root, options = {}) {
       button.addEventListener("click", () => openBoard(key));
       grid.appendChild(button);
     }
+    layoutGallery();
   }
 
   /**
@@ -664,15 +792,23 @@ export function mountTeacherGrid(root, options = {}) {
     paintShowButton();
     if (typeof options.onOpen === "function") options.onOpen(tile || null);
     refreshPanel();
-    window.setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
+    window.requestAnimationFrame(() => {
+      layoutExpanded();
+      window.dispatchEvent(new Event("resize"));
+    });
   }
 
   function closePanel() {
     openKey = "";
     inkQueue.drop();
+    if (canvas instanceof HTMLCanvasElement) {
+      canvas.style.width = "";
+      canvas.style.height = "";
+    }
     if (panel instanceof HTMLElement) panel.hidden = true;
     paintGrid(tiles);
     paintShowButton();
+    window.requestAnimationFrame(() => layoutGallery());
   }
 
   /**
@@ -844,6 +980,12 @@ export function mountTeacherGrid(root, options = {}) {
       pollTiles();
     });
   }
+  if (typeof ResizeObserver === "function") {
+    layoutObserver = new ResizeObserver(() => layoutBoards());
+    layoutObserver.observe(grid);
+    if (canvas.parentElement instanceof Element) layoutObserver.observe(canvas.parentElement);
+  }
+  window.addEventListener("resize", layoutBoards);
   const pollMs = overviewPollMs(root);
   const panelMs = pollMs >= SUBMIT_REFRESH_MS ? pollMs : PANEL_POLL_MS;
   pollTiles();
@@ -860,6 +1002,9 @@ export function mountTeacherGrid(root, options = {}) {
     stop() {
       window.clearInterval(tileTimer);
       window.clearInterval(panelTimer);
+      layoutObserver?.disconnect();
+      layoutObserver = null;
+      window.removeEventListener("resize", layoutBoards);
       root.dataset.wbMounted = "";
     },
   };
