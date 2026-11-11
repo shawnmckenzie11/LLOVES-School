@@ -40,6 +40,59 @@ _FILE_ID = "DeckSlide01"
 _MARKER = b"MCK316-PPTX-NOT-IN-SQLITE"
 
 
+def _run_as_root(script: Path, *, timeout: float) -> subprocess.CompletedProcess[bytes]:
+    """Run ``script`` as root with this process's interpreter.
+
+    ``sudo python3`` does not see the packages this process imported.
+    The same executable and ``sys.path`` keep requests and ctypes together.
+
+    Args:
+        script: Driver to execute.
+        timeout: Seconds before the child is killed.
+
+    Returns:
+        The completed process. A non-zero return code is left for the caller.
+    """
+    pythonpath = [str(LMS_DIR)]
+    for entry in sys.path:
+        if entry and entry not in pythonpath:
+            pythonpath.append(entry)
+    return subprocess.run(
+        [
+            "sudo",
+            "-n",
+            "env",
+            "PYTHONPATH=" + os.pathsep.join(pythonpath),
+            sys.executable,
+            str(script),
+        ],
+        timeout=timeout,
+        check=False,
+        capture_output=True,
+    )
+
+
+def _office_metric_fonts_installed() -> bool:
+    """True when fontconfig can see Carlito and Caladea.
+
+    Those faces are installed with LibreOffice. Without them, fc-match
+    falls back to Liberation and the metric-font checks cannot pass.
+    Callers skip instead of failing the suite (MCK-470).
+    """
+    if shutil.which("fc-list") is None:
+        return False
+    try:
+        listed = subprocess.check_output(
+            ["fc-list", ":", "family"],
+            text=True,
+            timeout=15,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return "Carlito" in listed and "Caladea" in listed
+
+
 def _two_page_pdf() -> bytes:
     """A two-page PDF that pymupdf can render to PNG."""
     import fitz
@@ -497,8 +550,14 @@ class CourseSlideFileTests(unittest.TestCase):
         run.assert_not_called()
         self.assertIn("pptx", str(caught.exception))
 
+    @unittest.skipUnless(soffice_bin(), "LibreOffice is not installed")
     def test_conversion_is_refused_when_the_sandbox_is_missing(self) -> None:
-        """A failed unshare probe does not run LibreOffice."""
+        """A failed unshare probe does not run LibreOffice.
+
+        ``pages_from_office`` returns before the sandbox probe when
+        soffice is missing, so this check only runs once LibreOffice
+        is installed.
+        """
         import course_slide_files as files
 
         files._sandbox_ready = None
@@ -620,15 +679,22 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertTrue(found["full-probe"][0], found["full-probe"][1])
         self.assertTrue(found["host-data"][0], found["host-data"][1])
         self.assertNotIn("LEAK", found["host-data"][1])
-        self.assertTrue(found["fonts"][0], found["fonts"][1])
-        for family in (
-            "Liberation Sans",
-            "Liberation Serif",
-            "Liberation Mono",
-            "Carlito",
-            "Caladea",
-        ):
-            self.assertIn(family, found["fonts"][1])
+        # Carlito and Caladea come from the LibreOffice apt packages.
+        # A failed install still runs the sandbox steps above. The font
+        # step is only required to pass when those faces are installed.
+        if _office_metric_fonts_installed():
+            self.assertTrue(found["fonts"][0], found["fonts"][1])
+            for family in (
+                "Liberation Sans",
+                "Liberation Serif",
+                "Liberation Mono",
+                "Carlito",
+                "Caladea",
+            ):
+                self.assertIn(family, found["fonts"][1])
+        else:
+            self.assertIn("fonts", found)
+            self.assertIn("missing=", found["fonts"][1])
 
     def test_metric_map_names_the_office_clones(self) -> None:
         """The fontconfig map sends Office names to the metric clones."""
@@ -678,6 +744,10 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertIn("Liberation Sans", missing)
 
     @unittest.skipUnless(shutil.which("fc-match"), "fontconfig is not installed")
+    @unittest.skipUnless(
+        _office_metric_fonts_installed(),
+        "Carlito and Caladea are not installed",
+    )
     def test_named_office_faces_use_metric_clones(self) -> None:
         """Office names resolve to Carlito, Caladea, and Liberation, not Arimo.
 
@@ -911,12 +981,7 @@ class CourseSlideFileTests(unittest.TestCase):
             encoding="utf-8",
         )
         try:
-            ran = subprocess.run(
-                ["sudo", "-n", "python3", str(driver)],
-                timeout=30,
-                check=False,
-                capture_output=True,
-            )
+            ran = _run_as_root(driver, timeout=30)
         finally:
             driver.unlink(missing_ok=True)
         output = ran.stdout.decode()
@@ -1058,12 +1123,7 @@ class CourseSlideFileTests(unittest.TestCase):
             encoding="utf-8",
         )
         try:
-            ran = subprocess.run(
-                ["sudo", "-n", "python3", str(driver)],
-                timeout=40,
-                check=False,
-                capture_output=True,
-            )
+            ran = _run_as_root(driver, timeout=40)
         finally:
             driver.unlink(missing_ok=True)
         output = ran.stdout.decode()
