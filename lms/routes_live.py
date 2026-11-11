@@ -5990,8 +5990,9 @@ def register_live(app, school, shared):
     def api_delete_lesson_slides_entry(class_id: int):
         """Remove one Lesson Slides entry for the owning teacher.
 
-        Live, Open Office, and Test entries are accepted. Attendance,
-        participation, the gradebook, and catch-up stay.
+        Live, Open Office, and Test entries are accepted. Attendance
+        and participation for that run are deleted with it. Catch-up
+        stays.
         """
         owned = _staff_owns_lesson_slides(class_id)
         if isinstance(owned, tuple):
@@ -6020,8 +6021,8 @@ def register_live(app, school, shared):
         """Remove the Lesson Slides entry for one ended session.
 
         Live, Open Office, and Test sessions are accepted. School IT
-        and any other teacher are refused. Attendance, participation,
-        the gradebook, and catch-up stay.
+        and any other teacher are refused. Attendance and participation
+        for that run are deleted with it. Catch-up stays.
         """
         owned = _staff_owns_lesson_slides(class_id)
         if isinstance(owned, tuple):
