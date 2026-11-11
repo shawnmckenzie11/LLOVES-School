@@ -405,7 +405,7 @@ class ModuleBankMcCacheTests(unittest.TestCase):
 
 
 class ModuleBankMcCacheTimingTests(unittest.TestCase):
-    """Before/after timings on a seeded module bank."""
+    """A warm search reuses the rebuilt list instead of querying again."""
 
     def setUp(self) -> None:
         """Seed one module with enough rows that a rebuild is measurable."""
@@ -482,70 +482,153 @@ class ModuleBankMcCacheTimingTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def _elapsed_ms(self, fn: Any) -> float:
-        """Return how long ``fn`` took, in milliseconds."""
-        started = time.perf_counter()
-        fn()
-        return (time.perf_counter() - started) * 1000.0
+    def _instrument_rebuilds(self) -> dict[str, Any]:
+        """Count rebuild calls and the question-list query they run.
 
-    def test_cached_search_is_faster_and_matches(self) -> None:
-        """Report uncached, cold, and warm times. Warm matches uncached rows."""
+        A cache hit must not call ``_load_module_bank_mc_items`` and must
+        not execute that function's ``ORDER BY b.title, q.id`` select.
+        The stamp read on a hit is a different statement and is not counted.
+
+        Returns:
+            Mutable logs: ``loads`` is ``(module_token, policy)`` per rebuild,
+            and ``queries`` is how many times the rebuild select ran.
+            ``restore`` puts the original loader and connection back.
+        """
+        loads: list[tuple[str, str]] = []
+        queries = {"count": 0}
+        real_load = self.school._load_module_bank_mc_items
+        real_conn = self.school.conn
+
+        class _CountingConn:
+            """Delegate to sqlite and count the module-bank rebuild select.
+
+            ``sqlite3.Connection.execute`` is read-only, so the test swaps
+            the connection object instead of the method.
+            """
+
+            def __init__(self, inner: Any, found: dict[str, int]) -> None:
+                """Keep the real connection and the shared query counter."""
+                object.__setattr__(self, "_inner", inner)
+                object.__setattr__(self, "_found", found)
+
+            def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+                """Count the rebuild select, then run the statement."""
+                if "ORDER BY b.title, q.id" in str(sql):
+                    self._found["count"] += 1
+                return self._inner.execute(sql, *args, **kwargs)
+
+            def __getattr__(self, name: str) -> Any:
+                """Forward every other connection attribute."""
+                return getattr(self._inner, name)
+
+            def __setattr__(self, name: str, value: Any) -> None:
+                """Write connection attributes through to sqlite."""
+                setattr(self._inner, name, value)
+
+        def counting_load(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+            """Record one rebuild, then run the real loader."""
+            loads.append(
+                (str(kwargs.get("module_token") or ""), str(kwargs.get("policy") or ""))
+            )
+            return real_load(**kwargs)
+
+        self.school._load_module_bank_mc_items = counting_load  # type: ignore[method-assign]
+        self.school.conn = _CountingConn(real_conn, queries)
+
+        def restore() -> None:
+            """Put the loader and the sqlite connection back."""
+            self.school._load_module_bank_mc_items = real_load  # type: ignore[method-assign]
+            self.school.conn = real_conn
+
+        return {"loads": loads, "queries": queries, "restore": restore}
+
+    def test_cached_search_does_not_reload_and_matches(self) -> None:
+        """A warm search hits, does not rebuild, and matches the uncached rows.
+
+        Wall-clock comparisons are not used. A shared runner can make the
+        cached call slower than the cold one (MCK-470). The cache contract
+        is the hit counter, the rebuild query staying idle, and identical rows.
+        """
         def module_search() -> dict[str, Any]:
+            """Search module 1 with an empty keyword."""
             return self.school.search_module_bank_mcs(
                 self.library_id, 1, "", limit=500
             )
 
         def module_query() -> dict[str, Any]:
+            """Filter the cached module 1 list with a keyword."""
             return self.school.search_module_bank_mcs(
                 self.library_id, 1, "timing stem 01", limit=500
             )
 
         def course_search() -> dict[str, Any]:
+            """Search the course-wide union, which rebuilds every module."""
             return self.school.search_bank_scope_mcs(
                 self.library_id, "course", 1, "", limit=500
             )
 
-        self.school._module_bank_mc_cache_enabled = False
-        uncached_ms = self._elapsed_ms(module_search)
-        uncached = _signature(module_search())
-        uncached_course = _signature(course_search())
-        course_uncached_ms = self._elapsed_ms(course_search)
+        watched = self._instrument_rebuilds()
+        loads: list[tuple[str, str]] = watched["loads"]
+        queries: dict[str, int] = watched["queries"]
+        try:
+            self.school._module_bank_mc_cache_enabled = False
+            uncached = _signature(module_search())
+            uncached_query = _signature(module_query())
+            uncached_course = _signature(course_search())
 
-        self.school._module_bank_mc_cache_enabled = True
-        self.school.invalidate_module_bank_mc_cache(self.library_id)
-        self.school._module_bank_mc_cache_hits = 0
-        self.school._module_bank_mc_cache_misses = 0
-        cold_ms = self._elapsed_ms(module_search)
-        warm_ms = self._elapsed_ms(module_query)
-        self.assertGreater(self.school._module_bank_mc_cache_hits, 0)
-        course_cold_ms = self._elapsed_ms(course_search)
-        hits_before_second_course = self.school._module_bank_mc_cache_hits
-        course_warm_ms = self._elapsed_ms(course_search)
-        self.assertGreater(
-            self.school._module_bank_mc_cache_hits, hits_before_second_course
-        )
+            self.school._module_bank_mc_cache_enabled = True
+            self.school.invalidate_module_bank_mc_cache(self.library_id)
+            self.school._module_bank_mc_cache_hits = 0
+            self.school._module_bank_mc_cache_misses = 0
+            loads.clear()
+            queries["count"] = 0
 
-        self.school._module_bank_mc_cache_enabled = False
-        self.assertEqual(_signature(module_search()), uncached)
-        self.assertEqual(_signature(course_search()), uncached_course)
+            module_search()
+            self.assertEqual(loads, [("M1", "module")])
+            self.assertEqual(queries["count"], 1)
+            self.assertEqual(self.school._module_bank_mc_cache_hits, 0)
+            self.assertEqual(self.school._module_bank_mc_cache_misses, 1)
 
-        report = (
-            f"rows={TIMING_ROWS}+7x80 "
-            f"module_uncached_ms={uncached_ms:.1f} "
-            f"module_cold_ms={cold_ms:.1f} "
-            f"module_warm_ms={warm_ms:.1f} "
-            f"course_uncached_ms={course_uncached_ms:.1f} "
-            f"course_cold_ms={course_cold_ms:.1f} "
-            f"course_warm_ms={course_warm_ms:.1f} "
-            f"hits={self.school._module_bank_mc_cache_hits} "
-            f"misses={self.school._module_bank_mc_cache_misses}"
-        )
-        print(f"MCK-436 timings {report}")
-        artifact = Path("/opt/cursor/artifacts")
-        if artifact.is_dir():
-            (artifact / "mck-436-timings.txt").write_text(report + "\n", encoding="utf-8")
-        self.assertLess(warm_ms, uncached_ms)
-        self.assertLess(course_warm_ms, course_cold_ms)
+            warm = module_query()
+            self.assertEqual(_signature(warm), uncached_query)
+            self.assertEqual(loads, [("M1", "module")])
+            self.assertEqual(queries["count"], 1)
+            self.assertEqual(self.school._module_bank_mc_cache_hits, 1)
+            self.assertEqual(self.school._module_bank_mc_cache_misses, 1)
+
+            course_search()
+            course_loads = (
+                [("M1", "module")]
+                + [(f"M{number}", "module") for number in range(2, 9)]
+                + [("M1", "course_only")]
+            )
+            self.assertEqual(loads, course_loads)
+            self.assertEqual(queries["count"], len(course_loads))
+            # Module 1 was already cached. The other seven modules and the
+            # course-only list each miss once, so one extra hit and eight misses.
+            self.assertEqual(self.school._module_bank_mc_cache_hits, 2)
+            self.assertEqual(self.school._module_bank_mc_cache_misses, 9)
+
+            hits_before_second_course = self.school._module_bank_mc_cache_hits
+            misses_before_second_course = self.school._module_bank_mc_cache_misses
+            course_search()
+            self.assertEqual(loads, course_loads)
+            self.assertEqual(queries["count"], len(course_loads))
+            # Eight module lists plus the course-only list, all hits.
+            self.assertEqual(
+                self.school._module_bank_mc_cache_hits,
+                hits_before_second_course + 9,
+            )
+            self.assertEqual(
+                self.school._module_bank_mc_cache_misses,
+                misses_before_second_course,
+            )
+
+            self.school._module_bank_mc_cache_enabled = False
+            self.assertEqual(_signature(module_search()), uncached)
+            self.assertEqual(_signature(course_search()), uncached_course)
+        finally:
+            watched["restore"]()
 
 
 class BankPickerParallelRequestTests(unittest.TestCase):
