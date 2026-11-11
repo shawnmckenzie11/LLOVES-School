@@ -1,7 +1,7 @@
 /**
  * Question banks tab: one module menu, a light table, and a short bulk bar.
  */
-import { api, escapeHtml, formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import { api, escapeHtml, formatQuestionHtml, questionImageHtml, renderLiveQuestionMath } from "/static/common.js";
 import { mountTypeChips } from "/static/bank_type_chips.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import { questionPointsValue } from "/static/question_points.js";
@@ -312,7 +312,7 @@ function rowHtml(item) {
   const kindToken = String(item.kind || item.bank_kind || "");
   return `<tr class="qbank-tr${checked ? " is-checked" : ""}" data-bank-kind="${escapeHtml(kindToken)}" data-qbank-key="${escapeHtml(key)}">
     <td class="qcell qcell-check"><input type="checkbox" data-qbank-check="${escapeHtml(key)}" aria-label="Select question"${checked ? " checked" : ""}></td>
-    <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${mediaTagHtml(item)}${edited}</div></td>
+    <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${questionImageHtml(item, { variant: "thumb" })}${mediaTagHtml(item)}${edited}</div></td>
     <td class="qcell">${escapeHtml(kindLabel(item))}</td>
     <td class="qcell">${escapeHtml(moduleLabel(item))}</td>
     <td class="qcell">${escapeHtml(modeLabel(item))}</td>

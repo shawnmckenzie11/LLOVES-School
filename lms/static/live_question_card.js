@@ -21,11 +21,34 @@ export function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
-/** Render a graph image at full card width for lifecycle questions. */
+/**
+ * Figure URLs for one student or catch-up card, in bank order.
+ * @param {any} body
+ * @returns {string[]}
+ */
+function studentFigureUrls(body) {
+  const many = body && body.image_urls;
+  if (Array.isArray(many)) {
+    const urls = many.map((url) => String(url || "").trim()).filter(Boolean);
+    if (urls.length) return urls;
+  }
+  const one = String((body && body.image_url) || "").trim();
+  return one ? [one] : [];
+}
+
+/** Render graph images at full card width for lifecycle questions. */
 export function questionImageHtmlStudent(imageUrl) {
-  const url = String(imageUrl || "").trim();
-  if (!url) return "";
-  return `<img class="live-question-image is-full" src="${escapeText(url)}" alt="Question graph" loading="lazy">`;
+  const urls = Array.isArray(imageUrl)
+    ? imageUrl.map((url) => String(url || "").trim()).filter(Boolean)
+    : String(imageUrl || "").trim()
+      ? [String(imageUrl).trim()]
+      : [];
+  return urls
+    .map(
+      (url) =>
+        `<img class="live-question-image is-full" src="${escapeText(url)}" alt="Question graph" loading="lazy">`
+    )
+    .join("");
 }
 
 /**
@@ -130,7 +153,7 @@ export function liveQuestionHeadHtml(content, fallbackKind, formatQuestionHtml) 
             String(body.type || fallbackKind || "Question").toUpperCase()
           )}</span>
         </div>
-        ${questionImageHtmlStudent(body.image_url)}
+        ${questionImageHtmlStudent(studentFigureUrls(body))}
         <h2>${lifecyclePromptHtml({
           ...body,
           text: body.title || body.text,

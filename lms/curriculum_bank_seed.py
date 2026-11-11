@@ -76,7 +76,7 @@ def normalize_curriculum_open(
     stem = str(blob.get("stem_html") or blob.get("text") or title or "").strip()
     if not stem:
         return None
-    return {
+    normalized = {
         "type": "poll",
         "text": stem,
         "prompt": stem,
@@ -93,6 +93,17 @@ def normalize_curriculum_open(
         "source_question_id": int(question_id),
         "source_bank_id": int(bank_id),
     }
+    image_urls: list[str] = []
+    raw_urls = blob.get("image_urls")
+    if isinstance(raw_urls, list):
+        image_urls.extend(str(url).strip() for url in raw_urls if str(url).strip())
+    single = str(blob.get("image_url") or "").strip()
+    if single and single not in image_urls:
+        image_urls.insert(0, single)
+    if image_urls:
+        normalized["image_urls"] = image_urls
+        normalized["image_url"] = image_urls[0]
+    return normalized
 
 
 def _catalogue_modules(course_code: str) -> list[int]:
@@ -168,6 +179,7 @@ def _upsert_curriculum_bank(
     course_code: str,
     module_number: int,
     items: list[dict[str, Any]],
+    cache_root: Path | None = None,
 ) -> dict[str, Any]:
     """Insert or refresh one module's curriculum open prompts.
 
@@ -181,6 +193,8 @@ def _upsert_curriculum_bank(
         course_code: Ontario course code.
         module_number: One-based module index.
         items: Cache items for this module.
+        cache_root: Optional curriculum root. Figure files are read from
+            here for MCF3M modules 5–7 only.
 
     Returns:
         Summary with ``bank_id`` and ``count``.
@@ -216,6 +230,16 @@ def _upsert_curriculum_bank(
                 "UPDATE question_banks SET title = ? WHERE id = ?",
                 (title, bank_id),
             )
+        try:
+            from curriculum_bank_images import (
+                figure_payload_for_item,
+                stored_figure_fields,
+            )
+        except ImportError:
+            from lms.curriculum_bank_images import (
+                figure_payload_for_item,
+                stored_figure_fields,
+            )
         for item in items:
             smart_id = str(item.get("smart_id") or item.get("id") or "").strip()
             stem = str(item.get("stem") or "").strip()
@@ -230,6 +254,16 @@ def _upsert_curriculum_bank(
                 "choices": [],
                 "smart_id": smart_id,
             }
+            payload.update(
+                stored_figure_fields(
+                    figure_payload_for_item(
+                        code,
+                        int(module_number),
+                        item,
+                        cache_root=cache_root,
+                    )
+                )
+            )
             encoded = json.dumps(payload)
             q_title = stem.replace("\n", " ")[:80] or smart_id
             found = school.conn.execute(
@@ -321,6 +355,7 @@ def seed_library_import_banks(
                 course_code=code,
                 module_number=int(module_number),
                 items=items,
+                cache_root=cache_root,
             )
         )
     retagged = retag_module2_teaching_today(school, int(library_id))
