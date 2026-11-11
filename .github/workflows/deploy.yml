@@ -53,6 +53,10 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
+    # A healthy run is about 25 minutes. 45 stops a stuck download well
+    # short of the 6-hour default without cutting off the 30-minute test
+    # step (MCK-470). Same cap as the test job in ci.yml.
+    timeout-minutes: 45
     # pull-requests/actions: read for the What's new preview (MCK-182).
     permissions:
       contents: read
@@ -103,8 +107,14 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r lms/requirements.txt
 
+      # MCK-470: a DNS failure must not hang or fail this job. The script
+      # skips when soffice is already installed, bounds apt, and exits
+      # non-zero if the install does not finish. Slide tests skip on their
+      # own when soffice_bin() is empty. Same step as ci.yml.
       - name: Install LibreOffice
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea
+        timeout-minutes: 4
+        continue-on-error: true
+        run: bash .github/scripts/install_libreoffice.sh
 
       # Slide conversion uses unshare --map-root-user. Ubuntu 24.04 denies
       # that write to uid_map until this restriction is off.
