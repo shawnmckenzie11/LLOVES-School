@@ -196,10 +196,8 @@ let feedbackDismissed = false;
 let holdJoinFeedback = false;
 /** Prompt ids explicitly dismissed after submission. */
 const dismissedPromptIds = new Set();
-/** Lifecycle Active/Closed cards explicitly dismissed in this tab. */
+/** Question cards and surfaces minimized into the right-hand dock. */
 const dockedLiveCardKeys = new Set();
-/** Question cards closed with × — removed from the student view, not docked. */
-const dismissedLiveCardKeys = new Set();
 /** Floating panes currently following a held pointer. Do not remount or hide. */
 const activePaneDrags = new Set();
 /** Original parent/sibling so Reset can put a reparented card back. */
@@ -3592,9 +3590,19 @@ function boardFeedbackHtml(text) {
 }
 
 /**
- * Render dock chips for media, whiteboard, slides, and submitted questions.
- * Dismissed questions are removed from the student view, not docked.
- * A submitted poll board docks here the same way a closed surface does.
+ * Minimize one question into the right-hand dock without dropping its results.
+ * @param {string} key Dock key from the question card.
+ */
+function minimizeLiveQuestion(key) {
+  const token = String(key || "");
+  if (!token) return;
+  dockedLiveCardKeys.add(token);
+}
+
+/**
+ * Render dock chips for media, whiteboard, slides, and minimized questions.
+ * Closing a question with × parks it here and keeps its results.
+ * A submitted poll board docks here the same way.
  * @param {any[]} items
  * @param {any} payload
  */
@@ -3726,9 +3734,9 @@ function isArtifactLifecycleItem(item) {
 /**
  * Write a submitted answer onto the card once the controls have closed.
  *
- * Save to card parks the question after the teacher leaves the page and
- * sets ``can_submit`` false. The choice buttons are gone, so the answer
- * has to stay on the card itself. Rank already prints "Your order".
+ * A parked question has ``can_submit`` false. The choice buttons are gone,
+ * so the answer has to stay on the card itself. Rank already prints
+ * "Your order".
  *
  * @param {any} item
  * @returns {string}
@@ -3744,14 +3752,14 @@ function studentOwnAnswerHtml(item) {
 
 /**
  * Badge for one student question card.
- * A still-published question parked by Save to card reads Saved, not Active.
+ * A still-published question parked off the live page reads Saved, not Active.
  * @param {any} item
  * @returns {string}
  */
 function studentLiveCardBadge(item) {
   const status = String(item?.status || "active").toLowerCase();
   if (status === "closed") return "Results";
-  if (item?.parked || (item?.save_to_card && status !== "active")) return "Saved";
+  if (item?.parked) return "Saved";
   return "Active";
 }
 
@@ -4243,8 +4251,6 @@ function paintLifecycleQuestionStack(payload) {
   ) {
     active = [legacy, ...active];
   }
-  const stage = String(payload?.teacher_state?.stage || "").toLowerCase();
-  const hasPublishedJoinCatalogue = publishedJoinCatalogueActive(payload);
   const seenCardIds = new Set();
   const all = [...active, ...closed, ...saved].filter((item) => {
     const cardId = Number(item?.id) || 0;
@@ -4253,39 +4259,9 @@ function paintLifecycleQuestionStack(payload) {
     const kind = String(
       item?.content?.item_type || item?.item_type || item?.kind || ""
     ).toLowerCase();
-    if (["media", "whiteboard", "slides"].includes(kind)) return false;
-    const status = String(item?.status || "active").toLowerCase();
-    const itemStage = String(item?.stage || item?.content?.stage || "").toLowerCase();
-    const itemId = String(item?.item_id || item?.content?.item_id || "")
-      .toLowerCase()
-      .replace(/_/g, "-");
-    const keepSaved = Boolean(item?.save_to_card);
-    if (isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue) && !keepSaved) {
-      return false;
-    }
-    if (
-      !keepSaved &&
-      ["meet-team", "meet-a", "meet-b", "meet-c"].includes(itemId) &&
-      stage !== "meet"
-    ) {
-      return false;
-    }
-    if (isArtifactLifecycleItem(item)) {
-      return status === "active" || status === "closed" || keepSaved;
-    }
-    if (keepSaved) return true;
-    if (status === "active" && item?.response_mode === "group_submit") {
-      return true;
-    }
-    if (status === "active") {
-      return !itemStage || !stage || itemStage === stage;
-    }
-    return !itemStage || !stage || itemStage === stage;
+    return !["media", "whiteboard", "slides"].includes(kind);
   });
-  const visible = all.filter((item) => {
-    const key = liveCardDockKey(item);
-    return !dismissedLiveCardKeys.has(key) && !dockedLiveCardKeys.has(key);
-  });
+  const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
   paintQuestionDock(all, payload);
   const floatingCards = new Map();
   document.querySelectorAll(".student-live-card.is-floating").forEach((card) => {
@@ -4397,7 +4373,7 @@ function paintLifecycleQuestionStack(payload) {
           <span>Question</span>
           <span class="student-live-card-status">${badge}</span>
           <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
-          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dismiss question">×</button>
+          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize question">×</button>
         </div>
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
@@ -6734,7 +6710,7 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
   const dismissCard = event.target.closest("[data-dismiss-live-card]");
   if (dismissCard instanceof HTMLButtonElement) {
     event.stopPropagation();
-    dismissedLiveCardKeys.add(dismissCard.dataset.dismissLiveCard || "");
+    minimizeLiveQuestion(dismissCard.dataset.dismissLiveCard || "");
     const floating = dismissCard.closest(".student-live-card");
     if (floating instanceof HTMLElement && floating.classList.contains("is-floating")) {
       floating.remove();

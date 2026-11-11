@@ -1207,14 +1207,6 @@ let lastLiveMetadata = null;
 let lastGoogleSlides = null;
 /** @type {any[]} */
 let lastLiveItems = [];
-/** Lifecycle id → Save to card the teacher just set. Stale polls must not flip it. */
-const saveToCardHold = new Map();
-/**
- * Catalogue alias → Save to card. A poll that returns a new lifecycle id
- * for the same ``stage:page:order:item`` key must keep the click.
- * @type {Map<string, boolean>}
- */
-const saveToCardHoldByAlias = new Map();
 /**
  * In-flight per-question settings. Key is ``${lifecycleId}:${field}``.
  * A /state snapshot clears a key only when the server echoes that value.
@@ -5707,7 +5699,6 @@ function liveQuestionIsOpenEnded(item, card) {
  * @type {string[]}
  */
 const TEACHER_ITEM_FIELDS = [
-  "save_to_card",
   "show_live_results",
   "publish_mode",
   "response_mode",
@@ -5736,7 +5727,7 @@ function teacherFieldsFrom(row) {
  * @returns {boolean}
  */
 function teacherSettingMatches(field, held, incoming) {
-  if (field === "save_to_card" || field === "show_live_results") {
+  if (field === "show_live_results") {
     return Boolean(incoming) === Boolean(held);
   }
   return String(incoming || "") === String(held || "");
@@ -5775,22 +5766,10 @@ function adoptLiveItemsSnapshot(items) {
 
 function absorbSaveToCardSnapshot(items) {
   const rows = Array.isArray(items) ? items : [];
-  const nextRows = rows.map((row) => {
+  return rows.map((row) => {
     const id = Number(row?.id) || 0;
     if (!id) return row;
     const next = { ...row };
-    const alias = liveItemAlias(row?.item_id || row?.placement_key);
-    if (saveToCardHold.has(id)) {
-      const held = Boolean(saveToCardHold.get(id));
-      if (Boolean(row?.save_to_card) === held) saveToCardHold.delete(id);
-      else next.save_to_card = held;
-    } else if (alias && saveToCardHoldByAlias.has(alias)) {
-      const held = Boolean(saveToCardHoldByAlias.get(alias));
-      if (Boolean(row?.save_to_card) !== held) {
-        next.save_to_card = held;
-        saveToCardHold.set(id, held);
-      }
-    }
     for (const field of TEACHER_ITEM_FIELDS) {
       const key = `${id}:${field}`;
       if (!teacherSettingHold.has(key)) continue;
@@ -5803,34 +5782,6 @@ function absorbSaveToCardSnapshot(items) {
     }
     return next;
   });
-  for (const [alias, held] of saveToCardHoldByAlias.entries()) {
-    const related = nextRows.filter(
-      (row) => liveItemAlias(row?.item_id || row?.placement_key) === alias
-    );
-    if (
-      related.length &&
-      related.every((row) => Boolean(row?.save_to_card) === Boolean(held))
-    ) {
-      saveToCardHoldByAlias.delete(alias);
-    }
-  }
-  return nextRows;
-}
-
-/**
- * Checkbox value for Save to card, preferring an in-flight teacher click.
- * @param {any} card
- * @param {number} liveItemId
- * @returns {boolean}
- */
-function cardSaveToCardChecked(card, liveItemId) {
-  const id = Number(liveItemId) || 0;
-  if (id && saveToCardHold.has(id)) return Boolean(saveToCardHold.get(id));
-  const alias = liveItemAlias(card?.item_id || card?.id || card?.placement_key);
-  if (alias && saveToCardHoldByAlias.has(alias)) {
-    return Boolean(saveToCardHoldByAlias.get(alias));
-  }
-  return Boolean(card?.save_to_card);
 }
 
 /**
@@ -6032,12 +5983,12 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
 /**
  * Render the per-question strip in Mobbin group order.
  *
- * A Persist is Save to card. B Visibility is Show Live Results and stays
- * visible on an inactive card so the teacher can arm it before Publish.
- * Both stay toggleable after Close. C Lifecycle is Publish while inactive,
- * then Reveal or Responses and points, then Close. (Re)move stays in the
- * card head. Tablet CSS wraps the strip to at most two rows; under 720px
- * the groups stack in A→B→C order. Publish does not clear the booleans.
+ * Every question stays on the student card. B Visibility is Show Live
+ * Results and stays visible on an
+ * inactive card so the teacher can arm it before Publish. C Lifecycle is
+ * Publish while inactive, then Reveal or Responses and points, then Close.
+ * (Re)move stays in the card head. Tablet CSS wraps the strip to at most
+ * two rows; under 720px the groups stack. Publish does not clear the boolean.
  *
  * @param {{
  *   liveItemId: number,
@@ -6060,15 +6011,6 @@ function liveQuestionControlStrip(parts) {
   const status = String(parts.status || "inactive").toLowerCase();
   const closed = status === "closed";
   const active = status === "active";
-  const persist = `<div class="live-q-group" data-live-q-group="persist" role="group" aria-label="A Persist">
-        <span class="live-q-group-kicker">A Persist</span>
-        <label class="live-result-toggle">
-          <input type="checkbox" data-save-to-card="${liveItemId}" ${
-            cardSaveToCardChecked(card, liveItemId) ? "checked" : ""
-          }>
-          <span>Save to card</span>
-        </label>
-      </div>`;
   const visibility = `<div class="live-q-group" data-live-q-group="visibility" role="group" aria-label="B Visibility">
         <span class="live-q-group-kicker">B Visibility</span>
         <label class="live-result-toggle">
@@ -6100,8 +6042,8 @@ function liveQuestionControlStrip(parts) {
         ${parts.groupOptsHtml || ""}
       </div>`
     : "";
-  if (!persist && !visibility && !lifecycle) return "";
-  return `<div class="live-q-strip" data-live-q-strip="1">${persist}${visibility}${lifecycle}</div>`;
+  if (!visibility && !lifecycle) return "";
+  return `<div class="live-q-strip" data-live-q-strip="1">${visibility}${lifecycle}</div>`;
 }
 
 /**
@@ -6160,10 +6102,6 @@ function paintLiveQuestionCards() {
         live_item_id: card.live_item_id || lifecycle?.id || null,
         prompt_id: Number(prompt?.id || lifecycle?.prompt_id || card.prompt_id) || 0,
       };
-      merged.save_to_card = cardSaveToCardChecked(
-        merged,
-        Number(merged.live_item_id) || 0
-      );
       return merged;
     });
   if (!cards.length) {
@@ -7026,48 +6964,6 @@ async function setLifecycleResultsVisible(liveItemId, visible) {
     adoptLiveItem(result?.item);
   } catch (err) {
     teacherSettingHold.delete(`${id}:show_live_results`);
-    throw err;
-  } finally {
-    paintLiveQuestionCards();
-  }
-}
-
-/**
- * Persist Save to card so the student panel keeps this question after the beat.
- * @param {number} liveItemId
- * @param {boolean} enabled
- */
-async function setLifecycleSaveToCard(liveItemId, enabled) {
-  const sessionId = liveSessionId || readLiveSessionId();
-  const id = Number(liveItemId) || 0;
-  if (!sessionId || !id) return;
-  const flag = Boolean(enabled);
-  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
-  const previous = index >= 0 ? lastLiveItems[index] : null;
-  const alias = liveItemAlias(
-    previous?.item_id || previous?.placement_key || previous?.item?.id
-  );
-  saveToCardHold.set(id, flag);
-  if (alias) saveToCardHoldByAlias.set(alias, flag);
-  teacherSettingHold.set(`${id}:save_to_card`, flag);
-  if (index >= 0) {
-    lastLiveItems[index] = { ...lastLiveItems[index], save_to_card: flag };
-  }
-  paintLiveQuestionCards();
-  try {
-    const result = await api(
-      `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ save_to_card: flag }),
-      }
-    );
-    adoptLiveItem(result?.item);
-  } catch (err) {
-    saveToCardHold.delete(id);
-    if (alias) saveToCardHoldByAlias.delete(alias);
-    teacherSettingHold.delete(`${id}:save_to_card`);
-    if (previous) lastLiveItems[index] = previous;
     throw err;
   } finally {
     paintLiveQuestionCards();
@@ -14178,18 +14074,6 @@ $("live-question-list")?.addEventListener("change", async (event) => {
       await setLifecycleResultsVisible(
         Number(resultToggle.dataset.liveResultsToggle) || 0,
         resultToggle.checked
-      );
-    } catch (err) {
-      showError("#ap-overlay-error", err);
-    }
-    return;
-  }
-  const saveToggle = event.target.closest("[data-save-to-card]");
-  if (saveToggle instanceof HTMLInputElement) {
-    try {
-      await setLifecycleSaveToCard(
-        Number(saveToggle.dataset.saveToCard) || 0,
-        saveToggle.checked
       );
     } catch (err) {
       showError("#ap-overlay-error", err);

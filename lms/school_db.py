@@ -5234,11 +5234,11 @@ class LovesDB:
         )
 
     def _ensure_save_to_card_columns(self) -> None:
-        """Add the per-question Save to card flag on existing databases.
+        """Keep the legacy save column on databases that already have it.
 
         Fresh installs get the column from ``CREATE TABLE``. Older sqlite
-        files need ``ALTER TABLE`` so the flag survives publish and a new
-        live session.
+        files need ``ALTER TABLE`` so a session saved before the checkbox
+        was removed still opens. New questions do not read the column.
         """
         item_cols = {
             str(row[1])
@@ -14361,8 +14361,7 @@ class SchoolDB(LovesDB):
 
             Engine-ride aliases (``teams_spark`` / ``teams-spark``) share a
             row. A ``stage:page:order:item`` key shares a row with the
-            catalogue id. When a teacher move and Save to card landed on
-            different rows, the flag stays on if either row has it, and
+            catalogue id. When a teacher move landed on a different row,
             the move keeps its stage and page.
             """
             token = str(item_id or "").strip()
@@ -14378,9 +14377,6 @@ class SchoolDB(LovesDB):
             if len(matches) == 1:
                 return matches[0]
             merged = dict(matches[0])
-            merged["save_to_card"] = (
-                1 if any(int(row.get("save_to_card") or 0) for row in matches) else 0
-            )
             merged["removed"] = (
                 1 if any(int(row.get("removed") or 0) for row in matches) else 0
             )
@@ -14406,8 +14402,6 @@ class SchoolDB(LovesDB):
             if int(override.get("removed") or 0):
                 return None
             patched = dict(row)
-            if override.get("save_to_card") is not None:
-                patched["save_to_card"] = bool(int(override.get("save_to_card") or 0))
             stage = str(override.get("stage") or "").strip().lower()
             if stage:
                 patched["stage"] = stage
@@ -21530,11 +21524,11 @@ class SchoolDB(LovesDB):
         item["item"] = nested
         item.pop("item_json", None)
         item["show_live_results"] = bool(item.get("show_live_results"))
-        item["save_to_card"] = bool(item.get("save_to_card"))
         # Catalogue JSON is refreshed on deck polls. Column values are the
-        # teacher settings the staff UI must read back.
+        # teacher settings the staff UI must read back. The legacy
+        # save_to_card column stays on the row so older sessions still open.
         nested["show_live_results"] = item["show_live_results"]
-        nested["save_to_card"] = item["save_to_card"]
+        nested.pop("save_to_card", None)
         if item.get("publish_mode"):
             nested["publish_mode"] = str(item.get("publish_mode"))
         if item.get("response_mode"):
@@ -21882,8 +21876,8 @@ class SchoolDB(LovesDB):
 
         Hyphen and underscore spellings share a row. A seed ref or a
         class import key resolves to the short catalogue id. Question
-        cards and deck overrides bind to that id, so Save to card is
-        written there instead of splitting a second override.
+        cards and deck overrides bind to that id instead of splitting
+        a second override.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -22074,16 +22068,16 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Copy saved per-question settings onto a fresh catalogue payload.
 
-        Deck polls rewrite ``item_json`` from the lesson file. Save to card,
-        Show Live Results, publish mode, and response mode stay on the
-        session row and must be copied back onto that JSON.
+        Deck polls rewrite ``item_json`` from the lesson file. Show Live
+        Results, publish mode, and response mode stay on the session row
+        and must be copied back onto that JSON.
 
         Args:
             question: Catalogue or placement dict about to be stored.
             existing: Current ``live_session_items`` row for this question.
         """
         body = dict(question)
-        body["save_to_card"] = bool(int(existing["save_to_card"] or 0))
+        body.pop("save_to_card", None)
         body["show_live_results"] = bool(int(existing["show_live_results"] or 0))
         body["publish_mode"] = str(
             existing["publish_mode"] or body.get("publish_mode") or "individual"
@@ -22239,8 +22233,8 @@ class SchoolDB(LovesDB):
     def _pick_lifecycle_keeper(saved: Any, clash: Any) -> tuple[Any, Any]:
         """Choose the lifecycle row that should survive a placement clash.
 
-        Active and closed rows beat an inactive fork. A linked prompt,
-        a prior publish, and Save to card break remaining ties.
+        Active and closed rows beat an inactive fork. A linked prompt
+        and a prior publish break remaining ties.
 
         Args:
             saved: Row found by item id or alias.
@@ -22250,20 +22244,19 @@ class SchoolDB(LovesDB):
             ``(keeper, loser)``.
         """
 
-        def rank(row: Any) -> tuple[int, int, int, int, int]:
+        def rank(row: Any) -> tuple[int, int, int, int]:
             status = str(row["status"] or "")
             status_rank = 2 if status == "active" else 1 if status == "closed" else 0
             published = 0 if row["published_at"] in (None, "") else 1
             prompt = 0 if row["prompt_id"] in (None, "") else 1
-            save = 1 if int(row["save_to_card"] or 0) else 0
-            return (status_rank, published, prompt, save, -int(row["id"]))
+            return (status_rank, published, prompt, -int(row["id"]))
 
         if rank(saved) >= rank(clash):
             return saved, clash
         return clash, saved
 
     def _fill_lifecycle_keeper(self, keeper: Any, loser: Any) -> None:
-        """Copy a missing prompt and the newer Save to card flag onto the keeper.
+        """Copy a missing prompt id onto the keeper.
 
         Caller holds ``self._lock``.
 
@@ -22280,22 +22273,6 @@ class SchoolDB(LovesDB):
                 """,
                 (int(loser["prompt_id"]), int(keeper["id"])),
             )
-        keeper_flag = int(keeper["save_to_card"] or 0)
-        loser_flag = int(loser["save_to_card"] or 0)
-        if keeper_flag != loser_flag:
-            newer = keeper
-            if str(loser["updated_at"] or "") > str(keeper["updated_at"] or ""):
-                newer = loser
-            flag = int(newer["save_to_card"] or 0)
-            if flag != keeper_flag:
-                self.conn.execute(
-                    """
-                    UPDATE live_session_items
-                    SET save_to_card = ?
-                    WHERE id = ?
-                    """,
-                    (flag, int(keeper["id"])),
-                )
 
     def _retarget_lifecycle_placement(
         self,
@@ -22311,8 +22288,8 @@ class SchoolDB(LovesDB):
 
         Deck refresh used to INSERT a second inactive row when the id
         spelling or the order token changed, then delete the published
-        row. Votes, the prompt, and Save to card live on the original row,
-        so that row is moved onto the expected key instead.
+        row. Votes and the prompt live on the original row, so that row
+        is moved onto the expected key instead.
 
         Caller holds ``self._lock``.
 
@@ -22476,11 +22453,8 @@ class SchoolDB(LovesDB):
                 overlay = self._catalogue_overlay_for_placement(
                     placement, question_by_ref
                 )
-                placed_save = bool(placement.get("save_to_card"))
-                overlay_save = bool(overlay.get("save_to_card")) if overlay else False
                 question = {**placement, **overlay} if overlay else dict(placement)
-                if placed_save or overlay_save:
-                    question["save_to_card"] = True
+                question.pop("save_to_card", None)
                 catalogue_id = str(overlay.get("id") or "").strip() if overlay else ""
                 if catalogue_id:
                     question["id"] = catalogue_id
@@ -22652,10 +22626,9 @@ class SchoolDB(LovesDB):
                 if question.get("live_show_results") is not None:
                     show_live_results = 1 if question.get("live_show_results") else 0
                     question["show_live_results"] = bool(show_live_results)
-                save_to_card = 1 if question.get("save_to_card") else 0
+                save_to_card = 0
                 if saved is not None:
                     question = self._overlay_saved_teacher_settings(question, saved)
-                    save_to_card = 1 if question.get("save_to_card") else 0
                     show_live_results = 1 if question.get("show_live_results") else 0
                     default_publish = str(
                         question.get("publish_mode") or default_publish
@@ -24140,7 +24113,6 @@ class SchoolDB(LovesDB):
         placement_or_item: str | int,
         *,
         show_live_results: Any = None,
-        save_to_card: Any = None,
         publish_mode: Any = None,
         response_mode: Any = None,
         group_rank_mode: Any = None,
@@ -24148,17 +24120,14 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Update one item's teacher settings without publishing it.
 
-        Any subset may be sent. Save to card is also written onto the class
-        deck so a later publish or a new session keeps that choice. Publish
-        mode and response mode stay on the lifecycle row so a deck refresh
-        cannot put the dropdown back on the catalogue default.
+        Any subset may be sent. Publish mode and response mode stay on the
+        lifecycle row so a deck refresh cannot put the dropdown back on the
+        catalogue default. Every published question stays on the student card.
 
         Args:
             session_id: ``live_class_sessions.id``.
             placement_or_item: Placement key, item id, or lifecycle id.
             show_live_results: When set, student live tallies follow this flag.
-            save_to_card: When set, the student right panel keeps the card
-                after the beat. Default off.
             publish_mode: Individual, group consensus, group submit, or
                 whiteboard group-shared. Stored before Publish.
             response_mode: How answers are collected. Defaults to the same
@@ -24174,14 +24143,13 @@ class SchoolDB(LovesDB):
         """
         if (
             show_live_results is None
-            and save_to_card is None
             and publish_mode is None
             and response_mode is None
             and group_rank_mode is None
             and group_rank_race is None
         ):
             raise ValueError(
-                "show_live_results, save_to_card, publish_mode, or response_mode is required"
+                "show_live_results, publish_mode, or response_mode is required"
             )
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
@@ -24197,12 +24165,6 @@ class SchoolDB(LovesDB):
             assignments.append("show_live_results = ?")
             params.append(1 if visible else 0)
             question["show_live_results"] = bool(visible)
-        save_flag: bool | None = None
-        if save_to_card is not None:
-            save_flag = self._coerce_settings_flag(save_to_card, "save_to_card")
-            assignments.append("save_to_card = ?")
-            params.append(1 if save_flag else 0)
-            question["save_to_card"] = bool(save_flag)
         stored_publish: str | None = None
         if publish_mode is not None:
             stored_publish = self._stored_item_mode(item, publish_mode)
@@ -24259,8 +24221,6 @@ class SchoolDB(LovesDB):
                 tuple(params),
             )
             self.conn.commit()
-        if save_flag is not None:
-            self._persist_save_to_card_on_deck(session_id, item, enabled=save_flag)
         if (
             stored_publish is not None
             and str(item.get("kind") or "") == "whiteboard"
@@ -24268,105 +24228,6 @@ class SchoolDB(LovesDB):
         ):
             self._sync_whiteboard_collab(session_id, stored_publish)
         return self.get_live_session_item(session_id, int(item["id"]))
-
-    def _persist_save_to_card_on_deck(
-        self,
-        session_id: int,
-        item: dict[str, Any],
-        *,
-        enabled: bool,
-    ) -> None:
-        """Store Save to card on the class deck for this live question.
-
-        Bank and staff placements keep the flag in ``item_json``. Seed and
-        engine-ride questions keep it on the playlist override row without
-        changing hide or move fields.
-
-        Args:
-            session_id: ``live_class_sessions.id``.
-            item: Lifecycle row being updated.
-            enabled: True when the card should stay on the student panel.
-        """
-        session_row = self.get_live_session(session_id)
-        if session_row is None:
-            return
-        try:
-            teacher = self.live_session_teacher_state_payload(session_id)
-        except KeyError:
-            return
-        class_id = int(session_row["class_id"])
-        module_key = str(teacher.get("live_module") or "M1").upper()
-        slot_key = str(teacher.get("live_slot") or "C1").upper()
-        raw_item_id = str(item.get("item_id") or "").strip()
-        item_id = self._canonical_playlist_item_id(session_id, raw_item_id)
-        if not item_id:
-            return
-        flag = 1 if enabled else 0
-        stamp = _now()
-        if item_id.startswith("bank-import-") or item_id.startswith("staff-q-"):
-            with self._lock:
-                row = self.conn.execute(
-                    """
-                    SELECT item_json FROM class_live_playlist_placements
-                    WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
-                    """,
-                    (class_id, module_key, slot_key, item_id),
-                ).fetchone()
-                if row is None:
-                    return
-                try:
-                    payload = json.loads(row["item_json"] or "{}")
-                except json.JSONDecodeError:
-                    payload = {}
-                if not isinstance(payload, dict):
-                    payload = {}
-                payload["save_to_card"] = bool(enabled)
-                self.conn.execute(
-                    """
-                    UPDATE class_live_playlist_placements
-                    SET item_json = ?
-                    WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
-                    """,
-                    (json.dumps(payload), class_id, module_key, slot_key, item_id),
-                )
-                self.conn.commit()
-            return
-        with self._lock:
-            override_rows = self.conn.execute(
-                """
-                SELECT id, item_id FROM class_live_playlist_item_overrides
-                WHERE class_id = ? AND module = ? AND slot = ?
-                """,
-                (class_id, module_key, slot_key),
-            ).fetchall()
-            matches = [
-                row
-                for row in override_rows
-                if self._same_live_item_id(row["item_id"], item_id)
-            ]
-            has_canonical = any(
-                str(row["item_id"] or "") == item_id for row in matches
-            )
-            if not has_canonical:
-                self.conn.execute(
-                    """
-                    INSERT INTO class_live_playlist_item_overrides (
-                        class_id, module, slot, item_id, removed, save_to_card,
-                        page_number, stage, sort_order, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 0, ?, NULL, NULL, NULL, ?, ?)
-                    """,
-                    (class_id, module_key, slot_key, item_id, flag, stamp, stamp),
-                )
-            for row in matches:
-                self.conn.execute(
-                    """
-                    UPDATE class_live_playlist_item_overrides
-                    SET save_to_card = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (flag, stamp, int(row["id"])),
-                )
-            self.conn.commit()
 
     def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
         """Return independently active question prompts in placement order."""
@@ -30160,7 +30021,7 @@ class SchoolDB(LovesDB):
         participant_uuid: str = "",
         class_id: int | None = None,
     ) -> dict[str, Any] | None:
-        """Return the written answer when Save to card's linked prompt lost it.
+        """Return the written answer when a kept card's linked prompt lost it.
 
         Meet keeps one lifecycle row and retargets ``prompt_id`` on each
         chain step. Teams spark can also leave a second prompt for the
@@ -30182,7 +30043,7 @@ class SchoolDB(LovesDB):
             prompt, or ``None`` when the linked prompt already has the
             answer or no sibling prompt does.
         """
-        if not item.get("save_to_card") or item.get("my_response"):
+        if item.get("my_response"):
             return None
         if str(item.get("response_mode") or "") in {
             "group_consensus",
@@ -30340,22 +30201,11 @@ class SchoolDB(LovesDB):
             if short_id:
                 deck_ids.append(short_id)
         listed = list(self.list_live_session_items(session_id))
-        has_published_join = any(
-            str(row.get("status") or "") == "active"
-            and str(row.get("stage") or "").strip().lower() == "join"
-            and str(row.get("item_id") or "").strip().lower().replace("-", "_")
-            not in {"minds_on"}
-            and str(row.get("kind") or "").strip().lower()
-            not in {"media", "whiteboard", "slides"}
-            for row in listed
-        )
         items = []
         for row in listed:
-            saved = bool(row.get("save_to_card"))
             status = str(row.get("status") or "")
-            if status not in {"active", "closed"}:
-                if not (saved and row.get("published_at")):
-                    continue
+            if status not in {"active", "closed"} and not row.get("published_at"):
+                continue
             kind = str(row.get("kind") or "").strip().lower()
             item_id_raw = str(row.get("item_id") or "")
             if kind not in {"media", "whiteboard", "slides"} and deck_ids:
@@ -30367,29 +30217,6 @@ class SchoolDB(LovesDB):
                     continue
             if self._session_playlist_item_removed(session_id, item_id_raw):
                 continue
-            if not saved and not self._student_item_on_current_page(
-                session_id, row, current_page=current_page
-            ):
-                continue
-            item_id = item_id_raw.strip().lower().replace("-", "_")
-            item_stage = str(row.get("stage") or "").strip().lower()
-            on_this_page = False
-            raw_page = row.get("page_number")
-            if current_page is not None and raw_page not in (None, ""):
-                try:
-                    on_this_page = int(raw_page) == int(current_page)
-                except (TypeError, ValueError):
-                    on_this_page = False
-            if not saved and not on_this_page:
-                if item_id in {"teams_spark"} or item_stage == "teams" and item_id.endswith("spark"):
-                    if stage != "teams":
-                        continue
-                if item_id in {"minds_on"} and (
-                    stage != "join" or has_published_join
-                ):
-                    continue
-                if item_id in {"meet_team", "meet_a", "meet_b", "meet_c"} and stage != "meet":
-                    continue
             items.append(row)
         public_items: list[dict[str, Any]] = []
         for item in items:
@@ -30594,7 +30421,6 @@ class SchoolDB(LovesDB):
                     "publish_mode": item["publish_mode"],
                     "response_mode": item["response_mode"],
                     "show_live_results": bool(item["show_live_results"]),
-                    "save_to_card": bool(item.get("save_to_card")),
                     "published_at": item.get("published_at"),
                     "closed_at": item.get("closed_at"),
                     "content": self._student_public_item_payload(
@@ -30672,8 +30498,6 @@ class SchoolDB(LovesDB):
         class_id = session_row.get("class_id")
         saved_cards: list[dict[str, Any]] = []
         for row in public_items:
-            if not row.get("save_to_card"):
-                continue
             orphan = self._orphan_saved_answer(
                 session_id,
                 row,
@@ -33585,11 +33409,6 @@ class SchoolDB(LovesDB):
                     )
                     if lifecycle is not None
                     else True,
-                    "save_to_card": bool(
-                        lifecycle.get("save_to_card")
-                        if lifecycle is not None
-                        else question.get("save_to_card")
-                    ),
                     "student_view": visibility,
                     "active": (
                         lifecycle.get("status") == "active"
@@ -34710,8 +34529,8 @@ class SchoolDB(LovesDB):
     ) -> bool:
         """True when ``item`` is bound to the teacher's current deck page.
 
-        Rows with no ``page_number`` stay visible. Save to card bypasses
-        this check at the call site so a kept card survives a page change.
+        Rows with no ``page_number`` stay visible. Callers keep a question
+        after the teacher leaves the page without consulting this check.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -34753,11 +34572,10 @@ class SchoolDB(LovesDB):
     ) -> bool:
         """True when this public row is a live question the student should answer.
 
-        A page mismatch always parks the row. A stage mismatch parks it only
-        when Save to card is on, so a kept card leaves the live list.
-        Published questions with no deck page stay live even if their stored
-        stage differs from the teacher rail (schema-v1 and unit fixtures).
-        Closed and inactive rows are never facing.
+        A page mismatch parks the row, so a kept card leaves the live list.
+        A stage label that differs from the teacher rail does not, so a
+        question on the current page stays answerable. Closed and inactive
+        rows are never facing.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -34771,10 +34589,6 @@ class SchoolDB(LovesDB):
             session_id, row, current_page=current_page
         ):
             return False
-        if row.get("save_to_card"):
-            item_stage = str(row.get("stage") or "").strip().lower()
-            if item_stage and stage and item_stage != stage:
-                return False
         return True
 
     def _metadata_question_page(self, session_id: int, item_id: str) -> int | None:
@@ -52215,7 +52029,7 @@ class SchoolDB(LovesDB):
     ) -> str:
         """Return a cheap revision token for student /state short-circuit.
 
-        Includes prompt active flags, item counts, Save to card, prompt
+        Includes prompt active flags, item counts, the legacy save column, prompt
         responses, and private group-consensus votes so a close, unpublish,
         checkbox, or teammate answer cannot keep a stale student frame.
         Board ink is not in this stamp. A stroke or text edit must leave

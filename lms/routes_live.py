@@ -4416,20 +4416,19 @@ def register_live(app, school, shared):
             return error
         body = request.get_json(silent=True) or {}
         has_results = "show_live_results" in body
-        has_save = "save_to_card" in body
         has_publish = "publish_mode" in body
         has_response = "response_mode" in body
         has_rank_mode = "group_rank_mode" in body
         # MCK-171: Team challenge (Group line).
         has_race = "group_rank_race" in body
         if not any(
-            (has_results, has_save, has_publish, has_response, has_rank_mode, has_race)
+            (has_results, has_publish, has_response, has_rank_mode, has_race)
         ):
             return jsonify(
                 {
                     "ok": False,
                     "error": (
-                        "show_live_results, save_to_card, publish_mode, "
+                        "show_live_results, publish_mode, "
                         "or response_mode is required"
                     ),
                 }
@@ -4439,7 +4438,6 @@ def register_live(app, school, shared):
                 session_id,
                 live_item_id,
                 show_live_results=body.get("show_live_results") if has_results else None,
-                save_to_card=body.get("save_to_card") if has_save else None,
                 publish_mode=body.get("publish_mode") if has_publish else None,
                 response_mode=body.get("response_mode") if has_response else None,
                 group_rank_mode=body.get("group_rank_mode") if has_rank_mode else None,
