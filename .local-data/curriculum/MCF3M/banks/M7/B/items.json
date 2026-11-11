@@ -18,22 +18,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b258a721841581f9ff3a.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f33bccd3ff0d330ac096.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/531aa3b3a01a8972074a.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b583f5a712dc8fb54084.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -41,8 +41,39 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/923f4cc69818c625af29.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/923f4cc69818c625af29.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187516/download?verifier=YfJYOsQ818pHc6q0oyjfmoyPOF09CNrMO3TUBdWm",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/923f4cc69818c625af29.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187508/download?verifier=yxgIOYfpVKidvvHhGuu4hNUzpGDJc6KgshFeACD5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b258a721841581f9ff3a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187510/download?verifier=C9PgcIv0ZcKIUipigcYzdnhAKMQl31CBZ5VRWgT9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f33bccd3ff0d330ac096.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187512/download?verifier=v2SiKZYya7MW7PMCSqL2O2XN8AyJkv1wAiREvdxK",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/531aa3b3a01a8972074a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187514/download?verifier=EZgAxkFkiPoMw0PgvDfR0e7TxB77u4YfhliY7NVn",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b583f5a712dc8fb54084.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -59,22 +90,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/18ae69e5e8f26e0fda66.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/c4a05d36a25bb3812fcd.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/357678099eba71c3af24.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3c528792aea4268502e3.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -82,8 +113,39 @@
         "a"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/87583657fb22bc994975.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/87583657fb22bc994975.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187616/download?verifier=vImUJZREHOIF0hLrB0lqUPXnx7b8h2jXF8sjQ0Rj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/87583657fb22bc994975.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187608/download?verifier=0XnqlIfvY9cvSU5b7D4GPZ3T19J4CGUVSraZFGEj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/18ae69e5e8f26e0fda66.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187610/download?verifier=5dSia08cgg0PzneHSfKcAKiVrp41F3NJEYLYByhQ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c4a05d36a25bb3812fcd.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187612/download?verifier=Xlj2Q55a4WcbPUQfY4I6IKN0OAcK9rbsxClIoXIw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/357678099eba71c3af24.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187614/download?verifier=nNnA0MK1LMOQPAfm1XMvCEH80yupeVZRdX6uCXdH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3c528792aea4268502e3.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -123,8 +185,23 @@
         "a"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/0250a88ce1c9fe1bd9f7.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0250a88ce1c9fe1bd9f7.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "%255Cfrac%257B8%255E%257B-2%257D%255Cleft%25288%255E4%255Cright%2529%257D%257B%255Cleft%25288%255E9%255Cright%2529%255E3%257D",
+          "kind": "latex"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72159/files/187620/download?verifier=bi57nIuPmpbTV24fkCQefff1QaQp6s0jncPWIlit",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0250a88ce1c9fe1bd9f7.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -141,22 +218,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/a25afd9bc1545b30ac16.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f7ccaa43a681a6683698.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/4ef393dedb52b6acd42f.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/155fbeee79af576a9d7b.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -166,6 +243,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187622/download?verifier=MYiUGpCba3VpV2hlXaDGp3yTMU2UzcMJYrqaF0NK",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a25afd9bc1545b30ac16.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187624/download?verifier=gBx0ZyvAEqBrWdJuRlCyU4beiDIh6aEt9LcYII45",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f7ccaa43a681a6683698.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187626/download?verifier=vbzJSatwUMEh1VDhDupe4YQRmNqj5Z1KJdVHEJJr",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4ef393dedb52b6acd42f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187628/download?verifier=eP3Lk3PWZYsc6ofUTkBree3kIECaNw3vzrCbqq2f",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/155fbeee79af576a9d7b.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -182,22 +281,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3dec7dfcb2094c26e38c.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/d36d583105922f1d1f9f.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/4fb7bb10a107cd89fd49.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b173332b0f2ddfe7f198.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -205,8 +304,39 @@
         "a"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/2260339b873becf7f9b1.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/2260339b873becf7f9b1.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187648/download?verifier=xq3abfqIVOAH9OFuMCQwAyOFUGJJz6APxpMnmrVw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2260339b873becf7f9b1.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187640/download?verifier=akafXydlimO8t727eBRdOCpDg1mQXq9PfrI5guZ8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3dec7dfcb2094c26e38c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187642/download?verifier=yq55defEGyaliLGVMYplzbKhsn67qoZhrp5U9x0L",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d36d583105922f1d1f9f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187644/download?verifier=gPcjRCMKJMhrUosJH0QOB3B2MWDR6Z8RYI0F2qrW",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4fb7bb10a107cd89fd49.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187646/download?verifier=hbCI1g0xagELn8jLQrFHUBJAbXlSlYCvRVJ5WDwO",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b173332b0f2ddfe7f198.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -228,12 +358,12 @@
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2efeaa378109bba19467.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/a0c3db37c8fe2f1f10d9.jpg\" alt=\"\">",
           "correct": false
         },
         {
@@ -246,8 +376,29 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/07cd3c0e717d4fad0b2a.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/07cd3c0e717d4fad0b2a.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72167/files/187654/download?verifier=55oP0qdf8RZhavPeo9g9Qq1Yo499On0nWkygqcfA",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/07cd3c0e717d4fad0b2a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72167/files/187650/download?verifier=t4w9vpqp7dQEmJ5cVO9zsjvHFVpf1QtT5j6G30pw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2efeaa378109bba19467.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72167/files/187652/download?verifier=NNCSxoToPCIq5ckdYkKSlPhyR3FSh33Cp9ymcFwS",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a0c3db37c8fe2f1f10d9.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -289,6 +440,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -305,22 +457,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/dce507cc2088f433b711.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f356a7c23b1e2dfdb8bc.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/289b42e46ee2d5ee08bc.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/1441462702daa2e9b25c.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -328,8 +480,39 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/f53ef6db40403ff05047.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/f53ef6db40403ff05047.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187672/download?verifier=oca2kxq9iVpB016V5m9LcJB9wYsSlju4rfyUmwNa",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f53ef6db40403ff05047.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187664/download?verifier=v54U0vfIdVoAYo6x8DbLeLtSmVocBD8GJilvvjUG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/dce507cc2088f433b711.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187666/download?verifier=ntzYpKCpBKwFVdYwCD2d0uRycduLUpvp7BakPKoA",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f356a7c23b1e2dfdb8bc.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187668/download?verifier=PE2ECrJJWpXX7tVqRs5g5V2O8sZj8CWwLVN5UqHw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/289b42e46ee2d5ee08bc.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187670/download?verifier=fvcltE2Y28jieSspRxpLagkpYndv1OAIJK7iM2do",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1441462702daa2e9b25c.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -346,22 +529,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ec1abd7b74127f0a584c.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/20cb2004c45bedce1755.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/75d067044a8650022fdb.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/697f5f0905bb66ef9130.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -369,8 +552,39 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/117298d39c164aaf979d.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/117298d39c164aaf979d.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187682/download?verifier=j6alS8kFmwdYHGmDkEddtwnfcpjZSUOVNwjYqlA1",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/117298d39c164aaf979d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187674/download?verifier=385n7ZhW8tE4EIxIWQuT88yjKiTFDheT8QshB55E",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ec1abd7b74127f0a584c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187676/download?verifier=c6LqiidDJSAaxwnCwlf5e18dlGskxhBKJzyoW3yt",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/20cb2004c45bedce1755.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187678/download?verifier=rCdXGrBScDaaDZVZ7FLUrMGYTZCkoahTkSJQyuZc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/75d067044a8650022fdb.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187680/download?verifier=0oRv4w7HUttanCTrP6ltNQaS61JmvfwbW43MI8mE",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/697f5f0905bb66ef9130.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -387,22 +601,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/055085b6d3ba5faeacdf.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/6ac8a35d8061ee8a72d7.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2f4e575f83c3e0c0a5d6.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/20de61f8402dda2ed45c.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -410,8 +624,39 @@
         "a"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/5a22e2b360f81a69aa0e.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/5a22e2b360f81a69aa0e.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187692/download?verifier=HRaiRxLwqOzcAottG32nXjQ67LCOBWTJ5tWmoyyM",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5a22e2b360f81a69aa0e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187684/download?verifier=IQRmX8rac6tiUDsH659qf3NnGSKD22WqX6AEmfn4",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/055085b6d3ba5faeacdf.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187686/download?verifier=PeW0FFh1W9luV7xDrxUlKznrvcg8P4z0p6h2uHAX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6ac8a35d8061ee8a72d7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187688/download?verifier=w7PhUcKRS8ui62BLOIXjhJ8sPr4bbR0XsRRYAHJG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2f4e575f83c3e0c0a5d6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187690/download?verifier=FZ7qla2wip5vUHFwK7NlVLgwViOm5iNmUA8cf8gc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/20de61f8402dda2ed45c.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -451,8 +696,26 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/6d45c484b383789d61d3.jpg",
+        "cartridge/afeb8bb4bab6d8a08747.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/6d45c484b383789d61d3.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/afeb8bb4bab6d8a08747.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72181/files/187696/download?verifier=uR1d0TQa8j2rGYUZ6uldwtzqSfsZ66Pocj0Mnj9A",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6d45c484b383789d61d3.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72181/files/187698/download?verifier=Eg8ap1SQc7Sc0iIKSPblEtl8BErtDXoaaTMQRnzT",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/afeb8bb4bab6d8a08747.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -469,22 +732,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/09a3e889605d675fcb48.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "<i></i>",
+          "html": "<i><img src=\"/curriculum-bank-images/MCF3M/cartridge/015d7a85313452c0cac2.jpg\" alt=\"\"></i>",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9f481ca30e7188061746.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/c9d7a562ba1127ac40cb.jpg\" alt=\"\">",
           "correct": true
         }
       ],
@@ -492,8 +755,39 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/31ecd0bfafe51e1c4695.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/31ecd0bfafe51e1c4695.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187708/download?verifier=ee6xZVCq4yOBIJyeVB50ZpI6Ii00K7fCFSKAPh5f",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/31ecd0bfafe51e1c4695.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187700/download?verifier=ZOtVEPHjzU7IfvtkZL5typ7wJUEHAoHL1XhYnV6p",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/09a3e889605d675fcb48.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187702/download?verifier=48rns5Enmzwl689GpWSPNDcMQBUR03KJ3B4GfNAC",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/015d7a85313452c0cac2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187704/download?verifier=92H4ZVmn3ZZzJa6tLa4FNSAc0d5EPOK80SY474g5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9f481ca30e7188061746.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187706/download?verifier=BZTT7C0CEWKw4fvxEeo8yp7xy8wSnh3tZgncNsZe",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c9d7a562ba1127ac40cb.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -533,8 +827,61 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/4298e8e92763859b676f.jpg",
+        "cartridge/98d3b1a3088de7ae31bf.jpg",
+        "cartridge/16a6816e152907b614b3.jpg",
+        "cartridge/2a099a86720a586f45c0.jpg",
+        "cartridge/d7a2163fb3d0e7aea590.jpg",
+        "cartridge/cb087ab56afecea86ccc.jpg",
+        "cartridge/14f4f08e3843b948dce1.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4298e8e92763859b676f.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/98d3b1a3088de7ae31bf.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/16a6816e152907b614b3.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/2a099a86720a586f45c0.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/d7a2163fb3d0e7aea590.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/cb087ab56afecea86ccc.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/14f4f08e3843b948dce1.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187712/download?verifier=QM7SzAqRNgpnSSLMSHcAVdvQ1RKCB08tFPARYDdj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4298e8e92763859b676f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187714/download?verifier=2BXVOpwQHXoh4jC2ZrAvvX2Yr8naPpgNIy6kVDlH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/98d3b1a3088de7ae31bf.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187716/download?verifier=Jfc7yyXUhk1JacrtRwBu3BSUar8TJQPj4iXUw83J",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/16a6816e152907b614b3.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187718/download?verifier=gCjQfJXfXtur0kmJ0HcyL5MVFYwwB7Nedvbr078o",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2a099a86720a586f45c0.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187720/download?verifier=dh4D16rxL8VZ7k7Op3pk2kghmlM2ySF2s0WtBHys",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d7a2163fb3d0e7aea590.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187722/download?verifier=iCNE8gVLtGufKub3Z1ZxFNP4YnNWPXxWHxanBnsJ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/cb087ab56afecea86ccc.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187724/download?verifier=fqf9SPwm60CuI9shIu8QDu4VEaasCpYu3pcS245o",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/14f4f08e3843b948dce1.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -551,7 +898,7 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/445ca49fa6fef6df9dfd.jpg\" alt=\"\">",
           "correct": false
         },
         {
@@ -566,7 +913,7 @@
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/0ff8b2a27b66a385cf94.jpg\" alt=\"\">",
           "correct": true
         }
       ],
@@ -574,8 +921,29 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/31113014d31630180379.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/31113014d31630180379.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72189/files/187730/download?verifier=Ibnp7XFRsRRqJrLx8AcvEK5AFlbFvDdbrRsR1bZG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/31113014d31630180379.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72189/files/187726/download?verifier=j3XxccOXIoaotJKvW6l7Qtgsdweif90H7JbsfYaA",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/445ca49fa6fef6df9dfd.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72189/files/187728/download?verifier=AQXQyNAPh5QKLEwk0Kb8IUJ82bRz2dBWj1KxSgMI",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ff8b2a27b66a385cf94.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -592,22 +960,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2815cb1440d612b3c81b.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3fe04667ce88119d2dff.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/91e45248d6258202cf86.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/7d508378a7af18933862.jpg\" alt=\"\">",
           "correct": true
         }
       ],
@@ -617,6 +985,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187528/download?verifier=dbSNzGo5uJaW88MGsxvoeq1UkQeI2MX8EpwTlND9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2815cb1440d612b3c81b.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187530/download?verifier=Z1uDNE0gAGkmtaMKrLyNVx6ojygenx9A0dSdkUnV",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3fe04667ce88119d2dff.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187532/download?verifier=T2soqwShpBx7CAwSAEbyI79u7niv48dVuedFhjAR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/91e45248d6258202cf86.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187534/download?verifier=hghx5IDFbdvmJpvsqcFKltomXPKVQIVLceuoC1uP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/7d508378a7af18933862.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -638,7 +1028,7 @@
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3ea3ffe3c91444989293.jpg\" alt=\"\">",
           "correct": true
         },
         {
@@ -648,7 +1038,7 @@
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/38665b1918700482faba.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -656,8 +1046,29 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/e0104e4e15c242de1617.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e0104e4e15c242de1617.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72193/files/187738/download?verifier=kkEz9wySyz7TD1fuZO17PYig38TfOQIVkdb5zgCK",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e0104e4e15c242de1617.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72193/files/187734/download?verifier=9dFTWm5DUHKWWGzGh98DJELKhOZEGXWNNSvV9DLg",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3ea3ffe3c91444989293.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72193/files/187736/download?verifier=vlsBXuZjNTPfTNitkRbEo4ENyuWw2ckjcdBmJ9QP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/38665b1918700482faba.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -697,8 +1108,26 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/1b1e8bca8f03556cdf2a.jpg",
+        "cartridge/fec3ca35c54f129f9c4c.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/1b1e8bca8f03556cdf2a.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/fec3ca35c54f129f9c4c.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72195/files/187740/download?verifier=drXYTL9KiPuPN1IKKRsp3O9XTNY6TPKrmU4PA6eB",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1b1e8bca8f03556cdf2a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72195/files/187742/download?verifier=YT3yj4YxYgysaD6RE95OSmu1jKNYFLwW2ph5PSnj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/fec3ca35c54f129f9c4c.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -738,8 +1167,26 @@
         "a"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/a2c8045b7333a44b3e69.jpg",
+        "cartridge/4999dafa88cd458c417b.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/a2c8045b7333a44b3e69.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/4999dafa88cd458c417b.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72197/files/187744/download?verifier=6xqbYYz04fRfOZ9nWIhnD2wOKcIOIahbpONL0DtG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a2c8045b7333a44b3e69.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72197/files/187746/download?verifier=zUc7eCFf6u0WrzcHLqAy0oYWvARsR6RQBVNnEeYf",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4999dafa88cd458c417b.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -756,22 +1203,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9265af6259525957ad5e.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ab8db24bdd3cb4a0ebd2.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b0cbc3e58827cee8f21c.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/0c334ddd58115ee05f15.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -779,8 +1226,46 @@
         "a"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/023a7ad730a25591edbe.jpg",
+        "cartridge/b3cf5d47890f05285570.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/023a7ad730a25591edbe.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/b3cf5d47890f05285570.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187756/download?verifier=pe97Om82LO3tVOMb7ojB2vcXRWWYkak6YoBLb3O4",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/023a7ad730a25591edbe.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187758/download?verifier=k16zJ49xg87kYlTvgc0j1lbKMcjkznTeUKuQmrrR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b3cf5d47890f05285570.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187748/download?verifier=1aIsFcGeRqbadMDA105VixWH7nAz4Z2TxGQ8JthX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9265af6259525957ad5e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187750/download?verifier=BPqk0Sx6JbIfVZzUmZ0Y09d3TYGv81LCC24oQ1Ht",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ab8db24bdd3cb4a0ebd2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187752/download?verifier=uAbl8b9QC8Zr1OVBhlT0xWT7aRb9okYPhWpSsXbs",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b0cbc3e58827cee8f21c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187754/download?verifier=NdQ1PbbAT4wmoOtHP8aXF334n5eRsAnDXBB0r630",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0c334ddd58115ee05f15.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -820,8 +1305,26 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/c481f6a2b3a48dd29345.jpg",
+        "cartridge/bc29a6df1952def96b59.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/c481f6a2b3a48dd29345.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/bc29a6df1952def96b59.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72201/files/187760/download?verifier=MWzqElXjVKIl0YPUQkULBjtN5exA6D8kgjz0O1zp",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c481f6a2b3a48dd29345.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72201/files/187762/download?verifier=qS3SlqBY3ABnPFzmM61Q0XGisClddHWAQ4U2OADr",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/bc29a6df1952def96b59.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -861,8 +1364,19 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/f8b880d36fcf299129d7.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/f8b880d36fcf299129d7.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72203/files/187764/download?verifier=QCanuwpZQbs3XKWyLhQoloQqwd8w5q92Aim63zDF",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f8b880d36fcf299129d7.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -902,8 +1416,19 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/4d02e1278dfbccbd976a.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4d02e1278dfbccbd976a.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72205/files/187766/download?verifier=ZZjFcrQOpWtEh2PGAlqII1JMjR0Tv0LAD974J3LV",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4d02e1278dfbccbd976a.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -920,22 +1445,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/fc6c95089607c1642b12.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ffdab073d2d4a86d591a.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/cbab24f6a26f27a68c7c.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3e62a63d4609e2ad897e.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -945,6 +1470,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187768/download?verifier=vzAdqWuhY2sP1vlEYY29WlXLhPusCmxBAdCLeXMF",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/fc6c95089607c1642b12.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187770/download?verifier=mvyTBA4sxXS4TDLvDtx14wAAoPsu4mPENMgoEsso",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ffdab073d2d4a86d591a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187772/download?verifier=ndScXenFqbTLJj59jN9AQOYCSozN7iNs5llEAJds",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/cbab24f6a26f27a68c7c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187774/download?verifier=UEs0eMFskPVfnBuyDh1gliSXVjvI1FMoYtDwaFO5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3e62a63d4609e2ad897e.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -986,6 +1533,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -1027,6 +1575,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -1066,8 +1615,47 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/789ca9be719f898665e4.jpg",
+        "cartridge/4e7c3110c03801f545aa.jpg",
+        "cartridge/4b3429bdf7e288805ce9.jpg",
+        "cartridge/5a51996efd2bbae9f4b6.jpg",
+        "cartridge/71156a89e9f218ca2088.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/789ca9be719f898665e4.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/4e7c3110c03801f545aa.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/4b3429bdf7e288805ce9.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/5a51996efd2bbae9f4b6.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/71156a89e9f218ca2088.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187536/download?verifier=wAiObloacq9gh8BhkrRYMepkC7a1WCvl0ZFIyV5B",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/789ca9be719f898665e4.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187538/download?verifier=jpens1hYxU8xdGVvYDgOHXiPHY7g6OnWVPGGfCn9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4e7c3110c03801f545aa.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187540/download?verifier=TEiOVMbVdd7VYtxjoac3MbavBcZ6YPi3z4PVUFha",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4b3429bdf7e288805ce9.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187542/download?verifier=OXMU8kD2cunwL42R2gMV4RsVtSoJEHJ6K40XChgP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5a51996efd2bbae9f4b6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187544/download?verifier=dk0inCFkhKxhk5bGhIfLNAjCIu4EE5wWulcesHvk",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/71156a89e9f218ca2088.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1107,8 +1695,19 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/a640b454ce95593a278f.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/a640b454ce95593a278f.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72213/files/187776/download?verifier=7wgvZ14Dy4nibvUmTVHS9T1huPOZrzQm43ojBhcD",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a640b454ce95593a278f.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1148,8 +1747,26 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/4f05253f473c5100ac12.jpg",
+        "cartridge/1e9d134a3fb689e3e534.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4f05253f473c5100ac12.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/1e9d134a3fb689e3e534.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72215/files/187778/download?verifier=JgDfKSFmMUktLGeWapCUItPOJBzsRYI4cvba4Ny6",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4f05253f473c5100ac12.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72215/files/187780/download?verifier=RLTuE7qz4jYFxiXaozCg9bDXFAbbgO8g0TcTwn8Y",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1e9d134a3fb689e3e534.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1166,22 +1783,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2be76c5fc205907d0d6d.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/672feb8306c66827378d.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/76084dfce16f1c593e2a.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/d62a7e04eb677d6a78bf.jpg\" alt=\"\">",
           "correct": true
         }
       ],
@@ -1191,6 +1808,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187782/download?verifier=lzdlAnoG0WsSB27tfigz46Uwxug7e8n8o86gE8Xt",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2be76c5fc205907d0d6d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187784/download?verifier=6KnId83rW4i6XG4r21abOf29EHu01d6U6ksqq5Ph",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/672feb8306c66827378d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187786/download?verifier=c9DYfaTiqempLHdQx0U0gMPXYCRPsRs8KeEjX2md",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/76084dfce16f1c593e2a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187788/download?verifier=K743Gf8PX9cHLOLqZ9IcBgMjpIZ1kkcV92IBI4ej",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d62a7e04eb677d6a78bf.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1232,6 +1871,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -1271,8 +1911,19 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/589ddaa39a2c1ecda23c.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/589ddaa39a2c1ecda23c.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72221/files/187790/download?verifier=FPr6oNR0R9rwjYZhf4fHngnwUgDnC58w2IPngLgF",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/589ddaa39a2c1ecda23c.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1312,8 +1963,19 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/66e91fc9e4a6d2c71993.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/66e91fc9e4a6d2c71993.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72223/files/187792/download?verifier=u0elVhtfBt9D2es15CBsm854lynd07DrtOorIAe4",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/66e91fc9e4a6d2c71993.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1355,6 +2017,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -1394,8 +2057,19 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/eff4f6887c8305172af5.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/eff4f6887c8305172af5.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72227/files/187794/download?verifier=PYt89qRl4uPTI4JlZ30n4PYB0UapTbIVLzM9PR3F",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/eff4f6887c8305172af5.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1435,8 +2109,19 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/dd17bdc4bf1fe27ad3d2.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/dd17bdc4bf1fe27ad3d2.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72229/files/187796/download?verifier=S4kBzOKCkyJU3UlsaMcwRcD33dy7j5exWG0m9YUT",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/dd17bdc4bf1fe27ad3d2.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1478,6 +2163,12 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "T%255Cleft%2528t%255Cright%2529%253D65%255Cleft%2528%255Cfrac%257B1%257D%257B2%257D%255Cright%2529%255E%257B%255Cfrac%257Bt%257D%257B22%257D%257D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1494,22 +2185,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -1517,8 +2208,46 @@
         "b"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/1a2921cbc248fd0b55e7.jpg",
+        "cartridge/71cbfb5ccdbd1a987e36.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/1a2921cbc248fd0b55e7.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/71cbfb5ccdbd1a987e36.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187554/download?verifier=18LPTwLjZesEXc6upbwCiM3XTJ36YDg2X1ET8ujc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1a2921cbc248fd0b55e7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187556/download?verifier=6Or6i9Maj84Vy9SPBeEUSwqJVl2jGjiIgvcLFs3u",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/71cbfb5ccdbd1a987e36.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187546/download?verifier=T5t5X5WUCcLAMY7Z5XH8xaDqohujRl4cm5bAQYib",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187548/download?verifier=OHjYgjdHG6rGY6ls4OD1qrax2yehO0AXia2gFxD9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187550/download?verifier=2FOT6kPtowZ6otxKfaMb2t0P1VqNm1BNLXAx3FZJ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187552/download?verifier=ws5mijKNjewdJSEL4Jg6bshbMXRJeCgWJXvRnjsp",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1558,8 +2287,19 @@
         "d"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/b2475e9633ee1e85bbd4.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/b2475e9633ee1e85bbd4.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72233/files/187800/download?verifier=gEXp1CMBfI1woFspuBUOJ6YGt4mGwhQpeNrOsixw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b2475e9633ee1e85bbd4.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1576,22 +2316,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/db2140e4fd7e07959256.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "b",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/67c67b96f45a9cdb1f60.jpg\" alt=\"\">",
           "correct": false
         },
         {
           "id": "c",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f2b15eb0f7f3f0a9750e.jpg\" alt=\"\">",
           "correct": true
         },
         {
           "id": "d",
-          "html": "",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/e87a0fc5fc804a01cc67.jpg\" alt=\"\">",
           "correct": false
         }
       ],
@@ -1599,8 +2339,39 @@
         "c"
       ],
       "feedback_html": "",
-      "image_paths": [],
-      "image_urls": [],
+      "image_paths": [
+        "cartridge/3a2a96c8b0b5771f6223.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/3a2a96c8b0b5771f6223.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187586/download?verifier=tJqK2oQEMp6A6LhYw3o8gkhF2iAATalycyngWGOR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3a2a96c8b0b5771f6223.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187578/download?verifier=hl6NgtAeJ3BNkXgVFwlM5RcPwi1C9PgPfVwKJBHm",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/db2140e4fd7e07959256.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187580/download?verifier=i2DhkCuzWGs0HsO50jxnXpDOBo07WC9ZxPQg5qcG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/67c67b96f45a9cdb1f60.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187582/download?verifier=GSVgsalZEveeu2QJnpOHZ7MQ2IoR6o5lOZ2Jrlr7",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f2b15eb0f7f3f0a9750e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187584/download?verifier=N4FdDA2ueZZQ1gzTxE6cOvtCgGRdjleTmwOvzfaM",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e87a0fc5fc804a01cc67.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1642,6 +2413,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -1683,6 +2455,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cfrac%7B7%5E%7B-3%7D%7D%7B%5Cleft(7%5E4%5Cright)%5E5%7D%5Cright)%5E2",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B1%7D%7B7%5E%7B34%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B7%5E%7B34%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B1%7D%7B7%5E%7B46%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B7%5E%7B46%7D%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1724,6 +2518,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cfrac%7Bk%5E4%7D%7Bk%5E%7B-7%7D%7D%5Cright)%5E%7B-3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7Bk%5E%7B33%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7Bk%5E9%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "k%5E%7B33%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "k%5E9",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1765,6 +2581,12 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "4%5Eh%3D%5Cfrac%7B1%7D%7B256%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1806,6 +2628,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "6%5E%7B-2%7D%2B%5Cleft(3%5E2%5Cright)%5E%7B-1%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-45",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B45%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B5%7D%7B36%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B12%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1847,6 +2691,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "27%5E%7B%5Cfrac%7B1%7D%7B3%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B3%5D%7B3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B%5Cfrac%7B1%7D%7B3%7D%5D%7B3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B3%5D%7B27%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B%5Cfrac%7B1%7D%7B3%7D%5D%7B27%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1888,6 +2754,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Csqrt%7B36%7D%5Cright)%5E5",
+          "kind": "latex"
+        },
+        {
+          "src": "36%5E%7B%5Cfrac%7B5%7D%7B2%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "36%5E%7B%5Cfrac%7B2%7D%7B5%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "36%5E5",
+          "kind": "latex"
+        },
+        {
+          "src": "6%5E%7B%5Cfrac%7B5%7D%7B2%7D%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1929,6 +2817,12 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "T%5Cleft(t%5Cright)%3D65%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cright)%5E%7B%5Cfrac%7Bt%7D%7B22%7D%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -1970,6 +2864,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -2011,6 +2906,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cleft(%5Cfrac%7B3%7D%7B2%7D%5Cright)%5E2%5Cright)%5E3",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B243%7D%7B32%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B27%7D%7B8%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B6561%7D%7B264%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B729%7D%7B64%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2052,6 +2969,7 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [],
       "verified": true,
       "expectation_codes": []
     },
@@ -2093,6 +3011,12 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "A%5Cleft(t%5Cright)%3D100%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cright)%5E%7B%5Cfrac%7Bt%7D%7BH%7D%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2134,6 +3058,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cfrac%7B6%5E%7B-2%7D-6%5E%7B-1%7D%7D%7B6%5E%7B-2%7D%2B6%5E%7B-1%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-1",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B5%7D%7B7%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "0",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2175,6 +3121,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cfrac%7B1%7D%7B9%5E%7B-4%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B1%7D%7B36%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "9%5E4",
+          "kind": "latex"
+        },
+        {
+          "src": "-9%5E4",
+          "kind": "latex"
+        },
+        {
+          "src": "-36",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2216,6 +3184,28 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cfrac%7B2%7D%7B3%7D%5Cright)%5E%7B-3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B27%7D%7B8%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B8%7D%7B27%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B27%7D%7B8%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B8%7D%7B27%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2257,6 +3247,12 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "P%5Cleft(n%5Cright)%3D420%5Cleft(1-0.046%5Cright)%5E%7B16%7D",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2298,6 +3294,12 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "N%5Cleft(t%5Cright)%3D3600%5Cleft(0.6%5Cright)%5Et",
+          "kind": "latex"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     },
@@ -2314,22 +3316,22 @@
       "choices": [
         {
           "id": "a",
-          "html": "<p></p>",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg\" alt=\"\"></p>",
           "correct": false
         },
         {
           "id": "b",
-          "html": "<p></p>",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg\" alt=\"\"></p>",
           "correct": true
         },
         {
           "id": "c",
-          "html": "<p></p>",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg\" alt=\"\"></p>",
           "correct": false
         },
         {
           "id": "d",
-          "html": "<p></p>",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg\" alt=\"\"></p>",
           "correct": false
         }
       ],
@@ -2339,8 +3341,31 @@
       "feedback_html": "",
       "image_paths": [],
       "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187546/download?verifier=T5t5X5WUCcLAMY7Z5XH8xaDqohujRl4cm5bAQYib",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187548/download?verifier=OHjYgjdHG6rGY6ls4OD1qrax2yehO0AXia2gFxD9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187550/download?verifier=2FOT6kPtowZ6otxKfaMb2t0P1VqNm1BNLXAx3FZJ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187552/download?verifier=ws5mijKNjewdJSEL4Jg6bshbMXRJeCgWJXvRnjsp",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg"
+        }
+      ],
       "verified": true,
       "expectation_codes": []
     }
-  ]
+  ],
+  "dropped": []
 }

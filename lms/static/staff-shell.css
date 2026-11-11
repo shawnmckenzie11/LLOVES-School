@@ -9833,6 +9833,17 @@ body.staff-shell .qbank-stem * {
   display: inline;
   white-space: nowrap;
 }
+body.staff-shell .qbank-choices {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+  white-space: normal;
+}
+body.staff-shell .qbank-choices img {
+  display: inline-block;
+  max-width: 220px;
+  height: auto;
+  vertical-align: middle;
+}
 body.staff-shell .qbank-tag {
   color: #475569;
   font-size: 0.75rem;

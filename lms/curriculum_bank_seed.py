@@ -564,3 +564,109 @@ def seed_local_question_banks(school: Any, *, cache_root: Path | None = None) ->
         for row in rows
     ]
     return {"skipped": False, "libraries": libraries}
+
+
+_MCK472_MARKER = "mck472_mcf3m_m567_cartridge_v2"
+_MCK472_MODULES = (5, 6, 7)
+
+
+def _mcf3m_m567_bank_digest() -> str:
+    """Hash the committed MCF3M module 5–7 bank files.
+
+    Returns:
+        SHA-256 of those three ``items.json`` files. A missing file still
+        changes the hash, so a partial checkout is applied again when the
+        files arrive.
+    """
+    try:
+        from slide_builder import local_curriculum_course_dir
+    except ImportError:
+        from lms.slide_builder import local_curriculum_course_dir
+
+    banks = local_curriculum_course_dir("MCF3M", None) / "banks"
+    hasher = hashlib.sha256()
+    for module_number, strand in ((5, "C"), (6, "C"), (7, "B")):
+        rel = f"M{module_number}/{strand}/items.json"
+        hasher.update(rel.encode("utf-8"))
+        path = banks / rel
+        hasher.update(path.read_bytes() if path.is_file() else b"missing")
+    return hasher.hexdigest()
+
+
+def apply_mcf3m_m567_cartridge_banks(school: Any) -> dict[str, Any]:
+    """Load MCF3M module 5–7 cartridge banks on boot, including production.
+
+    ``seed_local_question_banks`` runs only when ``LOCAL_DEV_LOGIN`` is on,
+    so a production process never called it. This applies the same upsert
+    for every library whose course code is MCF3M, and only for modules 5,
+    6, and 7. Rows are updated by import key. Replaced rows move to the
+    unlinked retired bank. Nothing is deleted, and the old question ids
+    stay loadable.
+
+    A ``school_settings`` marker stores the bank-file hash. The next boot
+    with the same files does no writes. A new hash runs the upsert again.
+    A database with no MCF3M library yet, which is a fresh local seed
+    before the demo library exists, returns without writing the marker.
+    ``SchoolDB.__init__`` calls this on every process after the schema
+    exists. Local dev still loads the banks when it creates that library.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        ``libraries``, ``questions`` inserted on this pass, and ``skipped``.
+    """
+    from datetime import datetime, timezone
+
+    digest = _mcf3m_m567_bank_digest()
+    rows = school.conn.execute(
+        """
+        SELECT id FROM content_libraries
+        WHERE UPPER(COALESCE(ontario_code, '')) = 'MCF3M'
+          AND COALESCE(origin, '') NOT IN ('shell', 'backfill-staging')
+        """
+    ).fetchall()
+    if not rows:
+        return {"libraries": 0, "questions": 0, "skipped": True}
+    current = school.conn.execute(
+        "SELECT value FROM school_settings WHERE key = ?",
+        (_MCK472_MARKER,),
+    ).fetchone()
+    if current is not None and str(current["value"] or "") == digest:
+        return {"libraries": len(rows), "questions": 0, "skipped": True}
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for module_number, item in _iter_curriculum_items("MCF3M", None):
+        if int(module_number) in _MCK472_MODULES:
+            grouped.setdefault(int(module_number), []).append(item)
+    questions = 0
+    for row in rows:
+        library_id = int(row["id"])
+        for module_number in _MCK472_MODULES:
+            items = grouped.get(module_number) or []
+            if not items:
+                continue
+            summary = _upsert_curriculum_bank(
+                school,
+                library_id=library_id,
+                course_code="MCF3M",
+                module_number=module_number,
+                items=items,
+                cache_root=None,
+            )
+            questions += int(summary.get("count") or 0)
+        invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+        if callable(invalidate):
+            invalidate(library_id)
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    school.conn.execute(
+        """
+        INSERT INTO school_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        """,
+        (_MCK472_MARKER, digest, now),
+    )
+    school.conn.commit()
+    return {"libraries": len(rows), "questions": questions, "skipped": False}

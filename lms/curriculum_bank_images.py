@@ -593,3 +593,199 @@ def assert_images_resolve(report: dict[str, Any]) -> None:
         f"{checked} questions, {found} image refs, {resolved} resolved, "
         f"{len(rows)} missing:\n" + "\n".join(lines)
     )
+
+
+_FIGURE_PHRASES = (
+    "triangle above",
+    "the figure above",
+    "the figure below",
+    "figure above",
+    "figure below",
+    "the graph above",
+    "the graph below",
+    "graph above",
+    "graph below",
+    "shown above",
+    "shown below",
+    "the diagram above",
+    "the diagram below",
+    "the above figure",
+    "triangle abc",
+)
+_EXACT_FIGURE_STEMS = {
+    "the amplitude is",
+    "the equation of the axis is",
+}
+
+
+def _choice_renders(fragment: str) -> bool:
+    """True when a choice has visible text, an image, or TeX.
+
+    Args:
+        fragment: Choice HTML stored on the bank item.
+    """
+    raw = str(fragment or "")
+    if re.search(r"<img\b", raw, re.I):
+        return True
+    if "$" in raw or "data-latex" in raw:
+        return True
+    try:
+        from question_math import html_to_plain
+    except ImportError:
+        from lms.question_math import html_to_plain
+
+    return bool(html_to_plain(raw).strip())
+
+
+def _stem_still_needs_figure(stem: str, urls: list[str]) -> bool:
+    """True when the wording points at a diagram the row does not carry.
+
+    Args:
+        stem: Plain stem text.
+        urls: Served figure URLs on the row.
+    """
+    if urls:
+        return False
+    text = re.sub(r"\s+", " ", stem or "").strip().lower()
+    bare = text.rstrip(":").strip()
+    if bare in _EXACT_FIGURE_STEMS:
+        return True
+    return any(phrase in text for phrase in _FIGURE_PHRASES)
+
+
+def audit_imported_figure_gaps(
+    *,
+    cache_root: Path | None = None,
+) -> list[dict[str, str]]:
+    """List MCF3M module 5–7 items whose figures or choices are incomplete.
+
+    A QTI image source recorded on an imported item must resolve to a file
+    that is on the row, or to TeX that is still in the stem or a choice.
+    A choice with no text, image, or TeX is a gap. Nothing is invented.
+
+    Args:
+        cache_root: Optional curriculum root. ``None`` reads the repo cache.
+
+    Returns:
+        One dict per gap with ``question_id``, ``ref``, and ``reason``.
+    """
+    banks = _course_dir("MCF3M", cache_root) / "banks"
+    gaps: list[dict[str, str]] = []
+    if not banks.is_dir():
+        return gaps
+    for module_number in (5, 6, 7):
+        module_dir = banks / f"M{module_number}"
+        if not module_dir.is_dir():
+            continue
+        for path in sorted(module_dir.glob("*/items.json")):
+            for item in _load_items(path):
+                question_id = str(item.get("smart_id") or item.get("id") or "").strip()
+                stem = str(item.get("stem") or "")
+                stem_html = str(item.get("stem_html") or "")
+                choices = item.get("choices") if isinstance(item.get("choices"), list) else []
+                choice_html = [
+                    str(choice.get("html") or "") if isinstance(choice, dict) else str(choice or "")
+                    for choice in choices
+                ]
+                urls = [str(url) for url in (item.get("image_urls") or []) if str(url).strip()]
+                blob = " ".join([stem_html, *choice_html, *urls])
+                if _stem_still_needs_figure(stem, urls):
+                    gaps.append(
+                        {
+                            "question_id": question_id,
+                            "ref": stem[:120],
+                            "reason": "stem needs a figure",
+                        }
+                    )
+                for index, fragment in enumerate(choice_html):
+                    if _choice_renders(fragment):
+                        continue
+                    gaps.append(
+                        {
+                            "question_id": question_id,
+                            "ref": f"choice {index + 1}",
+                            "reason": "empty choice",
+                        }
+                    )
+                recorded = item.get("figure_map")
+                if str(item.get("origin") or "") == "canvas_cartridge" and not isinstance(recorded, list):
+                    gaps.append(
+                        {
+                            "question_id": question_id,
+                            "ref": "",
+                            "reason": "imported item has no figure map",
+                        }
+                    )
+                    recorded = []
+                for entry in recorded or []:
+                    if not isinstance(entry, dict):
+                        gaps.append(
+                            {
+                                "question_id": question_id,
+                                "ref": "",
+                                "reason": "figure source maps to nothing",
+                            }
+                        )
+                        continue
+                    kind = str(entry.get("kind") or "")
+                    src = str(entry.get("src") or "")
+                    if kind == "latex":
+                        if "$" not in blob and "data-latex" not in blob:
+                            gaps.append(
+                                {
+                                    "question_id": question_id,
+                                    "ref": src[:160],
+                                    "reason": "equation image maps to nothing",
+                                }
+                            )
+                        continue
+                    if kind != "file":
+                        gaps.append(
+                            {
+                                "question_id": question_id,
+                                "ref": src[:160],
+                                "reason": "figure source maps to nothing",
+                            }
+                        )
+                        continue
+                    url = str(entry.get("url") or "").strip()
+                    if not url or url not in blob:
+                        gaps.append(
+                            {
+                                "question_id": question_id,
+                                "ref": src[:160] or url,
+                                "reason": "figure source maps to nothing",
+                            }
+                        )
+                        continue
+                    if resolve_curriculum_image("MCF3M", url, cache_root=cache_root) is None:
+                        gaps.append(
+                            {
+                                "question_id": question_id,
+                                "ref": url,
+                                "reason": "figure file is not served",
+                            }
+                        )
+    return gaps
+
+
+def assert_imported_figures_complete(*, cache_root: Path | None = None) -> None:
+    """Raise when an imported module 5–7 item lost a figure or a choice.
+
+    Args:
+        cache_root: Optional curriculum root. ``None`` reads the repo cache.
+
+    Raises:
+        AssertionError: At least one stem, choice, or recorded image source
+            does not resolve. The message names the question id and reason.
+    """
+    gaps = audit_imported_figure_gaps(cache_root=cache_root)
+    if not gaps:
+        return
+    lines = [
+        f"{row.get('question_id') or '(no id)'}: {row.get('ref')} ({row.get('reason')})"
+        for row in gaps
+    ]
+    raise AssertionError(
+        f"{len(gaps)} imported figure gaps:\n" + "\n".join(lines)
+    )

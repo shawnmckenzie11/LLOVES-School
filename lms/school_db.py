@@ -12148,6 +12148,18 @@ class SchoolDB(LovesDB):
             self.purge_orphaned_attendance_participation()
         except Exception:  # noqa: BLE001 - orphan cleanup must not block boot
             logger.exception("orphaned attendance purge failed")
+        try:
+            # Production never runs the LOCAL_DEV_LOGIN reseed. This loads
+            # the MCF3M module 5–7 cartridge banks on every boot, including
+            # Fly. It is idempotent and does not delete question rows.
+            try:
+                from curriculum_bank_seed import apply_mcf3m_m567_cartridge_banks
+            except ImportError:
+                from lms.curriculum_bank_seed import apply_mcf3m_m567_cartridge_banks
+
+            apply_mcf3m_m567_cartridge_banks(self)
+        except Exception:  # noqa: BLE001 - bank apply must not block boot
+            logger.exception("MCF3M module 5-7 cartridge bank apply failed")
 
     def close(self) -> None:
         """Close both sqlite connections."""

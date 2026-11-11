@@ -27,10 +27,14 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from curriculum_bank_images import (  # noqa: E402
     assert_images_resolve,
+    assert_imported_figures_complete,
     audit_bank_images,
     audit_mcf3m_modules_5_to_7,
 )
-from curriculum_bank_seed import seed_library_import_banks  # noqa: E402
+from curriculum_bank_seed import (  # noqa: E402
+    apply_mcf3m_m567_cartridge_banks,
+    seed_library_import_banks,
+)
 from slide_builder import (  # noqa: E402
     load_local_bank_items,
     question_card_figure_html,
@@ -281,6 +285,7 @@ class Mcf3mBankImageTests(unittest.TestCase):
         self.assertGreater(report["questions_checked"], 0)
         self.assertGreater(report["refs_found"], 0)
         assert_images_resolve(report)
+        assert_imported_figures_complete()
         self.assertEqual(report["missing"], [])
         for row in report["refs"]:
             self.assertNotIn("nelson_assets", row["ref"])
@@ -331,6 +336,75 @@ class Mcf3mBankImageTests(unittest.TestCase):
             [row for row in still["items"] if row.get("question_id") == old_id],
             [],
         )
+
+
+    def test_empty_choice_or_unmapped_figure_fails_the_audit(self) -> None:
+        """A blank choice or a QTI image that maps to nothing fails the audit."""
+        cache = Path(self.tmp.name) / "gaps"
+        bank = cache / "MCF3M" / "banks" / "M5" / "C"
+        bank.mkdir(parents=True)
+        item = {
+            "origin": "canvas_cartridge",
+            "smart_id": "gap-item",
+            "stem": "Which of the following is equivalent to ?",
+            "stem_html": "Which of the following is equivalent to ?",
+            "choices": [
+                {"id": "a", "html": "", "correct": True},
+                {"id": "b", "html": "", "correct": False},
+            ],
+            "image_urls": [],
+            "figure_map": [
+                {
+                    "src": "https://example.test/missing.png",
+                    "kind": "file",
+                    "url": "",
+                }
+            ],
+        }
+        (bank / "items.json").write_text(json.dumps({"items": [item]}), encoding="utf-8")
+        with self.assertRaises(AssertionError) as caught:
+            assert_imported_figures_complete(cache_root=cache)
+        message = str(caught.exception)
+        self.assertIn("gap-item", message)
+        self.assertIn("empty choice", message)
+        self.assertIn("maps to nothing", message)
+
+    def test_boot_apply_loads_mcf3m_m567_without_local_dev_login(self) -> None:
+        """Production boot loads M5–M7 and leaves other courses alone."""
+        os.environ.pop("LOCAL_DEV_LOGIN", None)
+        other = self.school.create_library("MCR3U", origin="upload")
+        first = apply_mcf3m_m567_cartridge_banks(self.school)
+        self.assertFalse(first["skipped"])
+        self.assertGreater(first["questions"], 0)
+        sine = self.school.search_module_bank_mcs(
+            self.library_id, 5, "representation of the sine law"
+        )
+        sine_rows = [row for row in sine["items"] if row.get("type") == "mc"]
+        self.assertTrue(sine_rows)
+        self.assertTrue(
+            any("<img" in str(html) for html in (sine_rows[0].get("options_html") or []))
+        )
+        triangle = self.school.search_module_bank_mcs(self.library_id, 5, "sin B")
+        triangle_rows = [row for row in triangle["items"] if row.get("type") == "mc"]
+        self.assertTrue(triangle_rows)
+        self.assertTrue(
+            str(triangle_rows[0].get("image_url") or "").startswith("/curriculum-bank-images/")
+        )
+        second = apply_mcf3m_m567_cartridge_banks(self.school)
+        self.assertTrue(second["skipped"])
+        other_banks = self.school.conn.execute(
+            "SELECT COUNT(*) AS n FROM question_banks WHERE library_id = ?",
+            (int(other["id"]),),
+        ).fetchone()
+        self.assertEqual(int(other_banks["n"]), 0)
+        module_one = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM question_banks
+            WHERE library_id = ? AND import_key = 'curriculum-bank:MCF3M:M1'
+            """,
+            (self.library_id,),
+        ).fetchone()
+        self.assertEqual(int(module_one["n"]), 0)
 
 
 if __name__ == "__main__":
