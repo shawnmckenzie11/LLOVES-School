@@ -4,7 +4,8 @@
  * The phone, catch-up phone, and teacher gallery are the existing
  * whiteboard. This module only chooses the question run and posts Submit.
  * Drawing, colours, undo, redo, clear, and the teacher panel stay in
- * live_whiteboard.js and formative_live_board.js.
+ * live_whiteboard.js and formative_live_board.js. After a live Submit,
+ * that same board locks. Catch-up still allows a later edit.
  */
 
 import {
@@ -158,6 +159,36 @@ function paintBoardFeedback(slot, text) {
   if (why) why.textContent = note;
 }
 
+/**
+ * Freeze a submitted question phone on the shared whiteboard.
+ *
+ * Closes an open text box, hides Submit, and stops pen, text, undo,
+ * redo, and clear. Ink already on the canvas stays visible.
+ *
+ * @param {{
+ *   board?: { lockEditing?: () => void, closeTextEntry?: () => void },
+ *   submit?: HTMLButtonElement | null,
+ *   typed?: HTMLTextAreaElement | null,
+ *   tools?: ParentNode | null,
+ * }} parts
+ */
+export function lockSubmittedQuestionBoard(parts) {
+  const board = parts?.board;
+  if (board && typeof board.closeTextEntry === "function") board.closeTextEntry();
+  if (board && typeof board.lockEditing === "function") board.lockEditing();
+  const submit = parts?.submit;
+  if (submit) {
+    submit.hidden = true;
+    submit.disabled = true;
+  }
+  const typed = parts?.typed;
+  if (typed) typed.readOnly = true;
+  const buttons = parts?.tools?.querySelectorAll?.("button") || [];
+  for (const btn of buttons) {
+    if (btn instanceof HTMLButtonElement) btn.disabled = true;
+  }
+}
+
 /** @type {Map<string, HTMLElement>} */
 const phoneRoots = new Map();
 
@@ -166,7 +197,7 @@ const phoneRoots = new Map();
  * @param {HTMLElement} slot
  * @param {string} key Map key.
  * @param {{read: string, ops: string, submit: string, draft: string | null}} urls
- * @param {{team: boolean}} options Catch-up is never a team board.
+ * @param {{team: boolean, lockOnSubmit?: boolean}} options Catch-up is never a team board.
  */
 async function ensurePhoneBoard(slot, key, urls, options) {
   let root = phoneRoots.get(key);
@@ -241,7 +272,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     board.applyDelta?.(data);
     if (data.status_line) showLine(root, String(data.status_line), "status");
     if (data.text && !text.value) text.value = String(data.text);
-    if (options.team && typeof data.submit_ready === "boolean") {
+    if (options.team && typeof data.submit_ready === "boolean" && !root._editingLocked) {
       submit.disabled = !data.submit_ready;
     }
     if (typeof data.feedback === "string") {
@@ -256,6 +287,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
         );
       }
     }
+    if (data.editing_locked) freezePhone();
     const locked = Boolean(data.read_only) || slot.getAttribute("data-qboard-readonly") === "1";
     if (locked) {
       board.setEnabled?.(false);
@@ -263,6 +295,18 @@ async function ensurePhoneBoard(slot, key, urls, options) {
       text.readOnly = true;
       poll.stop();
     }
+    if (root._editingLocked) {
+      submit.hidden = true;
+      submit.disabled = true;
+    }
+  }
+
+  /**
+   * Hide Submit and stop every edit control on this phone.
+   */
+  function freezePhone() {
+    root._editingLocked = true;
+    lockSubmittedQuestionBoard({ board, submit, typed: text, tools });
   }
 
   const queue = createPresenceQueue({
@@ -310,6 +354,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
    * @param {string} strokeId
    */
   function postPoints(points, ended, strokeId) {
+    if (root._editingLocked) return;
     const samples = [];
     for (const point of points || []) {
       const norm = normalizeBoardPoint(canvas, point);
@@ -324,7 +369,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
       stroke_id: strokeId || undefined,
       ended: Boolean(ended),
     });
-    submit.disabled = false;
+    if (!root._editingLocked) submit.disabled = false;
   }
 
   const board = bindWhiteboard(canvas, {
@@ -343,22 +388,24 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     },
     owner: () => viewer || "student",
     onText: (label) => {
+      if (root._editingLocked) return;
       queue.push(questionBoardTextPost(label));
       submit.disabled = false;
     },
     onPoints: (points, ended, strokeId) => postPoints(points, ended, strokeId),
     onUndo: (stroke) => {
-      if (!stroke?.id) return;
+      if (root._editingLocked || !stroke?.id) return;
       queue.push({ op: "stroke_remove", stroke_id: stroke.id });
     },
     onClear: (gone) => {
+      if (root._editingLocked) return;
       for (const stroke of gone || []) {
         if (!stroke?.id || !stroke.mine) continue;
         queue.push({ op: "stroke_remove", stroke_id: stroke.id });
       }
     },
     onRedo: (stroke) => {
-      if (!stroke?.id) return;
+      if (root._editingLocked || !stroke?.id) return;
       postPoints(stroke.points || [], true, stroke.id);
     },
   });
@@ -385,6 +432,10 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   root._poll = poll;
 
   submit.addEventListener("click", async () => {
+    if (root._editingLocked) return;
+    if (options.lockOnSubmit && typeof board.closeTextEntry === "function") {
+      board.closeTextEntry();
+    }
     const response = await fetch(
       urls.submit,
       studentInit({
@@ -403,7 +454,9 @@ async function ensurePhoneBoard(slot, key, urls, options) {
       showLine(root, String(payload.error || DOWN_LINE), "error");
       return;
     }
-    showLine(root, String(payload.status_line || "Submitted. You can still make changes."), "status");
+    if (options.lockOnSubmit || payload.editing_locked) freezePhone();
+    const fallback = options.lockOnSubmit ? "Submitted." : "Submitted. You can still make changes.";
+    showLine(root, String(payload.status_line || fallback), "status");
     since = 0;
     poll.kick(true);
     const promptId = slot.getAttribute("data-qboard-prompt") || "";
@@ -414,6 +467,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     }
   });
   text.addEventListener("input", () => {
+    if (root._editingLocked) return;
     const ink = board.getInk?.().strokes || [];
     submit.disabled = !text.value.trim() && !ink.length;
     if (options.team && urls.draft) {
@@ -442,6 +496,7 @@ async function ensureStudentBoard(slot) {
   if (!promptId) return;
   await ensurePhoneBoard(slot, `live:${promptId}`, boardUrls("live", promptId), {
     team: slot.getAttribute("data-qboard-team") === "1",
+    lockOnSubmit: true,
   });
 }
 
@@ -463,7 +518,10 @@ export function mountCatchupQuestionBoards(token) {
     if (!(slot instanceof HTMLElement)) return;
     const itemId = String(slot.getAttribute("data-qboard-catchup") || "");
     if (!itemId || !token) return;
-    void ensurePhoneBoard(slot, `cu:${itemId}`, boardUrls("catchup", itemId, token), { team: false });
+    void ensurePhoneBoard(slot, `cu:${itemId}`, boardUrls("catchup", itemId, token), {
+      team: false,
+      lockOnSubmit: false,
+    });
   });
 }
 

@@ -6059,6 +6059,10 @@ function applyPushedQuestionCard(card) {
   if (!text.trim() && !options.length) return;
   const promptId = Number(card.prompt_id) || 0;
   const content = { type: kind, text, options };
+  const answerWith = String(card.answer_with || "");
+  if (answerWith === "board" || answerWith === "both") {
+    content.answer_with = answerWith;
+  }
   if (kind === "rank") content.rank_options = options;
   const mode = String(card.mode || "individual");
   /** @type {any} */

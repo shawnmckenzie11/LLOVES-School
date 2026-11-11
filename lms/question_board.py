@@ -22,6 +22,7 @@ DOWN_LINE = "That didn't go through. Your drawing is safe, so press Submit again
 CLOSED_LINE = "This question is closed."
 EMPTY_LINE = "Add an answer before submitting."
 GATE_LINE = "Everyone on the team adds something to the board before Submit."
+LOCKED_LINE = "This board is submitted."
 TEXT_LINE = "That text is too long."
 FEEDBACK_CAP = 500
 ROUND_DIGITS = 3
@@ -588,6 +589,30 @@ def _require_open_item(item: dict[str, Any]) -> None:
     if status == "closed":
         raise QuestionBoardError(CLOSED_LINE, 409)
     raise QuestionBoardError(CLOSED_LINE, 409)
+
+
+def _copy_is_submitted(school: Any, class_id: int, run_key: str, board_key: str) -> bool:
+    """True when this question board already has a submitted copy.
+
+    Student strokes, text, undo, clear, drafts, and a second submit stop
+    here. Teacher ink does not call this, so the gallery can still mark
+    the board the class already sent.
+
+    Args:
+        school: Open school database.
+        class_id: ``classes.id``.
+        run_key: Question run key.
+        board_key: ``solo:`` or ``team:`` key.
+    """
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT submitted_at FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(class_id), run_key, board_key),
+        ).fetchone()
+    return bool(row and str(row["submitted_at"] or "").strip())
 
 
 def _board_rows(school: Any, run_key: str, board_key: str) -> tuple[list[dict[str, Any]], int]:
@@ -1252,6 +1277,8 @@ def submit_live_board(
             """,
             (int(_session["class_id"]), run_key, board_key),
         ).fetchone()
+        if prior is not None and str(prior["submitted_at"] or "").strip():
+            raise QuestionBoardError(LOCKED_LINE, 409)
         started = _begin_immediate(school)
         try:
             fresh = school.conn.execute(
@@ -1306,6 +1333,8 @@ def submit_live_board(
         "group": group,
         "answer": pointer,
         "submitted_by": int(student_id),
+        "status_line": "Submitted.",
+        "editing_locked": True,
     }
 
 
@@ -1350,6 +1379,8 @@ def save_team_draft(
             """,
             (int(session["class_id"]), run_key, board_key),
         ).fetchone()
+        if row is not None and str(row["submitted_at"] or "").strip():
+            raise QuestionBoardError(LOCKED_LINE, 409)
         if row is not None and not str(row["submitted_at"] or "").strip():
             try:
                 previous = datetime.fromisoformat(str(row["updated_at"] or ""))
@@ -1686,8 +1717,9 @@ def read_student_question_board(
     """Whole board for one student, including their own ink.
 
     After Close the phone is read-only and shows the saved copy when one
-    exists. Teacher ink is included immediately. ``since`` selects the
-    same since-seq shape the live whiteboard poll uses.
+    exists. After Submit, ``editing_locked`` is true: the drawing stays
+    visible and student edits stop. Teacher ink is included immediately.
+    ``since`` selects the same since-seq shape the live whiteboard poll uses.
 
     Args:
         school: Open school database.
@@ -1731,11 +1763,9 @@ def read_student_question_board(
     who_name = names.get(who_id, "") if who_id is not None else ""
     line = ""
     if submitted_at and group and who_name:
-        line = f"Submitted by {who_name}. Anyone on your team can update it."
-        if str(saved.get("updated_at") or "") != submitted_at:
-            line = f"Updated by {who_name}."
+        line = f"Submitted by {who_name}."
     elif submitted_at:
-        line = "Submitted. You can still make changes."
+        line = "Submitted."
     body = {
         "ok": True,
         "run_key": run_key,
@@ -1744,6 +1774,7 @@ def read_student_question_board(
         "snapshot": True,
         "canvas_view": view,
         "read_only": closed or str(session.get("status") or "") != "active",
+        "editing_locked": bool(submitted_at),
         "group": group,
         "viewer_id": int(student_id),
         "answer_with": answer_with_of(payload),
@@ -1790,7 +1821,8 @@ def append_question_board_ops(
     """Append ink on this question's board and nowhere else.
 
     The server chooses a student's board key. A teacher passes the tile
-    key. A closed question is a 409 and stores nothing.
+    key. A closed question is a 409 and stores nothing. A submitted
+    board refuses student ops and still accepts teacher ink.
 
     Args:
         school: Open school database.
@@ -1815,6 +1847,10 @@ def append_question_board_ops(
             school, int(session_id), int(student_id), item
         )
     run_key = question_run_key(base, int(prompt_id))
+    if owner != "teacher" and _copy_is_submitted(
+        school, int(_session["class_id"]), run_key, board_key
+    ):
+        raise QuestionBoardError(LOCKED_LINE, 409)
     cleaned = []
     for op in ops:
         if not isinstance(op, dict):
@@ -1937,7 +1973,7 @@ def apply_question_presence(
 
     Points, text, and undo use the same board store as the live
     whiteboard. The question run key keeps this ink off the deck board.
-    Names are not copied onto the stroke.
+    Names are not copied onto the stroke. A submitted board stores nothing.
 
     Args:
         school: Open school database.
@@ -1955,6 +1991,8 @@ def apply_question_presence(
         school, int(session_id), int(student_id), item
     )
     run_key = _require_claimed_run(body.get("run_key"), question_run_key(base, int(prompt_id)))
+    if _copy_is_submitted(school, int(_session["class_id"]), run_key, board_key):
+        raise QuestionBoardError(LOCKED_LINE, 409)
     boards = getattr(school, "boards", None)
     if boards is None:
         raise QuestionBoardError(DOWN_LINE, 503)

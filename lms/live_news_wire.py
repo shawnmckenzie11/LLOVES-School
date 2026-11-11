@@ -665,6 +665,9 @@ def _public_card(raw: Any) -> dict[str, Any] | None:
         "flow": flow,
         "rank_mode": rank_mode,
     }
+    answer_with = str(raw.get("answer_with") or "").strip().lower()
+    if answer_with in {"board", "both"}:
+        card["answer_with"] = answer_with
     if card["item_id"] <= 0:
         return None
     if card["prompt_id"] <= 0:

@@ -23772,7 +23772,8 @@ class SchoolDB(LovesDB):
 
         The card is the same for every student at publish. It has no answer
         key, roster, names, or emails. Keyed rank ids are the student
-        aliases, in the stored display order.
+        aliases, in the stored display order. A board question keeps
+        ``answer_with`` so the phone does not swap the board for a text box.
 
         Args:
             item: Published lifecycle row from ``publish_live_session_item``.
@@ -23811,7 +23812,7 @@ class SchoolDB(LovesDB):
         ):
             flow = GROUP_MC_PICK_THEN_AGREE
         prompt_id = item.get("prompt_id")
-        return {
+        card = {
             "item_id": int(item["id"]),
             "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
             "kind": kind,
@@ -23821,6 +23822,10 @@ class SchoolDB(LovesDB):
             "flow": flow,
             "rank_mode": rank_mode,
         }
+        answer_with = str(question.get("answer_with") or "").strip().lower()
+        if answer_with in {"board", "both"}:
+            card["answer_with"] = answer_with
+        return card
 
     def close_live_session_item(
         self, session_id: int, placement_or_item: str | int, *, by_timer: bool = False
