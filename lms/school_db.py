@@ -4413,10 +4413,22 @@ class LovesDB:
                 is_test INTEGER NOT NULL DEFAULT 0,
                 run_key TEXT NOT NULL,
                 dismissed_at TEXT NOT NULL,
+                metrics_removed INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (class_id, live_module, live_slot, is_test, run_key)
             )
             """
         )
+        cols = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(lesson_slides_dismissed)")
+        }
+        if "metrics_removed" not in cols:
+            self.conn.execute(
+                """
+                ALTER TABLE lesson_slides_dismissed
+                ADD COLUMN metrics_removed INTEGER NOT NULL DEFAULT 0
+                """
+            )
 
     def _ensure_lesson_slides_is_test_key(self) -> None:
         """Rebuild Lesson Slides so a test row does not replace the real slot."""
@@ -43739,6 +43751,7 @@ class SchoolDB(LovesDB):
                     SELECT 1 FROM lesson_slides_dismissed dismissed_run
                     WHERE dismissed_run.class_id = pr.class_id
                       AND dismissed_run.run_key = pr.run_key
+                      AND COALESCE(dismissed_run.metrics_removed, 0) = 1
                   )
                 """,
                 (cid,),
@@ -43759,6 +43772,7 @@ class SchoolDB(LovesDB):
                     SELECT 1 FROM lesson_slides_dismissed dismissed_run
                     WHERE dismissed_run.class_id = lcs.class_id
                       AND dismissed_run.run_key = lcs.run_key
+                      AND COALESCE(dismissed_run.metrics_removed, 0) = 1
                   )
                 """,
                 (cid,),
@@ -44030,6 +44044,7 @@ class SchoolDB(LovesDB):
                     SELECT 1 FROM lesson_slides_dismissed dismissed_run
                     WHERE dismissed_run.class_id = c.class_id
                       AND dismissed_run.run_key = c.run_key
+                      AND COALESCE(dismissed_run.metrics_removed, 0) = 1
                   )
                 ORDER BY c.updated_at DESC, c.id DESC
                 LIMIT 1
@@ -50028,7 +50043,8 @@ class SchoolDB(LovesDB):
             " AND NOT EXISTS ("
             "SELECT 1 FROM lesson_slides_dismissed dismissed_run"
             f" WHERE dismissed_run.class_id = {class_id_expr}"
-            f" AND dismissed_run.run_key = {run_key_expr})"
+            f" AND dismissed_run.run_key = {run_key_expr}"
+            " AND COALESCE(dismissed_run.metrics_removed, 0) = 1)"
         )
 
     def _tracker_still_used_unlocked(
@@ -50048,17 +50064,19 @@ class SchoolDB(LovesDB):
             """
             SELECT 1 FROM live_participation_credits lpc
             INNER JOIN sessions s ON s.id = lpc.session_id
-            WHERE lpc.session_id = ? AND lpc.run_key != ? AND s.class_id = ?
+            WHERE lpc.session_id = ? AND s.class_id = ?
+              AND NOT (lpc.run_key IS NOT NULL AND lpc.run_key = ?)
             LIMIT 1
             """,
-            (int(tracker_id), str(run_key), int(class_id)),
+            (int(tracker_id), int(class_id), str(run_key)),
         ).fetchone()
         if other_credit is not None:
             return True
         other_live = self.conn.execute(
             """
             SELECT 1 FROM live_class_sessions
-            WHERE class_id = ? AND mgs_session_id = ? AND run_key != ?
+            WHERE class_id = ? AND mgs_session_id = ?
+              AND NOT (run_key IS NOT NULL AND run_key = ?)
             LIMIT 1
             """,
             (int(class_id), int(tracker_id), str(run_key)),
@@ -50108,10 +50126,8 @@ class SchoolDB(LovesDB):
         counts["session_ids"] = session_ids
         for table in (
             "participation_answers",
-            "participation_items",
             "participation_runs",
             "group_engagement",
-            "group_engagement_items",
         ):
             cur = self.conn.execute(
                 f"DELETE FROM {table} WHERE class_id = ? AND run_key = ?",
@@ -50214,20 +50230,74 @@ class SchoolDB(LovesDB):
                 break
         return removed
 
-    def purge_orphaned_attendance_participation(self) -> dict[str, int]:
-        """Delete attendance and participation for deleted live-class instances.
+    @staticmethod
+    def _course_is_mcr3u(ontario_code: str, course_code: str) -> bool:
+        """True when either stored code is MCR3U or a numbered section of it.
 
-        A run is deleted when Lesson Slides recorded it in
-        ``lesson_slides_dismissed``. Rows for a run that was not dismissed
-        stay, including participation that never had a session row.
-        Attendee rows whose live session id is gone are removed. Presence
-        sessions whose id is gone are removed. Safe on every boot. The log
-        is counts only.
+        Args:
+            ontario_code: ``course_offerings.ontario_code``.
+            course_code: ``classes.course_code``, which may carry a section suffix.
+        """
+        for raw in (ontario_code, course_code):
+            code = str(raw or "").strip().upper()
+            if code == "MCR3U":
+                return True
+            if code.startswith("MCR3U-") and code[6:].isdigit():
+                return True
+        return False
+
+    def _mcr3u_module5_dismissed_runs_unlocked(self) -> list[tuple[int, str]]:
+        """Dismissed MCR3U module 5 runs. Caller holds the write transaction.
+
+        Matches the course code and module stored on the rows. No class id
+        or roster name is used.
+
+        Returns:
+            ``(class_id, run_key)`` pairs.
+        """
+        from begin_module import normalize_module
+
+        rows = self.conn.execute(
+            """
+            SELECT d.class_id AS class_id, d.run_key AS run_key,
+                   d.live_module AS live_module,
+                   o.ontario_code AS ontario_code,
+                   c.course_code AS course_code
+            FROM lesson_slides_dismissed d
+            INNER JOIN classes c ON c.id = d.class_id
+            LEFT JOIN course_offerings o ON o.id = c.offering_id
+            WHERE TRIM(COALESCE(d.run_key, '')) != ''
+            """
+        ).fetchall()
+        found: list[tuple[int, str]] = []
+        seen: set[tuple[int, str]] = set()
+        for row in rows:
+            if normalize_module(row["live_module"]) != "M5":
+                continue
+            if not self._course_is_mcr3u(row["ontario_code"], row["course_code"]):
+                continue
+            pair = (int(row["class_id"]), str(row["run_key"]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            found.append(pair)
+        return found
+
+    def purge_orphaned_attendance_participation(self) -> dict[str, int]:
+        """Delete attendance and participation for new Lesson Slides deletes.
+
+        A dismissal from before this delete removed grades only hides the
+        Lesson Slides row. Those rows stay. A dismissal recorded with
+        ``metrics_removed`` is purged on every boot. Dismissed MCR3U module
+        5 runs are purged once, then a settings marker stops that pass.
+        Presence is removed only for those session ids. The log is counts.
 
         Returns:
             ``participation``, ``engagement``, ``attendance_columns``,
-            ``attendees``, and ``presence_sessions``. A second call is zeros.
+            ``attendees``, and ``presence_sessions``. A second call is zeros
+            when nothing new was deleted.
         """
+        marker = "mck471_mcr3u_m5_dismissed_metrics"
         totals = {
             "participation": 0,
             "engagement": 0,
@@ -50236,6 +50306,13 @@ class SchoolDB(LovesDB):
             "presence_sessions": 0,
         }
         presence_ids: list[int] = []
+        scoped_counts = {
+            "participation": 0,
+            "engagement": 0,
+            "attendance_columns": 0,
+            "attendees": 0,
+            "applied": 0,
+        }
         game_conn = self.game.conn if getattr(self, "game", None) is not None else None
         with self._lock:
             if game_conn is not None and game_conn.in_transaction:
@@ -50244,21 +50321,70 @@ class SchoolDB(LovesDB):
                 self.conn.execute("COMMIT")
             self.conn.execute("BEGIN IMMEDIATE")
             try:
-                dismissed = self.conn.execute(
+                self.conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS school_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                seen: set[tuple[int, str]] = set()
+                targets: list[tuple[int, str]] = []
+                scoped_pairs: set[tuple[int, str]] = set()
+                marker_row = self.conn.execute(
+                    "SELECT value FROM school_settings WHERE key = ?",
+                    (marker,),
+                ).fetchone()
+                if marker_row is None:
+                    scoped_counts["applied"] = 1
+                    for pair in self._mcr3u_module5_dismissed_runs_unlocked():
+                        scoped_pairs.add(pair)
+                        if pair not in seen:
+                            seen.add(pair)
+                            targets.append(pair)
+                        self.conn.execute(
+                            """
+                            UPDATE lesson_slides_dismissed
+                            SET metrics_removed = 1
+                            WHERE class_id = ? AND run_key = ?
+                            """,
+                            (int(pair[0]), str(pair[1])),
+                        )
+                    self.conn.execute(
+                        """
+                        INSERT INTO school_settings (key, value, updated_at)
+                        VALUES (?, '1', ?)
+                        """,
+                        (marker, _now()),
+                    )
+                fresh = self.conn.execute(
                     """
                     SELECT DISTINCT class_id, run_key
                     FROM lesson_slides_dismissed
-                    WHERE TRIM(run_key) != ''
+                    WHERE TRIM(COALESCE(run_key, '')) != ''
+                      AND COALESCE(metrics_removed, 0) = 1
                     """
                 ).fetchall()
-                for row in dismissed:
-                    purged = self._purge_instance_metrics_unlocked(
-                        int(row["class_id"]), str(row["run_key"])
-                    )
+                for row in fresh:
+                    pair = (int(row["class_id"]), str(row["run_key"]))
+                    if pair not in seen:
+                        seen.add(pair)
+                        targets.append(pair)
+                for class_id, run_key in targets:
+                    purged = self._purge_instance_metrics_unlocked(class_id, run_key)
                     totals["participation"] += int(purged["participation"])
                     totals["engagement"] += int(purged["engagement"])
                     totals["attendance_columns"] += int(purged["attendance_columns"])
                     totals["attendees"] += int(purged["attendees"])
+                    if (class_id, run_key) in scoped_pairs:
+                        scoped_counts["participation"] += int(purged["participation"])
+                        scoped_counts["engagement"] += int(purged["engagement"])
+                        scoped_counts["attendance_columns"] += int(
+                            purged["attendance_columns"]
+                        )
+                        scoped_counts["attendees"] += int(purged["attendees"])
                     presence_ids.extend(int(sid) for sid in purged["session_ids"])
                 dangling = self.conn.execute(
                     """
@@ -50275,10 +50401,6 @@ class SchoolDB(LovesDB):
                     WHERE session_id NOT IN (SELECT id FROM sessions)
                     """
                 )
-                living_rows = self.conn.execute(
-                    "SELECT id FROM live_class_sessions"
-                ).fetchall()
-                living_ids = [int(row["id"]) for row in living_rows]
             except BaseException:
                 if self.conn.in_transaction:
                     self.conn.execute("ROLLBACK")
@@ -50286,18 +50408,19 @@ class SchoolDB(LovesDB):
             else:
                 if self.conn.in_transaction:
                     self.conn.execute("COMMIT")
-        totals["presence_sessions"] += self._drop_presence_sessions(presence_ids)
-        presence = getattr(self, "presence", None)
-        if presence is not None:
-            try:
-                totals["presence_sessions"] += int(
-                    presence.delete_sessions_not_in(living_ids) or 0
-                )
-            except Exception as exc:
-                logger.warning(
-                    "presence orphan purge failed (%s)",
-                    type(exc).__name__,
-                )
+        if scoped_counts["applied"]:
+            logger.info(
+                "scoped dismissed cleanup applied=%s participation=%s "
+                "engagement=%s attendance_columns=%s attendees=%s",
+                int(scoped_counts["applied"]),
+                int(scoped_counts["participation"]),
+                int(scoped_counts["engagement"]),
+                int(scoped_counts["attendance_columns"]),
+                int(scoped_counts["attendees"]),
+            )
+        totals["presence_sessions"] += self._drop_presence_sessions(
+            list(dict.fromkeys(presence_ids))
+        )
         logger.info(
             "orphaned attendance purge participation=%s engagement=%s "
             "attendance_columns=%s attendees=%s presence_sessions=%s",
@@ -50343,6 +50466,7 @@ class SchoolDB(LovesDB):
                     """
                     SELECT run_key FROM lesson_slides_dismissed
                     WHERE class_id = ?
+                      AND COALESCE(metrics_removed, 0) = 1
                     """,
                     (cid,),
                 ).fetchall()
@@ -50352,11 +50476,11 @@ class SchoolDB(LovesDB):
             if row["session_id"] in (None, ""):
                 continue
             key = str(row["run_key"] or "").strip()
-            if not key:
-                continue
             by_tracker.setdefault(int(row["session_id"]), set()).add(key)
         hidden: set[int] = set()
         for tracker_id, keys in by_tracker.items():
+            if "" in keys:
+                continue
             if keys and all(key in dismissed for key in keys):
                 hidden.add(int(tracker_id))
         return hidden
@@ -50412,10 +50536,13 @@ class SchoolDB(LovesDB):
                 self.conn.execute(
                     """
                     INSERT INTO lesson_slides_dismissed (
-                        class_id, live_module, live_slot, is_test, run_key, dismissed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        class_id, live_module, live_slot, is_test, run_key,
+                        dismissed_at, metrics_removed
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1)
                     ON CONFLICT(class_id, live_module, live_slot, is_test, run_key)
-                    DO UPDATE SET dismissed_at = excluded.dismissed_at
+                    DO UPDATE SET
+                        dismissed_at = excluded.dismissed_at,
+                        metrics_removed = 1
                     """,
                     (int(class_id), mod, sl, flag, key, dismissed_at),
                 )
@@ -54849,6 +54976,10 @@ class SchoolDB(LovesDB):
                     (int(class_id),),
                 )
             ]
+        hidden = self._dismissed_tracker_ids(int(class_id))
+        if hidden:
+            sessions = [row for row in sessions if int(row["id"]) not in hidden]
+            scores = [row for row in scores if int(row["session_id"]) not in hidden]
         return sessions, scores
 
     def module_reflections_for_class(

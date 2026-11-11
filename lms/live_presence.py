@@ -458,8 +458,8 @@ class LivePresenceStore:
         """Delete presence sessions whose id is not in ``living_ids``.
 
         Attendees of those sessions go in the same transaction. An id
-        that is still listed is left. An empty list means no live class
-        session exists, so every presence session is removed. Nothing
+        that is still listed is left. An empty list deletes nothing:
+        it is not a signal that every presence row is spare. Nothing
         about a join code is logged.
 
         Args:
@@ -472,44 +472,37 @@ class LivePresenceStore:
             LivePresenceUnavailable: The database could not finish the delete.
         """
         living = sorted({int(sid) for sid in living_ids})
+        if not living:
+            return 0
         with self._conn() as conn:
             raw = conn.connection
             previous = raw.autocommit
             raw.autocommit = False
             try:
-                if living:
-                    marks = ",".join(["%s"] * len(living))
-                    present = raw.execute(
+                marks = ",".join(["%s"] * len(living))
+                present = raw.execute(
+                    f"""
+                    SELECT COUNT(*) AS n FROM live_presence_sessions
+                    WHERE id NOT IN ({marks})
+                    """,
+                    living,
+                ).fetchone()
+                removed = int(present["n"] or 0)
+                if removed:
+                    raw.execute(
                         f"""
-                        SELECT COUNT(*) AS n FROM live_presence_sessions
+                        DELETE FROM live_presence_attendees
+                        WHERE live_session_id NOT IN ({marks})
+                        """,
+                        living,
+                    )
+                    raw.execute(
+                        f"""
+                        DELETE FROM live_presence_sessions
                         WHERE id NOT IN ({marks})
                         """,
                         living,
-                    ).fetchone()
-                    removed = int(present["n"] or 0)
-                    if removed:
-                        raw.execute(
-                            f"""
-                            DELETE FROM live_presence_attendees
-                            WHERE live_session_id NOT IN ({marks})
-                            """,
-                            living,
-                        )
-                        raw.execute(
-                            f"""
-                            DELETE FROM live_presence_sessions
-                            WHERE id NOT IN ({marks})
-                            """,
-                            living,
-                        )
-                else:
-                    present = raw.execute(
-                        "SELECT COUNT(*) AS n FROM live_presence_sessions"
-                    ).fetchone()
-                    removed = int(present["n"] or 0)
-                    if removed:
-                        raw.execute("DELETE FROM live_presence_attendees")
-                        raw.execute("DELETE FROM live_presence_sessions")
+                    )
                 raw.commit()
                 return removed
             except Exception:
