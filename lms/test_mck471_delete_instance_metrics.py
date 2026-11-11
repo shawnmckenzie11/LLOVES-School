@@ -434,24 +434,59 @@ class DeleteInstanceMetricsTests(Base):
             """,
             (self.class_id, kept_real, int(self.students[0]), now),
         )
-        offering = self.school.assign_course(
+        mcf_offering = self.school.assign_course(
             teacher_user_id=int(self.teacher["id"]), ontario_code="MCF3M"
         )
-        other_class = int(
-            self.school.game.create_class(
-                year="2026/27",
-                semester="Semester 1",
-                course_code="MCF3M",
-                days_preset="M/W/F",
-                time_label="2:00pm",
-                codenames=["Cara"],
-                offering_id=int(offering["id"]),
-                teacher_user_id=int(self.teacher["id"]),
-            )["id"]
+        other_class = self._class_with_code("MCF3M", int(mcf_offering["id"]), "Cara")
+        section_class = self._class_with_code("MCR3U-2", int(mcf_offering["id"]), "Drew")
+        numbered_class = self._class_with_code("MCR3U-12", int(mcf_offering["id"]), "Evan")
+        mcr_offering_id = int(
+            self.school.conn.execute(
+                "SELECT offering_id FROM classes WHERE id = ?",
+                (self.class_id,),
+            ).fetchone()["offering_id"]
         )
+        other_code_class = self._class_with_code("HIST", mcr_offering_id, "Faye")
         other_key = f"mcf-{uuid.uuid4().hex}"
+        section_key = f"sec-{uuid.uuid4().hex}"
+        numbered_key = f"num-{uuid.uuid4().hex}"
+        other_code_key = f"off-{uuid.uuid4().hex}"
         self._plant_dismissed_answer(other_class, other_key, "M5", "C1", metrics_removed=0)
+        self._plant_dismissed_answer(section_class, section_key, "M5", "C1", metrics_removed=0)
+        self._plant_dismissed_answer(numbered_class, numbered_key, "M5", "C1", metrics_removed=0)
+        self._plant_dismissed_answer(
+            other_code_class, other_code_key, "M5", "C1", metrics_removed=0
+        )
         self.school.conn.commit()
+        codes = {
+            int(row["id"]): str(row["course_code"])
+            for row in self.school.conn.execute(
+                "SELECT id, course_code FROM classes"
+            )
+        }
+        self.assertEqual(codes[section_class], "MCR3U-2")
+        self.assertEqual(codes[numbered_class], "MCR3U-12")
+        self.assertEqual(codes[other_code_class], "HIST")
+        offering_code = self.school.conn.execute(
+            """
+            SELECT o.ontario_code
+            FROM classes c
+            JOIN course_offerings o ON o.id = c.offering_id
+            WHERE c.id = ?
+            """,
+            (other_code_class,),
+        ).fetchone()
+        self.assertEqual(str(offering_code["ontario_code"]), "MCR3U")
+        section_offering = self.school.conn.execute(
+            """
+            SELECT o.ontario_code
+            FROM classes c
+            JOIN course_offerings o ON o.id = c.offering_id
+            WHERE c.id = ?
+            """,
+            (section_class,),
+        ).fetchone()
+        self.assertEqual(str(section_offering["ontario_code"]), "MCF3M")
         logging.disable(logging.NOTSET)
         try:
             with self.assertLogs("school_db", level="INFO") as logs:
@@ -462,16 +497,46 @@ class DeleteInstanceMetricsTests(Base):
         self.assertEqual(self._answers(self.class_id, other_module), 1)
         self.assertEqual(self._answers(self.class_id, kept_real), 1)
         self.assertEqual(self._answers(other_class, other_key), 1)
+        self.assertEqual(self._answers(section_class, section_key), 1)
+        self.assertEqual(self._answers(numbered_class, numbered_key), 1)
+        self.assertEqual(self._answers(other_code_class, other_code_key), 1)
         logged = "\n".join(logs.output)
         self.assertNotIn("@", logged)
-        self.assertNotIn("Ava", logged)
-        self.assertNotIn("Cara", logged)
+        for name in ("Ava", "Cara", "Drew", "Evan", "Faye"):
+            self.assertNotIn(name, logged)
         late = f"m5-late-{uuid.uuid4().hex}"
         self._plant_dismissed_answer(self.class_id, late, "M5", "C2", metrics_removed=0)
         self.school.conn.commit()
         self.school.purge_orphaned_attendance_participation()
         self.assertEqual(self._answers(self.class_id, late), 1)
         self.assertEqual(self._answers(other_class, other_key), 1)
+        self.assertEqual(self._answers(section_class, section_key), 1)
+        self.assertEqual(self._answers(numbered_class, numbered_key), 1)
+        self.assertEqual(self._answers(other_code_class, other_code_key), 1)
+
+    def _class_with_code(self, course_code: str, offering_id: int, codename: str) -> int:
+        """Create one class stored under ``course_code``.
+
+        Args:
+            course_code: Exact ``classes.course_code``.
+            offering_id: Offering to attach. Its Ontario code is not the match.
+            codename: Roster label for the new class.
+
+        Returns:
+            ``classes.id``.
+        """
+        return int(
+            self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code=course_code,
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=[codename],
+                offering_id=int(offering_id),
+                teacher_user_id=int(self.teacher["id"]),
+            )["id"]
+        )
 
     def _plant_dismissed_answer(
         self,

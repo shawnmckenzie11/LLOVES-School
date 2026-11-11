@@ -50230,27 +50230,12 @@ class SchoolDB(LovesDB):
                 break
         return removed
 
-    @staticmethod
-    def _course_is_mcr3u(ontario_code: str, course_code: str) -> bool:
-        """True when either stored code is MCR3U or a numbered section of it.
-
-        Args:
-            ontario_code: ``course_offerings.ontario_code``.
-            course_code: ``classes.course_code``, which may carry a section suffix.
-        """
-        for raw in (ontario_code, course_code):
-            code = str(raw or "").strip().upper()
-            if code == "MCR3U":
-                return True
-            if code.startswith("MCR3U-") and code[6:].isdigit():
-                return True
-        return False
-
     def _mcr3u_module5_dismissed_runs_unlocked(self) -> list[tuple[int, str]]:
-        """Dismissed MCR3U module 5 runs. Caller holds the write transaction.
+        """Dismissed module 5 runs whose class code is exactly ``MCR3U``.
 
-        Matches the course code and module stored on the rows. No class id
-        or roster name is used.
+        Caller holds the write transaction. ``MCR3U-2`` and any other
+        ``MCR3U-<digits>`` class are different courses. The offering code
+        is not used. No class id or roster name is used.
 
         Returns:
             ``(class_id, run_key)`` pairs.
@@ -50260,21 +50245,17 @@ class SchoolDB(LovesDB):
         rows = self.conn.execute(
             """
             SELECT d.class_id AS class_id, d.run_key AS run_key,
-                   d.live_module AS live_module,
-                   o.ontario_code AS ontario_code,
-                   c.course_code AS course_code
+                   d.live_module AS live_module
             FROM lesson_slides_dismissed d
             INNER JOIN classes c ON c.id = d.class_id
-            LEFT JOIN course_offerings o ON o.id = c.offering_id
-            WHERE TRIM(COALESCE(d.run_key, '')) != ''
+            WHERE c.course_code = 'MCR3U'
+              AND TRIM(COALESCE(d.run_key, '')) != ''
             """
         ).fetchall()
         found: list[tuple[int, str]] = []
         seen: set[tuple[int, str]] = set()
         for row in rows:
             if normalize_module(row["live_module"]) != "M5":
-                continue
-            if not self._course_is_mcr3u(row["ontario_code"], row["course_code"]):
                 continue
             pair = (int(row["class_id"]), str(row["run_key"]))
             if pair in seen:
@@ -50288,8 +50269,9 @@ class SchoolDB(LovesDB):
 
         A dismissal from before this delete removed grades only hides the
         Lesson Slides row. Those rows stay. A dismissal recorded with
-        ``metrics_removed`` is purged on every boot. Dismissed MCR3U module
-        5 runs are purged once, then a settings marker stops that pass.
+        ``metrics_removed`` is purged on every boot. Dismissed module 5
+        runs on a class whose code is exactly ``MCR3U`` are purged once,
+        then a settings marker stops that pass.
         Presence is removed only for those session ids. The log is counts.
 
         Returns:
