@@ -50,6 +50,8 @@ FIGURE_MODULES = frozenset({("MCF3M", 5), ("MCF3M", 6), ("MCF3M", 7)})
 _PUBLIC_PREFIX = "/curriculum-bank-images/"
 _LMS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _LMS_DIR.parent
+#: Committed MCF3M cartridge figures. The route serves ``cartridge/<file>``.
+CARTRIDGE_IMAGE_DIR = _LMS_DIR / "seeds" / "mcf3m_m567_images"
 
 
 def course_code_token(course_code: str) -> str:
@@ -160,8 +162,26 @@ def resolve_curriculum_image(
     static = _static_file(ref)
     if static is not None:
         return static
-    rel = safe_curriculum_image_rel(ref)
+    raw_ref = html.unescape(str(ref or "")).strip()
+    marker = f"{_PUBLIC_PREFIX}"
+    if marker in raw_ref:
+        rest = raw_ref.split(marker, 1)[1]
+        _code, _, relpath = rest.partition("/")
+        raw_ref = relpath
+    rel = safe_curriculum_image_rel(raw_ref)
     if rel is None:
+        return None
+    if rel.startswith("cartridge/"):
+        name = rel.split("/", 1)[1]
+        if not name or "/" in name or name.startswith("."):
+            return None
+        file = (CARTRIDGE_IMAGE_DIR / name).resolve()
+        try:
+            file.relative_to(CARTRIDGE_IMAGE_DIR.resolve())
+        except (OSError, ValueError):
+            return None
+        if file.is_file() and file.suffix.lower() in _IMAGE_EXT:
+            return file, public_curriculum_image_url(course_code, rel)
         return None
     course_dir = _course_dir(course_code, cache_root)
     file = (course_dir / rel).resolve()
@@ -458,9 +478,15 @@ def _audit_ref(
         ref: Image reference.
         cache_root: Optional curriculum root.
     """
-    rel = safe_curriculum_image_rel(ref)
+    raw_ref = html.unescape(str(ref or "")).strip()
+    if _PUBLIC_PREFIX in raw_ref:
+        raw_ref = raw_ref.split(_PUBLIC_PREFIX, 1)[1].partition("/")[2]
+    rel = safe_curriculum_image_rel(raw_ref)
     on_disk = False
-    if rel is not None:
+    if rel is not None and rel.startswith("cartridge/"):
+        name = rel.split("/", 1)[1]
+        on_disk = bool(name) and (CARTRIDGE_IMAGE_DIR / name).is_file()
+    elif rel is not None:
         course_dir = _course_dir(course_code, cache_root)
         on_disk = (course_dir / rel).is_file()
     static = _static_file(ref)

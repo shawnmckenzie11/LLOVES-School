@@ -275,31 +275,62 @@ class Mcf3mBankImageTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual(list(lint), [])
 
-    def test_shipped_mcf3m_m5_m7_refs_are_resolved_or_listed(self) -> None:
-        """Every shipped M5–M7 image ref resolves, or the audit lists why not.
-
-        A file that is on disk and still unresolved fails. A file that is
-        not in the repo is listed and is not replaced with a drawing.
-        """
+    def test_cartridge_m5_m7_images_resolve_and_replace_nelson(self) -> None:
+        """Every image on the cartridge M5–M7 items resolves, and Nelson paths are gone."""
         report = audit_mcf3m_modules_5_to_7()
         self.assertGreater(report["questions_checked"], 0)
-        self.assertEqual(
-            report["refs_found"],
-            report["refs_resolved"] + len(report["missing"]),
+        self.assertGreater(report["refs_found"], 0)
+        assert_images_resolve(report)
+        self.assertEqual(report["missing"], [])
+        for row in report["refs"]:
+            self.assertNotIn("nelson_assets", row["ref"])
+            self.assertTrue(row["url"].startswith("/curriculum-bank-images/MCF3M/cartridge/"))
+            served = self.client.get(row["url"])
+            self.assertEqual(served.status_code, 200, row["url"])
+            self.assertGreater(len(served.data), 32)
+
+    def test_seed_replaces_module_bank_and_keeps_old_ids(self) -> None:
+        """Cartridge MC replaces the module bank; the old row keeps its id."""
+        from curriculum_bank_seed import seed_library_import_banks
+
+        cache = REPO_ROOT / ".local-data" / "curriculum"
+        seed_library_import_banks(
+            self.school, self.library_id, "MCF3M", cache_root=cache
         )
-        self.assertEqual(report["broken_but_on_disk"], [])
-        for row in report["missing"]:
-            self.assertTrue(row["question_id"])
-            self.assertTrue(row["ref"])
-            self.assertFalse(row["on_disk"])
-            self.assertFalse(row["in_git"])
-            self.assertIn("not in the repo or its git history", row["reason"])
-        if report["missing"]:
-            with self.assertRaises(AssertionError) as caught:
-                assert_images_resolve(report)
-            self.assertIn(report["missing"][0]["ref"], str(caught.exception))
-        else:
-            assert_images_resolve(report)
+        found = self.school.search_module_bank_mcs(self.library_id, 5, "triangle ABC")
+        rows = [row for row in found["items"] if row.get("type") == "mc"]
+        self.assertTrue(rows)
+        self.assertTrue(str(rows[0].get("image_url") or "").startswith("/curriculum-bank-images/"))
+        self.assertIn(rows[0].get("correct_answer"), list("ABCD"))
+        bank_id = int(rows[0]["bank_id"])
+        self.school.conn.execute(
+            """
+            INSERT INTO questions (
+                bank_id, import_key, item_type, title, payload_json, created_at
+            ) VALUES (?, 'curriculum:MCF3M:M5:old-nelson', 'multiple_choice_question',
+                      'old', '{}', '2026-01-01T00:00:00+00:00')
+            """,
+            (bank_id,),
+        )
+        old_id = int(self.school.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        self.school.conn.commit()
+        seed_library_import_banks(
+            self.school, self.library_id, "MCF3M", cache_root=cache
+        )
+        moved = self.school.conn.execute(
+            """
+            SELECT b.import_key FROM questions q
+            JOIN question_banks b ON b.id = q.bank_id
+            WHERE q.id = ?
+            """,
+            (old_id,),
+        ).fetchone()
+        self.assertEqual(moved["import_key"], "retired-curriculum:MCF3M:M5")
+        still = self.school.search_module_bank_mcs(self.library_id, 5, "old")
+        self.assertEqual(
+            [row for row in still["items"] if row.get("question_id") == old_id],
+            [],
+        )
 
 
 if __name__ == "__main__":

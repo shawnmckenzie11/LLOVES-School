@@ -314,6 +314,16 @@ def normalize_bank_mc(
     enrich_live_mc_display(
         live, class_id=class_id, school=school, library_id=library_id
     )
+    raw_urls = blob.get("image_urls")
+    if isinstance(raw_urls, list):
+        urls = [str(url).strip() for url in raw_urls if str(url).strip()]
+        if urls:
+            live["image_urls"] = urls
+            if not str(live.get("image_url") or "").strip():
+                live["image_url"] = urls[0]
+    feedback = str(blob.get("feedback_html") or "").strip()
+    if feedback:
+        live["feedback_html"] = feedback
     return live, None
 
 

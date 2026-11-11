@@ -312,7 +312,11 @@ function rowHtml(item) {
   const kindToken = String(item.kind || item.bank_kind || "");
   return `<tr class="qbank-tr${checked ? " is-checked" : ""}" data-bank-kind="${escapeHtml(kindToken)}" data-qbank-key="${escapeHtml(key)}">
     <td class="qcell qcell-check"><input type="checkbox" data-qbank-check="${escapeHtml(key)}" aria-label="Select question"${checked ? " checked" : ""}></td>
-    <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${questionImageHtml(item, { variant: "thumb" })}${mediaTagHtml(item)}${edited}</div></td>
+    <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${questionImageHtml(item, { variant: "thumb" })}${
+      String(item.feedback_html || "").trim()
+        ? `<div class="qbank-feedback">${item.feedback_html}</div>`
+        : ""
+    }${mediaTagHtml(item)}${edited}</div></td>
     <td class="qcell">${escapeHtml(kindLabel(item))}</td>
     <td class="qcell">${escapeHtml(moduleLabel(item))}</td>
     <td class="qcell">${escapeHtml(modeLabel(item))}</td>

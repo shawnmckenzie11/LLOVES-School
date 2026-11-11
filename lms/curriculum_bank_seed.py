@@ -172,6 +172,154 @@ def _iter_curriculum_items(
     return found
 
 
+def _payload_for_curriculum_item(
+    course_code: str,
+    module_number: int,
+    item: dict[str, Any],
+    *,
+    stem: str,
+    smart_id: str,
+    cache_root: Path | None,
+) -> dict[str, Any]:
+    """Build the stored payload for one curriculum or cartridge bank item.
+
+    Cartridge rows carry choices and are real multiple-choice questions.
+    Older constructed rows stay open prompts.
+
+    Args:
+        course_code: Ontario course code.
+        module_number: One-based module index.
+        item: Cache item.
+        stem: Plain or HTML stem already required to be non-empty.
+        smart_id: Stable id used as the import key.
+        cache_root: Optional curriculum root for figure files.
+    """
+    try:
+        from curriculum_bank_images import (
+            figure_payload_for_item,
+            stored_figure_fields,
+        )
+    except ImportError:
+        from lms.curriculum_bank_images import (
+            figure_payload_for_item,
+            stored_figure_fields,
+        )
+
+    choices = item.get("choices")
+    if str(item.get("origin") or "") == "canvas_cartridge" and isinstance(choices, list):
+        payload = {
+            "stem_html": str(item.get("stem_html") or stem),
+            "text": stem,
+            "points_possible": float(item.get("points_possible") or 1.0),
+            "choices": choices,
+            "correct_ids": list(item.get("correct_ids") or []),
+            "smart_id": smart_id,
+            "canvas_source": str(item.get("canvas_source") or ""),
+        }
+        feedback = str(item.get("feedback_html") or "").strip()
+        if feedback:
+            payload["feedback_html"] = feedback
+        payload.update(
+            stored_figure_fields(
+                figure_payload_for_item(
+                    course_code,
+                    module_number,
+                    item,
+                    cache_root=cache_root,
+                )
+            )
+        )
+        urls = item.get("image_urls")
+        if isinstance(urls, list) and urls:
+            payload["image_urls"] = [str(url) for url in urls if str(url).strip()]
+            payload["image_url"] = payload["image_urls"][0]
+        return payload
+    payload = {
+        "stem_html": stem,
+        "text": stem,
+        "curriculum_open": True,
+        "points_possible": 1.0,
+        "choices": [],
+        "smart_id": smart_id,
+    }
+    payload.update(
+        stored_figure_fields(
+            figure_payload_for_item(
+                course_code,
+                module_number,
+                item,
+                cache_root=cache_root,
+            )
+        )
+    )
+    return payload
+
+
+def _retire_replaced_questions(
+    school: Any,
+    *,
+    library_id: int,
+    course_code: str,
+    module_number: int,
+    bank_id: int,
+    keep_keys: set[str],
+    now: str,
+) -> None:
+    """Move questions this reseed replaced onto an unlinked bank.
+
+    Past live cards store ``source_question_id`` with no foreign key.
+    The row stays so a lookup still finds it. It leaves the module bank,
+    so the new cartridge questions are what teachers see. The caller
+    holds ``school._lock``.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        library_id: ``content_libraries.id``.
+        course_code: Ontario course code.
+        module_number: One-based module index.
+        bank_id: Module bank the new questions use.
+        keep_keys: Import keys that stay on ``bank_id``.
+        now: ISO timestamp for the retired bank row.
+    """
+    code = str(course_code or "").strip().upper()
+    retired_key = f"retired-curriculum:{code}:M{int(module_number)}"
+    existing = school.conn.execute(
+        """
+        SELECT id FROM question_banks
+        WHERE library_id = ? AND import_key = ?
+        """,
+        (int(library_id), retired_key),
+    ).fetchone()
+    if existing is None:
+        cur = school.conn.execute(
+            """
+            INSERT INTO question_banks (
+                library_id, import_key, title, settings_json, created_at
+            ) VALUES (?, ?, ?, '{}', ?)
+            """,
+            (
+                int(library_id),
+                retired_key,
+                f"{code} Module {int(module_number)} retired questions",
+                now,
+            ),
+        )
+        retired_id = int(cur.lastrowid)
+    else:
+        retired_id = int(existing["id"])
+    rows = school.conn.execute(
+        "SELECT id, import_key FROM questions WHERE bank_id = ?",
+        (int(bank_id),),
+    ).fetchall()
+    for row in rows:
+        if str(row["import_key"]) in keep_keys:
+            continue
+        school.conn.execute(
+            "UPDATE questions SET bank_id = ? WHERE id = ?",
+            (retired_id, int(row["id"])),
+        )
+
+
 def _upsert_curriculum_bank(
     school: Any,
     *,
@@ -240,29 +388,29 @@ def _upsert_curriculum_bank(
                 figure_payload_for_item,
                 stored_figure_fields,
             )
+        keep_keys: set[str] = set()
+        cartridge_module = any(
+            str(item.get("origin") or "") == "canvas_cartridge" for item in items
+        )
         for item in items:
             smart_id = str(item.get("smart_id") or item.get("id") or "").strip()
             stem = str(item.get("stem") or "").strip()
             if not smart_id:
                 smart_id = hashlib.sha256(stem.encode("utf-8")).hexdigest()[:16]
-            q_key = f"curriculum:{code}:M{int(module_number)}:{smart_id}"
-            payload = {
-                "stem_html": stem,
-                "text": stem,
-                "curriculum_open": True,
-                "points_possible": 1.0,
-                "choices": [],
-                "smart_id": smart_id,
-            }
-            payload.update(
-                stored_figure_fields(
-                    figure_payload_for_item(
-                        code,
-                        int(module_number),
-                        item,
-                        cache_root=cache_root,
-                    )
-                )
+            cartridge = str(item.get("origin") or "") == "canvas_cartridge"
+            q_key = (
+                f"cartridge:{code}:M{int(module_number)}:{smart_id}"
+                if cartridge
+                else f"curriculum:{code}:M{int(module_number)}:{smart_id}"
+            )
+            keep_keys.add(q_key)
+            payload = _payload_for_curriculum_item(
+                code,
+                int(module_number),
+                item,
+                stem=stem,
+                smart_id=smart_id,
+                cache_root=cache_root,
             )
             encoded = json.dumps(payload)
             q_title = stem.replace("\n", " ")[:80] or smart_id
@@ -293,6 +441,16 @@ def _upsert_curriculum_bank(
                     (q_title, encoded, int(found["id"])),
                 )
                 question_ids.append(int(found["id"]))
+        if cartridge_module:
+            _retire_replaced_questions(
+                school,
+                library_id=int(library_id),
+                course_code=code,
+                module_number=int(module_number),
+                bank_id=bank_id,
+                keep_keys=keep_keys,
+                now=now,
+            )
         school.conn.commit()
     # Reseeds an existing library, not only a new one. The link helper
     # drops the bank cache; say so here so a later edit does not drop it.

@@ -13317,6 +13317,16 @@ class SchoolDB(LovesDB):
                 normalized["equation_latex"] = equation
             if payload.get("image_url") and not normalized.get("image_url"):
                 normalized["image_url"] = payload.get("image_url")
+            raw_urls = payload.get("image_urls")
+            if isinstance(raw_urls, list) and not normalized.get("image_urls"):
+                urls = [str(url).strip() for url in raw_urls if str(url).strip()]
+                if urls:
+                    normalized["image_urls"] = urls
+                    if not normalized.get("image_url"):
+                        normalized["image_url"] = urls[0]
+            feedback = str(payload.get("feedback_html") or "").strip()
+            if feedback and not normalized.get("feedback_html"):
+                normalized["feedback_html"] = feedback
             # Normalize drops a choice image from the hero. Copying the stored
             # URL back would put that answer above the stem again.
             try:
