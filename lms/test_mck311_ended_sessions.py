@@ -112,20 +112,20 @@ class EndedSessionRetentionTests(Base):
         self.assertEqual(str(kept["run_key"]), ended_key)
         self.assertGreater(self._runs(ended_key), 0)
 
-    def test_lesson_slides_delete_keeps_attendance_and_participation(self) -> None:
-        """Removing a Lesson Slides entry does not remove the class record."""
+    def test_lesson_slides_delete_drops_attendance_and_participation(self) -> None:
+        """Removing a Lesson Slides entry drops that run and keeps the session shell."""
         sid = self._end(module="M2", slot="C1")
         row = self.school.get_live_session(sid)
         run_key = str(row["run_key"])
-        grades = self._grade_rows(sid)
+        self.assertGreater(self._runs(run_key), 0)
         self.school.delete_lesson_slides_entry(
             self.class_id, "M2", "C1", False, run_key
         )
         kept = self.school.get_live_session(sid)
         self.assertIsNotNone(kept)
         self.assertEqual(kept["status"], "ended")
-        self.assertGreater(self._runs(run_key), 0)
-        self.assertEqual(self._grade_rows(sid), grades)
+        self.assertEqual(self._runs(run_key), 0)
+        self.assertEqual(self._grade_rows(sid), 0)
         latest = [
             item
             for item in self.school.list_lesson_slides_latest(self.class_id)

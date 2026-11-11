@@ -245,7 +245,7 @@ class GroupEngagementTests(ChallengeHarness):
         self.assertEqual(grid["group_engagement"].get(str(ava)), "2/1")
         self.assertEqual(grid["group_engagement"].get(str(ben)), "0/1")
         self.school.delete_lesson_slides_entry(self.class_id, "M1", "C2", False, run_key)
-        self._assert_team(key, TEAM_A, 2)
+        self.assertNotIn((self.ids["Ava"], key), self._rows())
 
     def test_unkeyed_and_wrong_orders_are_one_of_one(self) -> None:
         plain = self._open(key=False)

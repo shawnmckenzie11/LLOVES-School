@@ -276,7 +276,7 @@ function closeLessonSlideRowMenus(exceptWrap = null) {
  * @returns {void}
  */
 /**
- * Confirm, then remove only this Lesson Slides entry.
+ * Confirm, then remove this Lesson Slides entry and its attendance and participation.
  * @param {Record<string, unknown>} row
  * @returns {Promise<boolean>}
  */

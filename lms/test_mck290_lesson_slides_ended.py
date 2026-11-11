@@ -305,6 +305,32 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
             tuple(tuple(row) for row in runs),
         )
 
+    def _assert_shell_kept(self, before: tuple, run_key: str) -> None:
+        """The session shell and other runs stay; this run's participation is gone.
+
+        Args:
+            before: ``_class_data_fingerprint`` from before the delete.
+            run_key: Run the teacher removed from Lesson Slides.
+        """
+        after = self._class_data_fingerprint()
+        self.assertEqual(after[2], before[2])
+        self.assertEqual(after[3], before[3])
+        before_runs = [row for row in before[4] if row[0] != run_key]
+        after_runs = [row for row in after[4] if row[0] != run_key]
+        self.assertEqual(after_runs, before_runs)
+        self.assertNotIn(run_key, [row[0] for row in after[4]])
+
+    def _assert_other_rows_kept(self, before: tuple) -> None:
+        """Non-test slides, live sessions, and catch-up stay after a test delete.
+
+        Args:
+            before: ``_kept_rows`` from before the delete.
+        """
+        after = self._kept_rows()
+        self.assertEqual(after[2], before[2])
+        self.assertEqual(after[3], before[3])
+        self.assertEqual(after[4], before[4])
+
     def test_test_end_shows_with_delete(self) -> None:
         """A Test End is listed with a Test tag, and that row can be deleted."""
         sid = self._end_test("M4", "C2")
@@ -331,7 +357,7 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         shown = self._test_rows()[0]
         response = self._post_delete(shown)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self._kept_rows(), before)
+        self._assert_other_rows_kept(before)
         self.assertEqual(self._test_rows(), [])
         stored = [
             row
@@ -367,7 +393,7 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         before_live = self._class_data_fingerprint()
         removed = self._post_delete(live)
         self.assertEqual(removed.status_code, 200)
-        self.assertEqual(self._class_data_fingerprint(), before_live)
+        self._assert_shell_kept(before_live, str(live["run_key"]))
         self.assertEqual(
             self.school.conn.execute(
                 "SELECT status FROM live_class_sessions WHERE id = ?",
@@ -389,7 +415,7 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
             office["is_test"],
             office["run_key"],
         )
-        self.assertEqual(self._class_data_fingerprint(), before_office)
+        self._assert_shell_kept(before_office, str(office["run_key"]))
         labels = [
             item["label"]
             for item in build_lesson_slides_table(self.school, self.class_id)["rows"]
@@ -410,7 +436,7 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
             json={},
         )
         self.assertEqual(session_delete.status_code, 200)
-        self.assertEqual(self._kept_rows(), before_test)
+        self._assert_other_rows_kept(before_test)
         self.assertEqual(self._test_rows(), [])
         self.assertFalse(self._row("M7C2")["has_run"])
 
@@ -545,15 +571,21 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         self.assertIsNotNone(row["mgs_session_id"])
         return int(row["mgs_session_id"])
 
-    def test_live_delete_leaves_attendance_and_participation(self) -> None:
-        """Deleting a Live entry leaves the gradebook marks in place."""
+    def test_live_delete_removes_attendance_and_participation(self) -> None:
+        """Deleting a Live entry removes that run's attendance and participation."""
         sid = self._end_marked("M5", "C3", is_test=False)
         tracker = self._tracker_id(sid)
         before = self._class_data_fingerprint()
         row = self._row("M5C3")
+        run_key = str(row["run_key"])
         self.assertEqual(self._post_delete(row).status_code, 200)
-        self.assertEqual(self._class_data_fingerprint(), before)
+        self._assert_shell_kept(before, run_key)
         self.assertFalse(self._row("M5C3")["has_run"])
+        kept = self.school.conn.execute(
+            "SELECT status FROM live_class_sessions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        self.assertEqual(str(kept["status"]), "ended")
         score = self.school.game.conn.execute(
             """
             SELECT COALESCE(SUM(present), 0), COALESCE(SUM(points), 0)
@@ -562,13 +594,16 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
             """,
             (tracker,),
         ).fetchone()
-        self.assertGreaterEqual(int(score[0]), 1)
-        self.assertGreater(float(score[1]), 0)
-        part = self.school.participation_week_grid(self.class_id)
-        self.assertGreater(
-            sum(float(value or 0) for value in (part.get("totals") or {}).values()),
-            0,
-        )
+        self.assertEqual(int(score[0]), 0)
+        self.assertEqual(float(score[1]), 0)
+        runs = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM participation_runs
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (self.class_id, run_key),
+        ).fetchone()
+        self.assertEqual(int(runs[0]), 0)
 
     def test_test_end_is_excluded_from_attendance_and_participation(self) -> None:
         """A Test End writes marks that attendance and participation totals skip."""

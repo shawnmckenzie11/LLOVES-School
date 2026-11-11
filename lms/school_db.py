@@ -3120,7 +3120,7 @@ class LovesDB:
         mod = str(module or "").strip()
         with self._lock:
             rows = self.conn.execute(
-                """
+                f"""
                 SELECT g.student_id, g.earned, g.possible,
                        COALESCE(i.prompt_kind, '') AS prompt_kind
                 FROM group_engagement g
@@ -3133,6 +3133,7 @@ class LovesDB:
                   AND COALESCE(r.discarded, 0) = 0
                   AND (? = '' OR g.run_key = ?)
                   AND (? = '' OR i.live_module = ?)
+                  {self._sql_exclude_dismissed_run("g.class_id", "g.run_key")}
                 """,
                 (int(class_id), key, key, mod, mod),
             ).fetchall()
@@ -4398,8 +4399,9 @@ class LovesDB:
     def _ensure_lesson_slides_dismissed(self) -> None:
         """Remember Lesson Slides entries a teacher removed from the list.
 
-        One row hides one ended run. Attendance, participation, the
-        gradebook, and catch-up are not stored here. A later End with a
+        One row hides one ended run. The row itself stores no attendance
+        or participation. Deleting the entry removes those rows from the
+        tables that feed Attendance & Participation. A later End with a
         different run key still appears. Safe to run on every boot.
         """
         self.conn.execute(
@@ -12130,6 +12132,10 @@ class SchoolDB(LovesDB):
         self._module_bank_mc_cache_misses = 0
         self._module_bank_mc_cache_enabled = True
         self._module_bank_mc_cache_ttl = float(self.MODULE_BANK_MC_CACHE_TTL_SECONDS)
+        try:
+            self.purge_orphaned_attendance_participation()
+        except Exception:  # noqa: BLE001 - orphan cleanup must not block boot
+            logger.exception("orphaned attendance purge failed")
 
     def close(self) -> None:
         """Close both sqlite connections."""
@@ -43697,8 +43703,9 @@ class SchoolDB(LovesDB):
 
         A slot is held when a real run saved it (``participation_runs.is_real``,
         not discarded, not a test live class) or an ended non-test live
-        class stored that slot. Attendance uses ``session_scores`` on the
-        linked tracker session. There is no attendance totals table.
+        class stored that slot. A run removed from Lesson Slides is not
+        held. Attendance uses ``session_scores`` on the linked tracker
+        session. There is no attendance totals table.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -43728,6 +43735,11 @@ class SchoolDB(LovesDB):
                       AND lcs.run_key = pr.run_key
                       AND COALESCE(lcs.is_test, 0) = 1
                   )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM lesson_slides_dismissed dismissed_run
+                    WHERE dismissed_run.class_id = pr.class_id
+                      AND dismissed_run.run_key = pr.run_key
+                  )
                 """,
                 (cid,),
             ).fetchall()
@@ -43743,6 +43755,11 @@ class SchoolDB(LovesDB):
                 LEFT JOIN participation_runs pr
                     ON pr.class_id = lcs.class_id AND pr.run_key = lcs.run_key
                 WHERE lcs.class_id = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM lesson_slides_dismissed dismissed_run
+                    WHERE dismissed_run.class_id = lcs.class_id
+                      AND dismissed_run.run_key = lcs.run_key
+                  )
                 """,
                 (cid,),
             ).fetchall()
@@ -43952,7 +43969,9 @@ class SchoolDB(LovesDB):
             where += " AND p.live_module = ?"
             params.append(str(module))
         # Module totals skip an open office. A blank slot still counts.
+        # A Lesson Slides delete hides that run even if a row was missed.
         where += f" AND {self._module_class_slot_sql()}"
+        where += self._sql_exclude_dismissed_run("p.class_id", "p.run_key")
         from participation_exclusion import sql_exclude_non_counted_participation_run
         from participation_real_students import exclude_participation_answer_student_ids
 
@@ -44007,6 +44026,11 @@ class SchoolDB(LovesDB):
                     ON r.class_id = c.class_id AND r.run_key = c.run_key
                 WHERE c.class_id = ? AND c.live_module = ? AND c.live_slot = ?
                   AND r.discarded = 0 AND r.is_real = 1
+                  AND NOT EXISTS (
+                    SELECT 1 FROM lesson_slides_dismissed dismissed_run
+                    WHERE dismissed_run.class_id = c.class_id
+                      AND dismissed_run.run_key = c.run_key
+                  )
                 ORDER BY c.updated_at DESC, c.id DESC
                 LIMIT 1
                 """,
@@ -44172,6 +44196,7 @@ class SchoolDB(LovesDB):
                    AND a.question_key = p.question_key AND a.source = 'live'
                 WHERE p.class_id = ? AND p.live_module = ?
                   AND {self._module_class_slot_sql()}{real_run_clause}
+                  {self._sql_exclude_dismissed_run("p.class_id", "p.run_key")}
                 """,
                 (int(class_id), mod),
             ).fetchall()
@@ -44515,6 +44540,7 @@ class SchoolDB(LovesDB):
                    AND a.question_key = p.question_key AND a.source = 'live'
                 WHERE p.class_id = ? AND p.live_module = ?
                   AND {self._module_class_slot_sql()}{real_run_clause}
+                  {self._sql_exclude_dismissed_run("p.class_id", "p.run_key")}
                 """,
                 (int(class_id), mod),
             ).fetchall()
@@ -49983,6 +50009,358 @@ class SchoolDB(LovesDB):
             for row in rows
         }
 
+    @staticmethod
+    def _sql_exclude_dismissed_run(class_id_expr: str, run_key_expr: str) -> str:
+        """SQL fragment that skips a Lesson Slides run the teacher deleted.
+
+        Attendance & Participation still reads the underlying tables. A
+        missed delete must not put that run back on the page. Expressions
+        are fixed column references from this module, not request text.
+
+        Args:
+            class_id_expr: SQL expression for the row's class id.
+            run_key_expr: SQL expression for the row's run key.
+
+        Returns:
+            An ``AND NOT EXISTS`` clause.
+        """
+        return (
+            " AND NOT EXISTS ("
+            "SELECT 1 FROM lesson_slides_dismissed dismissed_run"
+            f" WHERE dismissed_run.class_id = {class_id_expr}"
+            f" AND dismissed_run.run_key = {run_key_expr})"
+        )
+
+    def _tracker_still_used_unlocked(
+        self, class_id: int, run_key: str, tracker_id: int
+    ) -> bool:
+        """True when another run of this class still uses the tracker column.
+
+        Caller holds the write transaction. This run's credits may already
+        be gone. A sibling run's credit or live session keeps the column.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Run being removed.
+            tracker_id: ``sessions.id`` for the attendance column.
+        """
+        other_credit = self.conn.execute(
+            """
+            SELECT 1 FROM live_participation_credits lpc
+            INNER JOIN sessions s ON s.id = lpc.session_id
+            WHERE lpc.session_id = ? AND lpc.run_key != ? AND s.class_id = ?
+            LIMIT 1
+            """,
+            (int(tracker_id), str(run_key), int(class_id)),
+        ).fetchone()
+        if other_credit is not None:
+            return True
+        other_live = self.conn.execute(
+            """
+            SELECT 1 FROM live_class_sessions
+            WHERE class_id = ? AND mgs_session_id = ? AND run_key != ?
+            LIMIT 1
+            """,
+            (int(class_id), int(tracker_id), str(run_key)),
+        ).fetchone()
+        return other_live is not None
+
+    def _purge_instance_metrics_unlocked(
+        self, class_id: int, run_key: str
+    ) -> dict[str, Any]:
+        """Delete attendance and participation for one run.
+
+        Caller holds ``BEGIN IMMEDIATE`` on this connection. Scoped to
+        ``class_id`` and ``run_key``. Another run is left, including a
+        tracker column that run still uses. The live session shell,
+        catch-up link, and result snapshots stay. Attendance marks, the
+        tracker column when this run owns it, participation rows, group
+        engagement, engagement events, and attendees for this run do not.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: The instance's run key.
+
+        Returns:
+            Counts plus ``session_ids`` for a later presence delete.
+        """
+        counts: dict[str, Any] = {
+            "participation": 0,
+            "engagement": 0,
+            "attendance_columns": 0,
+            "attendees": 0,
+            "session_ids": [],
+        }
+        key = str(run_key or "").strip()
+        if not key:
+            return counts
+        cid = int(class_id)
+        session_ids = [
+            int(row["id"])
+            for row in self.conn.execute(
+                """
+                SELECT id FROM live_class_sessions
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, key),
+            ).fetchall()
+        ]
+        counts["session_ids"] = session_ids
+        for table in (
+            "participation_answers",
+            "participation_items",
+            "participation_runs",
+            "group_engagement",
+            "group_engagement_items",
+        ):
+            cur = self.conn.execute(
+                f"DELETE FROM {table} WHERE class_id = ? AND run_key = ?",
+                (cid, key),
+            )
+            counts["participation"] += int(cur.rowcount or 0)
+        counts["engagement"] += self._count_engagement_rows(
+            session_ids,
+            [key],
+            class_id=cid,
+            require_session=False,
+        )
+        self._delete_engagement_rows(
+            session_ids,
+            [key],
+            class_id=cid,
+            require_session=False,
+        )
+        if session_ids:
+            marks = ",".join("?" * len(session_ids))
+            cur = self.conn.execute(
+                f"DELETE FROM live_session_attendees WHERE live_session_id IN ({marks})",
+                session_ids,
+            )
+            counts["attendees"] += int(cur.rowcount or 0)
+        tracker_ids: set[int] = set()
+        for row in self.conn.execute(
+            """
+            SELECT lpc.session_id AS session_id
+            FROM live_participation_credits lpc
+            INNER JOIN sessions s ON s.id = lpc.session_id
+            WHERE lpc.run_key = ? AND s.class_id = ?
+            """,
+            (key, cid),
+        ).fetchall():
+            tracker_ids.add(int(row["session_id"]))
+        for row in self.conn.execute(
+            """
+            SELECT mgs_session_id FROM live_class_sessions
+            WHERE class_id = ? AND run_key = ? AND mgs_session_id IS NOT NULL
+            """,
+            (cid, key),
+        ).fetchall():
+            if row["mgs_session_id"] not in (None, ""):
+                tracker_ids.add(int(row["mgs_session_id"]))
+        self.conn.execute(
+            """
+            DELETE FROM live_participation_credits
+            WHERE run_key = ?
+              AND session_id IN (SELECT id FROM sessions WHERE class_id = ?)
+            """,
+            (key, cid),
+        )
+        for tracker_id in tracker_ids:
+            if self._tracker_still_used_unlocked(cid, key, tracker_id):
+                continue
+            open_game = self.conn.execute(
+                """
+                SELECT 1 FROM games
+                WHERE session_id = ? AND status != 'ended'
+                LIMIT 1
+                """,
+                (int(tracker_id),),
+            ).fetchone()
+            if open_game is not None:
+                continue
+            cur = self.conn.execute(
+                "DELETE FROM sessions WHERE id = ? AND class_id = ?",
+                (int(tracker_id), cid),
+            )
+            counts["attendance_columns"] += int(cur.rowcount or 0)
+        return counts
+
+    def _drop_presence_sessions(self, session_ids: list[int]) -> int:
+        """Delete Postgres presence for these session ids.
+
+        Sqlite attendance is already committed. A presence failure is a
+        count and an exception type. No join code is logged.
+
+        Args:
+            session_ids: ``live_class_sessions.id`` values.
+
+        Returns:
+            How many of those ids had a presence session or attendee row.
+        """
+        presence = getattr(self, "presence", None)
+        if presence is None or not session_ids:
+            return 0
+        removed = 0
+        pending = [int(sid) for sid in session_ids]
+        for index, session_id in enumerate(pending):
+            try:
+                removed += int(presence.delete_session_tree(int(session_id)) or 0)
+            except Exception as exc:
+                logger.warning(
+                    "presence purge failed (%s, remaining=%s)",
+                    type(exc).__name__,
+                    len(pending) - index,
+                )
+                break
+        return removed
+
+    def purge_orphaned_attendance_participation(self) -> dict[str, int]:
+        """Delete attendance and participation for deleted live-class instances.
+
+        A run is deleted when Lesson Slides recorded it in
+        ``lesson_slides_dismissed``. Rows for a run that was not dismissed
+        stay, including participation that never had a session row.
+        Attendee rows whose live session id is gone are removed. Presence
+        sessions whose id is gone are removed. Safe on every boot. The log
+        is counts only.
+
+        Returns:
+            ``participation``, ``engagement``, ``attendance_columns``,
+            ``attendees``, and ``presence_sessions``. A second call is zeros.
+        """
+        totals = {
+            "participation": 0,
+            "engagement": 0,
+            "attendance_columns": 0,
+            "attendees": 0,
+            "presence_sessions": 0,
+        }
+        presence_ids: list[int] = []
+        game_conn = self.game.conn if getattr(self, "game", None) is not None else None
+        with self._lock:
+            if game_conn is not None and game_conn.in_transaction:
+                game_conn.commit()
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                dismissed = self.conn.execute(
+                    """
+                    SELECT DISTINCT class_id, run_key
+                    FROM lesson_slides_dismissed
+                    WHERE TRIM(run_key) != ''
+                    """
+                ).fetchall()
+                for row in dismissed:
+                    purged = self._purge_instance_metrics_unlocked(
+                        int(row["class_id"]), str(row["run_key"])
+                    )
+                    totals["participation"] += int(purged["participation"])
+                    totals["engagement"] += int(purged["engagement"])
+                    totals["attendance_columns"] += int(purged["attendance_columns"])
+                    totals["attendees"] += int(purged["attendees"])
+                    presence_ids.extend(int(sid) for sid in purged["session_ids"])
+                dangling = self.conn.execute(
+                    """
+                    DELETE FROM live_session_attendees
+                    WHERE live_session_id NOT IN (
+                        SELECT id FROM live_class_sessions
+                    )
+                    """
+                )
+                totals["attendees"] += int(dangling.rowcount or 0)
+                self.conn.execute(
+                    """
+                    DELETE FROM session_scores
+                    WHERE session_id NOT IN (SELECT id FROM sessions)
+                    """
+                )
+                living_rows = self.conn.execute(
+                    "SELECT id FROM live_class_sessions"
+                ).fetchall()
+                living_ids = [int(row["id"]) for row in living_rows]
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            else:
+                if self.conn.in_transaction:
+                    self.conn.execute("COMMIT")
+        totals["presence_sessions"] += self._drop_presence_sessions(presence_ids)
+        presence = getattr(self, "presence", None)
+        if presence is not None:
+            try:
+                totals["presence_sessions"] += int(
+                    presence.delete_sessions_not_in(living_ids) or 0
+                )
+            except Exception as exc:
+                logger.warning(
+                    "presence orphan purge failed (%s)",
+                    type(exc).__name__,
+                )
+        logger.info(
+            "orphaned attendance purge participation=%s engagement=%s "
+            "attendance_columns=%s attendees=%s presence_sessions=%s",
+            totals["participation"],
+            totals["engagement"],
+            totals["attendance_columns"],
+            totals["attendees"],
+            totals["presence_sessions"],
+        )
+        return totals
+
+    def _dismissed_tracker_ids(self, class_id: int) -> set[int]:
+        """Tracker columns that belong only to deleted Lesson Slides runs.
+
+        A column linked to any run that was not dismissed stays. A manual
+        column with no live credit stays.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        cid = int(class_id)
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT lpc.session_id AS session_id, lpc.run_key AS run_key
+                FROM live_participation_credits lpc
+                INNER JOIN sessions s ON s.id = lpc.session_id
+                WHERE s.class_id = ?
+                """,
+                (cid,),
+            ).fetchall()
+            live_rows = self.conn.execute(
+                """
+                SELECT mgs_session_id AS session_id, run_key
+                FROM live_class_sessions
+                WHERE class_id = ? AND mgs_session_id IS NOT NULL
+                """,
+                (cid,),
+            ).fetchall()
+            dismissed = {
+                str(row["run_key"] or "")
+                for row in self.conn.execute(
+                    """
+                    SELECT run_key FROM lesson_slides_dismissed
+                    WHERE class_id = ?
+                    """,
+                    (cid,),
+                ).fetchall()
+            }
+        by_tracker: dict[int, set[str]] = {}
+        for row in list(rows) + list(live_rows):
+            if row["session_id"] in (None, ""):
+                continue
+            key = str(row["run_key"] or "").strip()
+            if not key:
+                continue
+            by_tracker.setdefault(int(row["session_id"]), set()).add(key)
+        hidden: set[int] = set()
+        for tracker_id, keys in by_tracker.items():
+            if keys and all(key in dismissed for key in keys):
+                hidden.add(int(tracker_id))
+        return hidden
+
     def delete_lesson_slides_entry(
         self,
         class_id: int,
@@ -49991,20 +50369,20 @@ class SchoolDB(LovesDB):
         is_test: Any,
         run_key: Any,
     ) -> dict[str, Any]:
-        """Remove one Lesson Slides list entry and keep the class data.
+        """Remove one Lesson Slides entry and its attendance and participation.
 
         Records a dismissal so the read fallback cannot put the same run
-        back on the list. Deletes only the matching ``lesson_slides_latest``
-        row. The live session, attendance, participation, gradebook
-        column, and catch-up link stay. A later End with a new run key
-        shows again.
+        back on the list, and deletes that run's attendance and
+        participation in the same transaction. Another run of this class
+        is left. The live session shell and catch-up link stay. A later
+        End with a new run key shows again.
 
         Args:
             class_id: Game-show ``classes.id``.
             module: Lesson module, such as ``M1``.
             slot: Lesson slot, such as ``C1`` or ``O1``.
             is_test: True for a test entry.
-            run_key: Participation run key of the entry to hide.
+            run_key: Participation run key of the entry to remove.
 
         Returns:
             ``{ok, module, slot, is_test}``.
@@ -50022,26 +50400,51 @@ class SchoolDB(LovesDB):
         if not mod or not sl or not key:
             raise ValueError("That Lesson Slides entry could not be removed.")
         dismissed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        game_conn = self.game.conn if getattr(self, "game", None) is not None else None
+        session_ids: list[int] = []
         with self._lock:
-            self.conn.execute(
-                """
-                INSERT INTO lesson_slides_dismissed (
-                    class_id, live_module, live_slot, is_test, run_key, dismissed_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(class_id, live_module, live_slot, is_test, run_key)
-                DO UPDATE SET dismissed_at = excluded.dismissed_at
-                """,
-                (int(class_id), mod, sl, flag, key, dismissed_at),
-            )
-            self.conn.execute(
-                """
-                DELETE FROM lesson_slides_latest
-                WHERE class_id = ? AND live_module = ? AND live_slot = ?
-                  AND COALESCE(is_test, 0) = ? AND run_key = ?
-                """,
-                (int(class_id), mod, sl, flag, key),
-            )
-            self.conn.commit()
+            if game_conn is not None and game_conn.in_transaction:
+                game_conn.commit()
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    """
+                    INSERT INTO lesson_slides_dismissed (
+                        class_id, live_module, live_slot, is_test, run_key, dismissed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(class_id, live_module, live_slot, is_test, run_key)
+                    DO UPDATE SET dismissed_at = excluded.dismissed_at
+                    """,
+                    (int(class_id), mod, sl, flag, key, dismissed_at),
+                )
+                self.conn.execute(
+                    """
+                    DELETE FROM lesson_slides_latest
+                    WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                      AND COALESCE(is_test, 0) = ? AND run_key = ?
+                    """,
+                    (int(class_id), mod, sl, flag, key),
+                )
+                purged = self._purge_instance_metrics_unlocked(int(class_id), key)
+                session_ids = [int(sid) for sid in purged["session_ids"]]
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            else:
+                if self.conn.in_transaction:
+                    self.conn.execute("COMMIT")
+        self._drop_presence_sessions(session_ids)
+        logger.info(
+            "lesson slides delete purged participation=%s engagement=%s "
+            "attendance_columns=%s attendees=%s",
+            int(purged["participation"]),
+            int(purged["engagement"]),
+            int(purged["attendance_columns"]),
+            int(purged["attendees"]),
+        )
         return {"ok": True, "module": mod, "slot": sl, "is_test": bool(flag)}
 
     def delete_lesson_slides_test_entry(
@@ -50050,8 +50453,8 @@ class SchoolDB(LovesDB):
         """Remove the Lesson Slides entry for one ended session.
 
         Live, Open Office, and Test sessions all use the same list
-        delete. The session, attendance, participation, gradebook, and
-        catch-up stay.
+        delete. Attendance and participation for that run are removed.
+        The session shell and catch-up stay.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -53781,9 +54184,9 @@ class SchoolDB(LovesDB):
         """Attendance score rows with test-class columns removed.
 
         A test End still writes the gradebook column. Attendance day
-        totals and the present list for a date leave that column out.
-        Deleting the Lesson Slides entry does not put the column back
-        into attendance.
+        totals and the present list for a date leave that column out,
+        and they also leave out a column that belongs only to a Lesson
+        Slides run the teacher deleted.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -53792,19 +54195,21 @@ class SchoolDB(LovesDB):
             The attendance score payload without test sessions.
         """
         marks = self.game.attendance_score_rows(int(class_id))
-        test_ids = self.test_mgs_session_ids(int(class_id))
-        if not test_ids:
+        hidden = self.test_mgs_session_ids(int(class_id)) | self._dismissed_tracker_ids(
+            int(class_id)
+        )
+        if not hidden:
             return marks
         out = dict(marks)
         out["sessions"] = [
             row
             for row in (marks.get("sessions") or [])
-            if int(row.get("id") or 0) not in test_ids
+            if int(row.get("id") or 0) not in hidden
         ]
         out["scores"] = [
             row
             for row in (marks.get("scores") or [])
-            if int(row.get("session_id") or 0) not in test_ids
+            if int(row.get("session_id") or 0) not in hidden
         ]
         return out
 
@@ -54008,6 +54413,7 @@ class SchoolDB(LovesDB):
                 continue
             if not self.participation_run_counts_in_tab(class_id, run_key):
                 excluded.add(int(row["session_id"]))
+        excluded.update(self._dismissed_tracker_ids(int(class_id)))
         return excluded
 
     def _apply_participation_tab_dashboard(

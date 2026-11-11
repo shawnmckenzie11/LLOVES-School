@@ -389,7 +389,7 @@ class LivePresenceStore:
         with self._conn() as conn:
             apply_locked_ddl(conn.connection, statements, PRESENCE_DDL_LOCK)
 
-    def delete_session_tree(self, session_id: int) -> None:
+    def delete_session_tree(self, session_id: int) -> int:
         """Delete one presence session and its attendees, then verify none remain.
 
         Attendees are removed first. Both statements share one transaction.
@@ -397,6 +397,9 @@ class LivePresenceStore:
 
         Args:
             session_id: ``live_class_sessions.id``, also the presence session id.
+
+        Returns:
+            ``1`` when a presence session or attendee row was stored, else ``0``.
 
         Raises:
             LivePresenceUnavailable: The database could not finish the delete.
@@ -408,6 +411,20 @@ class LivePresenceStore:
             previous = raw.autocommit
             raw.autocommit = False
             try:
+                found_attendees = raw.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM live_presence_attendees
+                    WHERE live_session_id = %s
+                    """,
+                    (sid,),
+                ).fetchone()
+                found_session = raw.execute(
+                    "SELECT COUNT(*) AS n FROM live_presence_sessions WHERE id = %s",
+                    (sid,),
+                ).fetchone()
+                removed = int(
+                    int(found_attendees["n"] or 0) or int(found_session["n"] or 0)
+                )
                 raw.execute(
                     "DELETE FROM live_presence_attendees WHERE live_session_id = %s",
                     (sid,),
@@ -430,6 +447,71 @@ class LivePresenceStore:
                 if int(left_attendees["n"] or 0) or int(left_session["n"] or 0):
                     raise RuntimeError(f"presence rows remain for session {sid}")
                 raw.commit()
+                return 1 if removed else 0
+            except Exception:
+                raw.rollback()
+                raise
+            finally:
+                raw.autocommit = previous
+
+    def delete_sessions_not_in(self, living_ids: Any) -> int:
+        """Delete presence sessions whose id is not in ``living_ids``.
+
+        Attendees of those sessions go in the same transaction. An id
+        that is still listed is left. An empty list means no live class
+        session exists, so every presence session is removed. Nothing
+        about a join code is logged.
+
+        Args:
+            living_ids: ``live_class_sessions.id`` values that still exist.
+
+        Returns:
+            How many presence session rows were deleted.
+
+        Raises:
+            LivePresenceUnavailable: The database could not finish the delete.
+        """
+        living = sorted({int(sid) for sid in living_ids})
+        with self._conn() as conn:
+            raw = conn.connection
+            previous = raw.autocommit
+            raw.autocommit = False
+            try:
+                if living:
+                    marks = ",".join(["%s"] * len(living))
+                    present = raw.execute(
+                        f"""
+                        SELECT COUNT(*) AS n FROM live_presence_sessions
+                        WHERE id NOT IN ({marks})
+                        """,
+                        living,
+                    ).fetchone()
+                    removed = int(present["n"] or 0)
+                    if removed:
+                        raw.execute(
+                            f"""
+                            DELETE FROM live_presence_attendees
+                            WHERE live_session_id NOT IN ({marks})
+                            """,
+                            living,
+                        )
+                        raw.execute(
+                            f"""
+                            DELETE FROM live_presence_sessions
+                            WHERE id NOT IN ({marks})
+                            """,
+                            living,
+                        )
+                else:
+                    present = raw.execute(
+                        "SELECT COUNT(*) AS n FROM live_presence_sessions"
+                    ).fetchone()
+                    removed = int(present["n"] or 0)
+                    if removed:
+                        raw.execute("DELETE FROM live_presence_attendees")
+                        raw.execute("DELETE FROM live_presence_sessions")
+                raw.commit()
+                return removed
             except Exception:
                 raw.rollback()
                 raise
