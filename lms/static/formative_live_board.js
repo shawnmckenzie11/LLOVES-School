@@ -528,63 +528,62 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   let layoutObserver = null;
+  /** Column count last written onto the grid. Avoids a style write that retriggers resize. */
+  let galleryColumns = -1;
+  /** Cached tile gap. Reading it inside a resize callback forces layout and can loop. */
+  let galleryGap = null;
+  /** True while a layout pass is running, so a nested callback cannot re-enter. */
+  let layingOut = false;
+  /** Last legend signature painted on the open board. */
+  let legendSig = "";
 
   /**
    * Size the tile row so it fills the gallery and drops columns when narrow.
+   *
+   * The open board is sized by CSS (full width, 2:1). Measuring that canvas
+   * and writing pixel sizes from a resize observer feeds the next resize.
    */
   function layoutGallery() {
     if (!(grid instanceof HTMLElement)) return;
     if (panel instanceof HTMLElement && !panel.hidden) return;
     const width = grid.clientWidth;
     if (width < 2) return;
+    if (galleryGap == null) {
+      const gap = Number.parseFloat(getComputedStyle(grid).columnGap);
+      galleryGap = Number.isFinite(gap) ? gap : 10;
+    }
     const cap = cols instanceof HTMLSelectElement ? Number(cols.value) : 4;
-    const gap = Number.parseFloat(getComputedStyle(grid).columnGap);
     const columns = galleryColumnCount(
       width,
       grid.childElementCount,
       cap,
       GALLERY_MIN_TILE,
-      Number.isFinite(gap) ? gap : 10
+      galleryGap
     );
-    const next = `repeat(${columns}, minmax(0, 1fr))`;
-    if (grid.style.gridTemplateColumns !== next) {
-      grid.style.gridTemplateColumns = next;
-    }
+    if (columns === galleryColumns) return;
+    galleryColumns = columns;
+    grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
   }
 
   /**
-   * Size the open board to the stage width without changing its aspect.
-   */
-  function layoutExpanded() {
-    if (!(panel instanceof HTMLElement) || panel.hidden) return;
-    if (!(canvas instanceof HTMLCanvasElement)) return;
-    const stage = canvas.parentElement;
-    const width = stage instanceof HTMLElement ? stage.clientWidth : 0;
-    if (width < 2) return;
-    const box = expandedBoardBox(width, {
-      width: Number(canvas.dataset.logicalWidth) || BOARD_LOGICAL.width,
-      height: Number(canvas.dataset.logicalHeight) || BOARD_LOGICAL.height,
-    });
-    const nextW = `${box.width}px`;
-    const nextH = `${box.height}px`;
-    const current = Number.parseFloat(canvas.style.width);
-    if (Number.isFinite(current) && Math.abs(current - box.width) < 1 && canvas.style.height === nextH) {
-      return;
-    }
-    canvas.style.width = nextW;
-    canvas.style.height = nextH;
-  }
-
-  /**
-   * Reflow the grid, or the open board when one is showing.
+   * Reflow the tile row. The open board keeps the CSS box, so this does not
+   * write the panel canvas size.
    */
   function layoutBoards() {
-    layoutGallery();
-    layoutExpanded();
+    if (layingOut) return;
+    layingOut = true;
+    try {
+      layoutGallery();
+    } finally {
+      layingOut = false;
+    }
   }
 
   if (cols instanceof HTMLSelectElement) {
-    cols.addEventListener("change", () => layoutGallery());
+    cols.addEventListener("change", () => {
+      galleryColumns = -1;
+      layoutBoards();
+    });
   }
 
   /**
@@ -655,52 +654,134 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   /**
+   * Stamp for one tile's ink so a poll can skip repainting an unchanged canvas.
+   *
+   * Sequence alone misses a point appended under the same seq. Point count
+   * catches that without rebuilding the tile button.
+   *
+   * @param {string} key
+   * @param {number} seq
+   * @returns {string}
+   */
+  function tileInkStamp(key, seq) {
+    const bag = ink[key] || emptyInk();
+    let points = 0;
+    for (const stroke of Object.values(bag.strokes || {})) {
+      points += Array.isArray(stroke?.points) ? stroke.points.length : 0;
+    }
+    const texts = Object.keys(bag.texts || {}).length;
+    return `${Number(seq) || 0}:${points}:${texts}`;
+  }
+
+  /**
+   * Find the tile button already on the grid for this board.
+   *
+   * @param {string} key
+   * @returns {HTMLButtonElement | null}
+   */
+  function tileButton(key) {
+    for (const button of grid.querySelectorAll(".wb-live-tile")) {
+      if (button instanceof HTMLButtonElement && button.dataset.boardKey === key) return button;
+    }
+    return null;
+  }
+
+  /**
+   * Create one tile button and its canvas. The node stays for later polls.
+   *
+   * @param {string} key
+   * @returns {HTMLButtonElement}
+   */
+  function createTileButton(key) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "wb-live-tile";
+    button.dataset.boardKey = key;
+    const stage = document.createElement("canvas");
+    const bitmap = tileBitmapSize(320);
+    stage.width = bitmap.width;
+    stage.height = bitmap.height;
+    stage.className = "wb-live-tile-canvas";
+    const meta = document.createElement("span");
+    meta.className = "wb-live-tile-meta";
+    const dot = document.createElement("span");
+    dot.className = "wb-live-dot";
+    const name = document.createElement("span");
+    name.className = "wb-live-name";
+    const team = document.createElement("span");
+    team.className = "wb-live-team";
+    meta.append(dot, name, team);
+    button.append(stage, meta);
+    button.addEventListener("click", () => openBoard(key));
+    return button;
+  }
+
+  /**
+   * Refresh the label and, when the ink changed, the existing canvas.
+   *
+   * @param {HTMLButtonElement} button
+   * @param {any} tile
+   */
+  function updateTileButton(button, tile) {
+    const key = String(tile.board_key || "");
+    button.classList.toggle("is-open", Boolean(key) && key === openKey);
+    const dot = button.querySelector(".wb-live-dot");
+    if (dot) dot.classList.toggle("is-away", Boolean(tile.away));
+    const name = button.querySelector(".wb-live-name");
+    const label = tileName(tile);
+    if (name && name.textContent !== label) name.textContent = label;
+    const meta = button.querySelector(".wb-live-tile-meta");
+    if (meta instanceof HTMLElement) {
+      const wanted = [];
+      if (tile.text) wanted.push(String(tile.text));
+      if (tile.status) wanted.push(String(tile.status));
+      const nodes = meta.querySelectorAll(".wb-live-status");
+      const same =
+        nodes.length === wanted.length &&
+        wanted.every((text, index) => nodes[index].textContent === text);
+      if (!same) {
+        for (const node of nodes) node.remove();
+        for (const text of wanted) {
+          const span = document.createElement("span");
+          span.className = "wb-live-status";
+          span.textContent = text;
+          meta.appendChild(span);
+        }
+      }
+    }
+    const stage = button.querySelector("canvas");
+    if (!(stage instanceof HTMLCanvasElement)) return;
+    const stamp = tileInkStamp(key, Number(tile.board_seq));
+    if (stage.dataset.inkStamp === stamp) return;
+    const bag = ink[key] || emptyInk();
+    paintTile(stage, bag.strokes, bag.texts, STUDENT_INK);
+    stage.dataset.inkStamp = stamp;
+  }
+
+  /**
+   * Paint the visible tiles without replacing buttons that are already there.
+   *
+   * A poll used to rebuild every canvas. That flashed the row and, with the
+   * open board's resize observer, fed another layout pass.
+   *
    * @param {any[]} rows
    */
   function paintGrid(rows) {
     const visible = rows.filter((tile) => tileMatches(tile, filter));
-    grid.replaceChildren();
+    const keep = new Set();
+    let previous = null;
     for (const tile of visible) {
       const key = String(tile.board_key || "");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "wb-live-tile";
-      if (key && key === openKey) button.classList.add("is-open");
-      button.dataset.boardKey = key;
-      const stage = document.createElement("canvas");
-      const bitmap = tileBitmapSize(320);
-      stage.width = bitmap.width;
-      stage.height = bitmap.height;
-      stage.className = "wb-live-tile-canvas";
-      const bag = ink[key] || emptyInk();
-      paintTile(stage, bag.strokes, bag.texts, STUDENT_INK);
-      const meta = document.createElement("span");
-      meta.className = "wb-live-tile-meta";
-      const dot = document.createElement("span");
-      dot.className = "wb-live-dot";
-      if (tile.away) dot.classList.add("is-away");
-      const name = document.createElement("span");
-      name.className = "wb-live-name";
-      name.textContent = tileName(tile);
-      const team = document.createElement("span");
-      team.className = "wb-live-team";
-      team.textContent = tile.team_sort_order == null ? "" : "";
-      meta.append(dot, name, team);
-      if (tile.text) {
-        const typed = document.createElement("span");
-        typed.className = "wb-live-status";
-        typed.textContent = String(tile.text);
-        meta.append(typed);
-      }
-      if (tile.status) {
-        const wrote = document.createElement("span");
-        wrote.className = "wb-live-status";
-        wrote.textContent = String(tile.status);
-        meta.append(wrote);
-      }
-      button.append(stage, meta);
-      button.addEventListener("click", () => openBoard(key));
-      grid.appendChild(button);
+      keep.add(key);
+      let button = tileButton(key);
+      if (!button) button = createTileButton(key);
+      updateTileButton(button, tile);
+      const at = previous ? previous.nextSibling : grid.firstChild;
+      if (button !== at) grid.insertBefore(button, at);
+      previous = button;
+    }
+    for (const button of [...grid.querySelectorAll(".wb-live-tile")]) {
+      if (!keep.has(button.dataset.boardKey || "")) button.remove();
     }
     layoutGallery();
   }
@@ -718,24 +799,7 @@ export function mountTeacherGrid(root, options = {}) {
     tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
     if (context) context.textContent = String(payload.context || "");
     if (summary) summary.textContent = String(payload.summary || "");
-    if (filters instanceof HTMLElement) {
-      filters.replaceChildren();
-      for (const chip of payload.filters || []) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "wb-live-filter";
-        if (chip.id === filter) button.classList.add("is-on");
-        button.textContent = String(chip.label || "");
-        button.addEventListener("click", () => {
-          filter = String(chip.id || "all");
-          for (const node of filters.querySelectorAll(".wb-live-filter")) {
-            node.classList.toggle("is-on", node === button);
-          }
-          paintGrid(tiles);
-        });
-        filters.appendChild(button);
-      }
-    }
+    if (filters instanceof HTMLElement) paintFilters(payload.filters || []);
     for (const tile of tiles) {
       const key = String(tile.board_key || "");
       if (!key) continue;
@@ -792,23 +856,47 @@ export function mountTeacherGrid(root, options = {}) {
     paintShowButton();
     if (typeof options.onOpen === "function") options.onOpen(tile || null);
     refreshPanel();
-    window.requestAnimationFrame(() => {
-      layoutExpanded();
-      window.dispatchEvent(new Event("resize"));
-    });
   }
 
   function closePanel() {
     openKey = "";
     inkQueue.drop();
-    if (canvas instanceof HTMLCanvasElement) {
-      canvas.style.width = "";
-      canvas.style.height = "";
-    }
     if (panel instanceof HTMLElement) panel.hidden = true;
+    galleryColumns = -1;
     paintGrid(tiles);
     paintShowButton();
-    window.requestAnimationFrame(() => layoutGallery());
+  }
+
+  /**
+   * Paint filter chips once per label set. Later polls only move the selection.
+   *
+   * @param {any[]} chips
+   */
+  function paintFilters(chips) {
+    if (!(filters instanceof HTMLElement)) return;
+    const rows = Array.isArray(chips) ? chips : [];
+    const sig = rows.map((chip) => `${chip?.id ?? ""}\t${chip?.label ?? ""}`).join("\n");
+    if (filters.dataset.filterSig !== sig) {
+      filters.dataset.filterSig = sig;
+      filters.replaceChildren();
+      for (const chip of rows) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "wb-live-filter";
+        button.dataset.filterId = String(chip?.id || "all");
+        button.textContent = String(chip?.label || "");
+        button.addEventListener("click", () => {
+          filter = button.dataset.filterId || "all";
+          paintFilters(rows);
+          paintGrid(tiles);
+        });
+        filters.appendChild(button);
+      }
+    }
+    for (const button of filters.querySelectorAll(".wb-live-filter")) {
+      if (!(button instanceof HTMLButtonElement)) continue;
+      button.classList.toggle("is-on", (button.dataset.filterId || "all") === filter);
+    }
   }
 
   /**
@@ -902,6 +990,11 @@ export function mountTeacherGrid(root, options = {}) {
   function applyPanelLegend(legend) {
     const members = Array.isArray(legend) ? legend.slice() : [];
     members.push({ id: "teacher", name: "", color: TEACHER_INK, slot: 0 });
+    const sig = members
+      .map((row) => `${row?.id ?? ""}|${row?.name ?? ""}|${row?.color ?? ""}|${row?.slot ?? ""}`)
+      .join("\n");
+    if (sig === legendSig) return;
+    legendSig = sig;
     board.setFormative?.({
       members,
       alwaysShowNames: true,
@@ -983,7 +1076,6 @@ export function mountTeacherGrid(root, options = {}) {
   if (typeof ResizeObserver === "function") {
     layoutObserver = new ResizeObserver(() => layoutBoards());
     layoutObserver.observe(grid);
-    if (canvas.parentElement instanceof Element) layoutObserver.observe(canvas.parentElement);
   }
   window.addEventListener("resize", layoutBoards);
   const pollMs = overviewPollMs(root);
