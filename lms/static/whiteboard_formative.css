@@ -221,17 +221,16 @@
 .wb-live-body {
   display: grid;
   gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
 }
 
-@media (min-width: 1280px) {
-  .wb-live-body {
-    grid-template-columns: minmax(0, 1fr) 360px;
-  }
-}
-
+/* MCK-469: tiles fill the row. The script caps the count and drops
+   columns on a narrow pane; this is the same fill before that runs. */
 .wb-live-grid {
   display: grid;
-  grid-template-columns: repeat(var(--wb-live-cols, 4), minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
   gap: 0.6rem;
 }
 
@@ -239,6 +238,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
   padding: 0.35rem;
   border: 2px solid transparent;
   border-radius: 10px;
@@ -254,6 +255,7 @@
 .wb-live-tile-canvas {
   width: 100%;
   height: auto;
+  aspect-ratio: 2 / 1;
   background: #fff;
   border-radius: 8px;
 }
@@ -384,17 +386,20 @@
   align-content: start;
 }
 
+/* MCK-469: the opened board uses the gallery width. Aspect stays 2:1
+   (720×360) so strokes scale instead of stretching. */
 .wb-live .wb-live-panel:not([hidden]) {
-  position: fixed;
-  right: 0.5rem;
-  bottom: 0;
-  width: min(560px, 46vw);
-  height: calc(100dvh - 12.75rem);
-  z-index: 5;
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  z-index: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   display: flex;
   flex-direction: column;
+  scrollbar-gutter: stable;
 }
 
 .wb-live .wb-live-panel-bar,
@@ -406,7 +411,15 @@
 }
 
 .wb-live:has(.wb-live-panel:not([hidden])) .wb-live-grid {
-  padding-right: min(560px, 48%);
+  display: none;
+}
+
+.wb-live:has(.wb-live-panel:not([hidden])) .wb-live-body {
+  overflow: auto;
+  scrollbar-gutter: stable;
+  grid-template-rows: auto;
+  height: auto;
+  max-height: 100%;
 }
 
 .wb-live .wb-live-panel[hidden] {
@@ -415,15 +428,18 @@
 
 .wb-live .wb-live-panel-stage {
   position: relative;
-  flex: 1 1 auto;
-  min-height: max(320px, calc(100dvh - 20.5rem));
-  height: calc(100dvh - 20.5rem);
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 0;
+  height: auto;
 }
 
 .wb-live .wb-live-panel-stage > .wb-live-panel-canvas {
   display: block;
   width: 100%;
-  height: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 1;
 }
 
 .wb-live .wb-live-panel-tools {
