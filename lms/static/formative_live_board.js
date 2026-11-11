@@ -32,7 +32,14 @@ function overviewPollMs(root) {
   return TILE_POLL_MS;
 }
 const STUDENT_INK = "#2563eb";
-const TEACHER_INK = "#dc2626";
+/** Teacher pen. Green so it stays distinct from student blue. */
+const TEACHER_INK = "#16a34a";
+/** Feedback column width, in CSS pixels. */
+export const FEEDBACK_PANEL_PX = 320;
+/** Gap between the opened board and the feedback column. */
+export const FEEDBACK_GAP_PX = 16;
+/** Board width where the column would start covering the drawing. */
+export const BOARD_MIN_PX = 640;
 
 /**
  * @param {string} url
@@ -110,19 +117,6 @@ function tileMatches(tile, selected) {
 }
 
 /**
- * @param {string} iso
- * @returns {string}
- */
-function strokeAge(iso) {
-  const stamp = Date.parse(String(iso || ""));
-  if (!Number.isFinite(stamp)) return "";
-  const seconds = Math.max(0, Math.round((Date.now() - stamp) / 1000));
-  if (seconds < 5) return "Drawing now · last stroke just now";
-  if (seconds < 90) return `Drawing now · last stroke ${seconds}s ago`;
-  return "Drawing now";
-}
-
-/**
  * Empty ink bag for one board key.
  *
  * @returns {{strokes: Record<string, any>, texts: Record<string, any>}}
@@ -154,7 +148,7 @@ export function galleryRunChanged(previous, next) {
 }
 
 /**
- * Label and pressed state for Show to class.
+ * Label and pressed state for Show on board.
  *
  * The button shows this board, and the same press stops it. Another
  * open board stays a show action until it is the one projected.
@@ -169,7 +163,7 @@ export function showControlState(openKey, projectedKey) {
   const showing = Boolean(open) && open === projected;
   return {
     showing,
-    label: showing ? "Stop showing" : "Show to class",
+    label: showing ? "Stop showing" : "Show on board",
     pressed: showing,
   };
 }
@@ -232,6 +226,118 @@ export function expandedBoardBox(availableWidth, logical) {
   const height = lw > 0 ? (width * lh) / lw : 0;
   const scale = lw > 0 ? width / lw : 1;
   return { width, height, scale };
+}
+
+/**
+ * Width for an opened board, and whether feedback sits beside it.
+ *
+ * The column is 320px with a 16px gap. Side by side only while the
+ * board would still be at least 640px. Below that the board keeps the
+ * full container width and the column overlays it.
+ *
+ * @param {number} containerWidth
+ * @returns {{width: number, beside: boolean}}
+ */
+export function openedBoardSlot(containerWidth) {
+  const width = Math.max(0, Math.floor(Number(containerWidth) || 0));
+  const besideWidth = width - (FEEDBACK_PANEL_PX + FEEDBACK_GAP_PX);
+  const beside = besideWidth >= BOARD_MIN_PX;
+  return { width: beside ? besideWidth : width, beside };
+}
+
+/**
+ * Height the opened board may use.
+ *
+ * A flex pane shorter than the viewport is the limit. An auto-height
+ * card reports its content, which already includes the board, so that
+ * measurement loses to the viewport remainder.
+ *
+ * @param {number} paneHeight
+ * @param {number} viewportRemainder
+ * @returns {number}
+ */
+export function openedBoardHeight(paneHeight, viewportRemainder) {
+  const pane = Number(paneHeight) || 0;
+  const view = Math.max(0, Number(viewportRemainder) || 0);
+  if (pane > 80 && pane < view - 1) return pane;
+  return view;
+}
+
+/**
+ * Largest board that fits a width and a height without cropping.
+ *
+ * The width is the narrower column from `openedBoardSlot` when the
+ * panel sits beside the board. `expandedBoardBox` keeps the board's
+ * own aspect. When that box is taller than `availableHeight`, the same
+ * function is called again with the width that matches the height.
+ *
+ * @param {number} availableWidth
+ * @param {number} availableHeight
+ * @param {{width?: number, height?: number}} [logical]
+ * @returns {{width: number, height: number, scale: number}}
+ */
+export function fitOpenedBoard(availableWidth, availableHeight, logical) {
+  const lw = Number(logical?.width) > 0 ? Number(logical.width) : BOARD_LOGICAL.width;
+  const lh = Number(logical?.height) > 0 ? Number(logical.height) : BOARD_LOGICAL.height;
+  const logicalBox = { width: lw, height: lh };
+  const byWidth = expandedBoardBox(availableWidth, logicalBox);
+  const limit = Number(availableHeight);
+  if (!(limit > 0) || byWidth.height <= limit) return byWidth;
+  const narrower = lh > 0 ? Math.floor((limit * lw) / lh) : 0;
+  return expandedBoardBox(Math.max(0, narrower), logicalBox);
+}
+
+/**
+ * Header status for one opened board.
+ *
+ * Question boards already say Drawing, Submitted, or Teacher wrote.
+ * A live whiteboard without that label says Drawing while the card is up.
+ *
+ * @param {any} tile
+ * @returns {string}
+ */
+export function panelStatusLabel(tile) {
+  const named = String(tile?.status || "").trim();
+  if (
+    named === "Drawing" ||
+    named === "Submitted" ||
+    named === "Teacher wrote" ||
+    named === "Not started"
+  ) {
+    return named;
+  }
+  if (tile?.teacher_wrote) return "Teacher wrote";
+  if (tile?.drawing) return "Drawing";
+  return "";
+}
+
+/**
+ * Name line for the feedback header.
+ *
+ * A team shows its name plus members. A solo board is the student name.
+ *
+ * @param {any} tile
+ * @returns {{title: string, members: string, status: string}}
+ */
+export function panelHeading(tile) {
+  const title = String(tile?.name || "").trim() || "Board";
+  const names = Array.isArray(tile?.member_names)
+    ? tile.member_names.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const team = tile?.team_sort_order != null;
+  const members = team ? names.filter((name) => name !== title).join(", ") : "";
+  return { title, members, status: panelStatusLabel(tile) };
+}
+
+/**
+ * Typed work shows only for a Typing and whiteboard question that has text.
+ *
+ * @param {string} answerWith
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function typedAnswerVisible(answerWith, text) {
+  return String(answerWith || "") === "both" && String(text || "").trim().length > 0;
 }
 
 /**
@@ -423,6 +529,7 @@ export function mountTeacherGrid(root, options = {}) {
   /** @type {any[]} */
   let tiles = [];
   let filter = "all";
+  let answerWith = "";
   let openKey = "";
   let session = 0;
   let tileTimer = 0;
@@ -485,6 +592,14 @@ export function mountTeacherGrid(root, options = {}) {
       if (!openKey || !stroke?.id) return;
       postFeedback([{ type: "stroke_remove", id: stroke.id }]);
     },
+    onClear: (gone) => {
+      const ops = [];
+      for (const stroke of gone || []) {
+        if (!stroke?.id || !stroke.mine) continue;
+        ops.push({ type: "stroke_remove", id: stroke.id });
+      }
+      if (ops.length) postFeedback(ops);
+    },
     onRedo: (stroke) => {
       if (!openKey || !stroke?.id) return;
       const samples = [];
@@ -536,12 +651,17 @@ export function mountTeacherGrid(root, options = {}) {
   let layingOut = false;
   /** Last legend signature painted on the open board. */
   let legendSig = "";
+  /** Last stage width written for the open board. Skips a resize loop. */
+  let openBoxWidth = -1;
+  /** Last feedback max-height written. Same guard as the stage width. */
+  let openBoxCap = "";
 
   /**
    * Size the tile row so it fills the gallery and drops columns when narrow.
    *
-   * The open board is sized by CSS (full width, 2:1). Measuring that canvas
-   * and writing pixel sizes from a resize observer feeds the next resize.
+   * While a board is open this returns without writing. The open canvas
+   * keeps a CSS aspect ratio; writing its pixel size from a resize
+   * observer feeds the next resize.
    */
   function layoutGallery() {
     if (!(grid instanceof HTMLElement)) return;
@@ -566,13 +686,49 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   /**
-   * Reflow the tile row. The open board keeps the CSS box, so this does not
-   * write the panel canvas size.
+   * Fit the opened board into the pane, leaving 336px when the column fits.
+   *
+   * The stage width is the only inline size. The canvas stays `width: 100%`
+   * at its own aspect, which is what keeps polls from resizing it.
+   */
+  function layoutOpenBoard() {
+    if (!(panel instanceof HTMLElement) || panel.hidden) return;
+    const body = panel.parentElement;
+    if (!(body instanceof HTMLElement)) return;
+    const containerWidth = body.clientWidth;
+    if (containerWidth < 2) return;
+    const top = Math.max(0, body.getBoundingClientRect().top);
+    const limit = openedBoardHeight(body.clientHeight, window.innerHeight - top);
+    const slot = openedBoardSlot(containerWidth);
+    const box = fitOpenedBoard(slot.width, limit);
+    const width = Math.max(0, Math.round(box.width));
+    root.classList.toggle("is-overlay", !slot.beside);
+    const stage = canvas.parentElement;
+    if (stage instanceof HTMLElement && openBoxWidth !== width) {
+      openBoxWidth = width;
+      stage.style.width = `${width}px`;
+    }
+    const feedback = part("feedback");
+    if (feedback instanceof HTMLElement) {
+      const cap = `${Math.max(0, Math.round(box.height))}px`;
+      if (openBoxCap !== cap) {
+        openBoxCap = cap;
+        feedback.style.maxHeight = cap;
+      }
+    }
+  }
+
+  /**
+   * Reflow the tile row, and the opened board when one is up.
+   *
+   * The canvas element is not given an inline width. A resize observer
+   * that wrote that width is what made the opened board vanish.
    */
   function layoutBoards() {
     if (layingOut) return;
     layingOut = true;
     try {
+      layoutOpenBoard();
       layoutGallery();
     } finally {
       layingOut = false;
@@ -797,6 +953,7 @@ export function mountTeacherGrid(root, options = {}) {
       return;
     }
     tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
+    if (typeof payload.answer_with === "string") answerWith = payload.answer_with;
     if (context) context.textContent = String(payload.context || "");
     if (summary) summary.textContent = String(payload.summary || "");
     if (filters instanceof HTMLElement) paintFilters(payload.filters || []);
@@ -810,6 +967,10 @@ export function mountTeacherGrid(root, options = {}) {
       }
     }
     paintGrid(tiles);
+    if (openKey) {
+      const openTile = tiles.find((row) => String(row.board_key || "") === openKey);
+      if (openTile) paintPanelCopy(openTile);
+    }
     projectedKey = String(payload.projected_board || "");
     const status = part("projected");
     if (status) {
@@ -822,7 +983,7 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   /**
-   * Show to class, or Stop showing when this board is the one up.
+   * Show on board, or Stop showing when this board is the one up.
    */
   function paintShowButton() {
     const button = part("show");
@@ -834,9 +995,59 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   /**
-   * @param {string} boardKey
+   * Header, status, and typed answer for the open board.
+   *
+   * Text is written only when it changed, so a poll does not rebuild the column.
+   *
+   * @param {any} tile
    */
-  function openBoard(boardKey) {
+  function paintPanelCopy(tile) {
+    const heading = panelHeading(tile);
+    const title = part("panel-name");
+    const team = part("panel-team");
+    const status = part("panel-status");
+    if (title && title.textContent !== heading.title) title.textContent = heading.title;
+    if (team instanceof HTMLElement) {
+      team.textContent = heading.members;
+      team.hidden = !heading.members;
+    }
+    if (status instanceof HTMLElement) {
+      status.textContent = heading.status;
+      status.hidden = !heading.status;
+    }
+    const answer = part("answer");
+    const more = part("answer-more");
+    const text = String(tile?.text || "");
+    const show = typedAnswerVisible(answerWith, text);
+    if (answer instanceof HTMLElement) {
+      answer.hidden = !show;
+      if (answer.dataset.raw !== text) {
+        answer.dataset.raw = text;
+        answer.textContent = text;
+        answer.classList.remove("is-open");
+        if (more instanceof HTMLButtonElement) more.hidden = true;
+        if (show) {
+          window.requestAnimationFrame(() => {
+            if (answer.dataset.raw !== text) return;
+            const overflow = answer.scrollHeight > answer.clientHeight + 1;
+            if (more instanceof HTMLButtonElement) more.hidden = !overflow;
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Open one board and its feedback column.
+   *
+   * Prev/Next passes `keepCollapse` so the column stays up instead of
+   * returning to the grid. A fresh open from a tile expands it.
+   *
+   * @param {string} boardKey
+   * @param {{keepCollapse?: boolean}} [options]
+   */
+  function openBoard(boardKey, boardOptions = {}) {
+    const keepCollapse = Boolean(boardOptions.keepCollapse);
     openKey = String(boardKey || "");
     panelSince = 0;
     panelRun = runKey;
@@ -844,24 +1055,24 @@ export function mountTeacherGrid(root, options = {}) {
     inkQueue.drop();
     board.resetRun?.({ strokes: [], texts: [] });
     if (panel instanceof HTMLElement) panel.hidden = false;
+    if (!keepCollapse) root.classList.remove("is-feedback-collapsed");
     const tile = tiles.find((row) => String(row.board_key || "") === openKey);
-    const title = part("panel-name");
-    const age = part("panel-age");
-    const team = part("panel-team");
-    if (title) title.textContent = tile ? tileName(tile) : "Board";
-    if (age) age.textContent = tile ? strokeAge(tile.last_stroke_at) : "";
-    if (team) team.textContent = tile && tile.team_sort_order != null ? tileName(tile) : "";
+    paintPanelCopy(tile);
     applyPanelLegend([]);
     paintGrid(tiles);
     paintShowButton();
+    layoutOpenBoard();
     if (typeof options.onOpen === "function") options.onOpen(tile || null);
     refreshPanel();
   }
 
   function closePanel() {
     openKey = "";
+    openBoxWidth = -1;
+    openBoxCap = "";
     inkQueue.drop();
     if (panel instanceof HTMLElement) panel.hidden = true;
+    root.classList.remove("is-feedback-collapsed");
     galleryColumns = -1;
     paintGrid(tiles);
     paintShowButton();
@@ -907,7 +1118,7 @@ export function mountTeacherGrid(root, options = {}) {
     if (!visible.length) return;
     const index = visible.findIndex((tile) => String(tile.board_key || "") === openKey);
     const next = visible[(index + step + visible.length) % visible.length];
-    if (next) openBoard(String(next.board_key || ""));
+    if (next) openBoard(String(next.board_key || ""), { keepCollapse: true });
   }
 
   async function refreshPanel() {
@@ -1005,36 +1216,24 @@ export function mountTeacherGrid(root, options = {}) {
   part("prev")?.addEventListener("click", () => stepPanel(-1));
   part("next")?.addEventListener("click", () => stepPanel(1));
   part("close")?.addEventListener("click", closePanel);
+  part("answer-more")?.addEventListener("click", () => {
+    const answer = part("answer");
+    const more = part("answer-more");
+    if (answer instanceof HTMLElement) answer.classList.add("is-open");
+    if (more instanceof HTMLElement) more.hidden = true;
+  });
+  part("collapse")?.addEventListener("click", () => {
+    const collapsed = root.classList.toggle("is-feedback-collapsed");
+    const button = part("collapse");
+    if (button instanceof HTMLButtonElement) {
+      button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      button.setAttribute("aria-label", collapsed ? "Expand feedback" : "Collapse feedback");
+      button.textContent = collapsed ? "‹" : "›";
+    }
+  });
   part("clear")?.addEventListener("click", () => {
-    const id = sessionId();
-    const key = openKey;
-    if (!id || !key) return;
-    fetch(boardUrl(id, key, "/clear"), {
-      method: "POST",
-      credentials: "same-origin",
-    })
-      .then(async (res) => {
-        let data = null;
-        try {
-          data = await res.json();
-        } catch (_err) {
-          data = null;
-        }
-        if (!res.ok || !data) return;
-        const fromBody = String(data.run_key || "").trim();
-        if (fromBody) runKey = fromBody;
-        if (!ink[key]) ink[key] = emptyInk();
-        foldDelta(ink[key], data, STUDENT_INK);
-        if (Number.isFinite(Number(data.board_seq))) {
-          cursors[key] = Number(data.board_seq);
-          if (openKey === key) panelSince = Number(data.board_seq);
-        }
-        paintGrid(tiles);
-        if (openKey === key && data.canvas_view) {
-          board.applyDelta?.({ snapshot: true, canvas_view: data.canvas_view });
-        }
-      })
-      .catch(() => {});
+    const erase = part("erase");
+    if (erase instanceof HTMLElement) erase.click();
   });
   part("show")?.addEventListener("click", () => {
     const id = sessionId();
@@ -1077,6 +1276,48 @@ export function mountTeacherGrid(root, options = {}) {
     layoutObserver = new ResizeObserver(() => layoutBoards());
     layoutObserver.observe(grid);
   }
+  /**
+   * Arrow keys move the open board. Escape and a click outside close it.
+   *
+   * Pointerdown, not click: the tile click that opens a board would
+   * otherwise bubble and close it in the same turn.
+   *
+   * @param {KeyboardEvent} event
+   */
+  function onPanelKey(event) {
+    if (!openKey) return;
+    const target = event.target;
+    const tag = target instanceof HTMLElement ? target.tagName : "";
+    const typing =
+      tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" ||
+      (target instanceof HTMLElement && target.isContentEditable);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePanel();
+      return;
+    }
+    if (typing) return;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepPanel(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepPanel(1);
+    }
+  }
+
+  /**
+   * @param {Event} event
+   */
+  function onOutside(event) {
+    if (!openKey || !(panel instanceof HTMLElement)) return;
+    const target = event.target;
+    if (!(target instanceof Node) || panel.contains(target)) return;
+    closePanel();
+  }
+
+  document.addEventListener("keydown", onPanelKey);
+  document.addEventListener("pointerdown", onOutside);
   window.addEventListener("resize", layoutBoards);
   const pollMs = overviewPollMs(root);
   const panelMs = pollMs >= SUBMIT_REFRESH_MS ? pollMs : PANEL_POLL_MS;
@@ -1096,6 +1337,8 @@ export function mountTeacherGrid(root, options = {}) {
       window.clearInterval(panelTimer);
       layoutObserver?.disconnect();
       layoutObserver = null;
+      document.removeEventListener("keydown", onPanelKey);
+      document.removeEventListener("pointerdown", onOutside);
       window.removeEventListener("resize", layoutBoards);
       root.dataset.wbMounted = "";
     },

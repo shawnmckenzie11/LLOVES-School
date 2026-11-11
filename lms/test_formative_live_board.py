@@ -114,7 +114,7 @@ if (galleryRunChanged('run-a', 'run-a')) process.exit(9);
 const showing = showControlState('team:0', 'team:0');
 const idle = showControlState('team:0', '');
 if (showing.label !== 'Stop showing' || !showing.pressed) process.exit(10);
-if (idle.label !== 'Show to class' || idle.pressed) process.exit(11);
+if (idle.label !== 'Show on board' || idle.pressed) process.exit(11);
 """
         completed = subprocess.run(
             ["node", "--input-type=module", "-e", script],

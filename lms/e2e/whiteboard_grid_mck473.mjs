@@ -138,25 +138,36 @@ const FIXTURE = `<!DOCTYPE html>
                   <div class="wb-live-body">
                     <div id="wb-live-grid" class="wb-live-grid"></div>
                     <aside id="wb-live-panel" class="wb-live-panel" hidden>
-                      <div class="wb-live-panel-bar">
-                        <button type="button" id="wb-live-prev">←</button>
-                        <button type="button" id="wb-live-next">→</button>
-                        <strong id="wb-live-panel-name">Board</strong>
-                        <button type="button" id="wb-live-close">×</button>
-                      </div>
-                      <p id="wb-live-panel-age" class="wb-live-age"></p>
-                      <div class="wb-live-panel-tools">
-                        <button type="button" id="wb-live-pen">Pen</button>
-                        <button type="button" id="wb-live-text">Text</button>
-                        <button type="button" id="wb-live-erase">Erase</button>
-                        <button type="button" id="wb-live-undo">Undo</button>
-                        <button type="button" id="wb-live-redo">Redo</button>
-                        <button type="button" id="wb-live-show">Show to class</button>
-                        <button type="button" id="wb-live-clear">Clear board</button>
-                      </div>
-                      <div id="wb-live-legend" hidden></div>
-                      <div class="live-canvas-stage wb-live-panel-stage">
-                        <canvas id="wb-live-panel-canvas" class="wb-live-panel-canvas" width="720" height="360" aria-label="Whiteboard"></canvas>
+                      <div class="wb-live-open">
+                        <div class="wb-live-board">
+                          <div class="live-canvas-stage wb-live-panel-stage">
+                            <canvas id="wb-live-panel-canvas" class="wb-live-panel-canvas" width="720" height="360" aria-label="Whiteboard"></canvas>
+                          </div>
+                        </div>
+                        <div id="wb-live-feedback" class="wb-live-feedback">
+                          <div class="wb-live-panel-bar">
+                            <div class="wb-live-panel-who">
+                              <strong id="wb-live-panel-name">Board</strong>
+                              <span id="wb-live-panel-status" class="wb-live-panel-status"></span>
+                            </div>
+                            <div class="wb-live-panel-nav">
+                              <button type="button" id="wb-live-prev" aria-label="Previous board">←</button>
+                              <button type="button" id="wb-live-next" aria-label="Next board">→</button>
+                              <button type="button" id="wb-live-collapse" class="wb-live-collapse" aria-expanded="true">›</button>
+                              <button type="button" id="wb-live-close" aria-label="Close board">×</button>
+                            </div>
+                          </div>
+                          <div class="wb-live-panel-tools">
+                            <button type="button" id="wb-live-pen" class="is-on wb-live-pen">Pen</button>
+                            <button type="button" id="wb-live-undo">Undo</button>
+                            <button type="button" id="wb-live-clear">Clear my ink</button>
+                            <button type="button" id="wb-live-text" hidden>Text</button>
+                            <button type="button" id="wb-live-erase" hidden>Erase</button>
+                            <button type="button" id="wb-live-redo" hidden>Redo</button>
+                            <button type="button" id="wb-live-show" class="wb-live-show">Show on board</button>
+                          </div>
+                          <div id="wb-live-legend" hidden></div>
+                        </div>
                       </div>
                     </aside>
                   </div>

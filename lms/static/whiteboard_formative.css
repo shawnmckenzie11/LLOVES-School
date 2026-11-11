@@ -386,8 +386,8 @@
   align-content: start;
 }
 
-/* MCK-469: the opened board uses the gallery width. Aspect stays 2:1
-   (720×360) so strokes scale instead of stretching. */
+/* MCK-469 / MCK-476: the opened board keeps its own aspect. The stage
+   width is the fitted column; the canvas fills that stage and is not cropped. */
 .wb-live .wb-live-panel:not([hidden]) {
   position: relative;
   inset: auto;
@@ -396,18 +396,204 @@
   max-height: 100%;
   z-index: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  scrollbar-gutter: stable;
+  background: transparent;
+  padding: 0;
+  animation: wb-panel-fade 120ms linear;
 }
 
-.wb-live .wb-live-panel-bar,
-.wb-live .wb-live-age,
+@keyframes wb-panel-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.wb-live-open {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) 320px;
+  gap: 16px;
+  align-items: start;
+  justify-content: start;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.wb-live-board {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* button { display: inline-block } in the base sheet beats the hidden attribute. */
+.wb-live-feedback [hidden] {
+  display: none !important;
+}
+
+.wb-live-feedback {
+  width: 320px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #12202e;
+  color: #e2e8f0;
+}
+
+.wb-live .wb-live-panel-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  overflow: visible;
+}
+
+.wb-live-panel-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.wb-live-panel-nav {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+}
+
+.wb-live-panel-nav button,
+.wb-live-feedback .wb-live-panel-tools button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 0.35rem 0.6rem;
+}
+
+.wb-live-panel-status {
+  color: #fbbf24;
+  font-size: 0.75rem;
+}
+
+.wb-live-feedback .wb-live-pen {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.wb-live-feedback .wb-live-pen::before {
+  content: "";
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: #16a34a;
+}
+
+.wb-live-feedback .wb-live-pen.is-on {
+  background: #14532d;
+  color: #ecfdf5;
+}
+
+.wb-live-answer {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.wb-live-answer.is-open {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.wb-live-more {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #5eead4;
+  cursor: pointer;
+}
+
+.wb-live-feedback .wb-live-show {
+  width: 100%;
+}
+
+.wb-live-feedback .qboard-note-label,
+.wb-live-feedback .qboard-waits,
+body.staff-shell .wb-live-feedback .qboard-note-label,
+body.staff-shell .wb-live-feedback .qboard-waits {
+  margin: 0;
+}
+
+.wb-live-feedback textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.25rem;
+  min-height: 3.2rem;
+  max-height: 7.2rem;
+  field-sizing: content;
+  resize: none;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0b1220;
+  color: #e2e8f0;
+}
+
+.wb-live:not(.is-overlay) .wb-live-collapse {
+  display: none;
+}
+
+.wb-live.is-overlay .wb-live-open {
+  display: block;
+  position: relative;
+}
+
+.wb-live.is-overlay .wb-live-feedback {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.wb-live.is-overlay.is-feedback-collapsed .wb-live-feedback {
+  width: 40px;
+  padding: 0.35rem 0;
+  overflow: hidden;
+}
+
+.wb-live.is-overlay.is-feedback-collapsed .wb-live-panel-who,
+.wb-live.is-overlay.is-feedback-collapsed .wb-live-panel-nav > :not(.wb-live-collapse),
+.wb-live.is-overlay.is-feedback-collapsed .wb-live-feedback > :not(.wb-live-panel-bar) {
+  display: none;
+}
+
+.wb-live.is-overlay.is-feedback-collapsed .wb-live-panel-bar,
+.wb-live.is-overlay.is-feedback-collapsed .wb-live-panel-nav {
+  justify-content: center;
+  width: 100%;
+}
+
 .wb-live .wb-live-panel-tools {
   flex: 0 0 auto;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  overflow: visible;
 }
 
 .wb-live:has(.wb-live-panel:not([hidden])) .wb-live-grid {
@@ -415,8 +601,7 @@
 }
 
 .wb-live:has(.wb-live-panel:not([hidden])) .wb-live-body {
-  overflow: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden;
   grid-template-rows: auto;
   height: auto;
   max-height: 100%;
@@ -440,10 +625,6 @@
   max-width: 100%;
   height: auto;
   aspect-ratio: 2 / 1;
-}
-
-.wb-live .wb-live-panel-tools {
-  flex: 0 0 auto;
 }
 
 .canvas-pane:not([hidden]) {
@@ -579,6 +760,15 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   height: auto;
   min-height: 22rem;
   overflow: visible;
+}
+
+.qboard-dash .wb-live:has(.wb-live-panel:not([hidden])) {
+  min-height: 0;
+}
+
+.qboard-dash .wb-live:has(.wb-live-panel:not([hidden])) .wb-live-body {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .qboard-dash .wb-live .wb-live-grid {
