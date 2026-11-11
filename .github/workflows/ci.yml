@@ -45,10 +45,11 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
-    # A healthy run is about 25 minutes (tests ~22, setup ~2). 45 stops a
-    # stuck download well short of the 6-hour default without cutting off
-    # the 30-minute test step (MCK-470).
-    timeout-minutes: 45
+    # A healthy run is about 25 minutes (tests ~22, setup ~2). The install
+    # step is capped at 12 minutes and the test step at 30, so 60 covers
+    # both with headroom and still stops a stuck job well short of the
+    # 6-hour default (MCK-470).
+    timeout-minutes: 60
     # Keep this Postgres block identical to the test job in deploy.yml.
     # N=28 dials LIVE_PRESENCE_TEST_URL (not LIVE_DATABASE_URL). Do not
     # export LIVE_DATABASE_URL or DATABASE_URL: those attach Postgres to
@@ -83,11 +84,13 @@ jobs:
         run: python -m pip install -r lms/requirements.txt
 
       # MCK-470: a DNS failure must not hang or fail this job. The script
-      # skips when soffice is already installed, bounds apt, and exits
-      # non-zero if the install does not finish. Slide tests skip on their
-      # own when soffice_bin() is empty.
+      # skips when soffice is already installed, leaves Azure for
+      # archive.ubuntu.com and then mirror.arizona.edu, and bounds every
+      # apt call. The step cap is 12 minutes; the script's own cap is 10.
+      # A failed install does not fail the job. Slide tests skip when
+      # soffice or the metric fonts are missing.
       - name: Install LibreOffice
-        timeout-minutes: 4
+        timeout-minutes: 12
         continue-on-error: true
         run: bash .github/scripts/install_libreoffice.sh
 

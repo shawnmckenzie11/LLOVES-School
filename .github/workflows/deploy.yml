@@ -53,10 +53,10 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
-    # A healthy run is about 25 minutes. 45 stops a stuck download well
-    # short of the 6-hour default without cutting off the 30-minute test
-    # step (MCK-470). Same cap as the test job in ci.yml.
-    timeout-minutes: 45
+    # A healthy run is about 25 minutes. The install step is capped at 12
+    # minutes and the test step at 30, so 60 covers both with headroom
+    # (MCK-470). Same cap as the test job in ci.yml.
+    timeout-minutes: 60
     # pull-requests/actions: read for the What's new preview (MCK-182).
     permissions:
       contents: read
@@ -108,11 +108,13 @@ jobs:
         run: python -m pip install -r lms/requirements.txt
 
       # MCK-470: a DNS failure must not hang or fail this job. The script
-      # skips when soffice is already installed, bounds apt, and exits
-      # non-zero if the install does not finish. Slide tests skip on their
-      # own when soffice_bin() is empty. Same step as ci.yml.
+      # skips when soffice is already installed, leaves Azure for
+      # archive.ubuntu.com and then mirror.arizona.edu, and bounds every
+      # apt call. The step cap is 12 minutes; the script's own cap is 10.
+      # Same step as ci.yml. Slide tests skip when soffice or the metric
+      # fonts are missing.
       - name: Install LibreOffice
-        timeout-minutes: 4
+        timeout-minutes: 12
         continue-on-error: true
         run: bash .github/scripts/install_libreoffice.sh
 
