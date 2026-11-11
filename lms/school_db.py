@@ -44490,9 +44490,9 @@ class SchoolDB(LovesDB):
     def _weighted_module_item_count(self, class_id: int, live_module: str) -> int:
         """Individual opportunities stored on participation items for one module.
 
-        Each item is weighed from its own publish mode. A group board stays
-        out of this count, including when a deck query aliases every row
-        as individual.
+        An item counts only when someone answered it live. The board
+        weight applies on top of that rule. A group board stays out,
+        including when a deck query aliases every row as individual.
 
         Args:
             class_id: Class primary key.
@@ -44508,8 +44508,11 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT p.live_slot, p.question_key, p.item_json, p.prompt_kind
+                SELECT DISTINCT p.live_slot, p.question_key, p.item_json, p.prompt_kind
                 FROM participation_items p
+                INNER JOIN participation_answers a
+                    ON a.class_id = p.class_id AND a.run_key = p.run_key
+                   AND a.question_key = p.question_key AND a.source = 'live'
                 WHERE p.class_id = ? AND p.live_module = ?
                   AND {self._module_class_slot_sql()}{real_run_clause}
                 """,
@@ -44552,8 +44555,9 @@ class SchoolDB(LovesDB):
         """Individual participation opportunities in one module.
 
         The live deck wins when it still has counted questions. Otherwise
-        stored items are weighed from their own publish mode, so a group
-        board is not an opportunity.
+        stored items are weighed from their own publish mode, and only
+        when someone answered live. A module nobody answered stays at
+        zero. A group board is not an opportunity.
 
         Args:
             class_id: Class primary key.
@@ -44572,12 +44576,14 @@ class SchoolDB(LovesDB):
     def _skipped_group_board_catchup_credit(
         self, class_id: int, live_module: str, student_id: int
     ) -> int:
-        """Solo catch-up credit for a group board this student was skipped on.
+        """Solo catch-up credit for a group board this student did not inherit.
 
         The live group board is not an individual opportunity, so a
-        teammate who submitted it is not shown 0/1. The skipped student
-        finishes that question alone, which is one opportunity they
-        answered.
+        teammate who submitted it is not shown 0/1. A student who was
+        skipped, or who was on the team and had already left, finishes
+        that question alone. That catch-up is one opportunity they
+        answered. End marks every attendee left, so the team copy's
+        member list is the record of who was on the board.
 
         Args:
             class_id: Class primary key.
@@ -44599,10 +44605,22 @@ class SchoolDB(LovesDB):
                 INNER JOIN participation_items p
                     ON p.class_id = a.class_id AND p.run_key = a.run_key
                    AND p.question_key = a.question_key
-                INNER JOIN live_question_skips s
-                    ON s.class_id = a.class_id AND s.run_key = a.run_key
-                   AND s.question_key = a.question_key AND s.student_id = a.student_id
                 WHERE a.class_id = ? AND a.student_id = ? AND a.source = 'catchup'
+                  AND (
+                    EXISTS (
+                      SELECT 1 FROM live_question_skips s
+                      WHERE s.class_id = a.class_id AND s.run_key = a.run_key
+                        AND s.question_key = a.question_key
+                        AND s.student_id = a.student_id
+                    )
+                    OR EXISTS (
+                      SELECT 1 FROM board_answer_copies c, json_each(c.member_ids_json) m
+                      WHERE c.class_id = a.class_id
+                        AND c.submitted_at IS NOT NULL
+                        AND c.run_key LIKE a.run_key || '~q%'
+                        AND CAST(m.value AS INTEGER) = a.student_id
+                    )
+                  )
                   AND p.live_module = ?
                   AND {self._module_class_slot_sql()}{real_run_clause}
                   AND json_extract(p.item_json, '$.answer_with') IN ('board', 'both')

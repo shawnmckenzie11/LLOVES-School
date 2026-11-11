@@ -922,10 +922,11 @@ def _present_roster_ids(school: Any, session_id: int) -> set[int]:
 def _live_award_ids(
     school: Any, item: dict[str, Any], member_ids: list[int]
 ) -> list[int]:
-    """Roster ids who receive a live answer. A skip does not.
+    """Roster ids who receive a live answer.
 
-    A skipped teammate finishes the question alone in catch-up. Writing
-    them a live row would make that catch-up a 409.
+    A skipped teammate, and a teammate who has left, finish the question
+    alone in catch-up. Writing either a live row would make that catch-up
+    a 409. Absent teammates are the same present-member set the gate uses.
 
     Args:
         school: Open school database.
@@ -933,7 +934,18 @@ def _live_award_ids(
         member_ids: Roster ids on the board at submit time.
     """
     skipped = school._skipped_ids_for_live_item(int(item["id"]))
-    return [int(sid) for sid in member_ids if int(sid) not in skipped]
+    mode = str(item.get("response_mode") or item.get("publish_mode") or "")
+    group = mode == "group_shared" or str(item.get("publish_mode") or "") == "group_shared"
+    session_id = int(item.get("live_session_id") or 0)
+    present = _present_roster_ids(school, session_id) if session_id and group else None
+    awarded = []
+    for sid in member_ids:
+        if int(sid) in skipped:
+            continue
+        if present is not None and int(sid) not in present:
+            continue
+        awarded.append(int(sid))
+    return awarded
 
 
 def _gate_members(

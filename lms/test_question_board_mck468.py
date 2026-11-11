@@ -543,5 +543,157 @@ class QuestionBoardFollowupTests(unittest.TestCase):
         )
         self.assertEqual(note.status_code, 404)
 
+    def _offered(self, student_id: int) -> int:
+        """Offered count on the M1 participation cell.
+
+        A missing module is zero. That is the em dash, not 0/1.
+
+        Args:
+            student_id: Roster id.
+        """
+        data = self.school.class_participation(
+            self.class_id, include_test_students=True
+        )
+        match = next(row for row in data["students"] if row["student_id"] == student_id)
+        cell = (match.get("modules") or {}).get("M1")
+        if not cell:
+            return 0
+        return int(cell["offered"])
+
+    def _publish_mc(self, text: str) -> int:
+        """Publish an individual multiple-choice question.
+
+        Args:
+            text: Stem.
+
+        Returns:
+            The live item id.
+        """
+        rv = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C2/add-question",
+            json={
+                "type": "mc",
+                "text": text,
+                "page_number": 1,
+                "stage": "round",
+                "options": ["A", "B", "C", "D"],
+                "correct_index": 0,
+                "save_to_bank": False,
+            },
+        )
+        self.assertLess(rv.status_code, 400, rv.get_json())
+        self.school.ensure_live_session_items(self.session_id)
+        item = None
+        for row in self.school.list_live_session_items(self.session_id):
+            stored = row.get("item") if isinstance(row.get("item"), dict) else {}
+            if str(stored.get("text") or "") == text:
+                item = row
+                break
+        self.assertIsNotNone(item)
+        self.school.publish_live_session_item(
+            self.session_id, int(item["id"]), publish_mode="individual"
+        )
+        return int(item["id"])
+
+    def test_unanswered_individual_board_stays_unoffered(self) -> None:
+        """An individual board nobody answered is not 0/1."""
+        self._add("Unanswered board")
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        self._mark_real()
+        with self.school._lock:
+            answers = self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM participation_answers WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        self.assertEqual(int(answers["n"]), 0)
+        self.assertEqual(self._offered(self.ids[0]), 0)
+        self.assertEqual(self._fraction(self.ids[0]), "—")
+
+    def test_unanswered_mc_stays_unoffered(self) -> None:
+        """An individual multiple-choice question nobody answered is not 0/1."""
+        self._publish_mc("Unanswered choice")
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        self._mark_real()
+        with self.school._lock:
+            answers = self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM participation_answers WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        self.assertEqual(int(answers["n"]), 0)
+        self.assertEqual(self._offered(self.ids[0]), 0)
+        self.assertEqual(self._fraction(self.ids[0]), "—")
+
+    def test_left_teammate_catchup_is_one_of_one(self) -> None:
+        """A teammate who has left inherits no live answer and catch-up is 1/1."""
+        prompt_id, _item_id = self._add("Left board", group=True)
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("present-ink")
+        )
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = '2026-11-10T12:00:00'
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (self.session_id, self.ids[1]),
+            )
+            self.school.conn.commit()
+        sent = self.school.submit_question_board(
+            self.session_id, prompt_id, self.ids[0], ""
+        )
+        self.assertTrue(sent["ok"])
+        with self.school._lock:
+            live_now = self.school.conn.execute(
+                """
+                SELECT student_id FROM live_session_responses
+                WHERE prompt_id = ? AND student_id = ?
+                """,
+                (prompt_id, self.ids[1]),
+            ).fetchone()
+        self.assertIsNone(live_now)
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        run_key = self._mark_real()
+        with self.school._lock:
+            part = self.school.conn.execute(
+                """
+                SELECT id, question_key FROM participation_items
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (self.class_id, run_key),
+            ).fetchone()
+            copied = self.school.conn.execute(
+                """
+                SELECT source FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND question_key = ?
+                """,
+                (self.class_id, self.ids[1], part["question_key"]),
+            ).fetchone()
+            link = self.school.conn.execute(
+                "SELECT token FROM catchup_links WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        self.assertIsNone(copied)
+        board_run = f"{run_key}~cu~q{int(part['id'])}"
+        self.school.boards.append_ops(
+            board_run,
+            f"solo:{self.ids[1]}",
+            owner=str(self.ids[1]),
+            ops=_stroke("came-back"),
+        )
+        from catchup_session import establish_catchup_identity
+
+        phone = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, self.ids[1])
+        with phone.session_transaction() as sess:
+            establish_catchup_identity(sess, self.school, self.class_id, self.ids[1], stamp)
+        submitted = phone.post(
+            f"/api/catchup/{link['token']}/questions/{int(part['id'])}/board/submit",
+            json={"text": ""},
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.get_json())
+        self.assertEqual(self._fraction(self.ids[1]), "1/1")
+        self.assertNotEqual(self._fraction(self.ids[0]), "0/1")
+
 if __name__ == "__main__":
     unittest.main()
