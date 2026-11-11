@@ -38887,6 +38887,9 @@ class SchoolDB(LovesDB):
                 {
                     "board_key": f"team:{order}",
                     "name": team_names.get(order, ""),
+                    "member_names": [
+                        names.get(int(row["student_id"]), "") for row in members
+                    ],
                     "student_ids": [int(row["student_id"]) for row in members],
                     "team_sort_order": order,
                     "away": all(
@@ -38951,8 +38954,9 @@ class SchoolDB(LovesDB):
         }
         deltas = self._formative_deltas(int(session_id), query, include_feedback=True)
         _question, context = self._whiteboard_context(int(session_id))
-        tiles = [
-            build_gallery_tile(
+        tiles = []
+        for card in cards:
+            tile = build_gallery_tile(
                 board_key=str(card["board_key"]),
                 name=str(card.get("name") or ""),
                 team_sort_order=card.get("team_sort_order"),
@@ -38960,8 +38964,13 @@ class SchoolDB(LovesDB):
                 delta=deltas.get(str(card["board_key"])),
                 student_ids=list(card.get("student_ids") or []),
             )
-            for card in cards
-        ]
+            members = [
+                str(name or "").strip()
+                for name in (card.get("member_names") or [])
+            ]
+            if members:
+                tile["member_names"] = [name for name in members if name]
+            tiles.append(tile)
         wrote: set[str] = set()
         try:
             wrote = self.boards.keys_with_owner(

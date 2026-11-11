@@ -494,6 +494,7 @@ function teacherGalleryHtml() {
     <div class="wb-live-body">
       <div class="wb-live-grid" data-wb-part="grid"></div>
       <aside class="wb-live-panel" data-wb-part="panel" hidden>
+        <div class="wb-formative-legend" data-wb-part="legend" hidden></div>
         <div class="wb-live-open">
           <div class="wb-live-board">
             <div class="live-canvas-stage wb-live-panel-stage">
@@ -530,7 +531,6 @@ function teacherGalleryHtml() {
             <p class="qboard-note hint" data-wb-part="note-status" hidden></p>
             <div class="qboard-waits" data-wb-part="waits"></div>
             <button type="button" data-wb-part="show" class="wb-live-show">Show on board</button>
-            <div class="wb-formative-legend" data-wb-part="legend" hidden></div>
           </div>
         </div>
       </aside>

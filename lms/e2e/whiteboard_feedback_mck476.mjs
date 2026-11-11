@@ -123,6 +123,7 @@ const FIXTURE = `<!DOCTYPE html>
     <div class="wb-live-body">
       <div id="wb-live-grid" class="wb-live-grid"></div>
       <aside id="wb-live-panel" class="wb-live-panel" hidden>
+        <div id="wb-live-legend" class="wb-formative-legend" hidden></div>
         <div class="wb-live-open">
           <div class="wb-live-board">
             <div class="live-canvas-stage wb-live-panel-stage">
@@ -232,8 +233,15 @@ function measure(page) {
     const root = document.getElementById("formative-live-board");
     const board = canvas.getBoundingClientRect();
     const side = feedback.getBoundingClientRect();
+    const legend = document.getElementById("wb-live-legend");
+    const legendBox = legend.getBoundingClientRect();
+    const chips = [...document.querySelectorAll(".wb-legend-chip")].map((el) => el.textContent.trim());
     return {
       hidden: panel.hidden,
+      align: Math.abs(side.top - board.top),
+      legendAbove: legendBox.height === 0 || legendBox.bottom <= board.top + 1,
+      chips,
+      shadow: getComputedStyle(feedback).boxShadow,
       name: document.getElementById("wb-live-panel-name").textContent,
       status: document.getElementById("wb-live-panel-status").textContent,
       members: document.getElementById("wb-live-panel-team").textContent,
@@ -288,7 +296,11 @@ try {
   await page.waitForTimeout(150);
   const closed = await measure(page);
 
-  await page.setViewportSize({ width: 880, height: 640 });
+  await page.evaluate(() => {
+    const root = document.getElementById("formative-live-board");
+    root.style.width = "880px";
+    root.style.maxWidth = "880px";
+  });
   await page.locator(".wb-live-tile").first().click();
   await page.waitForTimeout(400);
   const overlay = await measure(page);
@@ -315,7 +327,10 @@ try {
     beside.status === "Drawing" &&
     beside.show === "Show on board" &&
     beside.clear === "Clear my ink" &&
-    beside.eraseHidden === true;
+    beside.eraseHidden === true &&
+    beside.align < 2 &&
+    beside.legendAbove === true &&
+    beside.chips.includes("Teacher");
   checks.nextKeepsOpen =
     afterNext.hidden === false &&
     afterNext.name === "Team 1" &&
@@ -328,6 +343,7 @@ try {
     overlay.hidden === false &&
     overlay.overlay === true &&
     overlay.overlap === true &&
+    overlay.align < 2 &&
     overlay.boardW >= 640 &&
     Math.abs(overlay.boardW / overlay.boardH - 2) < 0.05 &&
     overlay.scrollX <= 1 &&
@@ -335,9 +351,11 @@ try {
   checks.collapsed =
     collapsed.hidden === false &&
     collapsed.collapsed === true &&
+    collapsed.align < 2 &&
     collapsed.boardW >= 640 &&
     Math.abs(collapsed.panelW - 40) < 4 &&
-    collapsed.boardW + 1 >= overlay.boardW;
+    collapsed.boardW + 1 >= overlay.boardW &&
+    !/40px/.test(collapsed.shadow);
   checks.noPageError = errors.length === 0;
   checks.details = { errors, beside, afterNext, afterPrev, closed, overlay, collapsed };
 } finally {

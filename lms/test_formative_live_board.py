@@ -614,6 +614,9 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertNotIn("Student 2", blob)
         for tile in body["tiles"]:
             self.assertTrue(str(tile["board_key"]).startswith("team:"))
+        team = next(tile for tile in body["tiles"] if tile["board_key"] == "team:0")
+        self.assertEqual(team["name"], "Team 1")
+        self.assertEqual(sorted(team.get("member_names") or []), ["Cedar", "Maple"])
 
     def test_tile_poll_and_show_are_teacher_only(self) -> None:
         """A joined student cannot poll the gallery or project a board."""

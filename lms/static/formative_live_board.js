@@ -1194,13 +1194,15 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   /**
-   * Legend chips for the open board, plus a nameless teacher colour.
+   * Legend chips for the open board, including the teacher ink layer.
+   *
+   * Every chip has a name. The teacher row is labelled Teacher.
    *
    * @param {any[] | undefined} legend
    */
   function applyPanelLegend(legend) {
     const members = Array.isArray(legend) ? legend.slice() : [];
-    members.push({ id: "teacher", name: "", color: TEACHER_INK, slot: 0 });
+    members.push({ id: "teacher", name: "Teacher", color: TEACHER_INK, slot: 0 });
     const sig = members
       .map((row) => `${row?.id ?? ""}|${row?.name ?? ""}|${row?.color ?? ""}|${row?.slot ?? ""}`)
       .join("\n");
