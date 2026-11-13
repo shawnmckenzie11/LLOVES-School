@@ -30157,140 +30157,84 @@ class SchoolDB(LovesDB):
         }
 
 
-    def _parked_prompt_stamps(self, session_id: int) -> dict[int, str]:
-        """Updated time of each prompt in this session, keyed by prompt id.
-
-        One indexed read per poll. A republish bumps the prompt row, so a
-        parked card cached against the old stamp is rebuilt.
-
-        Args:
-            session_id: ``live_class_sessions.id``.
-        """
-        with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT id, updated_at FROM live_session_prompts
-                WHERE live_session_id = ?
-                """,
-                (int(session_id),),
-            ).fetchall()
-        out: dict[int, str] = {}
-        for row in rows:
-            try:
-                out[int(row["id"])] = str(row["updated_at"] or "")
-            except (TypeError, ValueError):
-                continue
-        return out
-
-    def _parked_student_card_key(
+    def _preload_student_prompt_reads(
         self,
-        session_id: int,
-        item: dict[str, Any],
+        items: list[dict[str, Any]],
         student_id: int | None,
         participant_uuid: str,
-        *,
-        stage: str,
-        current_page: int | None,
-        prompt_stamps: dict[int, str],
-    ) -> tuple[Any, ...] | None:
-        """Cache key for a question that is not on the live stage.
+    ) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
+        """Load every linked prompt and this student's answers in two queries.
 
-        Facing cards are rebuilt every poll because answers still move.
-        A parked or closed card is reused only while its content, prompt,
-        and this student's answer stamp are unchanged. ``None`` means do
-        not cache.
+        The student card loop used to select one prompt and one response
+        per question. Parked questions made that N+1 on every poll.
 
         Args:
-            session_id: ``live_class_sessions.id``.
-            item: Lifecycle row from ``list_live_session_items``.
-            student_id: Roster id, when the attendee is on the roster.
+            items: Lifecycle rows about to be painted.
+            student_id: Roster id, or ``None`` for a guest.
             participant_uuid: Live-session person key.
-            stage: Teacher stage, already lowercased.
-            current_page: Teacher deck page, or None when pages are unset.
-            prompt_stamps: Prompt updated times from :meth:`_parked_prompt_stamps`.
-        """
-        status = str(item.get("status") or "")
-        # Meet and spark answers live on an earlier prompt. Rebuilding
-        # those cards is what puts the written answer back on the parked row.
-        token = str(item.get("item_id") or "").strip().lower().replace("-", "_")
-        if token in {
-            "teams_spark",
-            "meet_team",
-            "meet_a",
-            "meet_b",
-            "meet_c",
-        } or token.endswith("spark"):
-            return None
-        on_page = self._student_item_on_current_page(
-            session_id, item, current_page=current_page
-        )
-        item_stage = str(item.get("stage") or "").strip().lower()
-        stage_ok = not item_stage or not stage or item_stage == stage
-        if status == "active" and on_page and stage_ok:
-            return None
-        try:
-            item_pk = int(item["id"])
-        except (TypeError, ValueError):
-            return None
-        nested = item.get("item") if isinstance(item.get("item"), dict) else {}
-        marker = nested.get(WHITEBOARD_REOPEN_KEY)
-        order = nested.get(RANK_DISPLAY_ORDER_FIELD)
-        try:
-            prompt_id = int(item.get("prompt_id") or 0)
-        except (TypeError, ValueError):
-            prompt_id = 0
-        return (
-            int(session_id),
-            item_pk,
-            int(student_id or 0),
-            str(participant_uuid or ""),
-            status,
-            str(item.get("closed_at") or ""),
-            str(item.get("updated_at") or ""),
-            1 if item.get("show_live_results") else 0,
-            str(item.get("page_number") or ""),
-            str(item.get("stage") or ""),
-            prompt_id,
-            prompt_stamps.get(prompt_id, ""),
-            str(marker or ""),
-            str(order or ""),
-        )
 
-    def _cached_parked_student_card(
-        self, key: tuple[Any, ...]
-    ) -> dict[str, Any] | None:
-        """Return a copy of a parked card built earlier in this process.
-
-        Args:
-            key: From :meth:`_parked_student_card_key`.
+        Returns:
+            Prompt id to prompt dict, and prompt id to this person's response.
         """
+        prompt_ids: list[int] = []
+        for item in items:
+            raw = item.get("prompt_id")
+            if raw in (None, ""):
+                continue
+            try:
+                prompt_ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        prompts: dict[int, dict[str, Any]] = {}
+        responses: dict[int, dict[str, Any]] = {}
+        if not prompt_ids:
+            return prompts, responses
+        marks = ",".join("?" for _ in prompt_ids)
         with self._lock:
-            cache = getattr(self, "_parked_student_cards", None)
-            if not isinstance(cache, dict):
-                return None
-            found = cache.get(key)
-        if not isinstance(found, dict):
-            return None
-        return deepcopy(found)
-
-    def _remember_parked_student_card(
-        self, key: tuple[Any, ...], card: dict[str, Any]
-    ) -> None:
-        """Keep one parked card so the next poll does not rebuild its tally.
-
-        Args:
-            key: From :meth:`_parked_student_card_key`.
-            card: Public student row, already aliased.
-        """
-        snapshot = deepcopy(card)
-        with self._lock:
-            cache = getattr(self, "_parked_student_cards", None)
-            if not isinstance(cache, dict):
-                cache = {}
-                self._parked_student_cards = cache
-            if len(cache) > 240:
-                cache.clear()
-            cache[key] = snapshot
+            prompt_rows = self.conn.execute(
+                f"SELECT * FROM live_session_prompts WHERE id IN ({marks})",
+                tuple(prompt_ids),
+            ).fetchall()
+            person = str(participant_uuid or "").strip()
+            response_rows = []
+            if person:
+                response_rows = self.conn.execute(
+                    f"""
+                    SELECT * FROM live_session_responses
+                    WHERE participant_uuid = ? AND prompt_id IN ({marks})
+                    """,
+                    (person, *prompt_ids),
+                ).fetchall()
+            if student_id not in (None, ""):
+                extra = self.conn.execute(
+                    f"""
+                    SELECT * FROM live_session_responses
+                    WHERE student_id = ? AND prompt_id IN ({marks})
+                    """,
+                    (int(student_id), *prompt_ids),
+                ).fetchall()
+                # Uuid wins, matching get_live_prompt_response. Roster rows
+                # fill prompts the uuid lookup missed.
+                have = {int(row["prompt_id"]) for row in response_rows}
+                response_rows = list(response_rows) + [
+                    row for row in extra if int(row["prompt_id"]) not in have
+                ]
+        for row in prompt_rows:
+            parsed = self._prompt_row_to_dict(row)
+            prompts[int(parsed["id"])] = parsed
+        for row in response_rows:
+            payload = dict(row)
+            raw = payload.get("response_json") or "{}"
+            try:
+                body = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except json.JSONDecodeError:
+                body = {}
+            payload["response"] = body if isinstance(body, dict) else {}
+            try:
+                responses[int(payload["prompt_id"])] = payload
+            except (TypeError, ValueError):
+                continue
+        return prompts, responses
 
     def student_live_items_payload(
         self,
@@ -30355,23 +30299,15 @@ class SchoolDB(LovesDB):
                 continue
             items.append(row)
         public_items: list[dict[str, Any]] = []
-        prompt_stamps = self._parked_prompt_stamps(session_id)
+        prompts_by_id, responses_by_prompt = self._preload_student_prompt_reads(
+            items, student_id, participant_uuid
+        )
         for item in items:
-            parked_key = self._parked_student_card_key(
-                session_id,
-                item,
-                student_id,
-                participant_uuid,
-                stage=stage,
-                current_page=current_page,
-                prompt_stamps=prompt_stamps,
-            )
-            if parked_key is not None:
-                cached_card = self._cached_parked_student_card(parked_key)
-                if cached_card is not None:
-                    public_items.append(cached_card)
-                    continue
-            prompt = self._prompt_for_live_item(item)
+            raw_prompt_id = item.get("prompt_id")
+            try:
+                prompt = prompts_by_id.get(int(raw_prompt_id)) if raw_prompt_id not in (None, "") else None
+            except (TypeError, ValueError):
+                prompt = None
             raw_payload = (
                 prompt.get("payload")
                 if prompt is not None
@@ -30395,11 +30331,7 @@ class SchoolDB(LovesDB):
             elif item["response_mode"] == "team_draw":
                 group_submit_state = self.student_team_draw_state(item, student_id)
             elif prompt is not None:
-                prior = self.get_live_prompt_response(
-                    int(prompt["id"]),
-                    student_id,
-                    participant_uuid=participant_uuid,
-                )
+                prior = responses_by_prompt.get(int(prompt["id"]))
                 if prior is not None:
                     my_response = {
                         "response": prior.get("response") or {},
@@ -30560,6 +30492,9 @@ class SchoolDB(LovesDB):
                     ),
                     "phase": "final" if status == "closed" else "live",
                 }
+            public_content = self._student_public_item_payload(
+                raw_payload, class_id=session_row.get("class_id")
+            )
             public_items.append(
                 {
                     "id": int(item["id"]),
@@ -30574,17 +30509,13 @@ class SchoolDB(LovesDB):
                     "show_live_results": bool(item["show_live_results"]),
                     "published_at": item.get("published_at"),
                     "closed_at": item.get("closed_at"),
-                    "content": self._student_public_item_payload(
-                        raw_payload, class_id=session_row.get("class_id")
-                    ),
+                    "content": public_content,
                     "prompt": (
                         {
                             "id": int(prompt["id"]),
                             "slide_index": int(prompt["slide_index"]),
                             "kind": str(prompt["kind"]),
-                            "payload": self._student_public_item_payload(
-                                raw_payload, class_id=session_row.get("class_id")
-                            ),
+                            "payload": public_content,
                         }
                         if prompt is not None
                         else None
@@ -30638,8 +30569,6 @@ class SchoolDB(LovesDB):
                 public_items[-1]["group_q_ready"] = status_q["ready"]
             # MCK-176: students only ever see option aliases.
             public_items[-1] = self._alias_for_student(item, public_items[-1])
-            if parked_key is not None:
-                self._remember_parked_student_card(parked_key, public_items[-1])
         facing = [
             row
             for row in public_items
@@ -52177,6 +52106,101 @@ class SchoolDB(LovesDB):
             return 0, ""
         return None
 
+    def _rendered_card_revision(
+        self, session_id: int, student_id: int | None
+    ) -> str:
+        """Hash what a parked card shows, not the row timestamps.
+
+        A replaced answer keeps its row id. A prompt rewrite can leave
+        ``updated_at`` alone. Points, board feedback, and a group or
+        team-draw submit have to move this token anyway. Board strokes
+        stay out so a pen mark does not rebuild ``/state``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id. ``None`` covers every response in the run.
+        """
+        sid = int(session_id)
+        with self._lock:
+            if student_id not in (None, ""):
+                responses = self.conn.execute(
+                    """
+                    SELECT r.prompt_id, r.response_json, r.awarded_points
+                    FROM live_session_responses AS r
+                    JOIN live_session_prompts AS p ON p.id = r.prompt_id
+                    WHERE p.live_session_id = ? AND r.student_id = ?
+                    ORDER BY r.prompt_id
+                    """,
+                    (sid, int(student_id)),
+                ).fetchall()
+            else:
+                responses = self.conn.execute(
+                    """
+                    SELECT r.prompt_id, r.student_id, r.response_json, r.awarded_points
+                    FROM live_session_responses AS r
+                    JOIN live_session_prompts AS p ON p.id = r.prompt_id
+                    WHERE p.live_session_id = ?
+                    ORDER BY r.prompt_id, r.student_id
+                    """,
+                    (sid,),
+                ).fetchall()
+            prompts = self.conn.execute(
+                """
+                SELECT id, payload FROM live_session_prompts
+                WHERE live_session_id = ?
+                ORDER BY id
+                """,
+                (sid,),
+            ).fetchall()
+            groups = self.conn.execute(
+                """
+                SELECT g.live_item_id, g.team_id, g.submit_count,
+                       g.final_answer_json, g.why_text, g.awarded_points
+                FROM live_group_responses AS g
+                JOIN live_session_items AS i ON i.id = g.live_item_id
+                WHERE i.live_session_id = ?
+                ORDER BY g.live_item_id, g.team_id
+                """,
+                (sid,),
+            ).fetchall()
+            feedback = self.conn.execute(
+                """
+                SELECT c.run_key, c.board_key, c.feedback_text
+                FROM board_answer_copies AS c
+                JOIN live_class_sessions AS s ON s.class_id = c.class_id
+                WHERE s.id = ? AND c.run_key = s.run_key
+                ORDER BY c.board_key
+                """,
+                (sid,),
+            ).fetchall()
+        parts: list[str] = []
+        for row in responses:
+            parts.append(
+                "r:{pid}:{body}:{points}".format(
+                    pid=row["prompt_id"],
+                    body=row["response_json"],
+                    points=row["awarded_points"],
+                )
+            )
+        for row in prompts:
+            parts.append(f"p:{row['id']}:{row['payload']}")
+        for row in groups:
+            parts.append(
+                "g:{item}:{team}:{count}:{answer}:{why}:{points}".format(
+                    item=row["live_item_id"],
+                    team=row["team_id"],
+                    count=row["submit_count"],
+                    answer=row["final_answer_json"],
+                    why=row["why_text"],
+                    points=row["awarded_points"],
+                )
+            )
+        for row in feedback:
+            parts.append(
+                f"f:{row['board_key']}:{row['feedback_text']}"
+            )
+        return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:20]
+
     def live_student_poll_stamp(
         self,
         session_id: int,
@@ -52376,7 +52400,8 @@ class SchoolDB(LovesDB):
             f"{group_response_rev}:{race_step_rev}:"
             f"{self._session_timer_stamp_token(int(class_id))}:"
             f"{self._google_slides_stamp_token(int(session_id))}:"
-            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}:"
+            f"{self._rendered_card_revision(int(session_id), student_id)}"
         )
 
     def _session_timer_stamp_token(self, class_id: int) -> str:
