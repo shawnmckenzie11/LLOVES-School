@@ -52007,16 +52007,22 @@ class SchoolDB(LovesDB):
                 row = self.conn.execute(
                     """
                     SELECT COALESCE((
-                        SELECT MAX(COALESCE(g.updated_at, '') || '|' || COALESCE(g.voting_ended_at, ''))
-                               || '|' || TOTAL(COALESCE(g.submit_count, 0))
-                               || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
-                                    THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
-                                    ELSE 0 END)
-                               || '|k' || COALESCE(SUM((
-                                    SELECT COUNT(*) FROM live_question_skips s
-                                    WHERE s.live_item_id = g.live_item_id
-                                      AND s.team_id = g.team_id
-                               )), 0)
+                        SELECT GROUP_CONCAT(
+                            COALESCE(g.updated_at, '') || '|' || COALESCE(g.voting_ended_at, '')
+                            || '|' || COALESCE(g.submit_count, 0)
+                            || '|' || CASE WHEN json_valid(g.proposed_answer_json)
+                                 THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
+                                 ELSE 0 END
+                            || '|k' || COALESCE((
+                                 SELECT COUNT(*) FROM live_question_skips s
+                                 WHERE s.live_item_id = g.live_item_id
+                                   AND s.team_id = g.team_id
+                            ), 0)
+                            || '|' || COALESCE(g.final_answer_json, '')
+                            || '|' || COALESCE(g.why_text, ''),
+                            '|'
+                            ORDER BY g.live_item_id, g.team_id
+                        )
                         FROM live_group_responses g
                         INNER JOIN live_session_items i ON i.id = g.live_item_id
                         WHERE i.live_session_id = ?
@@ -52030,7 +52036,32 @@ class SchoolDB(LovesDB):
                     """,
                     (sid, student),
                 ).fetchone()
-                return str(row["rev"] if row is not None else "")
+                images = self.conn.execute(
+                    """
+                    SELECT d.live_item_id, d.team_id, d.image_png
+                    FROM live_team_draw_images AS d
+                    WHERE d.live_session_id = ?
+                      AND EXISTS (
+                        SELECT 1 FROM live_group_members AS m
+                        INNER JOIN live_session_items AS i ON i.id = m.live_item_id
+                        WHERE i.live_session_id = d.live_session_id
+                          AND m.live_item_id = d.live_item_id
+                          AND m.team_id = d.team_id
+                          AND m.student_id = ?
+                      )
+                    ORDER BY d.live_item_id, d.team_id
+                    """,
+                    (sid, student),
+                ).fetchall()
+                drawing = hashlib.sha1()
+                for image in images:
+                    blob = image["image_png"] or b""
+                    if isinstance(blob, str):
+                        blob = blob.encode()
+                    drawing.update(f"{image['live_item_id']}:{image['team_id']}:".encode())
+                    drawing.update(blob)
+                rev = str(row["rev"] if row is not None else "")
+                return rev + "|" + drawing.hexdigest()[:16]
         if self._solo_attendee(sid, class_id, student):
             return ""
         return None
@@ -52136,10 +52167,12 @@ class SchoolDB(LovesDB):
                 ).fetchall()
                 feedback = self.conn.execute(
                     """
-                    SELECT c.board_key, c.feedback_text
+                    SELECT c.run_key, c.board_key, c.feedback_text
                     FROM board_answer_copies AS c
-                    JOIN live_class_sessions AS s
-                      ON s.class_id = c.class_id AND c.run_key = s.run_key
+                    JOIN live_class_sessions AS s ON s.class_id = c.class_id
+                    JOIN live_session_prompts AS p
+                      ON p.live_session_id = s.id
+                     AND c.run_key = s.run_key || '~q' || p.id
                     WHERE s.id = ?
                       AND (
                         c.board_key = 'solo:' || ?
@@ -52150,7 +52183,7 @@ class SchoolDB(LovesDB):
                           WHERE i.live_session_id = s.id AND m.student_id = ?
                         )
                       )
-                    ORDER BY c.board_key
+                    ORDER BY c.run_key, c.board_key
                     """,
                     (sid, int(student_id), int(student_id)),
                 ).fetchall()
@@ -52167,12 +52200,14 @@ class SchoolDB(LovesDB):
                 ).fetchall()
                 feedback = self.conn.execute(
                     """
-                    SELECT c.board_key, c.feedback_text
+                    SELECT c.run_key, c.board_key, c.feedback_text
                     FROM board_answer_copies AS c
-                    JOIN live_class_sessions AS s
-                      ON s.class_id = c.class_id AND c.run_key = s.run_key
+                    JOIN live_class_sessions AS s ON s.class_id = c.class_id
+                    JOIN live_session_prompts AS p
+                      ON p.live_session_id = s.id
+                     AND c.run_key = s.run_key || '~q' || p.id
                     WHERE s.id = ?
-                    ORDER BY c.board_key
+                    ORDER BY c.run_key, c.board_key
                     """,
                     (sid,),
                 ).fetchall()
@@ -52185,6 +52220,7 @@ class SchoolDB(LovesDB):
                     COALESCE(json_extract(payload, '$.choices'), '') || ':' ||
                     COALESCE(json_extract(payload, '$.rank_options'), ''),
                     '|'
+                    ORDER BY id
                 ) AS body
                 FROM live_session_prompts
                 WHERE live_session_id = ?

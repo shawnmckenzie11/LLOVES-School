@@ -150,6 +150,36 @@ class ParkedCardFreshTests(unittest.TestCase):
         self.assertEqual(served, fresh)
         return served
 
+    def _held_poll(self, student_id: int) -> tuple[int, str]:
+        """Seq and stamp that /state still reports as unchanged.
+
+        Args:
+            student_id: Roster id whose phone is polling.
+        """
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        seq = int(teacher.get("state_seq") or 0)
+        stamp = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, student_id
+        )
+        body = self.school.student_live_poll_unchanged(
+            self.session_id, self.class_id, seq, stamp, student_id
+        )
+        self.assertTrue(body and body.get("unchanged"))
+        return seq, stamp
+
+    def _assert_poll_moved(self, student_id: int, seq: int, stamp: str) -> None:
+        """A poll that resends the previous stamp must rebuild.
+
+        Args:
+            student_id: Roster id whose phone is polling.
+            seq: ``state_seq`` from before the change.
+            stamp: Stamp from before the change.
+        """
+        body = self.school.student_live_poll_unchanged(
+            self.session_id, self.class_id, seq, stamp, student_id
+        )
+        self.assertTrue(body is None or not body.get("unchanged"))
+
     def test_first_answer_after_parking_matches_a_fresh_build(self) -> None:
         """An answer sent after the card was parked shows on the next read."""
         row = self._add({
@@ -162,10 +192,12 @@ class ParkedCardFreshTests(unittest.TestCase):
         self._park()
         before = self._assert_matches_fresh(self.s1, item_id)
         self.assertIsNone(before.get("my_response"))
+        seq, stamp = self._held_poll(self.s1)
         prompt = self.school._prompt_for_live_item(row)
         self.school.submit_live_prompt_response(
             int(prompt["id"]), self.s1, {"choice": "Red"}
         )
+        self._assert_poll_moved(self.s1, seq, stamp)
         card = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual((card.get("my_response") or {}).get("response", {}).get("choice"), "Red")
 
@@ -183,9 +215,11 @@ class ParkedCardFreshTests(unittest.TestCase):
             int(prompt["id"]), self.s1, {"choice": "Red"}
         )
         self._park()
+        seq, stamp = self._held_poll(self.s1)
         self.school.submit_live_prompt_response(
             int(prompt["id"]), self.s1, {"choice": "Blue"}
         )
+        self._assert_poll_moved(self.s1, seq, stamp)
         card = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual((card.get("my_response") or {}).get("response", {}).get("choice"), "Blue")
         before = self.school.live_student_poll_stamp(self.session_id, self.class_id, self.s1)
@@ -211,6 +245,7 @@ class ParkedCardFreshTests(unittest.TestCase):
             int(prompt["id"]), self.s1, {"choice": "Red"}
         )
         self._park()
+        seq, stamp = self._held_poll(self.s1)
         with self.school._lock:
             self.school.conn.execute(
                 """
@@ -221,6 +256,7 @@ class ParkedCardFreshTests(unittest.TestCase):
                 (int(prompt["id"]), self.s1),
             )
             self.school.conn.commit()
+        self._assert_poll_moved(self.s1, seq, stamp)
         card = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual((card.get("my_response") or {}).get("awarded_points"), 4)
 
@@ -251,6 +287,7 @@ class ParkedCardFreshTests(unittest.TestCase):
                 (self.class_id, f"solo:{self.s1}"),
             ).fetchone()
         self.assertIsNotNone(copy)
+        seq, stamp = self._held_poll(self.s1)
         save_copy_feedback(
             self.school,
             self.class_id,
@@ -258,6 +295,7 @@ class ParkedCardFreshTests(unittest.TestCase):
             str(copy["board_key"]),
             "Check the axis.",
         )
+        self._assert_poll_moved(self.s1, seq, stamp)
         card = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual(card.get("board_feedback"), "Check the axis.")
 
@@ -272,7 +310,7 @@ class ParkedCardFreshTests(unittest.TestCase):
         item_id = str(row["item_id"])
         prompt = self.school._prompt_for_live_item(row)
         self._park()
-        stamp = self.school.live_student_poll_stamp(self.session_id, self.class_id, self.s1)
+        seq, stamp = self._held_poll(self.s1)
         body = dict(prompt["payload"])
         body["text"] = "Rewritten stem"
         with self.school._lock:
@@ -287,10 +325,7 @@ class ParkedCardFreshTests(unittest.TestCase):
             self.school.conn.commit()
         card = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual((card.get("content") or {}).get("text"), "Rewritten stem")
-        self.assertNotEqual(
-            self.school.live_student_poll_stamp(self.session_id, self.class_id, self.s1),
-            stamp,
-        )
+        self._assert_poll_moved(self.s1, seq, stamp)
 
     def test_group_submit_updates_both_teammates(self) -> None:
         """One group send is on both teammates' next parked read."""
@@ -324,12 +359,30 @@ class ParkedCardFreshTests(unittest.TestCase):
             self.school.submit_group_mc_pick(
                 self.session_id, int(row["id"]), student_id, choice="Red"
             )
+        held = {student_id: self._held_poll(student_id) for student_id in (self.s1, self.s2)}
         self.school.submit_group_mc_answer(
             self.session_id, int(row["id"]), self.s1, choice="Red", why="shared"
         )
-        for student_id in (self.s1, self.s2):
+        for student_id, (seq, stamp) in held.items():
+            self._assert_poll_moved(student_id, seq, stamp)
             card = self._assert_matches_fresh(student_id, item_id)
             self.assertTrue((card.get("group_submit") or {}).get("submitted"))
+        held = {student_id: self._held_poll(student_id) for student_id in (self.s1, self.s2)}
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET final_answer_json = ?, why_text = ?
+                WHERE live_item_id = ?
+                """,
+                (json.dumps({"value": "Blue", "why": "rewritten"}), "rewritten", int(row["id"])),
+            )
+            self.school.conn.commit()
+        for student_id, (seq, stamp) in held.items():
+            self._assert_poll_moved(student_id, seq, stamp)
+            card = self._assert_matches_fresh(student_id, item_id)
+            group = card.get("group_submit") or {}
+            self.assertEqual(group.get("why") or group.get("submitted_why"), "rewritten")
 
     def test_team_draw_submit_updates_both_teammates(self) -> None:
         """A team drawing is on both teammates' next parked read."""
@@ -357,16 +410,33 @@ class ParkedCardFreshTests(unittest.TestCase):
             self.school.conn.commit()
         item_id = str(row["item_id"])
         self._park()
+        held = {student_id: self._held_poll(student_id) for student_id in (self.s1, self.s2)}
         self.school.submit_team_draw(
             self.session_id,
             int(row["id"]),
             self.s1,
             image_b64=_png_b64(_INKED_PNG),
         )
-        for student_id in (self.s1, self.s2):
+        for student_id, (seq, stamp) in held.items():
+            self._assert_poll_moved(student_id, seq, stamp)
             card = self._assert_matches_fresh(student_id, item_id)
             state = card.get("group_submit") or {}
             self.assertTrue(state.get("submitted"))
+        held = {student_id: self._held_poll(student_id) for student_id in (self.s1, self.s2)}
+        rewritten = bytearray(_INKED_PNG)
+        rewritten[-20] ^= 0x3C
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_team_draw_images
+                SET image_png = ?
+                WHERE live_item_id = ?
+                """,
+                (bytes(rewritten), int(row["id"])),
+            )
+            self.school.conn.commit()
+        for student_id, (seq, stamp) in held.items():
+            self._assert_poll_moved(student_id, seq, stamp)
 
     def test_second_student_first_answer_matches_a_fresh_build(self) -> None:
         """One student's first answer does not stick to the other card."""
@@ -384,13 +454,37 @@ class ParkedCardFreshTests(unittest.TestCase):
         self._park()
         other = self._assert_matches_fresh(self.s2, item_id)
         self.assertIsNone(other.get("my_response"))
+        seq, stamp = self._held_poll(self.s2)
+        first_seq, first_stamp = self._held_poll(self.s1)
         self.school.submit_live_prompt_response(
             int(prompt["id"]), self.s2, {"choice": "Blue"}
         )
+        self._assert_poll_moved(self.s2, seq, stamp)
+        still = self.school.student_live_poll_unchanged(
+            self.session_id, self.class_id, first_seq, first_stamp, self.s1
+        )
+        self.assertTrue(still and still.get("unchanged"))
         second = self._assert_matches_fresh(self.s2, item_id)
         first = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual((second.get("my_response") or {}).get("response", {}).get("choice"), "Blue")
         self.assertEqual((first.get("my_response") or {}).get("response", {}).get("choice"), "Red")
+
+
+
+    def test_unchanged_poll_stays_when_nothing_changed(self) -> None:
+        """A second poll with the same stamp is unchanged."""
+        self._add({
+            "type": "mc",
+            "text": "Quiet card",
+            "options": ["Red", "Blue", "Green", "Gold"],
+            "correct_index": 0,
+        })
+        self._park()
+        seq, stamp = self._held_poll(self.s1)
+        again = self.school.student_live_poll_unchanged(
+            self.session_id, self.class_id, seq, stamp, self.s1
+        )
+        self.assertTrue(again and again.get("unchanged"))
 
 
 if __name__ == "__main__":
