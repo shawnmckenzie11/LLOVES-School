@@ -20,8 +20,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 try:
     from bank_kinds import retag_module2_teaching_today
@@ -328,6 +332,7 @@ def _upsert_curriculum_bank(
     module_number: int,
     items: list[dict[str, Any]],
     cache_root: Path | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Insert or refresh one module's curriculum open prompts.
 
@@ -343,6 +348,10 @@ def _upsert_curriculum_bank(
         items: Cache items for this module.
         cache_root: Optional curriculum root. Figure files are read from
             here for MCF3M modules 5–7 only.
+        commit: When False, leave the caller's SQL transaction open.
+            The caller commits the inserts, retire moves, and any
+            settings row together. This connection is in autocommit
+            mode, so ``Connection.commit`` would end that ``BEGIN``.
 
     Returns:
         Summary with ``bank_id`` and ``count``.
@@ -451,13 +460,17 @@ def _upsert_curriculum_bank(
                 keep_keys=keep_keys,
                 now=now,
             )
-        school.conn.commit()
-    # Reseeds an existing library, not only a new one. The link helper
-    # drops the bank cache; say so here so a later edit does not drop it.
-    school._ensure_module_bank_link(int(library_id), int(module_number), bank_id)
-    invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
-    if callable(invalidate):
-        invalidate(int(library_id))
+        if commit:
+            # Autocommit mode: this is a no-op unless a BEGIN is open.
+            # The boot apply passes commit=False and issues SQL COMMIT.
+            school.conn.commit()
+    if commit:
+        # Reseeds an existing library, not only a new one. The link helper
+        # drops the bank cache; say so here so a later edit does not drop it.
+        school._ensure_module_bank_link(int(library_id), int(module_number), bank_id)
+        invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
+        if callable(invalidate):
+            invalidate(int(library_id))
     return {
         "bank_id": bank_id,
         "module_number": int(module_number),
@@ -568,6 +581,66 @@ def seed_local_question_banks(school: Any, *, cache_root: Path | None = None) ->
 
 _MCK472_MARKER = "mck472_mcf3m_m567_cartridge_v2"
 _MCK472_MODULES = (5, 6, 7)
+_CARTRIDGE_NAME_RE = re.compile(
+    r"/curriculum-bank-images/MCF3M/cartridge/([A-Za-z0-9][A-Za-z0-9._-]*)"
+)
+
+
+def _default_cartridge_image_dir() -> Path:
+    """Return the committed directory the cartridge image route reads.
+
+    Returns:
+        ``lms/seeds/mcf3m_m567_images``.
+    """
+    try:
+        from curriculum_bank_images import CARTRIDGE_IMAGE_DIR
+    except ImportError:
+        from lms.curriculum_bank_images import CARTRIDGE_IMAGE_DIR
+
+    return CARTRIDGE_IMAGE_DIR
+
+
+def _referenced_cartridge_names(items: list[dict[str, Any]]) -> list[str]:
+    """Return cartridge filenames referenced by these bank items.
+
+    Args:
+        items: Curriculum items for MCF3M modules 5–7.
+
+    Returns:
+        Filenames in first-seen order. A name never contains a slash.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        blob = json.dumps(item, ensure_ascii=False)
+        for match in _CARTRIDGE_NAME_RE.finditer(blob):
+            name = match.group(1)
+            if name in seen:
+                continue
+            seen.add(name)
+            found.append(name)
+    return found
+
+
+def _cartridge_image_gaps(items: list[dict[str, Any]], image_dir: Path) -> list[str]:
+    """Return why these items cannot be applied yet.
+
+    Args:
+        items: Curriculum items whose figure URLs must exist on disk.
+        image_dir: Directory that must contain every referenced file.
+
+    Returns:
+        A one-element list when ``image_dir`` is missing, otherwise the
+        referenced filenames that are not files in that directory.
+        Empty when every referenced figure is present.
+    """
+    if not image_dir.is_dir():
+        return [f"missing directory {image_dir}"]
+    return [
+        name
+        for name in _referenced_cartridge_names(items)
+        if not (image_dir / name).is_file()
+    ]
 
 
 def _mcf3m_m567_bank_digest() -> str:
@@ -593,7 +666,11 @@ def _mcf3m_m567_bank_digest() -> str:
     return hasher.hexdigest()
 
 
-def apply_mcf3m_m567_cartridge_banks(school: Any) -> dict[str, Any]:
+def apply_mcf3m_m567_cartridge_banks(
+    school: Any,
+    *,
+    image_dir: Path | None = None,
+) -> dict[str, Any]:
     """Load MCF3M module 5–7 cartridge banks on boot, including production.
 
     ``seed_local_question_banks`` runs only when ``LOCAL_DEV_LOGIN`` is on,
@@ -603,6 +680,18 @@ def apply_mcf3m_m567_cartridge_banks(school: Any) -> dict[str, Any]:
     unlinked retired bank. Nothing is deleted, and the old question ids
     stay loadable.
 
+    The writes go to ``school.conn``, the sqlite catalogue on the Fly
+    volume. Live-presence Postgres is a different store and does not
+    hold these banks.
+
+    Before any row changes, every figure those questions reference must
+    be a file in ``image_dir`` (the committed seed directory by default).
+    A missing directory or file logs a warning and returns without
+    inserting questions, moving retired rows, or writing the settings
+    key, so the next boot can try again.
+
+    When the figures are present, the inserts, retire moves, module
+    links, and the settings key commit in one ``BEGIN IMMEDIATE``.
     A ``school_settings`` marker stores the bank-file hash. The next boot
     with the same files does no writes. A new hash runs the upsert again.
     A database with no MCF3M library yet, which is a fresh local seed
@@ -612,9 +701,14 @@ def apply_mcf3m_m567_cartridge_banks(school: Any) -> dict[str, Any]:
 
     Args:
         school: ``SchoolDB`` instance.
+        image_dir: Directory of cartridge figures. ``None`` uses
+            ``lms/seeds/mcf3m_m567_images``. Tests pass a temporary
+            directory.
 
     Returns:
-        ``libraries``, ``questions`` inserted on this pass, and ``skipped``.
+        ``libraries``, ``questions`` inserted on this pass, ``skipped``,
+        and ``applied``. ``reason`` is ``missing-images`` when the apply
+        was refused.
     """
     from datetime import datetime, timezone
 
@@ -627,46 +721,98 @@ def apply_mcf3m_m567_cartridge_banks(school: Any) -> dict[str, Any]:
         """
     ).fetchall()
     if not rows:
-        return {"libraries": 0, "questions": 0, "skipped": True}
+        return {"libraries": 0, "questions": 0, "skipped": True, "applied": False}
     current = school.conn.execute(
         "SELECT value FROM school_settings WHERE key = ?",
         (_MCK472_MARKER,),
     ).fetchone()
     if current is not None and str(current["value"] or "") == digest:
-        return {"libraries": len(rows), "questions": 0, "skipped": True}
+        return {
+            "libraries": len(rows),
+            "questions": 0,
+            "skipped": True,
+            "applied": False,
+        }
     grouped: dict[int, list[dict[str, Any]]] = {}
     for module_number, item in _iter_curriculum_items("MCF3M", None):
         if int(module_number) in _MCK472_MODULES:
             grouped.setdefault(int(module_number), []).append(item)
+    figures = image_dir if image_dir is not None else _default_cartridge_image_dir()
+    pending = [item for module_items in grouped.values() for item in module_items]
+    gaps = _cartridge_image_gaps(pending, figures)
+    if gaps:
+        sample = ", ".join(gaps[:5])
+        logger.warning(
+            "MCF3M M5-M7 cartridge banks not applied; %s figure gap(s) under %s (%s)",
+            len(gaps),
+            figures,
+            sample,
+        )
+        return {
+            "libraries": len(rows),
+            "questions": 0,
+            "skipped": True,
+            "applied": False,
+            "reason": "missing-images",
+        }
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     questions = 0
-    for row in rows:
-        library_id = int(row["id"])
-        for module_number in _MCK472_MODULES:
-            items = grouped.get(module_number) or []
-            if not items:
-                continue
-            summary = _upsert_curriculum_bank(
-                school,
-                library_id=library_id,
-                course_code="MCF3M",
-                module_number=module_number,
-                items=items,
-                cache_root=None,
+    with school._lock:
+        if school.conn.in_transaction:
+            school.conn.execute("COMMIT")
+        school.conn.execute("BEGIN IMMEDIATE")
+        try:
+            for row in rows:
+                library_id = int(row["id"])
+                for module_number in _MCK472_MODULES:
+                    items = grouped.get(module_number) or []
+                    if not items:
+                        continue
+                    summary = _upsert_curriculum_bank(
+                        school,
+                        library_id=library_id,
+                        course_code="MCF3M",
+                        module_number=module_number,
+                        items=items,
+                        cache_root=None,
+                        commit=False,
+                    )
+                    questions += int(summary.get("count") or 0)
+                    school.conn.execute(
+                        """
+                        INSERT OR IGNORE INTO course_module_bank_links (
+                            library_id, module_number, bank_id, confirmed_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            library_id,
+                            int(module_number),
+                            int(summary["bank_id"]),
+                            now,
+                        ),
+                    )
+            school.conn.execute(
+                """
+                INSERT INTO school_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (_MCK472_MARKER, digest, now),
             )
-            questions += int(summary.get("count") or 0)
+            school.conn.execute("COMMIT")
+        except Exception:
+            if school.conn.in_transaction:
+                school.conn.execute("ROLLBACK")
+            raise
+    for row in rows:
         invalidate = getattr(school, "invalidate_module_bank_mc_cache", None)
         if callable(invalidate):
-            invalidate(library_id)
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    school.conn.execute(
-        """
-        INSERT INTO school_settings (key, value, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            updated_at = excluded.updated_at
-        """,
-        (_MCK472_MARKER, digest, now),
-    )
-    school.conn.commit()
-    return {"libraries": len(rows), "questions": questions, "skipped": False}
+            invalidate(int(row["id"]))
+    return {
+        "libraries": len(rows),
+        "questions": questions,
+        "skipped": False,
+        "applied": True,
+    }

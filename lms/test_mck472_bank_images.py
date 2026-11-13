@@ -26,6 +26,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from curriculum_bank_images import (  # noqa: E402
+    CARTRIDGE_IMAGE_DIR,
     assert_images_resolve,
     assert_imported_figures_complete,
     audit_bank_images,
@@ -405,6 +406,112 @@ class Mcf3mBankImageTests(unittest.TestCase):
             (self.library_id,),
         ).fetchone()
         self.assertEqual(int(module_one["n"]), 0)
+
+    def _m567_boot_rows(self) -> dict[str, int | str | None]:
+        """Count banks, questions, links, and the settings key for this library.
+
+        Returns:
+            Counts that a refused boot must leave at zero, plus the
+            settings value when the key exists.
+        """
+        banks = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM question_banks
+            WHERE library_id = ?
+              AND (
+                import_key LIKE 'curriculum-bank:MCF3M:M%'
+                OR import_key LIKE 'retired-curriculum:MCF3M:M%'
+              )
+            """,
+            (self.library_id,),
+        ).fetchone()
+        questions = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM questions q
+            JOIN question_banks b ON b.id = q.bank_id
+            WHERE b.library_id = ?
+              AND (
+                q.import_key LIKE 'cartridge:MCF3M:M%'
+                OR b.import_key LIKE 'retired-curriculum:MCF3M:M%'
+              )
+            """,
+            (self.library_id,),
+        ).fetchone()
+        links = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM course_module_bank_links
+            WHERE library_id = ? AND module_number IN (5, 6, 7)
+            """,
+            (self.library_id,),
+        ).fetchone()
+        key = self.school.conn.execute(
+            "SELECT value FROM school_settings WHERE key = ?",
+            ("mck472_mcf3m_m567_cartridge_v2",),
+        ).fetchone()
+        return {
+            "banks": int(banks["n"]),
+            "questions": int(questions["n"]),
+            "links": int(links["n"]),
+            "key": None if key is None else str(key["value"]),
+        }
+
+    def _assert_boot_refused(self) -> None:
+        """The refused boot wrote no banks, questions, links, or settings key."""
+        state = self._m567_boot_rows()
+        self.assertEqual(state["banks"], 0)
+        self.assertEqual(state["questions"], 0)
+        self.assertEqual(state["links"], 0)
+        self.assertIsNone(state["key"])
+
+    def test_boot_apply_refuses_when_image_directory_is_missing(self) -> None:
+        """A missing figure directory does not apply, and a later boot does."""
+        missing = Path(self.tmp.name) / "no-such-images"
+        with self.assertLogs("curriculum_bank_seed", level="WARNING") as logs:
+            refused = apply_mcf3m_m567_cartridge_banks(
+                self.school, image_dir=missing
+            )
+        self.assertEqual(refused.get("reason"), "missing-images")
+        self.assertFalse(refused["applied"])
+        self.assertEqual(refused["questions"], 0)
+        self.assertTrue(any("not applied" in line for line in logs.output))
+        self._assert_boot_refused()
+        applied = apply_mcf3m_m567_cartridge_banks(self.school)
+        self.assertTrue(applied["applied"])
+        self.assertGreater(applied["questions"], 0)
+        self.assertIsNotNone(self._m567_boot_rows()["key"])
+
+    def test_boot_apply_refuses_when_one_referenced_image_is_missing(self) -> None:
+        """One missing figure blocks the apply until that file is present."""
+        import re
+
+        bank = REPO_ROOT / ".local-data" / "curriculum" / "MCF3M" / "banks" / "M5" / "C" / "items.json"
+        match = re.search(
+            r"/curriculum-bank-images/MCF3M/cartridge/([A-Za-z0-9][A-Za-z0-9._-]*)",
+            bank.read_text(encoding="utf-8"),
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        name = match.group(1)
+        partial = Path(self.tmp.name) / "partial-images"
+        partial.mkdir()
+        for source in CARTRIDGE_IMAGE_DIR.iterdir():
+            if source.name == name or not source.is_file():
+                continue
+            (partial / source.name).symlink_to(source)
+        with self.assertLogs("curriculum_bank_seed", level="WARNING"):
+            refused = apply_mcf3m_m567_cartridge_banks(
+                self.school, image_dir=partial
+            )
+        self.assertEqual(refused.get("reason"), "missing-images")
+        self.assertFalse(refused["applied"])
+        self._assert_boot_refused()
+        applied = apply_mcf3m_m567_cartridge_banks(self.school)
+        self.assertTrue(applied["applied"])
+        self.assertGreater(applied["questions"], 0)
+        state = self._m567_boot_rows()
+        self.assertGreater(state["questions"], 0)
+        self.assertGreater(state["banks"], 0)
+        self.assertIsNotNone(state["key"])
 
 
 if __name__ == "__main__":
