@@ -1,0 +1,2913 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 5,
+  "strand": "C",
+  "source": "canvas_cartridge",
+  "cartridge_commit": "f8ebc79d900a424d80ad67075e7de8c2772dd16e",
+  "items": [
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g6009c392d2f2cd9bb09fddfe0e5bef92",
+      "stem": "Which of the following triangles can you solve using the cosine law? A check represents a known side and an angle symbol represents a known angle.",
+      "stem_html": "<div>Which of the following triangles can you solve using the cosine law?  A check represents a known side and an angle symbol represents a known angle.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/0b5a1cf749dd7351c266.png\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ef679626ec91fad47526.png\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/40da6456f4fa2eb6b9b7.png\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "None of the above.",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.47.30%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0b5a1cf749dd7351c266.png"
+        },
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.47.46%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ef679626ec91fad47526.png"
+        },
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.47.59%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/40da6456f4fa2eb6b9b7.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gd1394fe36aec5f32e65415842e01f51b",
+      "stem": "Given triangle ABC, if A, a, and c are known, which of the following can be used to solve for C?",
+      "stem_html": "<div><br><br><span>Given triangle </span><em>ABC</em><span>, if </span><em>A</em><span>, </span><em>a</em><span>, and </span><em>c</em><span> are known, which of the following can be used to solve for </span><em>C</em><span>?</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine law",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "cosine law",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "primary trigonometric ratios",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "Pythagorean Theorem",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/40247c0c2e418bc485e9.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/40247c0c2e418bc485e9.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.25.20%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/40247c0c2e418bc485e9.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "ge2f9818aaa470fe8ac66ad39340198ef",
+      "stem": "Given triangle ABC, if B = 31°, a = 22 m, and c = 36 cm, what is the perimeter of triangle ABC? Round your answer to the nearest tenth of a metre.",
+      "stem_html": "<div><br><br><span>Given triangle </span><em>ABC</em><span>, if </span><em>B</em><span> = 31</span><span>°</span><span>, </span><em>a</em><span> = 22 m, and </span><em>c</em><span> = 36 cm, what is the perimeter of triangle </span><em>ABC</em><span>?  Round your answer to the nearest tenth of a metre.</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "20.5 m",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "78.5 m",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "204.m",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "58.0 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/058df0abd781bb2678d3.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/058df0abd781bb2678d3.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.29.29%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/058df0abd781bb2678d3.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gce3da8a10cfafa3e447bae5e13481279",
+      "stem": "Given triangle DEF, if e, d, and f are known, which can be used to solve for F?",
+      "stem_html": "<div><br><br><span>Given triangle </span><em>DEF</em><span>, if </span><em>e</em><span>, </span><em>d</em><span>, and </span><em>f</em><span> are known, which can be used to solve for </span><em>F</em><span>?</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine law",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "cosine law",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "primary trigonometric ratios",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "Pythagorean Theorem",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/113dd5fbb79085ac65ef.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/113dd5fbb79085ac65ef.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.27.24%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/113dd5fbb79085ac65ef.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g1e67dd4b20a6ce1a5d533226e79ccdcc",
+      "stem": "Given the figure above, if a = 3.4 m and c = 1.8 m, determine C to the nearest degree.",
+      "stem_html": "<div><p></p>\n<p><span>Given the figure above, if </span><em>a</em><span> </span><span>=</span><span> 3.4 m and </span><em>c</em><span> = 1.8 m, determine </span><em>C</em><span> to the nearest degree.</span></p></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "32<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "62<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "58<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "28<sup>o</sup>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/74cb8945b6e82485a144.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/74cb8945b6e82485a144.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.59.45%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/74cb8945b6e82485a144.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g1dbb4b311e41cdddaf79592186cb71cd",
+      "stem": "For triangle HIJ, if I = 70°, j = 5.35 cm, and h = 3.80 cm, use the cosine law to solve for side i. Round your answer to the nearest tenth of a centimetre.",
+      "stem_html": "<div><br><br><span>For triangle </span><em>HIJ</em><span>, if </span><em>I</em><span> = 70</span><span>°</span><span>, </span><em>j</em><span> = 5.35 cm, and </span><em>h</em><span> = 3.80 cm, use the cosine law to solve for side </span><em>i</em><span>. Round your answer to the nearest tenth of a centimetre.</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "29.2 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "5.4 cm",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "6.4 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "None of the above",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/ff793954a2d7f7c03952.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/ff793954a2d7f7c03952.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.22.04%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ff793954a2d7f7c03952.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g1aec0a3e453c81b9e17bb65b260df6ae",
+      "stem": "Given the triangle above, if angle A = 38^o and b = 4.47 cm, determine a the nearest hundredth.",
+      "stem_html": "<div><p></p>\n<p><span>Given the triangle above, if angle A = 38</span><sup>o</sup><span> and b = 4.47 cm, determine </span><em><strong>a</strong></em><span> the nearest hundredth. </span></p></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "7.26 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "2.75 cm",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "3.53 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "5.67 cm",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/d4ca005d2e96353def7b.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/d4ca005d2e96353def7b.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%203.10.37%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d4ca005d2e96353def7b.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gb1e95de63becfa427bc42a57a2bd69c7",
+      "stem": "Given the figure above, if l = 3.4, < J = 28°, and j = 3.2, use the sine law to determine < L to the nearest degree.",
+      "stem_html": "<div><br><br>Given the figure above, if <em>l </em><span>=</span> 3.4, &lt; <em>J </em><span>=</span> 28<span>°</span>, and <em>j </em><span>=</span> 3.2, use the sine law to determine &lt; <em>L</em> to the nearest degree.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "60<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "30<sup>o</sup>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "27<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "26<sup>o</sup>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e05d3fd2525b3ff5a92b.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e05d3fd2525b3ff5a92b.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Quiz%20Files/56d43ff9f5dcc7e199296607fe30ca1515222afbaa8c5e71dac9a0c2dca60a1e_10925/Uploaded%20Media/72500c84-26e4-4dc8-b6d0-5fc7f7982a13",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e05d3fd2525b3ff5a92b.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g19bcfd3d78e6d7d60ece1515c23f5604",
+      "stem": "For triangle HIJ, if h = 46, i = 73, and j = 58, use the cosine law to solve for I. Round your answer to the nearest degree.",
+      "stem_html": "<div><br><br><span>For triangle </span><em>HIJ</em><span>, if </span><em>h</em><span> = 46, </span><em>i</em><span> = 73, and </span><em>j</em><span> = 58, use the cosine law to solve for </span><em>I</em><span>. Round your answer to the nearest degree.</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "39<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "53<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "92<sup>o</sup>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "88<sup>o</sup>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/7d55082a02a2522b6586.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/7d55082a02a2522b6586.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.31.15%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/7d55082a02a2522b6586.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g72ee1fe22cbaa75d265361daa27bbcb4",
+      "stem": "The tallest church tower in the Netherlands is the Dom Tower in Utrecht. If the angle of elevation to the top of the tower is 77° when 25.9 m from the base, what is the height of the Dom Tower to the nearest metre.",
+      "stem_html": "<div><span>The tallest church tower in the Netherlands is the Dom Tower in Utrecht.  If the angle of elevation to the top of the tower is 77</span><span>°</span><span> when 25.9 m from the base, what is the height of the Dom Tower to the nearest metre.</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 3.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "25 m",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "115 m",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "112 m",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "27 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g4811a53cde95621d0ad59b68db41bb0c",
+      "stem": "Using figure below, if u = 10 cm, angle U = 75°, and angle V = 44°, what is the area of triangle TUV? Round your answer to the nearest square centimetre.",
+      "stem_html": "<div><span>Using figure below, if </span><em>u</em><span> </span><span>=</span><span> 10 cm, angle </span><em>U</em><span> </span><span>=</span><span> 75</span><span>°</span><span>, and angle </span><em>V</em><span> </span><span>=</span><span> 44</span><span>°</span><span>, what is the area of triangle </span><em>TUV</em><span>?  Round your answer to the nearest square centimetre.</span><br></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 3.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "32 m<sup>2</sup>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "25 m<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "44 m<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "18 m<sup>2</sup>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/56597a2da4b622e54f26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/56597a2da4b622e54f26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-13%20at%202.33.13%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/56597a2da4b622e54f26.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gd1bf5b744ea3474ef95492fa6be3fc57",
+      "stem": "Inside a fire tower, a forest ranger sees a child on the ground at an angle of depression of 40^o. If the forest ranger is 45 metres up from the ground, how far is the child from the base of the tower, to the nearest tenth of a metre?",
+      "stem_html": "<div>Inside a fire tower, a forest ranger sees a child on the ground at an angle of depression of 40<sup>o</sup>. If the forest ranger is 45 metres up from the ground, how far is the child from the base of the tower, to the nearest tenth of a metre?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 3.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "37.8 m",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "28.9 m",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "53.6 m",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "34.5 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g655bbca9473b126f61f139fef80602be",
+      "stem": "Guillermo is standing 112.5 m from an office building. The top of the building is at an angle of elevation of 39°. If Guillermo’s eyes are 1.6 m off the ground, what is the height of the building to the nearest tenth of a metre?",
+      "stem_html": "<div><span>Guillermo is standing 112.5 m from an office building.  The top of the building is at an angle of elevation of 39</span><span>°</span><span>.  If Guillermo’s eyes are 1.6 m off the ground, what is the height of the building to the nearest tenth of a metre?</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 3.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "87.4 m",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "92.7 m",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "89.0 m",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "91.1 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g90dc0bbf3011821b264747d0c9ddcc35",
+      "stem": "If the sides of a regular octagon are 20 cm, what is the area of the octagon the nearest square centimetre?",
+      "stem_html": "<div>If the sides of a regular octagon are 20 cm, what is the area of the octagon the nearest square centimetre?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 5: Test (Remotely Proctored)",
+      "points_possible": 3.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "241 m<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "482 m<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "1920 m<sup>2</sup>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "67 m<sup>2</sup>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "bae7bc800cb3df3dc0642e776e0284a3",
+      "stem": "Given the triangle above, if a = 9, b = 15, and c = 12, what are the primary trigonometric ratios for ∠A?",
+      "stem_html": "<p><span><span>Given the triangle above, if </span><span>a</span> <span>=</span><span> 9, </span><span>b</span> <span>=</span><span> 15, and </span><span>c</span><span> = 12, what are the primary trigonometric ratios for </span><span>∠</span><span>A</span><span>?</span></span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Warm-Up Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sin A=\\frac{5}{3},\\ \\cos A=\\frac{5}{4},\\ \\tan A=\\frac{3}{4}\">\\sin A=\\frac{5}{3},\\ \\cos A=\\frac{5}{4},\\ \\tan A=\\frac{3}{4}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sin A=\\frac{3}{5},\\ \\cos A=\\frac{4}{5},\\ \\tan A=\\frac{3}{4}\">\\sin A=\\frac{3}{5},\\ \\cos A=\\frac{4}{5},\\ \\tan A=\\frac{3}{4}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sin A=\\frac{4}{5},\\ \\cos A=\\frac{3}{5},\\ \\tan A=\\frac{4}{3}\">\\sin A=\\frac{4}{5},\\ \\cos A=\\frac{3}{5},\\ \\tan A=\\frac{4}{3}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sin A=\\frac{3}{4},\\ \\cos A=\\frac{3}{4},\\ \\tan A=\\frac{4}{3}\">\\sin A=\\frac{3}{4},\\ \\cos A=\\frac{3}{4},\\ \\tan A=\\frac{4}{3}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://lh6.googleusercontent.com/jQ9_OrDH20Qae8kULpbq2m4NBPalaRERmP_lDHXhYb4QJJEKAtPE_zIkExEpyRJLIvo44zMNcsILUfPiDMAShtnLnIwL2s0ZF9Etd5joNOv2HL-odx16IAQaH636XiTM5q9rzz8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+        },
+        {
+          "src": "%5Csin%20A%3D%5Cfrac%7B5%7D%7B3%7D%2C%5C%20%5Ccos%20A%3D%5Cfrac%7B5%7D%7B4%7D%2C%5C%20%5Ctan%20A%3D%5Cfrac%7B3%7D%7B4%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csin%20A%3D%5Cfrac%7B3%7D%7B5%7D%2C%5C%20%5Ccos%20A%3D%5Cfrac%7B4%7D%7B5%7D%2C%5C%20%5Ctan%20A%3D%5Cfrac%7B3%7D%7B4%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csin%20A%3D%5Cfrac%7B4%7D%7B5%7D%2C%5C%20%5Ccos%20A%3D%5Cfrac%7B3%7D%7B5%7D%2C%5C%20%5Ctan%20A%3D%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csin%20A%3D%5Cfrac%7B3%7D%7B4%7D%2C%5C%20%5Ccos%20A%3D%5Cfrac%7B3%7D%7B4%7D%2C%5C%20%5Ctan%20A%3D%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "56b5d3d808d67fbafcf7f3c1eb5160da",
+      "stem": "Given triangle ABC above, if ∠A = 38° and b = 4.47 cm, determine a to the nearest hundredth.",
+      "stem_html": "<p><span><span>Given triangle </span><span>ABC</span><span> above, if </span><span>∠</span><span>A</span> <span>=</span><span> 38</span><span>°</span><span> and </span><span>b</span> <span>=</span><span> 4.47 cm, determine </span><span>a</span><span> to the nearest hundredth.</span></span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Warm-Up Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>7.26 cm</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>2.75 cm</p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p>3.52 cm</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>5.67 cm</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://lh6.googleusercontent.com/jQ9_OrDH20Qae8kULpbq2m4NBPalaRERmP_lDHXhYb4QJJEKAtPE_zIkExEpyRJLIvo44zMNcsILUfPiDMAShtnLnIwL2s0ZF9Etd5joNOv2HL-odx16IAQaH636XiTM5q9rzz8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "4af5cbfd11d5e4e58356b4647a95005f",
+      "stem": "Given the figure above, if a = 3.4 m and c = 1.8 m, determine ∠C to the nearest degree.",
+      "stem_html": "<p><span><span>Given the figure above, if </span><span>a</span> <span>=</span><span> 3.4 m and </span><span>c</span><span> = 1.8 m, determine </span><span>∠</span><span>C</span><span> to the nearest degree.</span></span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Warm-Up Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span><span>32</span><span>°</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span><span>62</span><span>°</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span><span>58</span><span>°</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span><span>28</span><span>°</span></span></p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://lh6.googleusercontent.com/jQ9_OrDH20Qae8kULpbq2m4NBPalaRERmP_lDHXhYb4QJJEKAtPE_zIkExEpyRJLIvo44zMNcsILUfPiDMAShtnLnIwL2s0ZF9Etd5joNOv2HL-odx16IAQaH636XiTM5q9rzz8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "632612d8a7bd119b189e7c2dcfe68235",
+      "stem": "Given triangle ABC, if ∠C = 51° and a = 14.681 m, determine b to the nearest thousandth of a metre.",
+      "stem_html": "<p><span><span>Given triangle </span><span>ABC</span><span>, if </span><span>∠</span><span>C</span><span> = 51</span><span>°</span><span> and </span><span>a</span><span> = 14.681 m, determine </span><span>b</span><span> to the nearest thousandth of a metre.</span></span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Warm-Up Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span><span>23.328 m</span></span></p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p><span><span>18.891 m</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span><span>9.239 m</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span><span>11.888 m</span></span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://lh6.googleusercontent.com/jQ9_OrDH20Qae8kULpbq2m4NBPalaRERmP_lDHXhYb4QJJEKAtPE_zIkExEpyRJLIvo44zMNcsILUfPiDMAShtnLnIwL2s0ZF9Etd5joNOv2HL-odx16IAQaH636XiTM5q9rzz8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "0efd56ba9b295c073cb50aaf7937684f",
+      "stem": "Using the triangle above and the given values for a and c, determine which would have the largest ∠A.",
+      "stem_html": "<p><span><span>Using the triangle above and the given values for </span><span>a</span><span> and </span><span>c</span><span>, determine which would have the largest </span><span>∠</span><span>A</span><span>.</span></span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Warm-Up Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span><span>a</span><span> = 16, </span><span>c</span><span> = 16</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span><span>a</span><span> = 56, </span><span>c</span><span> = 73</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span><span>a</span><span> = 2, </span><span>c</span><span> = 1</span></span></p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p><span><span>a</span><span> = 47, </span><span>c</span><span> = 24</span></span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://lh6.googleusercontent.com/jQ9_OrDH20Qae8kULpbq2m4NBPalaRERmP_lDHXhYb4QJJEKAtPE_zIkExEpyRJLIvo44zMNcsILUfPiDMAShtnLnIwL2s0ZF9Etd5joNOv2HL-odx16IAQaH636XiTM5q9rzz8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "bfbb38661c6ef8739644231e06278b88",
+      "stem": "Using the figure above and the given values for ∠C and a, determine which would have the largest side c.",
+      "stem_html": "<p><span><span>Using the figure above and the given values for </span><span>∠</span><span>C</span><span> and </span><span>a</span><span>, determine which would have the largest side </span><span>c</span><span>.</span></span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Warm-Up Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span><span>∠</span><span>C</span><span> = 43</span><span>°</span><span>, </span><span>a</span><span> = 24 cm</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span><span>∠</span><span>C</span><span> = 52</span><span>°</span><span>, </span><span>a</span><span> = 23 cm</span></span></p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p><span><span>∠</span><span>C</span><span> = 49</span><span>°</span><span>, </span><span>a</span><span> = 25 cm</span></span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span><span>∠</span><span>C</span><span> = 46</span><span>°</span><span>, </span><span>a</span><span> = 26 cm</span></span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://lh6.googleusercontent.com/jQ9_OrDH20Qae8kULpbq2m4NBPalaRERmP_lDHXhYb4QJJEKAtPE_zIkExEpyRJLIvo44zMNcsILUfPiDMAShtnLnIwL2s0ZF9Etd5joNOv2HL-odx16IAQaH636XiTM5q9rzz8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ddfacff4793e8cf1b26.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "fb31ecdbfbe1eaa23238dff66c29dd8f",
+      "stem": "The simplified trig ratio for sin B is:",
+      "stem_html": "<p>The simplified trig ratio for sin B is:</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Ratios Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{3}{5}\">\\frac{3}{5}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{3}{4}\">\\frac{3}{4}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{4}{5}\">\\frac{4}{5}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{4}{3}\">\\frac{4}{3}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e6ba7b2f7a2258df3935.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e6ba7b2f7a2258df3935.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded Media/bca3e035-9778-48e1-9a2e-d6751e1c4d61",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e6ba7b2f7a2258df3935.png"
+        },
+        {
+          "src": "%5Cfrac%7B3%7D%7B5%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B3%7D%7B4%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B4%7D%7B5%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "e9b9864c8a6607e92175dad2b6643139",
+      "stem": "The simplified trig ratio for tan B is:",
+      "stem_html": "<p>The simplified trig ratio for tan B is:</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Ratios Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{3}{5}\">\\frac{3}{5}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{3}{4}\">\\frac{3}{4}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{4}{5}\">\\frac{4}{5}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{4}{3}\">\\frac{4}{3}</span></p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e6ba7b2f7a2258df3935.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e6ba7b2f7a2258df3935.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded Media/bca3e035-9778-48e1-9a2e-d6751e1c4d61",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e6ba7b2f7a2258df3935.png"
+        },
+        {
+          "src": "%5Cfrac%7B3%7D%7B5%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B3%7D%7B4%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B4%7D%7B5%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "ef01e6d8f6fbc884a2caca1b6cb4bc9f",
+      "stem": "The simplified trig ratio for cos B is:",
+      "stem_html": "<p>The simplified trig ratio for cos B is:</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Ratios Quiz",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{3}{5}\">\\frac{3}{5}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{3}{4}\">\\frac{3}{4}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{4}{5}\">\\frac{4}{5}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{4}{3}\">\\frac{4}{3}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e6ba7b2f7a2258df3935.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e6ba7b2f7a2258df3935.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded Media/bca3e035-9778-48e1-9a2e-d6751e1c4d61",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e6ba7b2f7a2258df3935.png"
+        },
+        {
+          "src": "%5Cfrac%7B3%7D%7B5%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B3%7D%7B4%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B4%7D%7B5%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "da8a9518dd1793e2385019910d5e1dee",
+      "stem": "From a point P, on level ground, the angle of elevation of the top tower is 45^o. If the tower is 50 metres high, the distance of point P from the foot of the tower is:",
+      "stem_html": "<p>From a point P, on level ground, the angle of elevation of the top tower is 45<sup>o</sup>. If the tower is 50 metres high, the distance of point P from the foot of the tower is: </p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Ratios Quiz",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>70 metres</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>35 metres</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>50 metres</p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p>45 metres</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "ec1e8aace16583ea6baaead13e4064c3",
+      "stem": "There is a building that is 50 metres tall. A person is standing 30 metres from the base of the building. What is the angle of depression, to the nearest degree, from the top of the building to the person standing in the street 30 metres away?",
+      "stem_html": "<p>There is a building that is 50 metres tall. A person is standing 30 metres from the base of the building. What is the angle of depression, to the nearest degree, from the top of the building to the person standing in the street 30 metres away?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Trig Ratios Quiz",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>59<sup>o</sup></p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p>31<sup>o</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>37<sup>o</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>53<sup>o</sup></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g9e9d1f17416ac8aa9b510ad8b813f4b9",
+      "stem": "Given the triangle above, if a = 9, b = 15, and c = 12, what are the primary trigonometric ratios for A?",
+      "stem_html": "<div>\n<br><br>Given the triangle above, if <em>a</em> <span>=</span> 9, <em>b</em> <span>=</span> 15, and <em>c</em> = 12, what are the primary trigonometric ratios for <span><em>A</em>?</span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sin <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/30a1c011e9d530c1643d.jpg\" alt=\"\">, cos <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/03fb2ca884a254e60e23.jpg\" alt=\"\">, tan <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/6b4d4be7af21b52002ef.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "sin <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/ea2bf08e2b08fd92c4b2.jpg\" alt=\"\">, cos <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/5d34bb991dc46190c178.jpg\" alt=\"\">, tan <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/78075be2e9ae18593cb7.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "sin <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/a2e77cc274d6fc9c818c.jpg\" alt=\"\">, cos <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/6edb0380b308bc46706d.jpg\" alt=\"\">, tan <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/1dbd178d2a6c10257e20.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "sin <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/4771407a891093421c02.jpg\" alt=\"\">, cos <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/6b3651d4e253b4e33922.jpg\" alt=\"\">, tan <i>A</i> = <img src=\"/curriculum-bank-images/MCF3M/cartridge/c9c81c44a834abb8bcf3.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/4da0c1e7e9d1991e7336.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4da0c1e7e9d1991e7336.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185812/download?verifier=jTDRygIRZE2rNiXionGwpPCuiikuqkvHn2zRwhnX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4da0c1e7e9d1991e7336.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185788/download?verifier=58oGnBdJJh7kSB3KBW6kFgXfgYZYZc36n9KMWTA6",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/30a1c011e9d530c1643d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185790/download?verifier=LHNvSSlX2HD041Kye8miJ0SopDYpGi0710pcBPie",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/03fb2ca884a254e60e23.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185792/download?verifier=ebYwd2JtmJBqMC9JlEhE2LAXjk84SzeRYNPfXlbQ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6b4d4be7af21b52002ef.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185794/download?verifier=LkJ7bHXOv5k9ZQCTSPwdRA8Brl88YJZJPEbbk0uL",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ea2bf08e2b08fd92c4b2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185796/download?verifier=eBctdF4jlpitUB60sAs4axwtmtGkCkU6kTGUR4HH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5d34bb991dc46190c178.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185798/download?verifier=N3P7Jk28nClplFpiv27ZEJ4S4Cbej2ZL7agjzkWx",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/78075be2e9ae18593cb7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185800/download?verifier=Zp4anhagAb44svIDbPEZebqdcGlAz00hnuOUpY3D",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a2e77cc274d6fc9c818c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185802/download?verifier=fncWLFlMYMSCyiXbVaqfJxEg0SPHl695OIO8CeUH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6edb0380b308bc46706d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185804/download?verifier=JxfXzUvvDkq3SlTGfbClomErtmkd5n4N8D3yBM12",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1dbd178d2a6c10257e20.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185806/download?verifier=uzYe75kBwRdAPCzztPZsQ2C94ZUcyy25mMUOXFyD",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4771407a891093421c02.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185808/download?verifier=ipSINsb38xncJkRe3DrkKfOIPkb5Zm7OLwxHFIwn",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6b3651d4e253b4e33922.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71535/files/185810/download?verifier=epPoOkUtQcaC2xqpYGUPtnwQ1pDk5JbrxqVF0A2T",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c9c81c44a834abb8bcf3.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g966141555e0cc270e995e5f3d77eadda",
+      "stem": "Nancy can see four buildings from where she is standing. Given the following angles of elevation to the top of each building and her distance from the base of each building, which is the tallest?",
+      "stem_html": "<div>Nancy can see four buildings from where she is standing.  Given the following angles of elevation to the top of each building and her distance from the base of each building, which is the tallest?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "36<span>°,</span> 53 m",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "52<span>°,</span> 36 m",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "47<span>°,</span> 40 m",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "58<span>°,</span> 28 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g568633fd33b45ed60db8ab210c030654",
+      "stem": "Given the figure above, if CAD= 30°, BAD= 24°, side = 74 cm, and side = 56 cm, what is the length of side to the nearest tenth of a centimetre?",
+      "stem_html": "<div>\n<br><br>Given the figure above, if <span><em>CAD</em>= 30<span>°</span>, <span><em>BAD</em>= 24<span>°</span>, side <span>=</span> 74 cm, and side <span>=</span> 56 cm, what is the length of side  to the nearest tenth of a centimetre?</span></span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "37.0 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "59.8 cm",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "67.7 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "58.1 cm",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/98d12a94b1bdc32e0aa2.jpg",
+        "cartridge/8c694d423a60205e2394.jpg",
+        "cartridge/5bafb1d1b9f50a88d03d.jpg",
+        "cartridge/e10f4bf676b66eafda18.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/98d12a94b1bdc32e0aa2.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/8c694d423a60205e2394.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/5bafb1d1b9f50a88d03d.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/e10f4bf676b66eafda18.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71555/files/185824/download?verifier=AQ2It2sNpsTihcDkXvW97QvgsPZhfFUHJItcoO1J",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/98d12a94b1bdc32e0aa2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71555/files/185826/download?verifier=JnqdwI2A5DxyL0AXBKhIKLaBOFxlSepB5KxNseCH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/8c694d423a60205e2394.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71555/files/185828/download?verifier=ivfMWwsHjp7ppnCcoeG8RRYgLnCmyD0dHWAsdZ87",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5bafb1d1b9f50a88d03d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71555/files/185830/download?verifier=WrDdpgrpcJBxRDt7xohbEX0xbQ285ZDlUEgbBvh1",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e10f4bf676b66eafda18.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gb1c38846e96a2dff8130d75812d1e198",
+      "stem": "Given the triangle above, if = 12.5, = 10.1, and = 10.8, calculate CAB to the nearest degree.",
+      "stem_html": "<div>\n<br><br>Given the triangle above, if <span>=</span> 12.5, <span>=</span> 10.1, and <span>=</span> 10.8, calculate <span><em>CAB</em> to the nearest degree.</span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "41<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<span>47°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "92<span>°</span>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "88<span>°</span>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e6595c62357364847d5c.jpg",
+        "cartridge/9d839b722243df10d8ee.jpg",
+        "cartridge/6ed4014531419b81c5c6.jpg",
+        "cartridge/0da7344148893ec1857b.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e6595c62357364847d5c.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/9d839b722243df10d8ee.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/6ed4014531419b81c5c6.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/0da7344148893ec1857b.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71565/files/185858/download?verifier=xCVTyq5VIYmtv4G1FMJC3NpcPgBqW7GTLNGdlH50",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e6595c62357364847d5c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71565/files/185860/download?verifier=qiWHkgCpC0yKmAsdD9uxpSCOo92bPNrjxtCN4Dc6",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9d839b722243df10d8ee.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71565/files/185862/download?verifier=oiDZYLjwGNKQCF6oaDRWOwgW7ovd3EnVldCxjUv0",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6ed4014531419b81c5c6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71565/files/185864/download?verifier=8OZc8TF5nqrmtEiksmJIsoWnmFYPQQYp3sxYYAD9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0da7344148893ec1857b.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8fa2ffac605b29055e9e3f348fc2272e",
+      "stem": "Given the figure above, if side = 24 cm and F= 41°, what is the area of triangle EFG to the nearest tenth of a square centimetre?",
+      "stem_html": "<div>\n<br><br>Given the figure above, if side <span>=</span> 24 cm and <span><em>F</em>= 41<span>°</span>, what is the area of triangle <em>EFG</em> to the nearest tenth of a square centimetre?</span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "33.9 cm<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "164.2 cm<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "188.9 cm<sup>2</sup>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "142.6 cm<sup>2</sup>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e4ff5a7febd82399631e.jpg",
+        "cartridge/a89abd741c996e73abfe.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e4ff5a7febd82399631e.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/a89abd741c996e73abfe.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71569/files/185874/download?verifier=SBmr6C0CS4hxgXXUjUf8SFHJkBp4030aSiCO9Wk0",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e4ff5a7febd82399631e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71569/files/185876/download?verifier=0kIuyyspk0tJXo6WdziROL5xsnmPpuJJODUpzFSR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a89abd741c996e73abfe.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g553c132fee73cf5af27fdc49afe2025a",
+      "stem": "Given the above figure, if = 3.0, = 4.1, and = 5.9, calculate HEF to the nearest tenth of a degree.",
+      "stem_html": "<div>\n<br><br>Given the above figure, if <span>=</span> 3.0, <span>=</span> 4.1, and <span>=</span> 5.9, calculate <span><em>HEF</em> to the nearest tenth of a degree.</span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "15.5<span>°</span>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "34.8<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "27.0<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "50.3<span>°</span>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/66b2b1a3b271ea62bada.jpg",
+        "cartridge/5171bb106aa3415e5a60.jpg",
+        "cartridge/847daddd696303712e0f.jpg",
+        "cartridge/cedc681ede98c559b810.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/66b2b1a3b271ea62bada.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/5171bb106aa3415e5a60.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/847daddd696303712e0f.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/cedc681ede98c559b810.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71571/files/185878/download?verifier=zsoGRVTQXbu82ZlerepPeDjy2pvxNGspnLPdQ4LH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/66b2b1a3b271ea62bada.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71571/files/185880/download?verifier=QaUHoFVkALP1m52QIKXz4P3EaMBNmm1x8x31r39F",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5171bb106aa3415e5a60.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71571/files/185882/download?verifier=ML2g0XdnsECRnJW0aqszL7Ai3cxwpCKRB5yAx2Ik",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/847daddd696303712e0f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71571/files/185884/download?verifier=v8VmqBgOummx4BLbb3bK2zFnLyo6vPheqWTMSCrs",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/cedc681ede98c559b810.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g9c229288622df325cf745811cf560341",
+      "stem": "Given triangle ABC above, if <A = 38° and b = 4.47 cm, determine a to the nearest hundredth.",
+      "stem_html": "<div>\n<br><br>Given triangle <em>ABC</em> above, if &lt;<em>A</em> <span>=</span> 38<span>°</span> and <em>b</em> <span>=</span> 4.47 cm, determine <em>a</em> to the nearest hundredth.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "7.26 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "2.75 cm",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "3.52 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "5.67 cm",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0db2f25e6d7fbdd7e958.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0db2f25e6d7fbdd7e958.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71537/files/185814/download?verifier=j2eQeijj0NAuHpMuEfm4nw5XprteRTuERBQeZJow",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0db2f25e6d7fbdd7e958.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g878798b5d9e9e2ce325898385fe07e7a",
+      "stem": "Which of the following trigonometric ratios are defined for oblique triangles?",
+      "stem_html": "<div>Which of the following trigonometric ratios are defined for oblique triangles?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "cosine",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "tangent",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "none of the above",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gc7995969e1a42cbcaa2122b5717670d9",
+      "stem": "What information do you need to know about a triangle in order for you use the sine law?",
+      "stem_html": "<div>What information do you need to know about a triangle in order for you use the sine law?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "two sides and an angle opposite a known side",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "two angles and any side",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "both of the given answers",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "neither of the given answers",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g334dcc55e52647a3cb9eea3c3dc649d2",
+      "stem": "Given triangle JKL, which of the following is a proper representation of the sine law?",
+      "stem_html": "<div>\n<br><br>Given triangle <i>JKL</i>, which of the following is a proper representation of the sine law?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/33304f55d13e57a94bed.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/51f0395a8ea1e14d8c94.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/4f9c0fe3f5f314b9fbce.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9c6cea464cf6f2fa2a11.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e2ea3d9226df9b7c1c55.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e2ea3d9226df9b7c1c55.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71579/files/185900/download?verifier=9wPUy882ucfyF0bJ6UWEpf4FTkXLaJ7xWOj1Svax",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e2ea3d9226df9b7c1c55.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71579/files/185892/download?verifier=kHjLd7XYHYHaF0ZlsAvpj3KTPCxGHE4ouVffoWEX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/33304f55d13e57a94bed.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71579/files/185894/download?verifier=eEa039rGCycRzyiEhfZy5hSCBKiiK5KyLccqlUhU",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/51f0395a8ea1e14d8c94.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71579/files/185896/download?verifier=3zw0RrMebEkJAQ2Nlia9EE2Hg6wEfm2gEkanoFWc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4f9c0fe3f5f314b9fbce.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71579/files/185898/download?verifier=8lG6IX9EqlsFVmFyoFqZI1zzDLASZYUP0Ok9jtas",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9c6cea464cf6f2fa2a11.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gb40a958731218b44004530fcb971bbc7",
+      "stem": "Given the figure above, if l = 3.4, <J = 28°, and j = 3.2, use the sine law to determine <L to the nearest degree.",
+      "stem_html": "<div>\n<br><br>Given the figure above, if <em>l </em><span>=</span> 3.4, &lt;<em>J </em><span>=</span> 28<span>°</span>, and <em>j </em><span>=</span> 3.2, use the sine law to determine &lt;<em>L</em> to the nearest degree.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "60<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "30<span>°</span>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "27<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "26<span>°</span>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/3e72b629c08e24525936.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/3e72b629c08e24525936.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71581/files/185902/download?verifier=zTtU4RePSShNqpPQka5Jy5paWLbGMwnEhCAOlsYe",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3e72b629c08e24525936.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gce0d89c35511ca8b4f4c8b1daac19c6f",
+      "stem": "Using the above figure, if l = 3.62 cm, L = 70°, and K = 64°, use the sine law to determine k to the nearest hundredth of a centimetre.",
+      "stem_html": "<div>\n<br><br>Using the above figure, if <em>l </em><span>=</span> 3.62 cm, <span><em>L </em><span>=</span> 70<span>°</span>, and <span><em>K </em><span>=</span> 64<span>°</span>, use the sine law to determine <em>k</em> to the nearest hundredth of a centimetre.</span></span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "3.78 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "4.29 cm",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "4.42 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "3.46 cm",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/893f6fd729da7c1f1af6.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/893f6fd729da7c1f1af6.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71583/files/185904/download?verifier=bMJuYa0Jz0fUXbuwNnBRtYWISlS8yPf1yFnuwFlj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/893f6fd729da7c1f1af6.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g17aaabfab800c08f2e2aa26cf9550803",
+      "stem": "Given triangle JKL, if you are given the lengths of all three sides and the measure of J, which of the following can you then determine using the sine law?",
+      "stem_html": "<div>\n<br><br>Given triangle <em>JKL</em>, if you are given the lengths of all three sides and the measure of J, which of the following can you then determine using the sine law?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<em>K</em>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<em>L</em>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "both given answers",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "neither given answer",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/2c8c71da0ce1d010e45e.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/2c8c71da0ce1d010e45e.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71587/files/185908/download?verifier=9CueuhFH4qCLULFLXFIehDAXjlFUfgG60uRGdIjX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2c8c71da0ce1d010e45e.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g0b6e38b8fd91f531a59fd4b2442a93bd",
+      "stem": "Using the figure above, if DCA = 110°, c = 3.80 cm, and A = 84°, how long is side a to the nearest hundredth of a centimetre?",
+      "stem_html": "<div>\n<br><br>Using the figure above, if <em>DCA</em> = 110<span>°</span>, <em>c</em> = 3.80 cm, and <em>A</em> = 84<span>°</span>, how long is side <em>a</em> to the nearest hundredth of a centimetre?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "4.02 cm",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "3.99 cm",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "0.24 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "3.59 cm",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/cda6208c98f813e44dd4.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/cda6208c98f813e44dd4.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71589/files/185910/download?verifier=0baxwciyBIRkC6MTVNDmT1oCcBOK8oEEpS9hq6Hf",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/cda6208c98f813e44dd4.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gc595864f15be1ead62c5658497fb9ba7",
+      "stem": "Given the figure above, if DCA = 106°, b = 27.6 cm, and c = 41.3 cm, use the sine law to calculate B to the nearest degree.",
+      "stem_html": "<div>\n<br><br>Given the figure above, if <em>DCA</em> = 106<span>°</span>, <em>b</em> = 27.6 cm, and <em>c</em> = 41.3 cm, use the sine law to calculate <em>B</em> to the nearest degree.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "55<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "44<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "40<span>°</span>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "none of the above",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/eb4d4b0c457ed5d1be11.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/eb4d4b0c457ed5d1be11.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71591/files/185912/download?verifier=N4SFnzj9AjucieDRD6MZGexDMyGiHDBkMM5BKHS5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/eb4d4b0c457ed5d1be11.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g380cac1007d192803b6e6b8db53fd465",
+      "stem": "Using the given the figure, if B = 40°, b = 13.7 m, and c = 18.7 m, use the sine law to calculate ACD to the nearest degree.",
+      "stem_html": "<div>\n<br><br>Using the given the figure, if <em>B</em> = 40<span>°</span>, <em>b</em> = 13.7 m, and <em>c</em> = 18.7 m, use the sine law to calculate <em>ACD</em> to the nearest degree.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "61<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "152<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "28<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "119<span>°</span>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/85baf383c0e2229f1fd6.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/85baf383c0e2229f1fd6.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71593/files/185914/download?verifier=jkhTuctZFXxNRpxZaqiJpENV2g1OZ5d9HqwGYozm",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/85baf383c0e2229f1fd6.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g7071414295b51effeace04aa40dba355",
+      "stem": "Given triangle EFG, which of the following is a proper representation of cosine law?",
+      "stem_html": "<div>\n<p></p>\n<p>Given triangle <em>EFG</em>, which of the following is a proper representation of cosine law?<br><br></p>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<span><img src=\"/curriculum-bank-images/MCF3M/cartridge/42fb7445476d81976ee2.jpg\" alt=\"\"></span>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<span><img src=\"/curriculum-bank-images/MCF3M/cartridge/81e64a735937d7153e23.jpg\" alt=\"\"></span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<span><img src=\"/curriculum-bank-images/MCF3M/cartridge/f2c5bb09d0d8f75f6589.jpg\" alt=\"\"></span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "none of the above",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/8d4731dc96383b41f749.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/8d4731dc96383b41f749.png"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/111309/files/556780/download?verifier=fmiX5P87tAAUA8f3bbekOuz3sPUIkS1M4ZTa4qTB",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/8d4731dc96383b41f749.png"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71595/files/185916/download?verifier=ASfYxxZTwBynF0HbQFI56uvwlqOUgxooL7PwPunB",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/42fb7445476d81976ee2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71595/files/185918/download?verifier=S14tO4GGTLCManmlWYQmfEAFQJT8WBDbmxvccxyr",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/81e64a735937d7153e23.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71595/files/185920/download?verifier=E7AmFhFpfx5uvlXS8oIf4mncGE08Zinx96I0bQX8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f2c5bb09d0d8f75f6589.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g7907975c4de0a84391f77d0390c3fc34",
+      "stem": "Given three sides of an acute triangle, which of the following can you use to solve for the angles of the triangle?",
+      "stem_html": "<div>Given three sides of an acute triangle, which of the following can you use to solve for the angles of the triangle?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine law",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "primary trigonometric ratios",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "cosine law",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "Pythagorean Theorem",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g7188e570a4c90a5680754a959b107543",
+      "stem": "Given the triangle below, what can you use to solve for the unknown sides and unknown angles of the triangle? A check represents a known side and an angle symbol represents a known angle.",
+      "stem_html": "<div>Given the triangle below, what can you use to solve for the unknown sides and unknown angles of the triangle?  A check represents a known side and an angle symbol represents a known angle.<br><span></span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine law",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "cosine law",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "either given answer",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "neither given answer",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e0663282c070df8f0b07.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e0663282c070df8f0b07.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71599/files/185924/download?verifier=ezFjUbLLyEr4ErzaeQITSnz7yrwHw0WlSMviwfXU",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e0663282c070df8f0b07.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8e343510bbf7827695ffdabc98356cca",
+      "stem": "For triangle HIJ, if I = 70°, j = 5.35 cm, and h = 3.80 cm, use the cosine law to solve for side i. Round your answer to the nearest hundredth of a centimetre.",
+      "stem_html": "<div>\n<br><br>For triangle <em>HIJ</em>, if <em>I</em> = 70<span>°</span>, <em>j</em> = 5.35 cm, and <em>h</em> = 3.80 cm, use the cosine law to solve for side <em>i</em>. Round your answer to the nearest hundredth of a centimetre.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "29.16 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "5.40 cm",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "6.40 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "none of the above",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/75bf0d3d8088f15d720c.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/75bf0d3d8088f15d720c.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71605/files/185938/download?verifier=tbCyvpW1GsI4m4ohRwBLkHhPWCRkRsV4SOxen65z",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/75bf0d3d8088f15d720c.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gef6e80e9e7ada1b6cb390a7910577627",
+      "stem": "Given triangle ABC, if C = 51° and a = 14.681 m, determine b to the nearest thousandth of a metre.",
+      "stem_html": "<div>\n<br><br>Given triangle <em>ABC</em>, if <em>C</em> = 51<span>°</span> and <em>a</em> = 14.681 m, determine <em>b</em> to the nearest thousandth of a metre.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "23.328 m",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "18.891 m",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "9.239 m",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "11.888 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/f602111558d82678815c.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/f602111558d82678815c.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71541/files/185818/download?verifier=aWIRfKhc9e5xDeyvXihzmZ5PmdgTZXFRPtGhJvi5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f602111558d82678815c.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g13237ca959c6c8d6ec41f771086f0653",
+      "stem": "Using triangle GHI below, if G and i are known, which can be used to solve for g?",
+      "stem_html": "<div>Using triangle <em>GHI</em> below, if <em>G</em> and <em>i</em> are known, which can be used to solve for <em>g</em>?<br><span></span>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine law",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "primary trigonometric ratios",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "both given answers",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "neither given answer",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/df5cd565209c74075bf0.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/df5cd565209c74075bf0.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71619/files/185952/download?verifier=G6qSggMCbRS9vMyRPouAVEVrmeP6g3OQMgQieSCe",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/df5cd565209c74075bf0.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g65fc151c5d736247f253f276ba74e20a",
+      "stem": "Given triangle DEF, if D, E, f, and e are known, which can be used to solve for d?",
+      "stem_html": "<div>\n<span></span><br><br>Given triangle <em>DEF</em>, if <em>D</em>, <em>E</em>, <em>f</em>, and <em>e</em> are known, which can be used to solve for <em>d</em>?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sine law",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "cosine law",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "either given answer",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "neither given answer",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/ef74402519f2d74d2e03.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/ef74402519f2d74d2e03.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71623/files/185956/download?verifier=u8m85AqJSsQTRTr2cwNRwatZhriWdkePcD4Nsr9B",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ef74402519f2d74d2e03.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g2e6626cc31825d71a6234785f6ec2212",
+      "stem": "If D = 40°, f = 4.8 cm, and e = 4.3 cm, what is the area of triangle DEF to the nearest tenth of a square centimetre.?",
+      "stem_html": "<div>\n<span></span><br><br>If <em>D</em> = 40<span>°</span>, <em>f</em> = 4.8 cm, and <em>e</em> = 4.3 cm, what is the area of triangle <em>DEF</em> to the nearest tenth of a square centimetre.?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/28420d04515ad08c9bb3.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/50601653d23d3eed0473.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/99bdc27378ce48341c2d.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "none of the above",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/89ce4775ab8f13ed3ace.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/89ce4775ab8f13ed3ace.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71625/files/185964/download?verifier=r6R3UkaWnX70c7So95dDWDI2ls7vOKrDnXMc3EtP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/89ce4775ab8f13ed3ace.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71625/files/185958/download?verifier=8uGXIR9ko68zYBpSqYJUD0fcvfOWCeMfKa1dIITP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/28420d04515ad08c9bb3.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71625/files/185960/download?verifier=2GQEEppQyBPCisSJOYH2PV2zAk9HUn875TB5arke",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/50601653d23d3eed0473.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71625/files/185962/download?verifier=rlvMNp9ENtvDamd83nkpD0WYETuYya6kMM7unpy3",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/99bdc27378ce48341c2d.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g55f7c793227fba6f5f19ac9c1d7319d5",
+      "stem": "Given the figure above, if X = 24°, h = 1 m, and w = 2 m, what is the length of line to the nearest tenth of a metre?",
+      "stem_html": "<div>\n<span></span><br><br>Given the figure above, if <em>X</em> = 24<span>°</span>, <em>h</em> = 1 m, and <em>w</em> = 2 m, what is the length of line  to the nearest tenth of a metre?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "4.7 m",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "2.5 m",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "4.9 m",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "7.4 m",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/73c506d19f31ce02be20.jpg",
+        "cartridge/5b6856b51b6098a9e641.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/73c506d19f31ce02be20.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/5b6856b51b6098a9e641.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71631/files/185976/download?verifier=oc4lcXUAarwSC2m1EK6ughefhLbrJeYjreO5Gb8r",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/73c506d19f31ce02be20.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71631/files/185978/download?verifier=4ep7zBYRPESO5fVnoGgy62yG7oDEV4YnhUnNKiPz",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5b6856b51b6098a9e641.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbd3968eff8557e7aede7afe3595bce5a",
+      "stem": "Using the triangle above and the given values for a and c, determine which would have the largest angle A.",
+      "stem_html": "<div>\n<br><br>Using the triangle above and the given values for <em>a</em> and <em>c</em>, determine which would have the largest angle <em>A</em>.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<i>a</i> = 16, <i>c</i> = 16",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<i>a</i> = 56, <i>c</i> = 73",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<i>a</i> = 2, <i>c</i> = 1",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<i>a</i> = 47, <i>c</i> = 24",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/69be2792a791144f00a0.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/69be2792a791144f00a0.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71543/files/185820/download?verifier=5s4gvffQHlY2UM9QItdKpkgbexnCbnd3oeHQVXYZ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/69be2792a791144f00a0.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gcd181ae54d161268c174a432d1ccab9b",
+      "stem": "Using the figure above and the given values for C and a, determine which would have the largest side c.",
+      "stem_html": "<div>\n<br><br>Using the figure above and the given values for <em>C</em> and <em>a</em>, determine which would have the largest side <em>c</em>.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<em>C</em> = 43<span>°</span>, <em>a</em> = 24 cm",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<em>C</em> = 52<span>°</span>, <em>a</em> = 23 cm",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<em>C</em> = 49<span>°</span>, <em>a</em> = 25 cm",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<em>C</em> = 46<span>°</span>, <em>a</em> = 26 cm",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/ee94a661d95bcd163130.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/ee94a661d95bcd163130.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71545/files/185822/download?verifier=qBmjIPe58CzbvhvRDRAS55XaPJI1Fibh4IFdX6hY",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ee94a661d95bcd163130.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g6e5beeea168cbc8fcb1146c3a13ff162",
+      "stem": "The Son of Beast roller coaster at Kings Island in Cincinnati, Ohio is the tallest wooden roller coaster in the world. The highest point of the coaster is 66 m high. What is the angle of elevation, to the nearest degree, to the top of the coaster from a point on the ground 72 m away.",
+      "stem_html": "<div>The Son of Beast roller coaster at Kings Island in Cincinnati, Ohio is the tallest wooden roller coaster in the world.  The highest point of the coaster is 66 m high.  What is the angle of elevation, to the nearest degree, to the top of the coaster from a point on the ground 72 m away.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 5 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "43<span>°</span>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "66<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "48<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "24<span>°</span>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    }
+  ],
+  "dropped": []
+}

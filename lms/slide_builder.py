@@ -508,13 +508,17 @@ def _candidate_from_row(
     title = str(row.get("title") or row.get("code") or "Question").strip() or "Question"
     item_type = str(row.get("item_type") or row.get("kind") or source)
     cluster_blob = blob or f"{title} {stem} {item_type}"
-    return {
+    candidate = {
         "title": title,
         "stem": stem or title,
         "item_type": item_type,
         "bucket": _bucket_for_question(cluster_blob),
         "source": source,
     }
+    figure_files = str(row.get("figure_files") or "").strip()
+    if figure_files:
+        candidate["figure_files"] = figure_files
+    return candidate
 
 
 def _declared_expectation_codes(row: dict[str, Any]) -> set[str]:
@@ -571,6 +575,39 @@ def _local_bank_sort_key(row: dict[str, Any]) -> tuple[int, int]:
     return (3, 0)
 
 
+def _read_shipped_m567_bank(
+    course_code: str, module_number: int, strand: str
+) -> Any | None:
+    """Read the image-shipped MCF3M module 5–7 bank when the cache has none.
+
+    ``.local-data/`` is not in the production image. The cartridge banks
+    live beside their figures under ``lms/seeds/``.
+
+    Args:
+        course_code: Ontario course code.
+        module_number: One-based module index.
+        strand: Strand letter requested by the slide.
+
+    Returns:
+        The bank document, or ``None`` when this module is not shipped
+        or the strand does not match.
+    """
+    code = re.sub(r"[^A-Z0-9]", "", (course_code or "").upper())
+    if code != "MCF3M" or int(module_number) not in (5, 6, 7):
+        return None
+    try:
+        from curriculum_bank_images import MCF3M_M567_BANK_DIR
+    except ImportError:
+        from lms.curriculum_bank_images import MCF3M_M567_BANK_DIR
+    document = _read_json_file(MCF3M_M567_BANK_DIR / f"M{int(module_number)}.json")
+    if not isinstance(document, dict):
+        return None
+    file_strand = str(document.get("strand") or "").strip().upper()[:1]
+    if file_strand and file_strand != strand:
+        return None
+    return document
+
+
 def load_local_bank_items(
     course_code: str,
     module_number: int,
@@ -607,6 +644,8 @@ def load_local_bank_items(
         / "items.json"
     )
     payload = _read_json_file(path)
+    if payload is None and cache_root is None:
+        payload = _read_shipped_m567_bank(course_code, module_number, letter)
     if payload is None:
         return []
     if isinstance(payload, list):
@@ -625,9 +664,73 @@ def load_local_bank_items(
         item_codes = _declared_expectation_codes(row)
         if codes and item_codes and not (item_codes & codes):
             continue
-        kept.append(row)
+        kept.append(_with_local_figure_files(
+            row,
+            course_code,
+            int(module_number),
+            cache_root=cache_root,
+        ))
     kept.sort(key=_local_bank_sort_key)
     return [_candidate_from_row(row, source="local_bank") for row in kept]
+
+
+def _with_local_figure_files(
+    row: dict[str, Any],
+    course_code: str,
+    module_number: int,
+    *,
+    cache_root: Path | None,
+) -> dict[str, Any]:
+    """Copy resolved figure files onto one local bank row.
+
+    Only MCF3M modules 5–7 receive the field, and only when the file
+    exists. Other rows are returned unchanged.
+
+    Args:
+        row: Bank item from ``items.json``.
+        course_code: Ontario course code.
+        module_number: One-based module index.
+        cache_root: Optional curriculum root.
+    """
+    try:
+        from curriculum_bank_images import figure_payload_for_item
+    except ImportError:
+        from lms.curriculum_bank_images import figure_payload_for_item
+
+    fields = figure_payload_for_item(
+        course_code,
+        module_number,
+        row,
+        cache_root=cache_root,
+    )
+    figure_files = str(fields.get("figure_files") or "").strip()
+    if not figure_files:
+        return row
+    merged = dict(row)
+    merged["figure_files"] = figure_files
+    return merged
+
+
+def question_card_figure_html(row: dict[str, Any]) -> str:
+    """Return ``<img>`` tags for local figure files on one slide question.
+
+    Args:
+        row: Consolidation candidate. ``figure_files`` is a newline-separated
+            list of absolute image paths.
+    """
+    tags: list[str] = []
+    for line in str(row.get("figure_files") or "").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        path = Path(raw)
+        if not path.is_file():
+            continue
+        tags.append(
+            "<img class='question-figure' alt='' "
+            f"src='{html_escape(path.resolve().as_uri(), quote=True)}'>"
+        )
+    return "".join(tags)
 
 
 def load_official_example_stems(
@@ -754,16 +857,21 @@ def collect_consolidation_items(
     """
     codes = {str(c).strip().upper() for c in (expectation_codes or []) if str(c).strip()}
     out: list[dict[str, str]] = []
-    seen_stems: set[str] = set()
+    seen_rows: dict[str, dict[str, str]] = {}
 
     def _append(rows: list[dict[str, str]]) -> None:
         for row in rows:
             key = " ".join(
                 str(row.get("stem") or "").split()
             ).lower()
-            if not key or key in seen_stems:
+            if not key:
                 continue
-            seen_stems.add(key)
+            if key in seen_rows:
+                kept = seen_rows[key]
+                if row.get("figure_files") and not kept.get("figure_files"):
+                    kept["figure_files"] = row["figure_files"]
+                continue
+            seen_rows[key] = row
             out.append(row)
 
     if library_id:
@@ -984,6 +1092,7 @@ def render_question_pngs(questions: list[dict[str, str]]) -> list[Path]:
         png_path = tmp / f"q{index}.png"
         title = html_escape(str(row.get("title") or f"Question {index}"))
         stem = html_escape(str(row.get("stem") or ""))
+        figures = question_card_figure_html(row)
         html_path.write_text(
             (
                 "<!DOCTYPE html><html><head><meta charset='utf-8'>"
@@ -993,9 +1102,12 @@ def render_question_pngs(questions: list[dict[str, str]]) -> list[Path]:
                 "p.kicker{letter-spacing:.08em;text-transform:uppercase;"
                 "font-size:14px;color:#5eead4;margin:0 0 12px}"
                 "h1{font-size:28px;margin:0 0 18px;line-height:1.2}"
-                "p.stem{font-size:22px;line-height:1.45;margin:0}</style></head>"
+                "p.stem{font-size:22px;line-height:1.45;margin:0}"
+                "img.question-figure{display:block;max-width:100%;height:auto;"
+                "margin-top:16px;background:#fff}</style></head>"
                 f"<body><section><p class='kicker'>Consolidation {index}</p>"
-                f"<h1>{title}</h1><p class='stem'>{stem}</p></section></body></html>"
+                f"<h1>{title}</h1><p class='stem'>{stem}</p>{figures}"
+                "</section></body></html>"
             ),
             encoding="utf-8",
         )
@@ -1254,7 +1366,8 @@ def render_lesson_mock_html(
         if index == 6 and questions:
             extra = "<ol>" + "".join(
                 f"<li><strong>{html_escape(q.get('title') or '')}</strong> "
-                f"{html_escape(q.get('stem') or '')}</li>"
+                f"{html_escape(q.get('stem') or '')}"
+                f"{question_card_figure_html(q)}</li>"
                 for q in questions
             ) + "</ol>"
         notes_html = f"<p class='notes'>Notes: {notes}</p>" if notes else ""

@@ -1,0 +1,3371 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 7,
+  "strand": "B",
+  "source": "canvas_cartridge",
+  "cartridge_commit": "f8ebc79d900a424d80ad67075e7de8c2772dd16e",
+  "items": [
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gf6a9302a43787da6799316926fe13354",
+      "stem": "Which of the following is equivalent to ?",
+      "stem_html": "<div>Which of the following is equivalent to ?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b258a721841581f9ff3a.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f33bccd3ff0d330ac096.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/531aa3b3a01a8972074a.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b583f5a712dc8fb54084.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/923f4cc69818c625af29.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/923f4cc69818c625af29.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187516/download?verifier=YfJYOsQ818pHc6q0oyjfmoyPOF09CNrMO3TUBdWm",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/923f4cc69818c625af29.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187508/download?verifier=yxgIOYfpVKidvvHhGuu4hNUzpGDJc6KgshFeACD5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b258a721841581f9ff3a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187510/download?verifier=C9PgcIv0ZcKIUipigcYzdnhAKMQl31CBZ5VRWgT9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f33bccd3ff0d330ac096.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187512/download?verifier=v2SiKZYya7MW7PMCSqL2O2XN8AyJkv1wAiREvdxK",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/531aa3b3a01a8972074a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72135/files/187514/download?verifier=EZgAxkFkiPoMw0PgvDfR0e7TxB77u4YfhliY7NVn",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b583f5a712dc8fb54084.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g41a0390dea09ac6496e41e3a0f57b9d0",
+      "stem": "Evaluate .",
+      "stem_html": "<div>Evaluate .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/18ae69e5e8f26e0fda66.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/c4a05d36a25bb3812fcd.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/357678099eba71c3af24.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3c528792aea4268502e3.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/87583657fb22bc994975.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/87583657fb22bc994975.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187616/download?verifier=vImUJZREHOIF0hLrB0lqUPXnx7b8h2jXF8sjQ0Rj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/87583657fb22bc994975.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187608/download?verifier=0XnqlIfvY9cvSU5b7D4GPZ3T19J4CGUVSraZFGEj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/18ae69e5e8f26e0fda66.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187610/download?verifier=5dSia08cgg0PzneHSfKcAKiVrp41F3NJEYLYByhQ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c4a05d36a25bb3812fcd.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187612/download?verifier=Xlj2Q55a4WcbPUQfY4I6IKN0OAcK9rbsxClIoXIw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/357678099eba71c3af24.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72157/files/187614/download?verifier=nNnA0MK1LMOQPAfm1XMvCEH80yupeVZRdX6uCXdH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3c528792aea4268502e3.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g6d4082290181a5d066012ed7c10bc33a",
+      "stem": "Steps 1 - 4 below show how Amir simplified the following expression: $\\frac{8^{-2}\\left(8^4\\right)}{\\left(8^9\\right)^3}$. Which step is incorrect?",
+      "stem_html": "<div>Steps 1 - 4 below show how Amir simplified the following expression: <span class=\"math-latex\" data-latex=\"\\frac{8^{-2}\\left(8^4\\right)}{\\left(8^9\\right)^3}\">\\frac{8^{-2}\\left(8^4\\right)}{\\left(8^9\\right)^3}</span>. Which step is incorrect?<br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "1",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "3",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "4",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/0250a88ce1c9fe1bd9f7.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/0250a88ce1c9fe1bd9f7.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "%255Cfrac%257B8%255E%257B-2%257D%255Cleft%25288%255E4%255Cright%2529%257D%257B%255Cleft%25288%255E9%255Cright%2529%255E3%257D",
+          "kind": "latex"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72159/files/187620/download?verifier=bi57nIuPmpbTV24fkCQefff1QaQp6s0jncPWIlit",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0250a88ce1c9fe1bd9f7.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g455852455164983165f7f81c0118dd23",
+      "stem": "Which of the following expressions can be used to show that a number with a zero exponent is equal to 1?",
+      "stem_html": "<div>Which of the following expressions can be used to show that a number with a zero exponent is equal to 1?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/a25afd9bc1545b30ac16.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f7ccaa43a681a6683698.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/4ef393dedb52b6acd42f.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/155fbeee79af576a9d7b.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187622/download?verifier=MYiUGpCba3VpV2hlXaDGp3yTMU2UzcMJYrqaF0NK",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a25afd9bc1545b30ac16.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187624/download?verifier=gBx0ZyvAEqBrWdJuRlCyU4beiDIh6aEt9LcYII45",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f7ccaa43a681a6683698.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187626/download?verifier=vbzJSatwUMEh1VDhDupe4YQRmNqj5Z1KJdVHEJJr",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4ef393dedb52b6acd42f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72161/files/187628/download?verifier=eP3Lk3PWZYsc6ofUTkBree3kIECaNw3vzrCbqq2f",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/155fbeee79af576a9d7b.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g76aa081c895041f40130899c44d52b9d",
+      "stem": "Simplify so that the expression is a single power with a positive exponent: .",
+      "stem_html": "<div>Simplify so that the expression is a single power with a positive exponent: .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3dec7dfcb2094c26e38c.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/d36d583105922f1d1f9f.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/4fb7bb10a107cd89fd49.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b173332b0f2ddfe7f198.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/2260339b873becf7f9b1.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/2260339b873becf7f9b1.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187648/download?verifier=xq3abfqIVOAH9OFuMCQwAyOFUGJJz6APxpMnmrVw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2260339b873becf7f9b1.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187640/download?verifier=akafXydlimO8t727eBRdOCpDg1mQXq9PfrI5guZ8",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3dec7dfcb2094c26e38c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187642/download?verifier=yq55defEGyaliLGVMYplzbKhsn67qoZhrp5U9x0L",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d36d583105922f1d1f9f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187644/download?verifier=gPcjRCMKJMhrUosJH0QOB3B2MWDR6Z8RYI0F2qrW",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4fb7bb10a107cd89fd49.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72165/files/187646/download?verifier=hbCI1g0xagELn8jLQrFHUBJAbXlSlYCvRVJ5WDwO",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b173332b0f2ddfe7f198.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbb5ff752a04da652c83a01bcbdfae7a3",
+      "stem": "Determine the value of h that makes the following a true statement: .",
+      "stem_html": "<div>Determine the value of <i>h</i> that makes the following a true statement: .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<span>-</span>5",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2efeaa378109bba19467.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/a0c3db37c8fe2f1f10d9.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<span>-</span>4",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/07cd3c0e717d4fad0b2a.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/07cd3c0e717d4fad0b2a.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72167/files/187654/download?verifier=55oP0qdf8RZhavPeo9g9Qq1Yo499On0nWkygqcfA",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/07cd3c0e717d4fad0b2a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72167/files/187650/download?verifier=t4w9vpqp7dQEmJ5cVO9zsjvHFVpf1QtT5j6G30pw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2efeaa378109bba19467.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72167/files/187652/download?verifier=NNCSxoToPCIq5ckdYkKSlPhyR3FSh33Cp9ymcFwS",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a0c3db37c8fe2f1f10d9.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g3493844b296f740fbed65307fd2ebbaf",
+      "stem": "A yeast culture grows by tripling its number of cells every hour. If there were 1000 cells at 8:00 a.m., how many were there at 1:00 p.m.?",
+      "stem_html": "<div>A yeast culture grows by tripling its number of cells every hour. If there were 1000 cells at 8:00 a.m., how many were there at 1:00 p.m.?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "15 000",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "81 000",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "12 000",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "243 000",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gf405afcf012de907b23dc25c67528c11",
+      "stem": "Simplify, then evaluate: .",
+      "stem_html": "<div>Simplify, then evaluate: .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/dce507cc2088f433b711.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f356a7c23b1e2dfdb8bc.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/289b42e46ee2d5ee08bc.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/1441462702daa2e9b25c.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/f53ef6db40403ff05047.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/f53ef6db40403ff05047.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187672/download?verifier=oca2kxq9iVpB016V5m9LcJB9wYsSlju4rfyUmwNa",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f53ef6db40403ff05047.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187664/download?verifier=v54U0vfIdVoAYo6x8DbLeLtSmVocBD8GJilvvjUG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/dce507cc2088f433b711.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187666/download?verifier=ntzYpKCpBKwFVdYwCD2d0uRycduLUpvp7BakPKoA",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f356a7c23b1e2dfdb8bc.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187668/download?verifier=PE2ECrJJWpXX7tVqRs5g5V2O8sZj8CWwLVN5UqHw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/289b42e46ee2d5ee08bc.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72173/files/187670/download?verifier=fvcltE2Y28jieSspRxpLagkpYndv1OAIJK7iM2do",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1441462702daa2e9b25c.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g803823361013f26152c3a35c89c60001",
+      "stem": "Write in radical form.",
+      "stem_html": "<div>Write  in radical form.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ec1abd7b74127f0a584c.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/20cb2004c45bedce1755.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/75d067044a8650022fdb.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/697f5f0905bb66ef9130.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/117298d39c164aaf979d.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/117298d39c164aaf979d.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187682/download?verifier=j6alS8kFmwdYHGmDkEddtwnfcpjZSUOVNwjYqlA1",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/117298d39c164aaf979d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187674/download?verifier=385n7ZhW8tE4EIxIWQuT88yjKiTFDheT8QshB55E",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ec1abd7b74127f0a584c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187676/download?verifier=c6LqiidDJSAaxwnCwlf5e18dlGskxhBKJzyoW3yt",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/20cb2004c45bedce1755.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187678/download?verifier=rCdXGrBScDaaDZVZ7FLUrMGYTZCkoahTkSJQyuZc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/75d067044a8650022fdb.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72175/files/187680/download?verifier=0oRv4w7HUttanCTrP6ltNQaS61JmvfwbW43MI8mE",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/697f5f0905bb66ef9130.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g19155488a78d61cb5ae5f2754d168cae",
+      "stem": "Write in exponential form.",
+      "stem_html": "<div>Write  in exponential form.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/055085b6d3ba5faeacdf.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/6ac8a35d8061ee8a72d7.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2f4e575f83c3e0c0a5d6.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/20de61f8402dda2ed45c.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/5a22e2b360f81a69aa0e.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/5a22e2b360f81a69aa0e.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187692/download?verifier=HRaiRxLwqOzcAottG32nXjQ67LCOBWTJ5tWmoyyM",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5a22e2b360f81a69aa0e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187684/download?verifier=IQRmX8rac6tiUDsH659qf3NnGSKD22WqX6AEmfn4",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/055085b6d3ba5faeacdf.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187686/download?verifier=PeW0FFh1W9luV7xDrxUlKznrvcg8P4z0p6h2uHAX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6ac8a35d8061ee8a72d7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187688/download?verifier=w7PhUcKRS8ui62BLOIXjhJ8sPr4bbR0XsRRYAHJG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2f4e575f83c3e0c0a5d6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72177/files/187690/download?verifier=FZ7qla2wip5vUHFwK7NlVLgwViOm5iNmUA8cf8gc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/20de61f8402dda2ed45c.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g389ac0cca77b981014e32bbe39af1f37",
+      "stem": "Steps 1 - 4 below show how Andrew simplified the following expression: . Which step is incorrect?",
+      "stem_html": "<div>Steps 1 - 4 below show how Andrew simplified the following expression: <span></span>. Which step is incorrect?<br><br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "1",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "3",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "4",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/6d45c484b383789d61d3.jpg",
+        "cartridge/afeb8bb4bab6d8a08747.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/6d45c484b383789d61d3.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/afeb8bb4bab6d8a08747.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72181/files/187696/download?verifier=uR1d0TQa8j2rGYUZ6uldwtzqSfsZ66Pocj0Mnj9A",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/6d45c484b383789d61d3.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72181/files/187698/download?verifier=Eg8ap1SQc7Sc0iIKSPblEtl8BErtDXoaaTMQRnzT",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/afeb8bb4bab6d8a08747.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8c8e620f8bd7d739af3a7ada1c235a6c",
+      "stem": "Simplify and express with positive exponents: .",
+      "stem_html": "<div>Simplify and express with positive exponents: .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/09a3e889605d675fcb48.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<i><img src=\"/curriculum-bank-images/MCF3M/cartridge/015d7a85313452c0cac2.jpg\" alt=\"\"></i>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9f481ca30e7188061746.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/c9d7a562ba1127ac40cb.jpg\" alt=\"\">",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/31ecd0bfafe51e1c4695.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/31ecd0bfafe51e1c4695.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187708/download?verifier=ee6xZVCq4yOBIJyeVB50ZpI6Ii00K7fCFSKAPh5f",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/31ecd0bfafe51e1c4695.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187700/download?verifier=ZOtVEPHjzU7IfvtkZL5typ7wJUEHAoHL1XhYnV6p",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/09a3e889605d675fcb48.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187702/download?verifier=48rns5Enmzwl689GpWSPNDcMQBUR03KJ3B4GfNAC",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/015d7a85313452c0cac2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187704/download?verifier=92H4ZVmn3ZZzJa6tLa4FNSAc0d5EPOK80SY474g5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9f481ca30e7188061746.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72183/files/187706/download?verifier=BZTT7C0CEWKw4fvxEeo8yp7xy8wSnh3tZgncNsZe",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c9d7a562ba1127ac40cb.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g3581497c8b8f747075e9ef2cd537fb20",
+      "stem": "The population of Johnstown has been cut in half each year in recent years due to people moving toward the bigger city to find jobs. The following table expresses the population, in thousands, from 2003 to 2006. Year x Population (in thousands) 2003 0 1, or 2004 1 , or 2005 2 , or 2006 3 , or Assuming that the pattern of decline continued at the same rate, what was the approximate population in 2007?",
+      "stem_html": "<div>\n<p>The population of Johnstown has been cut in half each year in recent years due to people moving toward the bigger city to find jobs. The following table expresses the population, in thousands, from 2003 to 2006. <br></p>\n<div></div>\n<table width=\"78%\">\n<tbody><tr>\n<td class=\"pad\"><div>Year</div></td>\n<td class=\"pad\"><div><i>x</i></div></td>\n<td class=\"pad\"><div>Population (in thousands)</div></td>\n</tr>\n<tr>\n<td class=\"pad\"><div>2003</div></td>\n<td class=\"pad\"><div>0</div></td>\n<td class=\"pad\"><div>1, or \n</div></td>\n</tr>\n<tr>\n<td class=\"pad\"><div>2004</div></td>\n<td class=\"pad\"><div>1</div></td>\n<td class=\"pad\"><div>\n, or \n</div></td>\n</tr>\n<tr>\n<td class=\"pad\"><div>2005</div></td>\n<td class=\"pad\"><div>2</div></td>\n<td class=\"pad\"><div>\n, or \n</div></td>\n</tr>\n<tr>\n<td class=\"pad\"><div>2006</div></td>\n<td class=\"pad\"><div>3</div></td>\n<td class=\"pad\"><div>\n, or \n</div></td>\n</tr>\n<tr>\n<td width=\"25%\"></td>\n<td width=\"14%\"></td>\n<td width=\"61%\"></td>\n</tr>\n</tbody></table>\n<br>Assuming that the pattern of decline continued at the same rate, what was the approximate population in 2007?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "16",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "63",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "125",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "82",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/4298e8e92763859b676f.jpg",
+        "cartridge/98d3b1a3088de7ae31bf.jpg",
+        "cartridge/16a6816e152907b614b3.jpg",
+        "cartridge/2a099a86720a586f45c0.jpg",
+        "cartridge/d7a2163fb3d0e7aea590.jpg",
+        "cartridge/cb087ab56afecea86ccc.jpg",
+        "cartridge/14f4f08e3843b948dce1.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4298e8e92763859b676f.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/98d3b1a3088de7ae31bf.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/16a6816e152907b614b3.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/2a099a86720a586f45c0.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/d7a2163fb3d0e7aea590.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/cb087ab56afecea86ccc.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/14f4f08e3843b948dce1.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187712/download?verifier=QM7SzAqRNgpnSSLMSHcAVdvQ1RKCB08tFPARYDdj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4298e8e92763859b676f.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187714/download?verifier=2BXVOpwQHXoh4jC2ZrAvvX2Yr8naPpgNIy6kVDlH",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/98d3b1a3088de7ae31bf.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187716/download?verifier=Jfc7yyXUhk1JacrtRwBu3BSUar8TJQPj4iXUw83J",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/16a6816e152907b614b3.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187718/download?verifier=gCjQfJXfXtur0kmJ0HcyL5MVFYwwB7Nedvbr078o",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2a099a86720a586f45c0.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187720/download?verifier=dh4D16rxL8VZ7k7Op3pk2kghmlM2ySF2s0WtBHys",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d7a2163fb3d0e7aea590.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187722/download?verifier=iCNE8gVLtGufKub3Z1ZxFNP4YnNWPXxWHxanBnsJ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/cb087ab56afecea86ccc.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72187/files/187724/download?verifier=fqf9SPwm60CuI9shIu8QDu4VEaasCpYu3pcS245o",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/14f4f08e3843b948dce1.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbac17214de425c904afe99cf11a70a41",
+      "stem": "Evaluate and express as a fraction or an integer: .",
+      "stem_html": "<div>Evaluate and express as a fraction or an integer: .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/445ca49fa6fef6df9dfd.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<span>-</span>5",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "25",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/0ff8b2a27b66a385cf94.jpg\" alt=\"\">",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/31113014d31630180379.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/31113014d31630180379.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72189/files/187730/download?verifier=Ibnp7XFRsRRqJrLx8AcvEK5AFlbFvDdbrRsR1bZG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/31113014d31630180379.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72189/files/187726/download?verifier=j3XxccOXIoaotJKvW6l7Qtgsdweif90H7JbsfYaA",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/445ca49fa6fef6df9dfd.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72189/files/187728/download?verifier=AQXQyNAPh5QKLEwk0Kb8IUJ82bRz2dBWj1KxSgMI",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ff8b2a27b66a385cf94.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gd28dd519ea50fc969a469bf909087404",
+      "stem": "A cell reproduces by dividing to form two offspring cells. During each subsequent generation, each of the offspring cells divides into two cells. Which of the following represents the number of cells present after 5 generations of cell division?",
+      "stem_html": "<div>A cell reproduces by dividing to form two offspring cells. During each subsequent generation, each of the offspring cells divides into two cells. Which of the following represents the number of cells present after 5 generations of cell division?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2815cb1440d612b3c81b.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3fe04667ce88119d2dff.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/91e45248d6258202cf86.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/7d508378a7af18933862.jpg\" alt=\"\">",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187528/download?verifier=dbSNzGo5uJaW88MGsxvoeq1UkQeI2MX8EpwTlND9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2815cb1440d612b3c81b.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187530/download?verifier=Z1uDNE0gAGkmtaMKrLyNVx6ojygenx9A0dSdkUnV",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3fe04667ce88119d2dff.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187532/download?verifier=T2soqwShpBx7CAwSAEbyI79u7niv48dVuedFhjAR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/91e45248d6258202cf86.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72139/files/187534/download?verifier=hghx5IDFbdvmJpvsqcFKltomXPKVQIVLceuoC1uP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/7d508378a7af18933862.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g0eb1273a256c4ed961833e2ebd50af51",
+      "stem": "Simplify .",
+      "stem_html": "<div>Simplify .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<span>-</span>1",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3ea3ffe3c91444989293.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "0",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/38665b1918700482faba.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/e0104e4e15c242de1617.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/e0104e4e15c242de1617.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72193/files/187738/download?verifier=kkEz9wySyz7TD1fuZO17PYig38TfOQIVkdb5zgCK",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e0104e4e15c242de1617.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72193/files/187734/download?verifier=9dFTWm5DUHKWWGzGh98DJELKhOZEGXWNNSvV9DLg",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3ea3ffe3c91444989293.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72193/files/187736/download?verifier=vlsBXuZjNTPfTNitkRbEo4ENyuWw2ckjcdBmJ9QP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/38665b1918700482faba.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g5a5493def9882da40b322c7674d44d5c",
+      "stem": "Left untreated, algae in a reservoir reproduce at the rate of 5% per week. Currently, the algae cover one eighth of the reservoir. An algebraic model of this situation is , where is the percent covered after w weeks. What does 0.125 represent in this situation?",
+      "stem_html": "<div>Left untreated, algae in a reservoir reproduce at the rate of 5% per week. Currently, the algae cover one eighth of the reservoir. An algebraic model of this situation is , where  is the percent covered after <i>w</i> weeks. What does 0.125 represent in this situation?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the depth of the algae in the water",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the fraction of the algae that reproduce each week",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "the rate of algae reproduction per week",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "the initial percentage of the reservoir that is covered by algae",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/1b1e8bca8f03556cdf2a.jpg",
+        "cartridge/fec3ca35c54f129f9c4c.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/1b1e8bca8f03556cdf2a.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/fec3ca35c54f129f9c4c.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72195/files/187740/download?verifier=drXYTL9KiPuPN1IKKRsp3O9XTNY6TPKrmU4PA6eB",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1b1e8bca8f03556cdf2a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72195/files/187742/download?verifier=YT3yj4YxYgysaD6RE95OSmu1jKNYFLwW2ph5PSnj",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/fec3ca35c54f129f9c4c.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gecf6b327ecf830723eb7d757913b278c",
+      "stem": "Left untreated, algae in a lake reproduce at the rate of 4.5% per week. Currently, the algae cover one tenth of the reservoir. An algebraic model of this situation is , where is the percent covered after w weeks. If the algae continues to go untreated, what percentage of the reservoir will be covered in algae 15 weeks from now? Round your answer to the nearest percent.",
+      "stem_html": "<div>Left untreated, algae in a lake reproduce at the rate of 4.5% per week. Currently, the algae cover one tenth of the reservoir. An algebraic model of this situation is , where  is the percent covered after <i>w</i> weeks. If the algae continues to go untreated, what percentage of the reservoir will be covered in algae 15 weeks from now? Round your answer to the nearest percent.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "19",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "26",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "12",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/a2c8045b7333a44b3e69.jpg",
+        "cartridge/4999dafa88cd458c417b.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/a2c8045b7333a44b3e69.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/4999dafa88cd458c417b.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72197/files/187744/download?verifier=6xqbYYz04fRfOZ9nWIhnD2wOKcIOIahbpONL0DtG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a2c8045b7333a44b3e69.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72197/files/187746/download?verifier=zUc7eCFf6u0WrzcHLqAy0oYWvARsR6RQBVNnEeYf",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4999dafa88cd458c417b.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gfddcf42680b9b4fc662142ce4e82ec12",
+      "stem": "There are 5000 yeast cells in a culture. The number of cells grows at a rate of 20% per day. The function that models the growth of the yeast cells is , where N is the number of yeast cells d days after the culture is started, is the initial population, and r is the growth rate. Which of the following is a correct model for the yeast cell population?",
+      "stem_html": "<div>There are 5000 yeast cells in a culture. The number of cells grows at a rate of 20% per day. The function that models the growth of the yeast cells is , where <i>N</i> is the number of yeast cells <i>d</i> days after the culture is started, is the initial population, and <i>r</i> is the growth rate. Which of the following is a correct model for the yeast cell population?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9265af6259525957ad5e.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ab8db24bdd3cb4a0ebd2.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/b0cbc3e58827cee8f21c.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/0c334ddd58115ee05f15.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/023a7ad730a25591edbe.jpg",
+        "cartridge/b3cf5d47890f05285570.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/023a7ad730a25591edbe.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/b3cf5d47890f05285570.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187756/download?verifier=pe97Om82LO3tVOMb7ojB2vcXRWWYkak6YoBLb3O4",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/023a7ad730a25591edbe.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187758/download?verifier=k16zJ49xg87kYlTvgc0j1lbKMcjkznTeUKuQmrrR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b3cf5d47890f05285570.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187748/download?verifier=1aIsFcGeRqbadMDA105VixWH7nAz4Z2TxGQ8JthX",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9265af6259525957ad5e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187750/download?verifier=BPqk0Sx6JbIfVZzUmZ0Y09d3TYGv81LCC24oQ1Ht",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ab8db24bdd3cb4a0ebd2.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187752/download?verifier=uAbl8b9QC8Zr1OVBhlT0xWT7aRb9okYPhWpSsXbs",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b0cbc3e58827cee8f21c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72199/files/187754/download?verifier=NdQ1PbbAT4wmoOtHP8aXF334n5eRsAnDXBB0r630",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0c334ddd58115ee05f15.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g49da24dc6eefbbea206bdaf093a641f7",
+      "stem": "There are 2000 yeast cells in a culture. The number of cells grows at a rate of 15% per day. The function that models the growth of the yeast cells is , where N is the number of yeast cells d days after the culture is started, is the initial population, and r is the growth rate. How many cells will there be in the culture after two weeks? Round your answer to the nearest whole number.",
+      "stem_html": "<div>There are 2000 yeast cells in a culture. The number of cells grows at a rate of 15% per day. The function that models the growth of the yeast cells is , where <i>N</i> is the number of yeast cells <i>d</i> days after the culture is started, is the initial population, and <i>r</i> is the growth rate. How many cells will there be in the culture after two weeks? Round your answer to the nearest whole number.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "5 290 000",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "21 347",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "2645",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "14 151",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/c481f6a2b3a48dd29345.jpg",
+        "cartridge/bc29a6df1952def96b59.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/c481f6a2b3a48dd29345.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/bc29a6df1952def96b59.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72201/files/187760/download?verifier=MWzqElXjVKIl0YPUQkULBjtN5exA6D8kgjz0O1zp",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c481f6a2b3a48dd29345.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72201/files/187762/download?verifier=qS3SlqBY3ABnPFzmM61Q0XGisClddHWAQ4U2OADr",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/bc29a6df1952def96b59.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g0e972f74a1abb78e35d174a1ea450868",
+      "stem": "Antelope in a new wildlife reserve are facing growing competition for resources because most of their natural predators have been hunted out of the area. The graph below shows the estimated deer population in the reserve for the years after 2000. Scientists estimate that the wildlife reserve can support 1270 deer. In how many years after the year 2000 will the deer population be too large for the reserve?",
+      "stem_html": "<div>Antelope in a new wildlife reserve are facing growing competition for resources because most of their natural predators have been hunted out of the area. The graph below shows the estimated deer population in the reserve for the years after 2000. Scientists estimate that the wildlife reserve can support 1270 deer. In how many years after the year 2000 will the deer population be too large for the reserve?<br><br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "16",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "19",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "21",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "24",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/f8b880d36fcf299129d7.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/f8b880d36fcf299129d7.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72203/files/187764/download?verifier=QCanuwpZQbs3XKWyLhQoloQqwd8w5q92Aim63zDF",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f8b880d36fcf299129d7.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g531d63fe4c78b89efdd1b845cae9b9b6",
+      "stem": "Identify the growth rate in the following algebraic model: .",
+      "stem_html": "<div>Identify the growth rate in the following algebraic model: .</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "106%",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "30%",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "12%",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "6%",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/4d02e1278dfbccbd976a.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4d02e1278dfbccbd976a.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72205/files/187766/download?verifier=ZZjFcrQOpWtEh2PGAlqII1JMjR0Tv0LAD974J3LV",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4d02e1278dfbccbd976a.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g0cd3d801e9ed20a573594371dab819b7",
+      "stem": "The population of an island country is growing at a rate of about 6% each year. The population this year is 214 659. Which of the following is an algebraic model that can be used to predict the population in the future?",
+      "stem_html": "<div>The population of an island country is growing at a rate of about 6% each year. The population this year is 214 659. Which of the following is an algebraic model that can be used to  predict the population in the future?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/fc6c95089607c1642b12.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/ffdab073d2d4a86d591a.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/cbab24f6a26f27a68c7c.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/3e62a63d4609e2ad897e.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187768/download?verifier=vzAdqWuhY2sP1vlEYY29WlXLhPusCmxBAdCLeXMF",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/fc6c95089607c1642b12.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187770/download?verifier=mvyTBA4sxXS4TDLvDtx14wAAoPsu4mPENMgoEsso",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ffdab073d2d4a86d591a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187772/download?verifier=ndScXenFqbTLJj59jN9AQOYCSozN7iNs5llEAJds",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/cbab24f6a26f27a68c7c.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72207/files/187774/download?verifier=UEs0eMFskPVfnBuyDh1gliSXVjvI1FMoYtDwaFO5",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3e62a63d4609e2ad897e.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g0ccca07d80a9ef233ab9ac2cbe4ee82e",
+      "stem": "Johann has an antique printing press that he inherited from his grandfather. The printing press is currently worth $26 600, and it has been appreciating at a rate of 3% each year. Use a graphical model of the problem to predict how many years will it take for the value of the printing press to double.",
+      "stem_html": "<div>Johann has an antique printing press that he inherited from his grandfather. The printing press is currently worth $26 600, and it has been appreciating at a rate of 3% each year. Use a graphical model of the problem to predict how many years will it take for the value of the printing press to double.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "14",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "17",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "20",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "24",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g663c382e2642824503d87c35bed3cbd1",
+      "stem": "Elizabeth invests $1500 in a bond that pays 6.5% per year. How much money will she have if she cashes the bond at the end of the 6th year? Round your answer to the nearest dollar.",
+      "stem_html": "<div>Elizabeth invests $1500 in a bond that pays 6.5% per year. How much money will she have if she cashes the bond at the end of the 6th year? Round your answer to the nearest dollar.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "$2189",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "$30 268",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "$1559",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "18 345",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g3fc6b5075ccc94b4771ab6ec2bb8b120",
+      "stem": "Steps 1 - 4 below show how Andrew simplified the following expression: . Which step is incorrect? 1. 2. 3. 4.",
+      "stem_html": "<div>\n<p>Steps 1 - 4 below show how Andrew simplified the following expression: . Which step is incorrect?<br></p>\n<div></div>\n<table width=\"97%\">\n<tbody><tr>\n<td class=\"pad\">1.</td>\n<td class=\"pad\"></td>\n</tr>\n<tr>\n<td class=\"pad\">2.</td>\n<td class=\"pad\"></td>\n</tr>\n<tr>\n<td class=\"pad\">3.</td>\n<td class=\"pad\"></td>\n</tr>\n<tr>\n<td class=\"pad\">4.</td>\n<td class=\"pad\"></td>\n</tr>\n<tr>\n<td width=\"9%\"></td>\n<td width=\"91%\"></td>\n</tr>\n</tbody></table>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "1",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "3",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "4",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/789ca9be719f898665e4.jpg",
+        "cartridge/4e7c3110c03801f545aa.jpg",
+        "cartridge/4b3429bdf7e288805ce9.jpg",
+        "cartridge/5a51996efd2bbae9f4b6.jpg",
+        "cartridge/71156a89e9f218ca2088.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/789ca9be719f898665e4.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/4e7c3110c03801f545aa.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/4b3429bdf7e288805ce9.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/5a51996efd2bbae9f4b6.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/71156a89e9f218ca2088.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187536/download?verifier=wAiObloacq9gh8BhkrRYMepkC7a1WCvl0ZFIyV5B",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/789ca9be719f898665e4.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187538/download?verifier=jpens1hYxU8xdGVvYDgOHXiPHY7g6OnWVPGGfCn9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4e7c3110c03801f545aa.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187540/download?verifier=TEiOVMbVdd7VYtxjoac3MbavBcZ6YPi3z4PVUFha",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4b3429bdf7e288805ce9.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187542/download?verifier=OXMU8kD2cunwL42R2gMV4RsVtSoJEHJ6K40XChgP",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5a51996efd2bbae9f4b6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72141/files/187544/download?verifier=dk0inCFkhKxhk5bGhIfLNAjCIu4EE5wWulcesHvk",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/71156a89e9f218ca2088.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g17ba4f84e147b6ac30fc4a6a7054dc95",
+      "stem": "In the following exponential growth model, what does the 0.35 represent?",
+      "stem_html": "<div>In the following exponential growth model, what does the 0.35 represent? <i></i>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the growth rate",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the initial amount",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "the time since the initial period",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "the percent that doubles in <i>t</i> time periods",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/a640b454ce95593a278f.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/a640b454ce95593a278f.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72213/files/187776/download?verifier=7wgvZ14Dy4nibvUmTVHS9T1huPOZrzQm43ojBhcD",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a640b454ce95593a278f.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g5c4bc8272937fbab58e9baca44ab7bb4",
+      "stem": "The intensity of light n metres below the surface of water is given by , where is the intensity of light at the surface of the water. Due to cloud cover, the surface at a region of the ocean has an intensity of 92%. What is the intensity of light 28 metres below the surface in that region? Round your answer to the nearest tenth.",
+      "stem_html": "<div>The intensity of light <i>n</i> metres below the surface of water is given by , where  is the intensity of light at the surface of the water. Due to cloud cover, the surface at a region of the ocean has an intensity of 92%. What is the intensity of light 28 metres below the surface in that region? Round your answer to the nearest tenth.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "9.7%",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "52.3%",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "9.5%",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "56.8%",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/4f05253f473c5100ac12.jpg",
+        "cartridge/1e9d134a3fb689e3e534.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/4f05253f473c5100ac12.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/1e9d134a3fb689e3e534.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72215/files/187778/download?verifier=JgDfKSFmMUktLGeWapCUItPOJBzsRYI4cvba4Ny6",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/4f05253f473c5100ac12.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72215/files/187780/download?verifier=RLTuE7qz4jYFxiXaozCg9bDXFAbbgO8g0TcTwn8Y",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1e9d134a3fb689e3e534.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g53291035dbd7c3244cbaedb324aebff6",
+      "stem": "A hospital uses cobalt-60 in its radiotherapy treatments for cancer patients. Cobalt-60 has a half-life of 5.2 years. The hospital has 75 g of cobalt-60. Which of the following is an algebraic model for calculating the amount of cobalt-60 after n periods of 5.2 years?",
+      "stem_html": "<div>A hospital uses cobalt-60 in its radiotherapy treatments for cancer patients. Cobalt-60 has a half-life of 5.2 years. The hospital has 75 g of cobalt-60. Which of the following is an algebraic model for calculating the amount of cobalt-60 after <i>n</i> periods of 5.2 years?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2be76c5fc205907d0d6d.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/672feb8306c66827378d.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/76084dfce16f1c593e2a.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/d62a7e04eb677d6a78bf.jpg\" alt=\"\">",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187782/download?verifier=lzdlAnoG0WsSB27tfigz46Uwxug7e8n8o86gE8Xt",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2be76c5fc205907d0d6d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187784/download?verifier=6KnId83rW4i6XG4r21abOf29EHu01d6U6ksqq5Ph",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/672feb8306c66827378d.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187786/download?verifier=c9DYfaTiqempLHdQx0U0gMPXYCRPsRs8KeEjX2md",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/76084dfce16f1c593e2a.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72217/files/187788/download?verifier=K743Gf8PX9cHLOLqZ9IcBgMjpIZ1kkcV92IBI4ej",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d62a7e04eb677d6a78bf.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g815e2bb34053dcda6377d29889b21902",
+      "stem": "A hospital uses cobalt-60 in its radiotherapy treatments for cancer patients. Cobalt-60 has a half-life of 5.2 years. If the hospital has 75 g of cobalt-60, how many grams will be left after one year?",
+      "stem_html": "<div>A hospital uses cobalt-60 in its radiotherapy treatments for cancer patients. Cobalt-60 has a half-life of 5.2 years. If the hospital has 75 g of cobalt-60, how many grams will be left after one year?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "65.64",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "66.13",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "39.00",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "37.50",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g61af54325e9c7f2eb33f6da52cd76abe",
+      "stem": "What does the number 16 represent in the following algebraic model?",
+      "stem_html": "<div>What does the number 16 represent in the following algebraic model? \n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the initial amount",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the decay rate",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "the number of decay periods",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "the half-life",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/589ddaa39a2c1ecda23c.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/589ddaa39a2c1ecda23c.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72221/files/187790/download?verifier=FPr6oNR0R9rwjYZhf4fHngnwUgDnC58w2IPngLgF",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/589ddaa39a2c1ecda23c.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gecb8b94dee88fb3eecedf39bed8a64b0",
+      "stem": "What does the number 3600 represent in the following decay model?",
+      "stem_html": "<div>What does the number 3600 represent in the following decay model? \n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the number of decay periods",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the initial amount",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "the half-life",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "the decay rate",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/66e91fc9e4a6d2c71993.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/66e91fc9e4a6d2c71993.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72223/files/187792/download?verifier=u0elVhtfBt9D2es15CBsm854lynd07DrtOorIAe4",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/66e91fc9e4a6d2c71993.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8ff75f257e8492b233f36aefdb0620b1",
+      "stem": "A new car costs $26 000. It loses 16% of its value each year after it is purchased. Determine the value of the car after 40 months.",
+      "stem_html": "<div>A new car costs $26 000. It loses 16% of its value each year after it is purchased. Determine the value of the car after 40 months.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "$11 938.38",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "$5781.49",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "$2433.02",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "$14 540.22",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g384a78edfc6e7a6fd594b3a7e188159d",
+      "stem": "Gels used to change the colour of a spotlight each reduce the intensity of the light by 4%. The algebraic model for this situation is . How many gels would reduce the intensity by more than 80%?",
+      "stem_html": "<div>Gels used to change the colour of a spotlight each reduce the intensity of the light by 4%. The algebraic model for this situation is . How many gels would reduce the intensity by more than 80%?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "39",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "40",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "6",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "5",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/eff4f6887c8305172af5.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/eff4f6887c8305172af5.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72227/files/187794/download?verifier=PYt89qRl4uPTI4JlZ30n4PYB0UapTbIVLzM9PR3F",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/eff4f6887c8305172af5.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g625ce1db08e85336be9d85c70cdee82f",
+      "stem": "A lab has 300 g of an unknown radioactive substance. The curve below shows the mass of the substance recorded each minute. Approximate the half-life of the substance.",
+      "stem_html": "<div>A lab has 300 g of an unknown radioactive substance. The curve below shows the mass of the substance recorded each minute. Approximate the half-life of the substance.<br><br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "6 min.",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "5 min.",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "4 min.",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "3 min.",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/dd17bdc4bf1fe27ad3d2.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/dd17bdc4bf1fe27ad3d2.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72229/files/187796/download?verifier=S4kBzOKCkyJU3UlsaMcwRcD33dy7j5exWG0m9YUT",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/dd17bdc4bf1fe27ad3d2.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g5462a4033e252c85423059600bcf2dea",
+      "stem": "A cup of coffee cools according to the equation $T\\left(t\\right)=65\\left(\\frac{1}{2}\\right)^{\\frac{t}{22}}$, where T is the temperature in °C after t minutes. Determine the temperature of the coffee after 30 minutes, to the nearest degree.",
+      "stem_html": "<div>A cup of coffee cools according to the equation <span class=\"math-latex\" data-latex=\"T\\left(t\\right)=65\\left(\\frac{1}{2}\\right)^{\\frac{t}{22}}\">T\\left(t\\right)=65\\left(\\frac{1}{2}\\right)^{\\frac{t}{22}}</span>, where <em>T</em> is the temperature in <span>°</span>C after <em>t</em> minutes. Determine the temperature of the coffee after 30 minutes, to the nearest degree.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "25 <span>°</span>C",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "19 <span>°</span>C",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "18 <span>°</span>C",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "33 <span>°</span>C",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "T%255Cleft%2528t%255Cright%2529%253D65%255Cleft%2528%255Cfrac%257B1%257D%257B2%257D%255Cright%2529%255E%257B%255Cfrac%257Bt%257D%257B22%257D%257D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g3f28b2fc186916499eb6037b955cdafb",
+      "stem": "Which of the choices correctly completes Step 2 to justify the simplification below? 1. 2. 3.",
+      "stem_html": "<div>Which of the choices correctly completes Step 2 to justify the simplification below?<br>1.  <br>2.<br>3.  <br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/1a2921cbc248fd0b55e7.jpg",
+        "cartridge/71cbfb5ccdbd1a987e36.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/1a2921cbc248fd0b55e7.jpg",
+        "/curriculum-bank-images/MCF3M/cartridge/71cbfb5ccdbd1a987e36.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187554/download?verifier=18LPTwLjZesEXc6upbwCiM3XTJ36YDg2X1ET8ujc",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/1a2921cbc248fd0b55e7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187556/download?verifier=6Or6i9Maj84Vy9SPBeEUSwqJVl2jGjiIgvcLFs3u",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/71cbfb5ccdbd1a987e36.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187546/download?verifier=T5t5X5WUCcLAMY7Z5XH8xaDqohujRl4cm5bAQYib",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187548/download?verifier=OHjYgjdHG6rGY6ls4OD1qrax2yehO0AXia2gFxD9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187550/download?verifier=2FOT6kPtowZ6otxKfaMb2t0P1VqNm1BNLXAx3FZJ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187552/download?verifier=ws5mijKNjewdJSEL4Jg6bshbMXRJeCgWJXvRnjsp",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbcf9dd796a4d0ffb6e780a9af8e49e97",
+      "stem": "The general equation that models radioactive decay of a substance is , where t is the time in years, H is the half-life, and A(t) is the radioactivity of the substance today. Scientists found bones at an archaeological dig that they hypothesized to be about 7000 years old and used Carbon-14, which has a half-life of 5730 years, to determine the age of the bones. What percent of the present-day radioactivity would the tools emit if the scientists’ hypothesis were true?",
+      "stem_html": "<div>The general equation that models radioactive decay of a substance is , where <i>t</i> is the time in years, <i>H</i> is the half-life, and <i>A</i>(<i>t</i>) is the radioactivity of the substance today. Scientists found bones at an archaeological dig that they hypothesized to be about 7000 years old and used Carbon-14, which has a half-life of 5730 years, to determine the age of the bones. What percent of the present-day radioactivity would the tools emit if the scientists’ hypothesis were true?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "37.76",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "60.11",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "56.70",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "42.88",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/b2475e9633ee1e85bbd4.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/b2475e9633ee1e85bbd4.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72233/files/187800/download?verifier=gEXp1CMBfI1woFspuBUOJ6YGt4mGwhQpeNrOsixw",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/b2475e9633ee1e85bbd4.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g933ca6ad6c14be3f6a1672502b98c716",
+      "stem": "What is the expression for written as a base 2 power?",
+      "stem_html": "<div>What is the expression for written as a base 2 power?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "bank drawn by Module 7 Test: Module 7 Test MC",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/db2140e4fd7e07959256.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/67c67b96f45a9cdb1f60.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/f2b15eb0f7f3f0a9750e.jpg\" alt=\"\">",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/e87a0fc5fc804a01cc67.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/3a2a96c8b0b5771f6223.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/3a2a96c8b0b5771f6223.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187586/download?verifier=tJqK2oQEMp6A6LhYw3o8gkhF2iAATalycyngWGOR",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/3a2a96c8b0b5771f6223.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187578/download?verifier=hl6NgtAeJ3BNkXgVFwlM5RcPwi1C9PgPfVwKJBHm",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/db2140e4fd7e07959256.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187580/download?verifier=i2DhkCuzWGs0HsO50jxnXpDOBo07WC9ZxPQg5qcG",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/67c67b96f45a9cdb1f60.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187582/download?verifier=GSVgsalZEveeu2QJnpOHZ7MQ2IoR6o5lOZ2Jrlr7",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/f2b15eb0f7f3f0a9750e.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72149/files/187584/download?verifier=N4FdDA2ueZZQ1gzTxE6cOvtCgGRdjleTmwOvzfaM",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/e87a0fc5fc804a01cc67.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "d2a9a86f3ff17c193fc5f877e7738a6d",
+      "stem": "If 7^n is a perfect square, which of the following could NOT be the value of n?",
+      "stem_html": "<p>If<strong> 7<sup>n</sup></strong> is a perfect square, which of the following could NOT be the value of <strong>n</strong>?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>2</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>7</p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p>6</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>10</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "b131e3adc3d2112e8ab18c4fd5899484",
+      "stem": "Which of the following is equivalent to $\\left(\\frac{7^{-3}}{\\left(7^4\\right)^5}\\right)^2$?",
+      "stem_html": "<p>Which of the following is equivalent to <span class=\"math-latex\" data-latex=\"\\left(\\frac{7^{-3}}{\\left(7^4\\right)^5}\\right)^2\">\\left(\\frac{7^{-3}}{\\left(7^4\\right)^5}\\right)^2</span>?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{1}{7^{34}}\">-\\frac{1}{7^{34}}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{1}{7^{34}}\">\\frac{1}{7^{34}}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{1}{7^{46}}\">-\\frac{1}{7^{46}}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{1}{7^{46}}\">\\frac{1}{7^{46}}</span></p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cfrac%7B7%5E%7B-3%7D%7D%7B%5Cleft(7%5E4%5Cright)%5E5%7D%5Cright)%5E2",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B1%7D%7B7%5E%7B34%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B7%5E%7B34%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B1%7D%7B7%5E%7B46%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B7%5E%7B46%7D%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "73995bfc623d83890d4c2aa8ce3aaad7",
+      "stem": "Simplify so that the expression is a single power with a positive exponent: $\\left(\\frac{k^4}{k^{-7}}\\right)^{-3}$",
+      "stem_html": "<p>Simplify so that the expression is a single power with a positive exponent:  <span class=\"math-latex\" data-latex=\"\\left(\\frac{k^4}{k^{-7}}\\right)^{-3}\">\\left(\\frac{k^4}{k^{-7}}\\right)^{-3}</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{1}{k^{33}}\">\\frac{1}{k^{33}}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{1}{k^9}\">\\frac{1}{k^9}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"k^{33}\">k^{33}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"k^9\">k^9</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cfrac%7Bk%5E4%7D%7Bk%5E%7B-7%7D%7D%5Cright)%5E%7B-3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7Bk%5E%7B33%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7Bk%5E9%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "k%5E%7B33%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "k%5E9",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "696ab0edf67f75a5b8ce6e637530c211",
+      "stem": "Determine the value of h that makes the following a true statement: $4^h=\\frac{1}{256}$",
+      "stem_html": "<p>Determine the value of <strong>h</strong> that makes the following a true statement: <span class=\"math-latex\" data-latex=\"4^h=\\frac{1}{256}\">4^h=\\frac{1}{256}</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>-5</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>1/5</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>1/4</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>-4</p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "4%5Eh%3D%5Cfrac%7B1%7D%7B256%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "7965aef908ef64a6563cb8fde98a5ea0",
+      "stem": "Evaluate: $6^{-2}+\\left(3^2\\right)^{-1}$",
+      "stem_html": "<p>Evaluate:  <span class=\"math-latex\" data-latex=\"6^{-2}+\\left(3^2\\right)^{-1}\">6^{-2}+\\left(3^2\\right)^{-1}</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-45\">-45</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{1}{45}\">\\frac{1}{45}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{5}{36}\">\\frac{5}{36}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{1}{12}\">\\frac{1}{12}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "6%5E%7B-2%7D%2B%5Cleft(3%5E2%5Cright)%5E%7B-1%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-45",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B45%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B5%7D%7B36%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B1%7D%7B12%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "c9619bcce7456aa96f6abe39fdf39c87",
+      "stem": "Write $27^{\\frac{1}{3}}$in radical form.",
+      "stem_html": "<p>Write <span class=\"math-latex\" data-latex=\"27^{\\frac{1}{3}}\">27^{\\frac{1}{3}}</span>in radical form.</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sqrt[3]{3}\">\\sqrt[3]{3}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sqrt[\\frac{1}{3}]{3}\">\\sqrt[\\frac{1}{3}]{3}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sqrt[3]{27}\">\\sqrt[3]{27}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\sqrt[\\frac{1}{3}]{27}\">\\sqrt[\\frac{1}{3}]{27}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "27%5E%7B%5Cfrac%7B1%7D%7B3%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B3%5D%7B3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B%5Cfrac%7B1%7D%7B3%7D%5D%7B3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B3%5D%7B27%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Csqrt%5B%5Cfrac%7B1%7D%7B3%7D%5D%7B27%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "a9123226380545b4dc8a4eca3ae60258",
+      "stem": "Write $\\left(\\sqrt{36}\\right)^5$in exponential form.",
+      "stem_html": "<p>Write <span class=\"math-latex\" data-latex=\"\\left(\\sqrt{36}\\right)^5\">\\left(\\sqrt{36}\\right)^5</span>in exponential form.</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"36^{\\frac{5}{2}}\">36^{\\frac{5}{2}}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"36^{\\frac{2}{5}}\">36^{\\frac{2}{5}}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"36^5\">36^5</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"6^{\\frac{5}{2}}\">6^{\\frac{5}{2}}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Csqrt%7B36%7D%5Cright)%5E5",
+          "kind": "latex"
+        },
+        {
+          "src": "36%5E%7B%5Cfrac%7B5%7D%7B2%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "36%5E%7B%5Cfrac%7B2%7D%7B5%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "36%5E5",
+          "kind": "latex"
+        },
+        {
+          "src": "6%5E%7B%5Cfrac%7B5%7D%7B2%7D%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "0edba394b2ee81e02cf905c246aebfba",
+      "stem": "A cup of coffee cools according to the equation $T\\left(t\\right)=65\\left(\\frac{1}{2}\\right)^{\\frac{t}{22}}$, where T is the temperature in ^oC after t minutes. Determine the temperature of the coffee after 30 minutes, to the nearest degree.",
+      "stem_html": "<p>A cup of coffee cools according to the equation <span class=\"math-latex\" data-latex=\"T\\left(t\\right)=65\\left(\\frac{1}{2}\\right)^{\\frac{t}{22}}\">T\\left(t\\right)=65\\left(\\frac{1}{2}\\right)^{\\frac{t}{22}}</span>, where <strong>T</strong> is the temperature in <sup>o</sup>C after <strong>t</strong> minutes. Determine the temperature of the coffee after 30 minutes, to the nearest degree.</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>25 <sup>o</sup>C</p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p>19 <sup>o</sup>C</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>18 <sup>o</sup>C</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>33 <sup>o</sup>C</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "T%5Cleft(t%5Cright)%3D65%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cright)%5E%7B%5Cfrac%7Bt%7D%7B22%7D%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "3d8f1e5f87d4caf965163b5c19f2c976",
+      "stem": "Simplify (b(b^8))^3.",
+      "stem_html": "<p>Simplify (b(b<sup>8</sup>))<sup>3</sup>.</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>b<sup>12</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>b<sup>11</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>b<sup>24</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>b<sup>27</sup></p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "22c95afa70b79bce365ea437e038cf2f",
+      "stem": "Simplify $\\left(\\left(\\frac{3}{2}\\right)^2\\right)^3$",
+      "stem_html": "<p>Simplify <span class=\"math-latex\" data-latex=\"\\left(\\left(\\frac{3}{2}\\right)^2\\right)^3\">\\left(\\left(\\frac{3}{2}\\right)^2\\right)^3</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{243}{32}\">\\frac{243}{32}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{27}{8}\">\\frac{27}{8}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{6561}{264}\">\\frac{6561}{264}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{729}{64}\">\\frac{729}{64}</span></p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cleft(%5Cfrac%7B3%7D%7B2%7D%5Cright)%5E2%5Cright)%5E3",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B243%7D%7B32%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B27%7D%7B8%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B6561%7D%7B264%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B729%7D%7B64%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "8626ddf956747f6233329cc513987698",
+      "stem": "What is the expression for 8^6 written as a base 2 power?",
+      "stem_html": "<p>What is the expression for 8<sup>6</sup> written as a base 2 power?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>2<sup>24</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>2<sup>10</sup></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>2<sup>18</sup></p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p>2<sup>9</sup></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "b420f965c21e1f747feab69c2400e725",
+      "stem": "The general equation that models radioactive decay of a substance is $A\\left(t\\right)=100\\left(\\frac{1}{2}\\right)^{\\frac{t}{H}}$, where t is the time in years, H is the half-life, and A(t) is the radioactivity of the substance today. Scientists found bones at an archaeological dig that they hypothesized to be about 7000 years old and used Carbon-14, which has a half-life of 5730 years, to determine the age of the bones. What percent of the present-day radioactivity would the tools emit if the scientists’ hypothesis were true?",
+      "stem_html": "<p><span>The general equation that models radioactive decay of a substance is </span><span class=\"math-latex\" data-latex=\"A\\left(t\\right)=100\\left(\\frac{1}{2}\\right)^{\\frac{t}{H}}\">A\\left(t\\right)=100\\left(\\frac{1}{2}\\right)^{\\frac{t}{H}}</span><span>, where </span><em>t</em><span> is the time in years, </span><em>H</em><span> is the half-life, and </span><em>A</em><span>(</span><em>t</em><span>) is the radioactivity of the substance today. Scientists found bones at an archaeological dig that they hypothesized to be about 7000 years old and used Carbon-14, which has a half-life of 5730 years, to determine the age of the bones. What percent of the present-day radioactivity would the tools emit if the scientists’ hypothesis were true?</span></p>\n<p> </p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>37.76</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>60.11</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>56.70</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>42.88</p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "A%5Cleft(t%5Cright)%3D100%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cright)%5E%7B%5Cfrac%7Bt%7D%7BH%7D%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "8ad2e7d69f8d695840bd92994d1ec3ed",
+      "stem": "Simplify $\\frac{6^{-2}-6^{-1}}{6^{-2}+6^{-1}}$",
+      "stem_html": "<p>Simplify <span class=\"math-latex\" data-latex=\"\\frac{6^{-2}-6^{-1}}{6^{-2}+6^{-1}}\">\\frac{6^{-2}-6^{-1}}{6^{-2}+6^{-1}}</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-1\">-1</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{5}{7}\">-\\frac{5}{7}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"0\">0</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{4}{3}\">-\\frac{4}{3}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cfrac%7B6%5E%7B-2%7D-6%5E%7B-1%7D%7D%7B6%5E%7B-2%7D%2B6%5E%7B-1%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-1",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B5%7D%7B7%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "0",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B4%7D%7B3%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "20e791f5e5acabe04629048c99a1d10f",
+      "stem": "Which of the following is equivalent to $\\frac{1}{9^{-4}}$?",
+      "stem_html": "<p>Which of the following is equivalent to <span class=\"math-latex\" data-latex=\"\\frac{1}{9^{-4}}\">\\frac{1}{9^{-4}}</span>?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{1}{36}\">-\\frac{1}{36}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"9^4\">9^4</span></p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-9^4\">-9^4</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-36\">-36</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cfrac%7B1%7D%7B9%5E%7B-4%7D%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B1%7D%7B36%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "9%5E4",
+          "kind": "latex"
+        },
+        {
+          "src": "-9%5E4",
+          "kind": "latex"
+        },
+        {
+          "src": "-36",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "859922868ce998dec3bd865abc07c8f1",
+      "stem": "Evaluate $\\left(\\frac{2}{3}\\right)^{-3}$",
+      "stem_html": "<p>Evaluate <span class=\"math-latex\" data-latex=\"\\left(\\frac{2}{3}\\right)^{-3}\">\\left(\\frac{2}{3}\\right)^{-3}</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 2.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{27}{8}\">\\frac{27}{8}</span></p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p><span class=\"math-latex\" data-latex=\"\\frac{8}{27}\">\\frac{8}{27}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{27}{8}\">-\\frac{27}{8}</span></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><span class=\"math-latex\" data-latex=\"-\\frac{8}{27}\">-\\frac{8}{27}</span></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "%5Cleft(%5Cfrac%7B2%7D%7B3%7D%5Cright)%5E%7B-3%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B27%7D%7B8%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "%5Cfrac%7B8%7D%7B27%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B27%7D%7B8%7D",
+          "kind": "latex"
+        },
+        {
+          "src": "-%5Cfrac%7B8%7D%7B27%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "bc5a48fbe27b54e47800aa1d730dcb67",
+      "stem": "What does the number 16 represent in the following algebraic model? $P\\left(n\\right)=420\\left(1-0.046\\right)^{16}$",
+      "stem_html": "<p>What does the number 16 represent in the following algebraic model? <span class=\"math-latex\" data-latex=\"P\\left(n\\right)=420\\left(1-0.046\\right)^{16}\">P\\left(n\\right)=420\\left(1-0.046\\right)^{16}</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>the initial amount</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>the decay rate</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>the number of decay periods</p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p>the half-life</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "P%5Cleft(n%5Cright)%3D420%5Cleft(1-0.046%5Cright)%5E%7B16%7D",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "1a2a77d8e45ba8f494126bd7de277537",
+      "stem": "What does the number 3600 represent in the following decay model? $N\\left(t\\right)=3600\\left(0.6\\right)^t$",
+      "stem_html": "<p>What does the number 3600 represent in the following decay model? <span class=\"math-latex\" data-latex=\"N\\left(t\\right)=3600\\left(0.6\\right)^t\">N\\left(t\\right)=3600\\left(0.6\\right)^t</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>the number of decay periods</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>the initial amount</p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p>the half-life</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>the decay rate</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "N%5Cleft(t%5Cright)%3D3600%5Cleft(0.6%5Cright)%5Et",
+          "kind": "latex"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "f9ab0782ed475430799feccfa5d0a738",
+      "stem": "Which of the choices correctly completes Step 2 to justify the simplification below? Step 1: (7^4)^3 Step 2: Step 3: 7^12",
+      "stem_html": "<p>Which of the choices correctly completes Step 2 to justify the simplification below?</p>\n<p> </p>\n<p>Step 1: (7<sup>4</sup>)<sup>3</sup></p>\n<p> </p>\n<p>Step 2: </p>\n<p> </p>\n<p>Step 3: 7<sup>12</sup></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 7: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg\" alt=\"\"></p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg\" alt=\"\"></p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg\" alt=\"\"></p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p><img src=\"/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg\" alt=\"\"></p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187546/download?verifier=T5t5X5WUCcLAMY7Z5XH8xaDqohujRl4cm5bAQYib",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/d9180b3e9d1642745946.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187548/download?verifier=OHjYgjdHG6rGY6ls4OD1qrax2yehO0AXia2gFxD9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2e68af83c4422a0424e6.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187550/download?verifier=2FOT6kPtowZ6otxKfaMb2t0P1VqNm1BNLXAx3FZJ",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/2671f3cb08bd48d9b5e7.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/72143/files/187552/download?verifier=ws5mijKNjewdJSEL4Jg6bshbMXRJeCgWJXvRnjsp",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/9dc97c61edba2f0890e3.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    }
+  ],
+  "dropped": []
+}

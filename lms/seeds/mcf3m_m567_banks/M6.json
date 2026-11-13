@@ -1,0 +1,2319 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 6,
+  "strand": "C",
+  "source": "canvas_cartridge",
+  "cartridge_commit": "f8ebc79d900a424d80ad67075e7de8c2772dd16e",
+  "items": [
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g35e41d0db25059327097792604806ec4",
+      "stem": "Which of the following could be modelled by a sinusoidal function?",
+      "stem_html": "<div>Which of the following could be modelled by a sinusoidal function?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the height of a bouncing ball as it declines with respect to time",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the height of a point on a bicycle wheel spinning at a constant rate with respect to time",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "the height of a point on a bicycle wheel as it slows to a halt with respect to time",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "the height of a person over a lifetime",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gc4709a06cfe0f4c2fd7156cf41c74cf0",
+      "stem": "What is the equation of the axis?",
+      "stem_html": "<div>What is the equation of the axis?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the horizontal line that intersects the maximum value of a periodic function",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "twice the sum of the maximum and minimum functional values",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "the horizontal line halfway between the maximum and minimum value of a periodic function",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "the y-intercept of a periodic function",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gfcf43d91864b49341797aa8f2d72318a",
+      "stem": "What is the amplitude?",
+      "stem_html": "<div>What is the amplitude?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the distance between the maximum and minimum values of the function",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the length of one cycle",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "the distance between the equation of the axis and either a maximum or minimum value of the function",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "the number of cycles shown",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g4a8958e4413fffac40fc8bea6e011764",
+      "stem": "Consider the graph below: The amplitude is:",
+      "stem_html": "<div><p>Consider the graph below:</p>\n<p><strong></strong></p>\n<p>The amplitude is:</p></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "7",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "14",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "10",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "0",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/58e35d77cc00309569b0.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/58e35d77cc00309569b0.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/mc014-1.jpg",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/58e35d77cc00309569b0.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gb7a1141f24102662f73510cd8a7606f5",
+      "stem": "The graph depicts the height in metres of a bouncing ball with respect to time in seconds (given the friction in the environment to be negligible). What is the period of the graph?",
+      "stem_html": "<div><p><span>The graph depicts the height in metres of a bouncing ball with respect to time in seconds (given the friction in the environment to be negligible). What is the period of the graph?</span></p>\n<p></p></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "2 seconds",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "10 seconds",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "4 seconds",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "2 metres",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/ee3ff57106e6bce7025a.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/ee3ff57106e6bce7025a.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-08%20at%203.48.57%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/ee3ff57106e6bce7025a.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gc1b25479c21956197c12cee54e4df86e",
+      "stem": "Consider the graph below: The equation of the axis is:",
+      "stem_html": "<div><p>Consider the graph below:</p>\n<p><strong></strong></p>\n<p>The equation of the axis is:</p></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "x = 0",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "y = 0",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "y = 7",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "x = 3.5",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/58e35d77cc00309569b0.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/58e35d77cc00309569b0.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/mc014-1.jpg",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/58e35d77cc00309569b0.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g03cd86e32fda20fc5dc2ae712b84ed23",
+      "stem": "Consider a Ferris wheel which loads passengers at a height of 1 metre above the ground a carries them to a height of at most 15 metres. What is the amplitude of the function which models the height of a passenger above ground while in constant motion?",
+      "stem_html": "<div><span>Consider a Ferris wheel which loads passengers at a height of 1 metre above the ground a carries them to a height of at most 15 metres. What is the amplitude of the function which models the height of a passenger above ground while in constant motion?</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "7",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "14",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "1",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "15",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g6ab553d683d4d00922bdf870b044953e",
+      "stem": "Consider the graph of f(x) = –3sin(x – 4) + 2. What is the equation of the axis?",
+      "stem_html": "<div><span>Consider the graph of </span><em>f</em><span>(</span><em>x</em><span>) = –3sin(</span><em>x</em><span> – 4) + 2. What is the equation of the axis?</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "y = 3x",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "y = -3",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "y = 2",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "y = 4",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8db3e4344d5d2bc863905078673e20f7",
+      "stem": "What is the equation of the axis of the graph?",
+      "stem_html": "<div><p>What is the equation of the axis of the graph?</p>\n<p></p></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "y = 2",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "x = 2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "y = 7",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "x = 7",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/53756bfd5ab9a654b521.png"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/53756bfd5ab9a654b521.png"
+      ],
+      "figure_map": [
+        {
+          "src": "$IMS-CC-FILEBASE$/Uploaded%20Media/Screenshot%202023-12-08%20at%203.49.20%E2%80%AFPM.png",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/53756bfd5ab9a654b521.png"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g92e3b4c41e3d79fd53e644ed155a0e5d",
+      "stem": "Given f(x) = –2sin(x – 4) + 8. What is the amplitude of the function?",
+      "stem_html": "<div><span>Given </span><em>f</em><span>(</span><em>x</em><span>) = –2sin(</span><em>x</em><span> – 4) + 8. What is the amplitude of the function?</span></div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "4",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "1",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "8",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "2",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gabc0bd214f15c941e793df8bb9a557ee",
+      "stem": "How often do maximums of a sinusoidal function occur?",
+      "stem_html": "<div>How often do maximums of a sinusoidal function occur?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "once each period",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "twice each period",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "twice each cycle",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "once every 2 cycles",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gef30152f5403a550bf3a9730e3d8db6d",
+      "stem": "What is the action or series of events which repeats to compose a periodic function?",
+      "stem_html": "<div>What is the action or series of events which repeats to compose a periodic function? </div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "an event",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "a period",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "a frame",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "a cycle",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g5800054111ca19ee883634e1948a289d",
+      "stem": "State the transformation of f(x + 40°).",
+      "stem_html": "<div>State the transformation of <em>f</em>(<em>x</em> + 40<span>°</span>).</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<span>horizontal translation right 40</span><span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<span>vertical translation upward 40</span><span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<span>vertical translation downward 40</span><span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<span><span>horizontal translation to the left 40</span><span>°</span></span>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gab339f68df08d083f551e06c28d3775e",
+      "stem": "The depth of water at a point is periodic with respect to time. When the tide is out, the level of water is lowest. What features of the graph occur at these points in time?",
+      "stem_html": "<div>The depth of water at a point is periodic with respect to time. When the tide is out, the level of water is lowest. What features of the graph occur at these points in time?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "module quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "peaks",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "maximums",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "troughs (minimums)",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "valleys",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "54d2f8e877686d2c4aa9c2173dda4a58",
+      "stem": "The amplitude is:",
+      "stem_html": "<p>The amplitude is:</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>7</p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p>14</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>10</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>0</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/88897cac6b7167b41991.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/88897cac6b7167b41991.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71311/files/185474/download?verifier=Iec06FfUofslroqtGxjBa2khxF2xZCzJadJ1Cl8F",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/88897cac6b7167b41991.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "059e6215c96640d1e5f5d81bb8e4d48a",
+      "stem": "The equation of the axis is:",
+      "stem_html": "<p>The equation of the axis is:</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>x = 0</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>y = 0</p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p>y = 7</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>x = 3.5</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/88897cac6b7167b41991.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/88897cac6b7167b41991.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71311/files/185474/download?verifier=Iec06FfUofslroqtGxjBa2khxF2xZCzJadJ1Cl8F",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/88897cac6b7167b41991.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "6014f75eb7c448456274bb93b91429ff",
+      "stem": "The graph below is periodic.",
+      "stem_html": "<p>The graph below is periodic.</p>\n<p> </p>\n<p></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "true_false_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "True",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "False",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/c7cb79af54e55489153b.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/c7cb79af54e55489153b.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/1080107/files/1800248/download?verifier=IB4Z3Jlmrzh5J68UUqVRImxw9CGfqJY5Nbe5N62b",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/c7cb79af54e55489153b.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "8b2ad1c378a77a7023337166cf5364fa",
+      "stem": "What type of transformation is given by c?",
+      "stem_html": "<p>What type of transformation is given by <em>c</em>?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>vertical translation </p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>vertical stretch</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>horizontal stretch</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>horizontal translation</p>",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "5201e9e1cf2190ba5a7c8ea1366d5b19",
+      "stem": "What type of transformation is given by d?",
+      "stem_html": "<p>What type of transformation is given by d?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>vertical translation </p>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<p>vertical stretch</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>horizontal stretch</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>horizontal translation</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "73550c67f32cde4b8c4e378b14775aa7",
+      "stem": "What type of transformation is given when a is negative?",
+      "stem_html": "<p>What type of transformation is given when a is negative?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>vertical translation </p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>vertical stretch</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>rotation on the x-axis</p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p>horizontal translation</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "ee8d50db83517ec3542f21bb6cabb911",
+      "stem": "What type of transformation is given by a?",
+      "stem_html": "<p>What type of transformation is given by a?</p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>vertical translation </p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>vertical stretch</p>",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<p>horizontal stretch</p>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<p>horizontal translation</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "437de10b3f7f0cddbad52cec9ff2f3f6",
+      "stem": "Using Desmos, examine the graph of f(x) = –3sin(x – 4) + 2. What is the equation of the axis?",
+      "stem_html": "<p><span>Using Desmos, examine the graph of </span><em>f</em><span>(</span><em>x</em><span>) = –3sin(</span><em>x</em><span> – 4) + 2. What is the equation of the axis?</span></p>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "duplicate quiz: Module 6: Test (Remotely Proctored)",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<p>y = 3x</p>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<p>y = -3</p>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<p>y = 2</p>",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<p>y = 4</p>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbf1384acaa9fed95ce58cb3cc25565e4",
+      "stem": "What is the amplitude of the function?",
+      "stem_html": "<div>What is the amplitude of the function?<br><br><br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "7",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "14",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "10",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "0",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/88897cac6b7167b41991.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/88897cac6b7167b41991.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71311/files/185474/download?verifier=Iec06FfUofslroqtGxjBa2khxF2xZCzJadJ1Cl8F",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/88897cac6b7167b41991.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gd186a12296b44a409e147fba942183cf",
+      "stem": "Evaluate sin(0°).",
+      "stem_html": "<div>Evaluate sin(0<span>°</span>).</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/8e5f0cdf464a7309e3a8.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/605379f47b2c9f3fc9d3.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "0",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "1",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71315/files/185478/download?verifier=mR3fwQMHGnDMXPoDWGV15zqRMs7UCwsUITI9Pm2n",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/8e5f0cdf464a7309e3a8.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71315/files/185480/download?verifier=W2qVMOF2e808upDIdVSANjfwvexRIVwrVdonNI5j",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/605379f47b2c9f3fc9d3.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g4e39e7c9f90a43c1fe79cf69de1bbf25",
+      "stem": "What can be modelled by a sinusoidal function?",
+      "stem_html": "<div>What can be modelled by a sinusoidal function?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the temperature of a cooler with respect to time",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the motion of a kite with respect to time",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "the balance of a mortgage with respect to time",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "the height of a boy on a swing with respect to time",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gf21ce6e8eb8bda033bc8ee08a94e2d09",
+      "stem": "Evaluate sin(90°).",
+      "stem_html": "<div>Evaluate sin(90<span>°</span>).</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/058ea71d308e276fb195.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "0",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "1",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/0ffa17cf6dfe93b270e9.jpg\" alt=\"\">",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71319/files/185484/download?verifier=C8d7sR9QyQbDO9aOfJsE82vSVHghm3HzgZhcT1cL",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/058ea71d308e276fb195.jpg"
+        },
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71319/files/185486/download?verifier=PminqbjVVrty1Stt7MznXzLnu3CzfgN5mbFqJl2m",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/0ffa17cf6dfe93b270e9.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gf091e9d1a3b3e705b759360f97ee979f",
+      "stem": "What is the value of cos(0°)?",
+      "stem_html": "<div>What is the value of cos(0<span>°</span>)?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "0",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<img src=\"/curriculum-bank-images/MCF3M/cartridge/a7fd8f8b873183e2babd.jpg\" alt=\"\">",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "1",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "–1",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71323/files/185490/download?verifier=l016CvrsuKEIUxK5MFg9ODvqVlf47v4AjVSHsnsN",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a7fd8f8b873183e2babd.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g92af240a401037ff689f59e31c438969",
+      "stem": "The height of a passenger on a Ferris wheel with respect to time is given by a sinusoidal function. How would you increase the amplitude of the function?",
+      "stem_html": "<div>The height of a passenger on a Ferris wheel with respect to time is given by a sinusoidal function. How would you increase the amplitude of the function?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "slow the rate of the Ferris wheel rotation",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "increase the height of the platform used to load passengers",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "increase the radius of Ferris wheel",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "increase the rate of the Ferris wheel rotation",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g13198aaf2a3e52ed967cd1124b9ffe55",
+      "stem": "A wheel is rotating at a rate of 2 revolutions per second and has a radius of 0.25 metres as it rolls along a track. How fast is the wheel moving?",
+      "stem_html": "<div>A wheel is rotating at a rate of 2 revolutions per second and has a radius of 0.25 metres as it rolls along a track. How fast is the wheel moving?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "0.5 metres per second",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "1 metre per second",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "3.1 metres per second",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "2 seconds per metre",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gb6b06938de783ad35841fc3a5348db37",
+      "stem": "Given a sinusoidal function, how could you increase the period?",
+      "stem_html": "<div>Given a sinusoidal function, how could you increase the period?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "increase the amplitude",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "increase the length of the cycle",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "decrease the amplitude",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "decrease the length of the cycle",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g4bb4aa0e2c3e01db89a8cdaf14659e21",
+      "stem": "Two adjacent gears are turning together. The larger gear is turning at a constant rate of 6 revolutions each minute and has a radius of 1 metre. If the smaller gear has a radius of 0.25 metres, at what rate is the smaller gear rotating?",
+      "stem_html": "<div>Two adjacent gears are turning together. The larger gear is turning at a constant rate of 6 revolutions each minute and has a radius of 1 metre. If the smaller gear has a radius of 0.25 metres, at what rate is the smaller gear rotating?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "6 revolutions per minute",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "24 revolutions per minute",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "4 revolutions per minute",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "1.5 revolutions per minute",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8d01d0cfb0bb3d6aaf78c5a6442ed937",
+      "stem": "Given a sinusoidal function, how can you translate the function vertically?",
+      "stem_html": "<div>Given a sinusoidal function, how can you translate the function vertically?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "replacing <i>x</i> with <i>x</i> – <i>h</i>",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "exchange <i>x</i> with <i>f</i>(<i>x</i>)",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "changing the equation of the axis",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "multiply the function by a constant <i>h</i>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gceb27031e1c9bb57679eeff819429d2c",
+      "stem": "Given the function f(x) = sin(x – c) + d, the constant d is what type of transformation?",
+      "stem_html": "<div>Given the function <i>f</i>(<i>x</i>) = sin(<i>x – c</i>) + <i>d</i>, the constant <i>d</i> is what type of transformation?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "vertical stretch",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "vertical translation",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "horizontal stretch",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "horizontal translation",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g8ad63485acaeea77108f08fdb6718fea",
+      "stem": "Given a function f(x) = sin(x – c) + d, what type of transformation is given by c?",
+      "stem_html": "<div>Given a function <i>f</i>(<i>x</i>) = sin(<i>x</i> – <i>c</i>) +<i> d</i>, what type of transformation is given by <i>c</i>?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "vertical translation",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "vertical stretch",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "horizontal stretch",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "horizontal translation",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g869264a3dfd5ce5090a2af482b8e313c",
+      "stem": "What is the equation of axis of the function f(x) = sin x + d?",
+      "stem_html": "<div>What is the equation of axis of the function <i>f</i>(<i>x</i>) = sin <i>x</i> + <i>d</i>?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<i>y</i> = <i>d</i>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "<i>y</i> = <i>x</i>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<i>x</i> = <i>d</i>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<i>y</i> = sin <i>x</i>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g37690ec2824184539e5ffcd80a9f29dc",
+      "stem": "Let f(x) = 3sin x + 4 and g(x) = f(x) + 3. What is the equation of the axis of g(x)?",
+      "stem_html": "<div>Let <em>f</em>(<em>x</em>) = 3sin <em>x</em> + 4 and <em>g</em>(<em>x</em>) = <em>f</em>(<em>x</em>) + 3. What is the equation of the axis of g(<em>x</em>)?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<i>y</i> = 3",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<i>y</i> = 7",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "<i>y</i> = 4",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<i>y</i> = 12",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbcfed870425f94e7ad169b794fd7a201",
+      "stem": "Let f(x) = –sin x + d. What is the value of d if the equation of the axis is y = 2?",
+      "stem_html": "<div>Let <i>f</i>(<i>x</i>) = –sin <i>x</i> + <i>d</i>. What is the value of <i>d</i> if the equation of the axis is <i>y</i> = 2?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "2",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "–2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "–1",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "1",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g5d908a58e9a3b02dc07ef7bc4c2c90e5",
+      "stem": "State the transformation of f(x) = sin x + 4.",
+      "stem_html": "<div>State the transformation of <i>f</i>(<i>x</i>) = sin <i>x</i> + 4.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "horizontal translation left 4 units",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "vertical translation downward 4 units",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "vertical translation upward 4 units",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "horizontal translation right 4 units",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g339cf7073093332d04f09317fe1da33c",
+      "stem": "State the transformation of f(x) = sin(x – 30°)",
+      "stem_html": "<div>State the transformation of <i>f</i>(<i>x</i>) = sin(<i>x </i>– 30<span>°</span>)</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "horizontal translation right 30<span>°</span>",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "horizontal translation left 30<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "vertical translation upward 30<span>°</span>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "vertical translation downward 30<span>°</span>",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g00d1a6b97c33da9de13e3199cfa88b3a",
+      "stem": "State the transformations of the function f(x) = 5sin x + 5h.",
+      "stem_html": "<div>State the transformations of the function <i>f</i>(<i>x</i>) = 5sin <i>x</i> + 5<i>h</i>.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "vertical translation upward 5 units",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "horizontal translation right 5 units",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "horizontal translation left 5<i>h</i> units",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "vertical translation upward 5<i>h</i> units",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g4e8d7cc68530ac8546e5f66687b7e77d",
+      "stem": "What are the minimums of a periodic function?",
+      "stem_html": "<div>What are the minimums of a periodic function?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "the horizontal lines of the graph",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "the lowest points of the graph",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "the <i>x</i>-intercepts of the graph",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "the extremes of the graph",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g9750d0b489bf09b5d874f43290fe59e1",
+      "stem": "What type of transformation results in a vertical translation downward 2 units",
+      "stem_html": "<div>What type of transformation results in a vertical translation downward 2 units</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "sin(<i>x</i> – 2)",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "sin <i>x</i> – 2",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "–2sin <i>x</i>",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "sin <i>x</i> + 2",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gcd9ba0a1cd8e2ee4268562b196e3a773",
+      "stem": "What type of transformation is af(x)?",
+      "stem_html": "<div>What type of transformation is <i>af</i>(<i>x</i>)?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "vertical translation",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "horizontal translation",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "vertical stretch",
+          "correct": true
+        },
+        {
+          "id": "d",
+          "html": "horizontal stretch",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "c"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g587e482111bf9c0aaf0ed8392da7f632",
+      "stem": "If f(2) = 2, what is 3f(2)?",
+      "stem_html": "<div>If <i>f</i>(2) = 2, what is 3<i>f</i>(2)?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "6",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "3",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "1",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g2e07d596a9862e449bb0f4d1afd94d01",
+      "stem": "What is the equation of axis of the function f(x) = 2(3 sin x +2)?",
+      "stem_html": "<div>What is the equation of axis of the function <i>f</i>(<i>x</i>) = 2(3 sin <i>x</i> +2)?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "<i>y</i> = 6",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "<i>y</i> = 2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "<i>y</i> = 3",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "<i>y</i> = 4",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gf0f69fae2ee6b4f051c16fa9a3b3080d",
+      "stem": "What is the amplitude of the function y = 3sin(x – 4)?",
+      "stem_html": "<div>What is the amplitude of the function y = 3sin(<i>x</i> – 4)?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "3",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "1",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "4",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g4d3a5bd859ffebefca7540ea72ce5143",
+      "stem": "What is the amplitude of the function f(x) = 4 sin x + 2?",
+      "stem_html": "<div>What is the amplitude of the function <i>f</i>(<i>x</i>) = 4 sin<i> x</i> + 2?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "2",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "4",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "1",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "3",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gc67d29431d2ada73437d7f0d6d49d8cf",
+      "stem": "State the type of transformation of sin x for the function f(x) = 4sin x.",
+      "stem_html": "<div>State the type of transformation of sin <i>x</i> for the function <i>f</i>(<i>x</i>) = 4sin <i>x</i>.</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "vertical stretch",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "vertical translation",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "horizontal stretch",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "horizontal translation",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g78cdd8126b42236b65e041687f954c7f",
+      "stem": "Given a function which models the height of a passenger on a Ferris wheel with respect to time, how could you stretch the graph vertically?",
+      "stem_html": "<div>Given a function which models the height of a passenger on a Ferris wheel with respect to time, how could you stretch the graph vertically?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "raise the platform that loads passengers",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "increase the period",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "decrease the radius of the Ferris wheel",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "increase the radius of the Ferris wheel",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "g73f4128b435368f2cbd02a61a8c22c05",
+      "stem": "You are given a function which measures the position of a tack on the edge of a spinning wheel with respect to time. If the radius of the wheel increases, how does the graph change?",
+      "stem_html": "<div>You are given a function which measures the position of a tack on the edge of a spinning wheel with respect to time. If the radius of the wheel increases, how does the graph change?</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "translates downward",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "translates to the right",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "stretches horizontally",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "stretches vertically",
+          "correct": true
+        }
+      ],
+      "correct_ids": [
+        "d"
+      ],
+      "feedback_html": "",
+      "image_paths": [],
+      "image_urls": [],
+      "figure_map": [],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gb125c103771dc9c2537c860c3a3b25c9",
+      "stem": "What are the minimums of the graph?",
+      "stem_html": "<div>What are the minimums of the graph?<br><br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "(–0.5, –1), (1.5, –1)",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "html": "–2, –1, 1, 2",
+          "correct": false
+        },
+        {
+          "id": "c",
+          "html": "(–1.5, 1), (0.5, 1)",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "(–1.5, 1), (–0.5, –1), (0.5, 1), (1.5, –1)",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "a"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/5e3e06a1f3bfa22679c0.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/5e3e06a1f3bfa22679c0.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71295/files/185468/download?verifier=n66pHJqIjhGwhTMlInEjL0zRhHWDy0n2rBZiIzV9",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/5e3e06a1f3bfa22679c0.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    },
+    {
+      "source": "canvas",
+      "origin": "canvas_cartridge",
+      "smart_id": "gbe70e6adad591456d1ca8537049ebc83",
+      "stem": "What is the period of the graph?",
+      "stem_html": "<div>What is the period of the graph?<br><br>\n</div>",
+      "item_type": "multiple_choice_question",
+      "canvas_kind": "multiple_choice_question",
+      "canvas_source": "question bank: Module 6 Test",
+      "points_possible": 1.0,
+      "choices": [
+        {
+          "id": "a",
+          "html": "3",
+          "correct": false
+        },
+        {
+          "id": "b",
+          "html": "2",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "html": "4",
+          "correct": false
+        },
+        {
+          "id": "d",
+          "html": "1",
+          "correct": false
+        }
+      ],
+      "correct_ids": [
+        "b"
+      ],
+      "feedback_html": "",
+      "image_paths": [
+        "cartridge/a9ce60616e064f27efe8.jpg"
+      ],
+      "image_urls": [
+        "/curriculum-bank-images/MCF3M/cartridge/a9ce60616e064f27efe8.jpg"
+      ],
+      "figure_map": [
+        {
+          "src": "https://virtuallearning.instructure.com/assessment_questions/71297/files/185470/download?verifier=1iWIoolPDdc6KXxFJM4wrySj53sZF8j3NbvbWWIg",
+          "kind": "file",
+          "url": "/curriculum-bank-images/MCF3M/cartridge/a9ce60616e064f27efe8.jpg"
+        }
+      ],
+      "verified": true,
+      "expectation_codes": []
+    }
+  ],
+  "dropped": [
+    {
+      "ident": "gbbdf5bc84953c8e9858e367884bfb734",
+      "stem": "The graph depicts the height in metres of a bouncing ball with respect to time in seconds (given the friction in the environment to be negli",
+      "reason": "unresolved image",
+      "source": "question bank: Module 6: Test (Remotely Proctored)"
+    }
+  ]
+}

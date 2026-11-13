@@ -464,18 +464,49 @@ export function questionFieldHtml(item, field, index) {
 }
 
 /**
- * Render an optional question graph image.
- * @param {unknown} imageUrl
+ * Every figure URL on a question, in bank order.
+ * A string is one URL. An object may carry ``image_urls`` and ``image_url``.
+ * @param {unknown} source
+ * @returns {string[]}
+ */
+export function questionFigureUrls(source) {
+  if (Array.isArray(source)) {
+    return source.map((url) => String(url || "").trim()).filter(Boolean);
+  }
+  if (source && typeof source === "object") {
+    const many = /** @type {{image_urls?: unknown, image_url?: unknown}} */ (source)
+      .image_urls;
+    if (Array.isArray(many)) {
+      const urls = many.map((url) => String(url || "").trim()).filter(Boolean);
+      if (urls.length) return urls;
+    }
+    const one = String(
+      /** @type {{image_url?: unknown}} */ (source).image_url || ""
+    ).trim();
+    return one ? [one] : [];
+  }
+  const one = String(source || "").trim();
+  return one ? [one] : [];
+}
+
+/**
+ * Render an optional question graph image. Several figures stack.
+ * @param {unknown} imageUrl URL, URL list, or question with ``image_urls``
  * @param {{variant?: string}} [opts]
  * @returns {string}
  */
 export function questionImageHtml(imageUrl, opts = {}) {
-  const url = String(imageUrl || "").trim();
-  if (!url) return "";
+  const urls = questionFigureUrls(imageUrl);
+  if (!urls.length) return "";
   const variant = opts.variant === "thumb" ? "is-thumb" : "is-full";
-  return `<img class="live-question-image ${variant}" src="${escapeHtml(
-    url
-  )}" alt="Question graph" loading="lazy">`;
+  return urls
+    .map(
+      (url) =>
+        `<img class="live-question-image ${variant}" src="${escapeHtml(
+          url
+        )}" alt="Question graph" loading="lazy">`
+    )
+    .join("");
 }
 
 /**

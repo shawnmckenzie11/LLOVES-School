@@ -468,7 +468,7 @@ export async function mountBankMcPicker(opts) {
             : rank
               ? `<span class="hint compact">Read-only</span>`
               : `<button type="button" data-bank-mc-select="${qid}">Edit</button>`;
-        const thumb = questionImageHtml(item.image_url, { variant: "thumb" });
+        const thumb = questionImageHtml(item, { variant: "thumb" });
         return `<li class="bank-mc-picker-row" data-bank-mc-title="${escapeHtml(title)}">
           <div class="bank-mc-picker-row-main">
             ${thumb}

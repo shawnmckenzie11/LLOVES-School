@@ -6440,7 +6440,13 @@ function paintLiveQuestionCards() {
             </div>
             ${relocateButton}
           </div>
-          ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
+          ${questionImageHtml(
+            {
+              image_urls: item.image_urls || card.image_urls,
+              image_url: item.image_url || card.image_url,
+            },
+            { variant: "thumb" }
+          )}
           <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || plainPromptHtml(item.title || item.text || item.prompt || card.text || "")}</div>
           ${liveQuestionEquationHtml(item, card)}
           ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}

@@ -3720,6 +3720,49 @@ def register_teacher(app, school, shared):
             abort(404)
         return _send_module_file(target, rel)
 
+    @bp.route("/curriculum-bank-images/<course>/<path:rel>")
+    def serve_curriculum_bank_image(course: str, rel: str):
+        """Serve one curriculum-bank figure to the teacher bank, live class, and catch-up.
+
+        The file must already exist under that course's curriculum cache.
+        Question payloads for other courses and modules are not rewritten
+        by this route.
+
+        Args:
+            course: Ontario course code.
+            rel: Path under the course cache, such as ``nelson_assets/ch5/q.png``.
+        """
+        try:
+            from curriculum_bank_images import (
+                course_code_token,
+                resolve_curriculum_image,
+            )
+        except ImportError:
+            from lms.curriculum_bank_images import (
+                course_code_token,
+                resolve_curriculum_image,
+            )
+
+        code = course_code_token(course)
+        if not code:
+            abort(404)
+        found = resolve_curriculum_image(code, rel)
+        if found is None:
+            abort(404)
+        path, _url = found
+        import mimetypes
+
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        response = Response(path.read_bytes(), mimetype=mime)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        if path.suffix.lower() == ".svg":
+            try:
+                from bank_image_mirror import SVG_SANDBOX_CSP
+            except ImportError:
+                from lms.bank_image_mirror import SVG_SANDBOX_CSP
+            response.headers["Content-Security-Policy"] = SVG_SANDBOX_CSP
+        return response
+
     @bp.route("/student/dashboard")
     @student_required
     def student_dashboard():

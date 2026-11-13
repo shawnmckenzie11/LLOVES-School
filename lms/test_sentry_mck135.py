@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -202,7 +203,12 @@ class SwallowedAndShedTests(unittest.TestCase):
         blob = _blob(self.transport)
         self.assertIn("swallowed", blob)
         for secret in (FIRST, PIN, JOIN, EMAIL):
-            self.assertNotIn(secret, blob, secret)
+            # A 4-digit PIN is also a slice of a timestamp fraction
+            # (``19.432179``). Require it to stand alone.
+            if secret.isdigit():
+                self.assertIsNone(re.search(rf"(?<!\d){secret}(?!\d)", blob), secret)
+            else:
+                self.assertNotIn(secret, blob, secret)
 
     def test_json_500_reports_and_value_error_does_not(self) -> None:
         """Unexpected JSON failures are issues. ValueError stays a 400."""

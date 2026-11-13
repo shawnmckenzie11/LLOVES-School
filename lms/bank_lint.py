@@ -376,6 +376,13 @@ class ImageResolver:
         if src.startswith("/static/"):
             ok = (LMS_DIR / src.lstrip("/").split("?")[0]).exists()
             return ok, "repo static"
+        if src.startswith("/curriculum-bank-images/"):
+            try:
+                from curriculum_bank_images import file_for_curriculum_image_url
+            except ImportError:
+                from lms.curriculum_bank_images import file_for_curriculum_image_url
+            path = file_for_curriculum_image_url(src.split("?", 1)[0])
+            return path is not None, "curriculum bank image " + ("ok" if path else "missing")
         m = re.match(r"^/(?:staff/class|api/classes)/\d+/module-files/(.+)$", src)
         rel = m.group(1) if m else src
         rel = (

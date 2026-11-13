@@ -1,7 +1,7 @@
 /**
  * Question banks tab: one module menu, a light table, and a short bulk bar.
  */
-import { api, escapeHtml, formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import { api, escapeHtml, formatQuestionHtml, questionImageHtml, renderLiveQuestionMath } from "/static/common.js";
 import { mountTypeChips } from "/static/bank_type_chips.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import { questionPointsValue } from "/static/question_points.js";
@@ -301,6 +301,23 @@ function renderList() {
  * @param {Record<string, unknown>} item
  * @returns {string}
  */
+
+/**
+ * Choice figures for one bank row.
+ *
+ * Stem figures stay on the thumbnail above this list. Text-only choices
+ * stay out of the table; a choice is listed when it still has an image.
+ *
+ * @param {Record<string, unknown>} item
+ * @returns {string}
+ */
+function choiceImageHtml(item) {
+  const htmls = Array.isArray(item.options_html) ? item.options_html : [];
+  const visible = htmls.filter((html) => typeof html === "string" && html.includes("<img"));
+  if (!visible.length) return "";
+  return `<ol class="qbank-choices">${visible.map((html) => `<li>${html}</li>`).join("")}</ol>`;
+}
+
 function rowHtml(item) {
   const chip = typeChip(item);
   const key = itemKey(item);
@@ -312,7 +329,11 @@ function rowHtml(item) {
   const kindToken = String(item.kind || item.bank_kind || "");
   return `<tr class="qbank-tr${checked ? " is-checked" : ""}" data-bank-kind="${escapeHtml(kindToken)}" data-qbank-key="${escapeHtml(key)}">
     <td class="qcell qcell-check"><input type="checkbox" data-qbank-check="${escapeHtml(key)}" aria-label="Select question"${checked ? " checked" : ""}></td>
-    <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${mediaTagHtml(item)}${edited}</div></td>
+    <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${questionImageHtml(item, { variant: "thumb" })}${choiceImageHtml(item)}${
+      String(item.feedback_html || "").trim()
+        ? `<div class="qbank-feedback">${item.feedback_html}</div>`
+        : ""
+    }${mediaTagHtml(item)}${edited}</div></td>
     <td class="qcell">${escapeHtml(kindLabel(item))}</td>
     <td class="qcell">${escapeHtml(moduleLabel(item))}</td>
     <td class="qcell">${escapeHtml(modeLabel(item))}</td>
