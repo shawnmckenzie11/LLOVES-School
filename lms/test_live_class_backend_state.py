@@ -628,6 +628,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_multiple_publish_close_results_and_cleanup(self) -> None:
         """Independent questions stay active, close locks, and end cleans data."""
 
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
         items = self.school.ensure_live_session_items(self.session_id)
         self.assertGreaterEqual(len(items), 3)
         self.assertTrue(
@@ -746,6 +747,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_group_consensus_privacy_tie_finalization_and_award(self) -> None:
         """Votes stay private, ties need a choice, and finalization is atomic."""
 
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
         self._begin_and_join(4)
         teams = self._setup_groups()
         self.school.game.rename_teams(
@@ -1004,6 +1006,8 @@ class LiveBackendStateTests(unittest.TestCase):
         self,
     ) -> None:
         """Walk a numeric item through private votes, reveal, and one team answer."""
+
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
 
         def numeric_fixture() -> dict[str, Any]:
             """Return the shared fixture plus an integer-only numeric item."""
@@ -3305,6 +3309,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_group_mc_ready_gate_one_switch_and_blank_miss(self) -> None:
         """Group MC sends when every teammate matches, and a miss stays blank."""
 
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
         self._begin_and_join(4)
         self._setup_groups()
         self.school.set_live_session_teacher_state(
@@ -3409,6 +3414,8 @@ class LiveBackendStateTests(unittest.TestCase):
                 "picks",
                 "member_count",
                 "question_waits",
+                # MCK-62: quiet-member strip, present once the question is live.
+                "quiet_dots",
             }
             if row["submitted"] and open_view.get("answer_key"):
                 allowed = allowed | {"correct"}

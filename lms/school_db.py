@@ -34572,9 +34572,9 @@ class SchoolDB(LovesDB):
     ) -> bool:
         """True when this public row is a live question the student should answer.
 
-        A page mismatch parks the row, so a kept card leaves the live list.
-        A stage label that differs from the teacher rail does not, so a
-        question on the current page stays answerable. Closed and inactive
+        A page mismatch or a stage mismatch parks the row. Every published
+        question stays on the student card, so leaving its stage takes it
+        out of the live list and into the saved cards. Closed and inactive
         rows are never facing.
 
         Args:
@@ -34588,6 +34588,9 @@ class SchoolDB(LovesDB):
         if not self._student_item_on_current_page(
             session_id, row, current_page=current_page
         ):
+            return False
+        item_stage = str(row.get("stage") or "").strip().lower()
+        if item_stage and stage and item_stage != stage:
             return False
         return True
 
