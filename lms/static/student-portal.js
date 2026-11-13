@@ -198,6 +198,10 @@ let holdJoinFeedback = false;
 const dismissedPromptIds = new Set();
 /** Question cards and surfaces minimized into the right-hand dock. */
 const dockedLiveCardKeys = new Set();
+/** sessionStorage prefix for question dock keys, one entry per live session. */
+const DOCKED_QUESTION_STORE = "lloves.dockedQuestions";
+/** Session id whose dock keys were restored this page load. ``0`` before that. */
+let dockedQuestionsLoadedFor = 0;
 /** Floating panes currently following a held pointer. Do not remount or hide. */
 const activePaneDrags = new Set();
 /** Original parent/sibling so Reset can put a reparented card back. */
@@ -1741,6 +1745,18 @@ function writeSessionValue(key, value) {
     window.sessionStorage.setItem(key, value);
   } catch (_err) {
     /* private mode: the cue just may not show */
+  }
+}
+
+/**
+ * Remove one sessionStorage value without throwing in private mode.
+ * @param {string} key
+ */
+function removeSessionValue(key) {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch (_err) {
+    /* private mode: nothing was stored */
   }
 }
 
@@ -3590,13 +3606,130 @@ function boardFeedbackHtml(text) {
 }
 
 /**
+ * Storage key for one live session's minimized questions.
+ * @param {number|string} sessionId ``live_class_sessions.id`` from /state.
+ * @returns {string} Empty when the session is unknown.
+ */
+function dockedQuestionStoreKey(sessionId) {
+  const id = Number(sessionId) || 0;
+  return id ? `${DOCKED_QUESTION_STORE}:${id}` : "";
+}
+
+/**
+ * Read minimized question keys for one session.
+ * A missing or blocked sessionStorage returns an empty list.
+ * @param {number|string} sessionId
+ * @returns {string[]}
+ */
+function readDockedQuestionKeys(sessionId) {
+  const storeKey = dockedQuestionStoreKey(sessionId);
+  if (!storeKey) return [];
+  const raw = readSessionValue(storeKey);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => String(item || "")).filter((item) => item.startsWith("card:"));
+  } catch (_err) {
+    return [];
+  }
+}
+
+/**
+ * Persist the current minimized question keys for one session.
+ * An empty list removes the entry. Private mode is ignored.
+ * @param {number|string} sessionId
+ */
+function writeDockedQuestionKeys(sessionId) {
+  const storeKey = dockedQuestionStoreKey(sessionId);
+  if (!storeKey) return;
+  const keys = [...dockedLiveCardKeys].filter((token) => String(token).startsWith("card:"));
+  if (!keys.length) {
+    removeSessionValue(storeKey);
+    return;
+  }
+  writeSessionValue(storeKey, JSON.stringify(keys));
+}
+
+/**
+ * Forget minimized questions for one session.
+ * @param {number|string} sessionId
+ */
+function clearDockedQuestionKeys(sessionId) {
+  for (const token of [...dockedLiveCardKeys]) {
+    if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
+  }
+  removeSessionValue(dockedQuestionStoreKey(sessionId));
+}
+
+/**
+ * Live-item id encoded in a question dock key, or 0.
+ * @param {string} token
+ * @returns {number}
+ */
+function dockedQuestionLiveId(token) {
+  const parts = String(token || "").split(":");
+  if (parts[0] !== "card") return 0;
+  return Number(parts[1]) || 0;
+}
+
+/**
+ * Put this tab's saved dock back before the question stack paints.
+ * Keys whose question is gone are dropped. A status change keeps the
+ * question docked under its current key.
+ * @param {any} payload Student /state body.
+ * @param {any[]} items Questions about to be painted.
+ */
+function restoreDockedQuestions(payload, items) {
+  const sessionId = Number(payload?.live_session_id) || 0;
+  if (!sessionId) return;
+  if (studentSessionOver(payload)) {
+    clearDockedQuestionKeys(sessionId);
+    dockedQuestionsLoadedFor = sessionId;
+    return;
+  }
+  if (dockedQuestionsLoadedFor !== sessionId) {
+    for (const token of [...dockedLiveCardKeys]) {
+      if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
+    }
+    dockedQuestionsLoadedFor = sessionId;
+    for (const token of readDockedQuestionKeys(sessionId)) {
+      dockedLiveCardKeys.add(token);
+    }
+  }
+  const listsPresent = ["active_questions", "closed_results", "saved_cards"].some(
+    (name) => Array.isArray(payload?.[name])
+  );
+  if (!listsPresent) return;
+  const current = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const liveId = Number(item?.id) || 0;
+    if (!liveId) continue;
+    current.set(liveId, liveCardDockKey(item));
+  }
+  const kept = [];
+  for (const token of dockedLiveCardKeys) {
+    if (!String(token).startsWith("card:")) continue;
+    const fresh = current.get(dockedQuestionLiveId(token));
+    if (fresh) kept.push(fresh);
+  }
+  for (const token of [...dockedLiveCardKeys]) {
+    if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
+  }
+  for (const token of kept) dockedLiveCardKeys.add(token);
+  writeDockedQuestionKeys(sessionId);
+}
+
+/**
  * Minimize one question into the right-hand dock without dropping its results.
+ * The key is stored for this live session so a reload keeps it minimized.
  * @param {string} key Dock key from the question card.
  */
 function minimizeLiveQuestion(key) {
   const token = String(key || "");
   if (!token) return;
   dockedLiveCardKeys.add(token);
+  writeDockedQuestionKeys(lastStudentPayload?.live_session_id);
 }
 
 /**
@@ -4261,6 +4394,7 @@ function paintLifecycleQuestionStack(payload) {
     ).toLowerCase();
     return !["media", "whiteboard", "slides"].includes(kind);
   });
+  restoreDockedQuestions(payload, all);
   const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
   paintQuestionDock(all, payload);
   const floatingCards = new Map();
@@ -5869,6 +6003,11 @@ async function submitExitFeedback(opts = {}) {
   }
 }
 
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.id !== "celebration-done") return;
+  clearDockedQuestionKeys(lastStudentPayload?.live_session_id);
+});
 document.getElementById("exit-feedback-send")?.addEventListener("click", () => {
   submitExitFeedback();
 });
@@ -6808,6 +6947,7 @@ window.addEventListener("lloves-question-board-submitted", (event) => {
     const item = pool.find((row) => Number(row?.prompt?.id) === promptId);
     if (!item) continue;
     dockedLiveCardKeys.add(liveCardDockKey(item));
+    writeDockedQuestionKeys(lastStudentPayload?.live_session_id);
   }
   paintLifecycleQuestionStack(lastStudentPayload);
 });
@@ -6841,6 +6981,7 @@ if (studentQuestionDock) {
     const undock = event.target.closest("[data-undock-live-card]");
     if (!(undock instanceof HTMLButtonElement)) return;
     dockedLiveCardKeys.delete(undock.dataset.undockLiveCard || "");
+    writeDockedQuestionKeys(lastStudentPayload?.live_session_id);
     if (lastStudentPayload) {
       applyTeacherProjection(lastStudentPayload);
       paintMedia(lastStudentPayload);

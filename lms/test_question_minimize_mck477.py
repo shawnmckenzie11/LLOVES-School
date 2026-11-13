@@ -409,6 +409,80 @@ class MinimizeQuestionBrowserTests(AlwaysSavedQuestionTests):
         self.assertEqual(str(out["badge"]).lower(), "results")
         self.assertTrue(out["keptStem"])
 
+    def test_minimized_question_stays_docked_after_reload(self) -> None:
+        """A minimized question stays a chip after reload, and pop keeps the score."""
+        from werkzeug.serving import make_server
+
+        case = QUESTION_CASES[0]
+        row = self._add(case["body"])
+        prompt = self.school._prompt_for_live_item(row)
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.student_id, case["answer"]
+        )
+        self.school.close_live_session_item(self.session_id, int(row["id"]))
+        live = self.school.get_live_session(self.session_id)
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = '2000-01-01T00:00:00'
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (self.session_id, self.student_id),
+            )
+            self.school.conn.commit()
+        student = self.app.test_client()
+        joined = student.post(
+            "/auth/student-code",
+            data={"code": str(live["session_code"]), "name": "S1"},
+        )
+        self.assertIn(joined.status_code, (302, 303))
+        match = re.search(r"[?&]v=([^&]+)", joined.headers.get("Location", ""))
+        self.assertIsNotNone(match)
+        visit = match.group(1)
+        student.post("/student/mood", data={"visit_token": visit, "skip": "1"})
+        page = student.get(f"/student/character?v={visit}").get_data(as_text=True)
+        pick = re.search(r'name="character" value="([^"]+)"', page)
+        if pick:
+            student.post(
+                "/student/character",
+                data={"visit_token": visit, "character": pick.group(1)},
+            )
+        self.server = make_server("127.0.0.1", 0, self.app, threaded=True)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        cfg = {
+            "base": f"http://127.0.0.1:{self.server.server_port}",
+            "chrome": _chrome(),
+            "cookies": {ck.key: ck.value for ck in student._cookies.values()},
+            "path": f"/student/home?v={visit}",
+            "mode": "reload",
+        }
+        path = Path(self.tmp.name) / "e2e-reload.json"
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        env = {**os.environ}
+        node_path = os.environ.get("LLOVES_E2E_NODE_PATH", "").strip()
+        if node_path:
+            env["NODE_PATH"] = node_path
+        proc = subprocess.run(
+            ["node", str(SCRIPT), str(path)],
+            cwd=str(REPO_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.server.shutdown()
+        lines = [line for line in proc.stdout.splitlines() if line.startswith("{")]
+        self.assertTrue(lines, proc.stderr[-1500:])
+        out = json.loads(lines[-1])
+        self.assertEqual(out["errors"], [], out)
+        self.assertGreaterEqual(out["chipsAfterReload"], 1)
+        self.assertEqual(out["openAfterReload"], 0)
+        self.assertTrue(out["showsAnswer"], out)
+        self.assertTrue(out["showsScore"], out)
+
 
 if __name__ == "__main__":
     unittest.main()
