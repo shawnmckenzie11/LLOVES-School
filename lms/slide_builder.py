@@ -575,6 +575,39 @@ def _local_bank_sort_key(row: dict[str, Any]) -> tuple[int, int]:
     return (3, 0)
 
 
+def _read_shipped_m567_bank(
+    course_code: str, module_number: int, strand: str
+) -> Any | None:
+    """Read the image-shipped MCF3M module 5–7 bank when the cache has none.
+
+    ``.local-data/`` is not in the production image. The cartridge banks
+    live beside their figures under ``lms/seeds/``.
+
+    Args:
+        course_code: Ontario course code.
+        module_number: One-based module index.
+        strand: Strand letter requested by the slide.
+
+    Returns:
+        The bank document, or ``None`` when this module is not shipped
+        or the strand does not match.
+    """
+    code = re.sub(r"[^A-Z0-9]", "", (course_code or "").upper())
+    if code != "MCF3M" or int(module_number) not in (5, 6, 7):
+        return None
+    try:
+        from curriculum_bank_images import MCF3M_M567_BANK_DIR
+    except ImportError:
+        from lms.curriculum_bank_images import MCF3M_M567_BANK_DIR
+    document = _read_json_file(MCF3M_M567_BANK_DIR / f"M{int(module_number)}.json")
+    if not isinstance(document, dict):
+        return None
+    file_strand = str(document.get("strand") or "").strip().upper()[:1]
+    if file_strand and file_strand != strand:
+        return None
+    return document
+
+
 def load_local_bank_items(
     course_code: str,
     module_number: int,
@@ -611,6 +644,8 @@ def load_local_bank_items(
         / "items.json"
     )
     payload = _read_json_file(path)
+    if payload is None and cache_root is None:
+        payload = _read_shipped_m567_bank(course_code, module_number, letter)
     if payload is None:
         return []
     if isinstance(payload, list):

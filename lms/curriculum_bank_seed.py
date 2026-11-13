@@ -517,6 +517,11 @@ def seed_library_import_banks(
     grouped: dict[int, list[dict[str, Any]]] = {}
     for module_number, item in _iter_curriculum_items(code, cache_root):
         grouped.setdefault(int(module_number), []).append(item)
+    if code == "MCF3M":
+        seeded, problem = load_mcf3m_m567_bank_items(_default_mcf3m_m567_bank_dir())
+        if problem is None:
+            for module_number, items in seeded.items():
+                grouped.setdefault(int(module_number), items)
     curriculum: list[dict[str, Any]] = []
     for module_number, items in sorted(grouped.items()):
         curriculum.append(
@@ -643,26 +648,76 @@ def _cartridge_image_gaps(items: list[dict[str, Any]], image_dir: Path) -> list[
     ]
 
 
-def _mcf3m_m567_bank_digest() -> str:
-    """Hash the committed MCF3M module 5–7 bank files.
+def _default_mcf3m_m567_bank_dir() -> Path:
+    """Return the committed directory of MCF3M module 5–7 bank JSON.
+
+    The files sit next to the cartridge images so the production image
+    ships them. ``.local-data/`` is excluded by ``.dockerignore``.
 
     Returns:
-        SHA-256 of those three ``items.json`` files. A missing file still
-        changes the hash, so a partial checkout is applied again when the
-        files arrive.
+        ``lms/seeds/mcf3m_m567_banks``.
     """
     try:
-        from slide_builder import local_curriculum_course_dir
+        from curriculum_bank_images import MCF3M_M567_BANK_DIR
     except ImportError:
-        from lms.slide_builder import local_curriculum_course_dir
+        from lms.curriculum_bank_images import MCF3M_M567_BANK_DIR
 
-    banks = local_curriculum_course_dir("MCF3M", None) / "banks"
+    return MCF3M_M567_BANK_DIR
+
+
+def load_mcf3m_m567_bank_items(
+    banks_dir: Path,
+) -> tuple[dict[int, list[dict[str, Any]]], str | None]:
+    """Load cartridge items for modules 5, 6, and 7.
+
+    Args:
+        banks_dir: Directory containing ``M5.json``, ``M6.json``, and
+            ``M7.json``.
+
+    Returns:
+        Items keyed by module, and a refusal reason. The reason is
+        ``missing-json`` when a file is missing or unreadable, or
+        ``empty-module`` when any module has no stemmed items. The
+        reason is ``None`` when all three modules have items.
+    """
+    if not banks_dir.is_dir():
+        return {}, "missing-json"
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for module_number in _MCK472_MODULES:
+        path = banks_dir / f"M{int(module_number)}.json"
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return {}, "missing-json"
+        raw = document.get("items") if isinstance(document, dict) else None
+        if not isinstance(raw, list):
+            return {}, "missing-json"
+        items = [
+            item
+            for item in raw
+            if isinstance(item, dict) and str(item.get("stem") or "").strip()
+        ]
+        if not items:
+            return {}, "empty-module"
+        grouped[int(module_number)] = items
+    return grouped, None
+
+
+def _mcf3m_m567_bank_digest(banks_dir: Path) -> str:
+    """Hash the three committed module bank files.
+
+    Args:
+        banks_dir: Directory from :func:`load_mcf3m_m567_bank_items`.
+            The caller has already required every file to be readable.
+
+    Returns:
+        SHA-256 of ``M5.json``, ``M6.json``, and ``M7.json`` in that order.
+    """
     hasher = hashlib.sha256()
-    for module_number, strand in ((5, "C"), (6, "C"), (7, "B")):
-        rel = f"M{module_number}/{strand}/items.json"
+    for module_number in _MCK472_MODULES:
+        rel = f"M{int(module_number)}.json"
         hasher.update(rel.encode("utf-8"))
-        path = banks / rel
-        hasher.update(path.read_bytes() if path.is_file() else b"missing")
+        hasher.update((banks_dir / rel).read_bytes())
     return hasher.hexdigest()
 
 
@@ -670,6 +725,7 @@ def apply_mcf3m_m567_cartridge_banks(
     school: Any,
     *,
     image_dir: Path | None = None,
+    banks_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Load MCF3M module 5–7 cartridge banks on boot, including production.
 
@@ -684,11 +740,14 @@ def apply_mcf3m_m567_cartridge_banks(
     volume. Live-presence Postgres is a different store and does not
     hold these banks.
 
-    Before any row changes, every figure those questions reference must
-    be a file in ``image_dir`` (the committed seed directory by default).
-    A missing directory or file logs a warning and returns without
-    inserting questions, moving retired rows, or writing the settings
-    key, so the next boot can try again.
+    The questions are read from ``lms/seeds/mcf3m_m567_banks``, which is
+    copied into the production image. ``.local-data/`` is not. Before
+    any row changes, that JSON must be readable and every module must
+    have at least one item, and every figure those items reference must
+    be a file in ``image_dir``. A missing file, an empty module, or a
+    missing figure logs a warning and returns without inserting
+    questions, moving retired rows, or writing the settings key. The
+    key is also withheld when the upsert would insert nothing.
 
     When the figures are present, the inserts, retire moves, module
     links, and the settings key commit in one ``BEGIN IMMEDIATE``.
@@ -704,15 +763,17 @@ def apply_mcf3m_m567_cartridge_banks(
         image_dir: Directory of cartridge figures. ``None`` uses
             ``lms/seeds/mcf3m_m567_images``. Tests pass a temporary
             directory.
+        banks_dir: Directory of ``M5.json``, ``M6.json``, and ``M7.json``.
+            ``None`` uses ``lms/seeds/mcf3m_m567_banks``.
 
     Returns:
         ``libraries``, ``questions`` inserted on this pass, ``skipped``,
-        and ``applied``. ``reason`` is ``missing-images`` when the apply
-        was refused.
+        and ``applied``. ``reason`` is ``missing-json``, ``empty-module``,
+        or ``missing-images`` when the apply was refused.
     """
     from datetime import datetime, timezone
 
-    digest = _mcf3m_m567_bank_digest()
+    banks = banks_dir if banks_dir is not None else _default_mcf3m_m567_bank_dir()
     rows = school.conn.execute(
         """
         SELECT id FROM content_libraries
@@ -722,6 +783,34 @@ def apply_mcf3m_m567_cartridge_banks(
     ).fetchall()
     if not rows:
         return {"libraries": 0, "questions": 0, "skipped": True, "applied": False}
+    grouped, bank_problem = load_mcf3m_m567_bank_items(banks)
+    if bank_problem:
+        logger.warning(
+            "MCF3M M5-M7 cartridge banks not applied; %s under %s",
+            bank_problem,
+            banks,
+        )
+        return {
+            "libraries": len(rows),
+            "questions": 0,
+            "skipped": True,
+            "applied": False,
+            "reason": bank_problem,
+        }
+    try:
+        digest = _mcf3m_m567_bank_digest(banks)
+    except OSError:
+        logger.warning(
+            "MCF3M M5-M7 cartridge banks not applied; missing-json under %s",
+            banks,
+        )
+        return {
+            "libraries": len(rows),
+            "questions": 0,
+            "skipped": True,
+            "applied": False,
+            "reason": "missing-json",
+        }
     current = school.conn.execute(
         "SELECT value FROM school_settings WHERE key = ?",
         (_MCK472_MARKER,),
@@ -733,10 +822,6 @@ def apply_mcf3m_m567_cartridge_banks(
             "skipped": True,
             "applied": False,
         }
-    grouped: dict[int, list[dict[str, Any]]] = {}
-    for module_number, item in _iter_curriculum_items("MCF3M", None):
-        if int(module_number) in _MCK472_MODULES:
-            grouped.setdefault(int(module_number), []).append(item)
     figures = image_dir if image_dir is not None else _default_cartridge_image_dir()
     pending = [item for module_items in grouped.values() for item in module_items]
     gaps = _cartridge_image_gaps(pending, figures)
@@ -791,6 +876,19 @@ def apply_mcf3m_m567_cartridge_banks(
                             now,
                         ),
                     )
+            if questions == 0:
+                school.conn.execute("ROLLBACK")
+                logger.warning(
+                    "MCF3M M5-M7 cartridge banks not applied; 0 questions under %s",
+                    banks,
+                )
+                return {
+                    "libraries": len(rows),
+                    "questions": 0,
+                    "skipped": True,
+                    "applied": False,
+                    "reason": "empty-module",
+                }
             school.conn.execute(
                 """
                 INSERT INTO school_settings (key, value, updated_at)

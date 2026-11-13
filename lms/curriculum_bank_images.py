@@ -52,6 +52,8 @@ _LMS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _LMS_DIR.parent
 #: Committed MCF3M cartridge figures. The route serves ``cartridge/<file>``.
 CARTRIDGE_IMAGE_DIR = _LMS_DIR / "seeds" / "mcf3m_m567_images"
+#: Committed MCF3M module 5–7 bank JSON. Shipped in the image next to the figures.
+MCF3M_M567_BANK_DIR = _LMS_DIR / "seeds" / "mcf3m_m567_banks"
 
 
 def course_code_token(course_code: str) -> str:
@@ -429,17 +431,40 @@ def audit_bank_images(
     questions_checked = 0
     refs: list[dict[str, Any]] = []
     wanted = {int(number) for number in modules}
-    if not banks.is_dir():
-        return _audit_summary(code, questions_checked, refs)
-    for module_dir in sorted(banks.glob("M*")):
-        if not module_dir.is_dir():
-            continue
-        suffix = module_dir.name[1:]
-        if not suffix.isdigit() or int(suffix) not in wanted:
-            continue
-        module_number = int(suffix)
-        for path in sorted(module_dir.glob("*/items.json")):
-            strand = path.parent.name
+    seen_modules: set[int] = set()
+    if banks.is_dir():
+        for module_dir in sorted(banks.glob("M*")):
+            if not module_dir.is_dir():
+                continue
+            suffix = module_dir.name[1:]
+            if not suffix.isdigit() or int(suffix) not in wanted:
+                continue
+            module_number = int(suffix)
+            seen_modules.add(module_number)
+            for path in sorted(module_dir.glob("*/items.json")):
+                strand = path.parent.name
+                for item in _load_items(path):
+                    questions_checked += 1
+                    question_id = str(
+                        item.get("smart_id") or item.get("id") or ""
+                    ).strip()
+                    for ref in collect_image_refs(item):
+                        refs.append(
+                            _audit_ref(
+                                code,
+                                module_number,
+                                strand,
+                                question_id,
+                                ref,
+                                cache_root=cache_root,
+                            )
+                        )
+    if cache_root is None and code == "MCF3M":
+        for module_number in sorted(wanted & {5, 6, 7}):
+            if module_number in seen_modules:
+                continue
+            path = MCF3M_M567_BANK_DIR / f"M{module_number}.json"
+            strand = ""
             for item in _load_items(path):
                 questions_checked += 1
                 question_id = str(
@@ -671,13 +696,16 @@ def audit_imported_figure_gaps(
     """
     banks = _course_dir("MCF3M", cache_root) / "banks"
     gaps: list[dict[str, str]] = []
-    if not banks.is_dir():
-        return gaps
     for module_number in (5, 6, 7):
+        paths: list[Path] = []
         module_dir = banks / f"M{module_number}"
-        if not module_dir.is_dir():
-            continue
-        for path in sorted(module_dir.glob("*/items.json")):
+        if module_dir.is_dir():
+            paths.extend(sorted(module_dir.glob("*/items.json")))
+        if not paths and cache_root is None:
+            seed = MCF3M_M567_BANK_DIR / f"M{module_number}.json"
+            if seed.is_file():
+                paths.append(seed)
+        for path in paths:
             for item in _load_items(path):
                 question_id = str(item.get("smart_id") or item.get("id") or "").strip()
                 stem = str(item.get("stem") or "")

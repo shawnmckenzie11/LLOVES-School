@@ -484,7 +484,7 @@ class Mcf3mBankImageTests(unittest.TestCase):
         """One missing figure blocks the apply until that file is present."""
         import re
 
-        bank = REPO_ROOT / ".local-data" / "curriculum" / "MCF3M" / "banks" / "M5" / "C" / "items.json"
+        bank = REPO_ROOT / "lms" / "seeds" / "mcf3m_m567_banks" / "M5.json"
         match = re.search(
             r"/curriculum-bank-images/MCF3M/cartridge/([A-Za-z0-9][A-Za-z0-9._-]*)",
             bank.read_text(encoding="utf-8"),
@@ -512,6 +512,137 @@ class Mcf3mBankImageTests(unittest.TestCase):
         self.assertGreater(state["questions"], 0)
         self.assertGreater(state["banks"], 0)
         self.assertIsNotNone(state["key"])
+
+    def test_boot_apply_refuses_when_bank_json_is_missing(self) -> None:
+        """Missing bank JSON does not set the settings key."""
+        missing = Path(self.tmp.name) / "no-such-banks"
+        with self.assertLogs("curriculum_bank_seed", level="WARNING") as logs:
+            refused = apply_mcf3m_m567_cartridge_banks(
+                self.school, banks_dir=missing
+            )
+        self.assertEqual(refused.get("reason"), "missing-json")
+        self.assertFalse(refused["applied"])
+        self.assertEqual(refused["questions"], 0)
+        self.assertTrue(any("missing-json" in line for line in logs.output))
+        self._assert_boot_refused()
+
+    def test_boot_apply_refuses_when_one_module_json_is_empty(self) -> None:
+        """An empty module file does not set the settings key."""
+        banks = Path(self.tmp.name) / "empty-one-module"
+        banks.mkdir()
+        one = {
+            "items": [
+                {
+                    "stem": "A complete stem.",
+                    "origin": "canvas_cartridge",
+                    "smart_id": "keep",
+                    "choices": [
+                        {"id": "a", "html": "yes", "correct": True},
+                        {"id": "b", "html": "no", "correct": False},
+                    ],
+                }
+            ]
+        }
+        (banks / "M5.json").write_text(json.dumps(one), encoding="utf-8")
+        (banks / "M6.json").write_text(json.dumps({"items": []}), encoding="utf-8")
+        (banks / "M7.json").write_text(json.dumps(one), encoding="utf-8")
+        with self.assertLogs("curriculum_bank_seed", level="WARNING") as logs:
+            refused = apply_mcf3m_m567_cartridge_banks(
+                self.school, banks_dir=banks
+            )
+        self.assertEqual(refused.get("reason"), "empty-module")
+        self.assertFalse(refused["applied"])
+        self.assertTrue(any("empty-module" in line for line in logs.output))
+        self._assert_boot_refused()
+
+    def test_docker_context_ships_bank_json_and_referenced_images(self) -> None:
+        """The Docker build context keeps the banks and every figure they cite."""
+        patterns = _dockerignore_patterns(
+            (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+        )
+        hidden = ".local-data/curriculum/MCF3M/banks/M5/C/items.json"
+        self.assertTrue(_dockerignore_excludes(hidden, patterns))
+        banks = REPO_ROOT / "lms" / "seeds" / "mcf3m_m567_banks"
+        images = REPO_ROOT / "lms" / "seeds" / "mcf3m_m567_images"
+        names: set[str] = set()
+        email = __import__("re").compile(
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+        )
+        for module in (5, 6, 7):
+            rel = f"lms/seeds/mcf3m_m567_banks/M{module}.json"
+            path = banks / f"M{module}.json"
+            self.assertTrue(path.is_file(), rel)
+            self.assertFalse(_dockerignore_excludes(rel, patterns), rel)
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(email.findall(text), [])
+            names.update(
+                __import__("re").findall(
+                    r"/curriculum-bank-images/MCF3M/cartridge/([A-Za-z0-9][A-Za-z0-9._-]*)",
+                    text,
+                )
+            )
+        self.assertGreater(len(names), 0)
+        for name in sorted(names):
+            rel = f"lms/seeds/mcf3m_m567_images/{name}"
+            self.assertTrue((images / name).is_file(), rel)
+            self.assertFalse(_dockerignore_excludes(rel, patterns), rel)
+
+
+def _dockerignore_patterns(text: str) -> list[tuple[bool, str]]:
+    """Return ``(negated, pattern)`` rows from a ``.dockerignore`` file.
+
+    Args:
+        text: File contents.
+    """
+    patterns: list[tuple[bool, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        patterns.append((negated, line[1:].strip() if negated else line))
+    return patterns
+
+
+def _dockerignore_excludes(rel: str, patterns: list[tuple[bool, str]]) -> bool:
+    """True when Docker would omit ``rel`` from the build context.
+
+    Args:
+        rel: Path relative to the repository root, using forward slashes.
+        patterns: Rows from :func:`_dockerignore_patterns`.
+    """
+    rel = rel.replace("\\", "/").lstrip("/")
+    excluded = False
+    for negated, pattern in patterns:
+        if _dockerignore_matches(pattern, rel):
+            excluded = not negated
+    return excluded
+
+
+def _dockerignore_matches(pattern: str, rel: str) -> bool:
+    """True when one dockerignore pattern matches ``rel``.
+
+    Args:
+        pattern: One pattern, without a leading ``!``.
+        rel: Repository-relative path.
+    """
+    import fnmatch
+
+    pattern = pattern.replace("\\", "/").strip()
+    if pattern.endswith("/"):
+        folder = pattern.rstrip("/")
+        return rel == folder or rel.startswith(folder + "/")
+    if pattern.startswith("**/"):
+        tail = pattern[3:]
+        parts = rel.split("/")
+        return any(fnmatch.fnmatch(part, tail) for part in parts) or fnmatch.fnmatch(
+            rel, tail
+        )
+    if "/" not in pattern:
+        return any(fnmatch.fnmatch(part, pattern) for part in rel.split("/"))
+    return fnmatch.fnmatch(rel, pattern) or rel == pattern.rstrip("/") or rel.startswith(
+        pattern.rstrip("/") + "/"
+    )
 
 
 if __name__ == "__main__":
