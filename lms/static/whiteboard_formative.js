@@ -129,7 +129,11 @@ export function classBoardPaintMode(ownKey, shownKey) {
 }
 
 /**
- * Legend element already in the page, or a new one above the stage.
+ * Legend element already in the page, or a new one above the opened row.
+ *
+ * A created row sits above ``.wb-live-open`` so it does not push the
+ * canvas down inside the board column. The feedback panel then shares
+ * the canvas top.
  *
  * @param {HTMLCanvasElement} canvas
  * @param {HTMLElement} stage
@@ -144,6 +148,11 @@ function legendHost(canvas, stage) {
   }
   const created = document.createElement("div");
   created.className = "wb-formative-legend";
+  const open = stage.closest(".wb-live-open");
+  if (open instanceof HTMLElement && open.parentElement) {
+    open.parentElement.insertBefore(created, open);
+    return created;
+  }
   stage.parentElement?.insertBefore(created, stage);
   return created;
 }

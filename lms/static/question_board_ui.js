@@ -494,32 +494,44 @@ function teacherGalleryHtml() {
     <div class="wb-live-body">
       <div class="wb-live-grid" data-wb-part="grid"></div>
       <aside class="wb-live-panel" data-wb-part="panel" hidden>
-        <div class="wb-live-panel-bar">
-          <button type="button" data-wb-part="prev" aria-label="Previous board">←</button>
-          <button type="button" data-wb-part="next" aria-label="Next board">→</button>
-          <strong data-wb-part="panel-name">Board</strong>
-          <span class="wb-live-team" data-wb-part="panel-team"></span>
-          <button type="button" data-wb-part="close" aria-label="Close board">×</button>
-        </div>
-        <p class="wb-live-age" data-wb-part="panel-age"></p>
-        <div class="qboard-waits" data-wb-part="waits"></div>
-        <label class="qboard-note-label">Feedback
-          <textarea data-wb-part="note" rows="3" maxlength="500" aria-label="Feedback for this board"></textarea>
-        </label>
-        <button type="button" data-wb-part="save-note">Save feedback</button>
-        <p class="qboard-note hint" data-wb-part="note-status" hidden></p>
-        <div class="wb-live-panel-tools" role="toolbar" aria-label="Whiteboard tools">
-          <button type="button" data-wb-part="pen" class="is-on" aria-pressed="true">Pen</button>
-          <button type="button" data-wb-part="text" aria-pressed="false">Text</button>
-          <button type="button" data-wb-part="erase">Erase</button>
-          <button type="button" data-wb-part="undo">Undo</button>
-          <button type="button" data-wb-part="redo">Redo</button>
-          <button type="button" data-wb-part="show" class="wb-live-show">Show to class</button>
-          <button type="button" data-wb-part="clear">Clear board</button>
-        </div>
         <div class="wb-formative-legend" data-wb-part="legend" hidden></div>
-        <div class="live-canvas-stage wb-live-panel-stage">
-          <canvas class="wb-live-panel-canvas" data-wb-part="panel-canvas" width="720" height="360" aria-label="Whiteboard"></canvas>
+        <div class="wb-live-open">
+          <div class="wb-live-board">
+            <div class="live-canvas-stage wb-live-panel-stage">
+              <canvas class="wb-live-panel-canvas" data-wb-part="panel-canvas" width="720" height="360" aria-label="Whiteboard"></canvas>
+            </div>
+          </div>
+          <div class="wb-live-feedback" data-wb-part="feedback">
+            <div class="wb-live-panel-bar">
+              <div class="wb-live-panel-who">
+                <strong data-wb-part="panel-name">Board</strong>
+                <span class="wb-live-team" data-wb-part="panel-team" hidden></span>
+                <span class="wb-live-panel-status" data-wb-part="panel-status"></span>
+              </div>
+              <div class="wb-live-panel-nav">
+                <button type="button" data-wb-part="prev" aria-label="Previous board">←</button>
+                <button type="button" data-wb-part="next" aria-label="Next board">→</button>
+                <button type="button" data-wb-part="collapse" class="wb-live-collapse" aria-label="Collapse feedback" aria-expanded="true">›</button>
+                <button type="button" data-wb-part="close" aria-label="Close board">×</button>
+              </div>
+            </div>
+            <div class="wb-live-panel-tools" role="toolbar" aria-label="Whiteboard tools">
+              <button type="button" data-wb-part="pen" class="is-on wb-live-pen" aria-pressed="true">Pen</button>
+              <button type="button" data-wb-part="undo">Undo</button>
+              <button type="button" data-wb-part="clear">Clear my ink</button>
+              <button type="button" data-wb-part="text" hidden aria-pressed="false">Text</button>
+              <button type="button" data-wb-part="erase" hidden>Erase</button>
+              <button type="button" data-wb-part="redo" hidden>Redo</button>
+            </div>
+            <p class="wb-live-answer" data-wb-part="answer" hidden></p>
+            <button type="button" class="wb-live-more" data-wb-part="answer-more" hidden>more</button>
+            <label class="qboard-note-label">Feedback
+              <textarea data-wb-part="note" rows="2" maxlength="500" aria-label="Feedback for this board"></textarea>
+            </label>
+            <p class="qboard-note hint" data-wb-part="note-status" hidden></p>
+            <div class="qboard-waits" data-wb-part="waits"></div>
+            <button type="button" data-wb-part="show" class="wb-live-show">Show on board</button>
+          </div>
         </div>
       </aside>
     </div>`;
@@ -579,15 +591,21 @@ function paintWaits(root, tile) {
 function wireBoardNote(root, noteUrl) {
   /** @type {any} */
   let openTile = null;
-  const save = root.querySelector("[data-wb-part='save-note']");
-  if (!(save instanceof HTMLButtonElement)) return { open() {} };
-  save.addEventListener("click", async () => {
-    const key = String(openTile?.copy_run_key ? openTile.board_key : openTile?.board_key || "");
+  const field = root.querySelector("[data-wb-part='note']");
+  if (!(field instanceof HTMLTextAreaElement)) return { open() {} };
+
+  /**
+   * Save the comment already typed for one board.
+   *
+   * There is no Send button. Blur, and leaving the board, write it.
+   *
+   * @param {any} tile
+   * @param {string} text
+   */
+  async function save(tile, text) {
+    const key = String(tile?.board_key || "");
     if (!key) return;
-    const field = root.querySelector("[data-wb-part='note']");
-    const text = field instanceof HTMLTextAreaElement ? field.value : "";
     const status = root.querySelector("[data-wb-part='note-status']");
-    save.disabled = true;
     try {
       const response = await fetch(noteUrl(key), {
         method: "POST",
@@ -596,22 +614,32 @@ function wireBoardNote(root, noteUrl) {
         body: JSON.stringify({ text }),
       });
       const payload = await response.json().catch(() => ({}));
+      if (!(status instanceof HTMLElement)) return;
+      status.hidden = response.ok;
+      if (!response.ok) status.textContent = String(payload.error || "That didn't save.");
+    } catch (_err) {
       if (status instanceof HTMLElement) {
         status.hidden = false;
-        status.textContent = response.ok ? "Feedback saved." : String(payload.error || "That didn't save.");
+        status.textContent = "That didn't save.";
       }
-    } finally {
-      save.disabled = false;
     }
+  }
+
+  field.addEventListener("blur", () => {
+    if (!openTile) return;
+    const text = field.value;
+    if (text === String(openTile.feedback || "")) return;
+    openTile.feedback = text;
+    void save(openTile, text);
   });
   return {
     /**
      * @param {any} tile
      */
     open(tile) {
+      if (openTile && document.activeElement === field) field.blur();
       openTile = tile;
-      const field = root.querySelector("[data-wb-part='note']");
-      if (field instanceof HTMLTextAreaElement) field.value = String(tile?.feedback || "");
+      field.value = String(tile?.feedback || "");
       paintWaits(root, tile);
     },
   };
