@@ -259,7 +259,11 @@ class QuestionBoardTests(unittest.TestCase):
         self.assertIsInstance(int(copies[0]["submitted_by"]), int)
 
     def test_over_cap_submit_is_rejected_and_keeps_the_row(self) -> None:
-        """A drawing over 64 KB is refused and the previous copy stays."""
+        """A drawing over 64 KB is refused and an earlier small copy stays.
+
+        The oversized ink is a second question. A submitted board no longer
+        accepts more strokes, so the cap is checked on the first submit.
+        """
         prompt_id = self._add("Board cap")
         self.school.append_question_board_ops(
             self.session_id, prompt_id, self.ids[0], _stroke("small", 3)
@@ -276,6 +280,8 @@ class QuestionBoardTests(unittest.TestCase):
                 (run_key, f"solo:{self.ids[0]}"),
             ).fetchone()
         self.assertIsNotNone(before)
+        big_id = self._add("Board cap big")
+        big_key = f"{base}~q{big_id}"
         batch = 0
         size = 0
         while size <= COPY_CAP_BYTES and batch < 30:
@@ -283,9 +289,9 @@ class QuestionBoardTests(unittest.TestCase):
             for n in range(10):
                 ops.extend(_stroke(f"big-{batch}-{n}", 90, salt=batch * 10 + n))
             self.school.append_question_board_ops(
-                self.session_id, prompt_id, self.ids[0], ops
+                self.session_id, big_id, self.ids[0], ops
             )
-            rows = self.school.boards.load_keys(run_key, [f"solo:{self.ids[0]}"])
+            rows = self.school.boards.load_keys(big_key, [f"solo:{self.ids[0]}"])
             from question_board import compact_saved_copy
 
             size = copy_byte_size(compact_saved_copy(rows, 10**9))
@@ -293,11 +299,18 @@ class QuestionBoardTests(unittest.TestCase):
         self.assertGreater(size, COPY_CAP_BYTES)
         with self.assertRaises(Exception) as caught:
             self.school.submit_question_board(
-                self.session_id, prompt_id, self.ids[0], ""
+                self.session_id, big_id, self.ids[0], ""
             )
         self.assertEqual(getattr(caught.exception, "status", None), 413)
         self.assertNotIn("655", str(caught.exception))
         with self.school._lock:
+            big_row = self.school.conn.execute(
+                """
+                SELECT id FROM board_answer_copies
+                WHERE run_key = ? AND board_key = ?
+                """,
+                (big_key, f"solo:{self.ids[0]}"),
+            ).fetchone()
             after = self.school.conn.execute(
                 """
                 SELECT strokes_json, board_seq FROM board_answer_copies
@@ -305,6 +318,7 @@ class QuestionBoardTests(unittest.TestCase):
                 """,
                 (run_key, f"solo:{self.ids[0]}"),
             ).fetchone()
+        self.assertIsNone(big_row)
         self.assertEqual(after["strokes_json"], before["strokes_json"])
         self.assertEqual(after["board_seq"], before["board_seq"])
 

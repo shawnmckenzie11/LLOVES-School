@@ -182,11 +182,13 @@ class SwallowedAndShedTests(unittest.TestCase):
     """Silent faults become issues. Busy sheds are one WARNING a minute."""
 
     def setUp(self) -> None:
-        """In-memory Sentry client."""
+        """In-memory Sentry client with no breadcrumbs from earlier tests."""
         self.transport = CaptureTransport()
         options = sentry_init_options("https://public@o0.ingest.sentry.io/1")
         options["traces_sampler"] = lambda _ctx: 0.0
         sentry_sdk.init(transport=self.transport, **options)
+        sentry_sdk.get_isolation_scope().clear_breadcrumbs()
+        sentry_sdk.get_current_scope().clear_breadcrumbs()
 
     def tearDown(self) -> None:
         """Drop the client so later tests are uninstrumented."""

@@ -1200,7 +1200,8 @@ def board_write_closed(exc: BoardSessionClosed):
 
     A missing or mismatched run key on a live session is ``stale_run``.
     An ended session, including a run closed while End is still in
-    progress, is ``ended``. The two flags are not set together.
+    progress, is ``ended``. A student edit after Submit is ``submitted``.
+    Those flags are not set together.
 
     Args:
         exc: Close raised by the session check or the board store.
@@ -1208,6 +1209,8 @@ def board_write_closed(exc: BoardSessionClosed):
     Returns:
         A 409 response.
     """
+    if getattr(exc, "submitted", False):
+        return jsonify({"ok": False, "error": str(exc) or "This board is submitted."}), 409
     if getattr(exc, "question_closed", False):
         return (
             jsonify(

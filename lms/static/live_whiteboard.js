@@ -568,6 +568,8 @@ export function bindWhiteboard(canvas, opts = {}) {
       setCollab: () => {},
       importRemote: () => {},
       applyDelta: () => {},
+      closeTextEntry: () => {},
+      lockEditing: () => {},
     };
   }
   const logicalW = canvas.width || 720;
@@ -593,6 +595,8 @@ export function bindWhiteboard(canvas, opts = {}) {
   let strokeId = "";
   let strokeOwner = "";
   let enabled = true;
+  /** True after a question board is submitted. Strokes, text, undo, redo, and clear stop. */
+  let editingLocked = false;
   let collab = false;
   let tool = "draw";
   let editingId = "";
@@ -983,9 +987,12 @@ export function bindWhiteboard(canvas, opts = {}) {
   };
 
   const syncButtons = () => {
-    if (opts.undoBtn instanceof HTMLButtonElement) opts.undoBtn.disabled = !strokes.length;
-    if (opts.redoBtn instanceof HTMLButtonElement) opts.redoBtn.disabled = !redoStack.length;
-    if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = !strokes.length;
+    const frozen = editingLocked;
+    if (opts.undoBtn instanceof HTMLButtonElement) opts.undoBtn.disabled = frozen || !strokes.length;
+    if (opts.redoBtn instanceof HTMLButtonElement) opts.redoBtn.disabled = frozen || !redoStack.length;
+    if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = frozen || !strokes.length;
+    if (frozen && opts.penBtn instanceof HTMLButtonElement) opts.penBtn.disabled = true;
+    if (frozen && opts.textBtn instanceof HTMLButtonElement) opts.textBtn.disabled = true;
     if (typeof opts.onInkChange === "function") {
       opts.onInkChange(boardHasStroke(strokes.length, current.length));
     }
@@ -1254,7 +1261,7 @@ commitEditor();
   });
 
   canvas.addEventListener("pointerdown", (event) => {
-    if (!enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
+    if (editingLocked || !enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
     if (tool === "text") {
       event.preventDefault();
       const p = norm(point(event));
@@ -1304,6 +1311,13 @@ commitEditor();
    */
   const endStroke = (event) => {
     if (!drawing) return;
+    if (editingLocked) {
+      drawing = false;
+      current = [];
+      pending = [];
+      strokeId = "";
+      return;
+    }
     const lifted = point(event);
     const added = pushPoint(lifted, true);
     const finished = {
@@ -1332,7 +1346,7 @@ commitEditor();
   canvas.addEventListener("pointercancel", endStroke);
 
   opts.undoBtn?.addEventListener("click", () => {
-    if (!strokes.length) return;
+    if (editingLocked || !strokes.length) return;
     const last = strokes.pop();
     if (last) redoStack.push(last);
     if (last && last.mine && collab && typeof opts.onUndo === "function") {
@@ -1342,7 +1356,7 @@ commitEditor();
     syncButtons();
   });
   opts.redoBtn?.addEventListener("click", () => {
-    if (!redoStack.length) return;
+    if (editingLocked || !redoStack.length) return;
     const next = redoStack.pop();
     if (next) strokes.push(next);
     if (next && next.mine && collab && typeof opts.onRedo === "function") {
@@ -1352,13 +1366,14 @@ commitEditor();
     syncButtons();
   });
   opts.penBtn?.addEventListener("click", () => {
+    if (editingLocked) return;
     tool = "draw";
     if (!editor.hidden) commitEditor();
     canvas.style.cursor = "crosshair";
     syncButtons();
   });
   opts.eraseBtn?.addEventListener("click", () => {
-    if (!strokes.length) return;
+    if (editingLocked || !strokes.length) return;
     const gone = isFormative()
       ? strokes.filter((stroke) => stroke.mine)
       : strokes.slice();
@@ -1375,6 +1390,7 @@ commitEditor();
     if (typeof opts.onClear === "function") opts.onClear(gone);
   });
   opts.textBtn?.addEventListener("click", () => {
+    if (editingLocked) return;
     tool = tool === "text" ? "draw" : "text";
     if (tool !== "text") commitEditor();
     canvas.style.cursor = tool === "text" ? "text" : "crosshair";
@@ -1490,10 +1506,44 @@ commitEditor();
   canvas.style.cursor = "crosshair";
   const boardApi = {
     setEnabled: (on) => {
+      if (editingLocked) {
+        enabled = false;
+        hideEditor();
+        return;
+      }
       enabled = Boolean(on);
       if (!enabled) commitEditor();
     },
+    /**
+     * Hide the open text box without storing a new label.
+     *
+     * Submit uses this so an in-progress label does not post after the
+     * board is already sent.
+     */
+    closeTextEntry() {
+      reopen = null;
+      hideEditor();
+    },
+    /**
+     * Stop strokes, text, undo, redo, and clear on this canvas.
+     *
+     * The ink already on the board stays. A later ``setEnabled(true)``
+     * does not unlock it. Question boards call this after Submit.
+     */
+    lockEditing() {
+      editingLocked = true;
+      enabled = false;
+      drawing = false;
+      current = [];
+      pending = [];
+      strokeId = "";
+      tool = "draw";
+      boardApi.closeTextEntry();
+      canvas.style.cursor = "default";
+      syncButtons();
+    },
     clear: () => {
+      if (editingLocked) return;
       strokes = [];
       redoStack = [];
       texts = [];

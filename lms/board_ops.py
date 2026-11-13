@@ -174,10 +174,15 @@ class BoardSessionClosed(Exception):
 
     ``stale_run`` is true when the caller's run key is missing or belongs
     to a different live run. An ended session leaves it false.
+    ``submitted`` is true when a student write hits a question board that
+    has already been submitted. Teacher writes are not this case.
 
     Args:
         message: Short reason stored on the exception.
         stale_run: True when the run key does not match the live run.
+        question_closed: True when a question board was closed. The class
+            itself has not ended.
+        submitted: True when the question copy is already submitted.
     """
 
     def __init__(
@@ -186,6 +191,7 @@ class BoardSessionClosed(Exception):
         *,
         stale_run: bool = False,
         question_closed: bool = False,
+        submitted: bool = False,
     ) -> None:
         """Record whether the rejection is a stale run rather than an end.
 
@@ -194,10 +200,12 @@ class BoardSessionClosed(Exception):
             stale_run: True when the run key is missing or not current.
             question_closed: True when a question board was closed. The
                 class itself has not ended.
+            submitted: True when student ink arrives after Submit.
         """
         super().__init__(message)
         self.stale_run = bool(stale_run)
         self.question_closed = bool(question_closed)
+        self.submitted = bool(submitted)
 
 
 def normalize_board_key(raw: Any) -> str:
@@ -1135,11 +1143,57 @@ class _BoardStore:
         Returns:
             Rows ordered by board key then sequence.
         """
-        if keys is not None and not keys:
+        query = self._keys_query(run_key, keys)
+        if query is None:
             return []
+        return self._read(query)
+
+    def load_keys_held(
+        self, run_key: str, keys: list[str] | None
+    ) -> list[dict[str, Any]]:
+        """Load rows while the caller already holds the write lock.
+
+        Submit holds the school lock for the snapshot and the copy write.
+        Sqlite ``load_keys`` would take that lock again and deadlock.
+        Postgres ``_read`` does not take ``write_lock``, so this read
+        stays inside the lock Submit and the ink writers share.
+
+        Args:
+            run_key: Key minted when this live run started.
+            keys: Board keys. ``None`` loads every board in the session.
+                An empty list loads nothing.
+
+        Returns:
+            Rows ordered by board key then sequence.
+        """
+        query = self._keys_query(run_key, keys)
+        if query is None:
+            return []
+        return self._read_unlocked(query)
+
+    def _keys_query(
+        self, run_key: str, keys: list[str] | None
+    ) -> Callable[[Exec], list[dict[str, Any]]] | None:
+        """Build the SELECT used by ``load_keys``.
+
+        Args:
+            run_key: Key minted when this live run started.
+            keys: Board keys. ``None`` loads every board. An empty list
+                loads nothing.
+
+        Returns:
+            A statement callable, or ``None`` when there is nothing to read.
+        """
+        if keys is not None and not keys:
+            return None
         cleaned = [normalize_board_key(key) for key in keys] if keys is not None else None
 
         def work(exec_: Exec) -> list[dict[str, Any]]:
+            """Read the requested board rows.
+
+            Args:
+                exec_: Statement runner for the open connection.
+            """
             if cleaned is None:
                 cursor = exec_(
                     """
@@ -1163,6 +1217,17 @@ class _BoardStore:
                 )
             return [_row_dict(row) for row in cursor.fetchall()]
 
+        return work
+
+    def _read_unlocked(self, work: Callable[[Exec], Any]) -> Any:
+        """Run a read without taking the write lock again.
+
+        Postgres does not lock inside ``_read``. Sqlite overrides this
+        so a caller that already holds ``self.lock`` does not deadlock.
+
+        Args:
+            work: Statement body.
+        """
         return self._read(work)
 
     def purge_board_key(self, run_key: str, board_key: str) -> None:
@@ -1787,6 +1852,7 @@ class _BoardStore:
             if existing is not None:
                 existing["duplicate"] = True
                 return existing
+        self._refuse_submitted_student(exec_, run_key, board_key, owner)
         current = self._current_seq(exec_, run_key, board_key)
         if not ops:
             return {
@@ -1933,6 +1999,35 @@ class _BoardStore:
             return 0
         return int(row.get("next_seq") or 0)
 
+    def _refuse_submitted_student(
+        self,
+        exec_: Exec,
+        run_key: str,
+        board_key: str,
+        owner: str,
+    ) -> None:
+        """Reject student ink on a submitted question board.
+
+        The check uses ``exec_`` so it joins the insert transaction. A
+        teacher write, including Clear, is allowed. Deck and catch-up
+        run keys are not question copies.
+
+        Args:
+            exec_: Open transaction statement runner.
+            run_key: Run key the ops will be stored under.
+            board_key: Board the ops will land on.
+            owner: Writer. ``teacher`` is never refused.
+
+        Raises:
+            BoardSessionClosed: The question copy is already submitted.
+                ``submitted`` is true.
+        """
+        from question_board import LOCKED_LINE, refuse_submitted_student_ink
+
+        refuse_submitted_student_ink(
+            exec_, run_key, board_key, owner, message=LOCKED_LINE
+        )
+
     def _transaction(self, work: Callable[[Exec], Any]) -> Any:
         """Run ``work`` inside one write transaction.
 
@@ -2030,6 +2125,16 @@ class SqliteBoardOps(_BoardStore):
         """
         with self.lock:
             return work(self._exec)
+
+    def _read_unlocked(self, work: Callable[[Exec], Any]) -> Any:
+        """Run a read without taking ``self.lock``.
+
+        Submit already holds that lock. Taking it again deadlocks.
+
+        Args:
+            work: Statement body.
+        """
+        return work(self._exec)
 
     def _begin(self) -> None:
         """Start a reserved write transaction, closing one already open.
@@ -2130,16 +2235,89 @@ class PostgresBoardOps(_BoardStore):
                     else:
                         raw.execute("RELEASE SAVEPOINT ddl_step")
 
+    def _refuse_submitted_student(
+        self,
+        exec_: Exec,
+        run_key: str,
+        board_key: str,
+        owner: str,
+    ) -> None:
+        """Reject student ink using the school lookup, not this connection.
+
+        Question copies live on the school database. This connection does
+        not have that table, so a SQL check here would abort the Postgres
+        transaction. ``write_lock`` is held around the whole transaction
+        by ``_transaction``, the same lock Submit holds while it commits.
+
+        Args:
+            exec_: Unused Postgres statement runner.
+            run_key: Run key the ops will be stored under.
+            board_key: Board the ops will land on.
+            owner: Writer. ``teacher`` is never refused.
+
+        Raises:
+            BoardSessionClosed: The question copy is already submitted.
+        """
+        _ = exec_
+        lookup = getattr(self, "submitted_lookup", None)
+        if lookup is None or not lookup(run_key, board_key, owner):
+            return
+        raise BoardSessionClosed("This board is submitted.", submitted=True)
+
     def _transaction(self, work: Callable[[Exec], Any]) -> Any:
         """Run ``work`` in one Postgres transaction on a pooled connection.
+
+        ``write_lock``, when set, is the school lock Submit holds. The
+        ink check and the insert then cannot interleave with Submit.
 
         Args:
             work: Statement body.
         """
-        with self.presence._conn() as wrapped:
-            raw = wrapped.connection
-            with raw.transaction():
-                return work(_pg_exec(raw))
+        lock = getattr(self, "write_lock", None)
+
+        def body() -> Any:
+            """Reserve the school transaction, then write Postgres.
+
+            The school ``BEGIN IMMEDIATE`` is held until the Postgres
+            transaction commits, so Submit cannot snapshot a gap and a
+            stroke cannot insert after that snapshot.
+            """
+            self._hold_school()
+            try:
+                with self.presence._conn() as wrapped:
+                    raw = wrapped.connection
+                    with raw.transaction():
+                        result = work(_pg_exec(raw))
+            except Exception:
+                self._drop_school(commit=False)
+                raise
+            self._drop_school(commit=True)
+            return result
+
+        if lock is None:
+            return body()
+        with lock:
+            return body()
+
+    def _hold_school(self) -> None:
+        """Open the school write transaction when SchoolDB wired one.
+
+        A store built without the school database, such as a schema
+        test, writes Postgres alone.
+        """
+        reserve = getattr(self, "reserve_school", None)
+        if reserve is not None:
+            reserve()
+
+    def _drop_school(self, *, commit: bool) -> None:
+        """Finish the school transaction opened for this ink write.
+
+        Args:
+            commit: True releases the reservation. False rolls it back.
+        """
+        release = getattr(self, "release_school", None)
+        if release is not None:
+            release(commit=commit)
 
     def _read(self, work: Callable[[Exec], Any]) -> Any:
         """Run a read on a pooled autocommit connection.

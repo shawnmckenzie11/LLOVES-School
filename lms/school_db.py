@@ -2625,6 +2625,73 @@ class LovesDB:
         events.ensure_schema()
         self.engagement = events
 
+    def _student_question_ink_locked(self, run_key: str, board_key: str, owner: str) -> bool:
+        """True when this student write would change a submitted question.
+
+        Postgres board ops cannot see ``board_answer_copies``. The store
+        calls this inside the school transaction it reserved, the same
+        transaction Submit holds until the copy commits. A team copy
+        covers every member, not only the key this write computed.
+        Teacher Clear is not locked.
+
+        Args:
+            run_key: Run key the ops will be stored under.
+            board_key: Board the ops will land on.
+            owner: Writer. ``teacher`` is never locked.
+        """
+        if str(owner or "").strip() == "teacher":
+            return False
+        try:
+            from question_board import parse_board_run_key, submitted_copy_covers
+        except ImportError:
+            from lms.question_board import parse_board_run_key, submitted_copy_covers
+        try:
+            if parse_board_run_key(run_key).kind != "question":
+                return False
+        except ValueError:
+            return False
+        try:
+            rows = self.conn.execute(
+                """
+                SELECT board_key, member_ids_json, submitted_at
+                FROM board_answer_copies
+                WHERE run_key = ?
+                """,
+                (str(run_key),),
+            ).fetchall()
+        except Exception as exc:  # noqa: BLE001 - copies table missing in a private db
+            if "no such table" not in str(exc).lower():
+                raise
+            return False
+        return submitted_copy_covers(rows, board_key, owner)
+
+    def _reserve_question_ink(self) -> None:
+        """Begin the school write transaction for a Postgres ink write.
+
+        Submit commits the saved copy on this connection. Holding
+        ``BEGIN IMMEDIATE`` until the Postgres insert commits means a
+        stroke cannot land after the snapshot and before ``submitted_at``.
+        A caller that already has a transaction keeps it.
+        """
+        if self.conn.in_transaction:
+            self._question_ink_reserved = False
+            return
+        self.conn.execute("BEGIN IMMEDIATE")
+        self._question_ink_reserved = True
+
+    def _release_question_ink(self, *, commit: bool) -> None:
+        """Finish a transaction opened by ``_reserve_question_ink``.
+
+        Args:
+            commit: True releases the reservation. False rolls it back.
+        """
+        if not getattr(self, "_question_ink_reserved", False):
+            return
+        self._question_ink_reserved = False
+        if not self.conn.in_transaction:
+            return
+        self.conn.execute("COMMIT" if commit else "ROLLBACK")
+
     def _install_postgres_board_ops(self, presence: Any) -> None:
         """Point board ops at Postgres and create the tables under an advisory lock.
 
@@ -2634,6 +2701,10 @@ class LovesDB:
         from board_ops import PostgresBoardOps
 
         store = PostgresBoardOps(presence)
+        store.write_lock = self._lock
+        store.submitted_lookup = self._student_question_ink_locked
+        store.reserve_school = self._reserve_question_ink
+        store.release_school = self._release_question_ink
         store.ensure_schema()
         self.boards = store
         from engagement_events import PostgresEngagementEvents
@@ -23772,7 +23843,8 @@ class SchoolDB(LovesDB):
 
         The card is the same for every student at publish. It has no answer
         key, roster, names, or emails. Keyed rank ids are the student
-        aliases, in the stored display order.
+        aliases, in the stored display order. A board question keeps
+        ``answer_with`` so the phone does not swap the board for a text box.
 
         Args:
             item: Published lifecycle row from ``publish_live_session_item``.
@@ -23811,7 +23883,7 @@ class SchoolDB(LovesDB):
         ):
             flow = GROUP_MC_PICK_THEN_AGREE
         prompt_id = item.get("prompt_id")
-        return {
+        card = {
             "item_id": int(item["id"]),
             "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
             "kind": kind,
@@ -23821,6 +23893,10 @@ class SchoolDB(LovesDB):
             "flow": flow,
             "rank_mode": rank_mode,
         }
+        answer_with = str(question.get("answer_with") or "").strip().lower()
+        if answer_with in {"board", "both"}:
+            card["answer_with"] = answer_with
+        return card
 
     def close_live_session_item(
         self, session_id: int, placement_or_item: str | int, *, by_timer: bool = False

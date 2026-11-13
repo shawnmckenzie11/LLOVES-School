@@ -757,6 +757,15 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   min-width: 0;
 }
 
+.qboard-phone .prompt-submit[hidden] {
+  display: none;
+}
+
+.qboard-phone .live-canvas-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .qboard-dash .wb-live {
   min-height: 28rem;
 }

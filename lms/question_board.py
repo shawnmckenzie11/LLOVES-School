@@ -22,6 +22,7 @@ DOWN_LINE = "That didn't go through. Your drawing is safe, so press Submit again
 CLOSED_LINE = "This question is closed."
 EMPTY_LINE = "Add an answer before submitting."
 GATE_LINE = "Everyone on the team adds something to the board before Submit."
+LOCKED_LINE = "This board is submitted."
 TEXT_LINE = "That text is too long."
 FEEDBACK_CAP = 500
 ROUND_DIGITS = 3
@@ -590,6 +591,138 @@ def _require_open_item(item: dict[str, Any]) -> None:
     raise QuestionBoardError(CLOSED_LINE, 409)
 
 
+def _copy_field(row: Any, name: str, index: int) -> Any:
+    """Read one column from a sqlite row or a plain sequence.
+
+    Args:
+        row: Driver row or dict.
+        name: Column name when the row has keys.
+        index: Position when the row is a sequence.
+    """
+    if isinstance(row, dict) or hasattr(row, "keys"):
+        return row[name]
+    return row[index]
+
+
+def submitted_copy_covers(rows: Any, board_key: str, owner: str) -> bool:
+    """True when a submitted copy on this run covers the writer.
+
+    An exact board key matches that tile. A group Submit stores the copy
+    under the team key and lists the members, so a later write that the
+    canvas routes onto ``solo:<id>`` is the same question.
+
+    Args:
+        rows: Copy rows with ``board_key``, ``member_ids_json``, and
+            ``submitted_at``.
+        board_key: Key the write would land on.
+        owner: Writer. A numeric roster id is matched to members.
+    """
+    owner_s = str(owner or "").strip()
+    owner_id = int(owner_s) if owner_s.isdigit() else None
+    wanted = str(board_key or "")
+    for row in rows:
+        submitted = _copy_field(row, "submitted_at", 2)
+        if not str(submitted or "").strip():
+            continue
+        key = str(_copy_field(row, "board_key", 0) or "")
+        if key == wanted or (owner_s and key == f"solo:{owner_s}"):
+            return True
+        if owner_id is None:
+            continue
+        raw = _copy_field(row, "member_ids_json", 1)
+        try:
+            members = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            members = []
+        if not isinstance(members, list):
+            continue
+        for member in members:
+            try:
+                if int(member) == owner_id:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
+def refuse_submitted_student_ink(
+    exec_: Any,
+    run_key: str,
+    board_key: str,
+    owner: str,
+    *,
+    message: str = LOCKED_LINE,
+) -> None:
+    """Refuse a student write when this question run is already submitted.
+
+    The SELECT uses ``exec_`` so it joins the transaction that will insert
+    the ops. The match is the run, not only the key the writer computed:
+    a team copy covers every member. Teacher writes, including Clear, are
+    allowed. A run key that is not a live question (the deck board, a
+    fresh board, or catch-up) is ignored. A store that has no copy table
+    is not a submitted board.
+
+    Args:
+        exec_: ``execute(sql, params)`` for the open board transaction.
+        run_key: Run key the ops will be stored under.
+        board_key: Board the ops will land on.
+        owner: Writer. ``teacher`` is never refused.
+        message: Line raised when the copy is submitted.
+
+    Raises:
+        BoardSessionClosed: Student ink after Submit. ``submitted`` is true.
+    """
+    from board_ops import BoardSessionClosed
+
+    if str(owner or "").strip() == "teacher":
+        return
+    try:
+        parsed = parse_board_run_key(run_key)
+    except ValueError:
+        return
+    if parsed.kind != "question":
+        return
+    try:
+        cursor = exec_(
+            """
+            SELECT board_key, member_ids_json, submitted_at
+            FROM board_answer_copies
+            WHERE run_key = ?
+            """,
+            (str(run_key),),
+        )
+    except Exception as exc:  # noqa: BLE001 - a private board db has no copies
+        if "no such table" not in str(exc).lower():
+            raise
+        return
+    if submitted_copy_covers(cursor.fetchall(), board_key, owner):
+        raise BoardSessionClosed(message, submitted=True)
+
+
+def _copy_is_submitted(school: Any, class_id: int, run_key: str, board_key: str) -> bool:
+    """True when this question board already has a submitted copy.
+
+    Student strokes, text, undo, clear, drafts, and a second submit stop
+    here. Teacher ink does not call this, so the gallery can still mark
+    the board the class already sent.
+
+    Args:
+        school: Open school database.
+        class_id: ``classes.id``.
+        run_key: Question run key.
+        board_key: ``solo:`` or ``team:`` key.
+    """
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT submitted_at FROM board_answer_copies
+            WHERE class_id = ? AND run_key = ? AND board_key = ?
+            """,
+            (int(class_id), run_key, board_key),
+        ).fetchone()
+    return bool(row and str(row["submitted_at"] or "").strip())
+
+
 def _board_rows(school: Any, run_key: str, board_key: str) -> tuple[list[dict[str, Any]], int]:
     """Read one board's fold source. A store failure is a 503.
 
@@ -608,6 +741,46 @@ def _board_rows(school: Any, run_key: str, board_key: str) -> tuple[list[dict[st
         rows = list(boards.load_keys(str(run_key), [str(board_key)]))
     except Exception as exc:  # noqa: BLE001 - Postgres down or a closed pool
         raise QuestionBoardError(DOWN_LINE, 503) from exc
+    seq = 0
+    for row in rows:
+        try:
+            seq = max(seq, int(row.get("board_seq") or 0))
+        except (TypeError, ValueError):
+            continue
+    return rows, seq
+
+
+def _board_rows_held(
+    school: Any, run_key: str, board_key: str
+) -> tuple[list[dict[str, Any]], int]:
+    """Read one board's ops from the store that holds the ink.
+
+    Caller holds the school lock and its write transaction. ``load_keys``
+    on sqlite would take that lock again, so this uses ``load_keys_held``.
+    When live presence is Postgres, the rows come from that store. The
+    open school transaction keeps a stroke from committing until the
+    copy is written.
+
+    Args:
+        school: Open school database. Caller holds its lock.
+        run_key: Question run key.
+        board_key: ``solo:`` or ``team:`` key.
+
+    Returns:
+        Rows and the highest sequence, or 0 when the board is empty.
+    """
+    boards = getattr(school, "boards", None)
+    if boards is None:
+        raise QuestionBoardError(DOWN_LINE, 503)
+    reader = getattr(boards, "load_keys_held", None)
+    try:
+        if reader is None:
+            rows = list(boards.load_keys(str(run_key), [str(board_key)]))
+        else:
+            rows = list(reader(str(run_key), [str(board_key)]))
+    except Exception as exc:  # noqa: BLE001 - Postgres down or a closed pool
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
+    rows = [dict(row) for row in rows]
     seq = 0
     for row in rows:
         try:
@@ -1194,7 +1367,9 @@ def submit_live_board(
 
     Order: read the fold, compact, strip names, check the cap, then write
     the copy and the answer rows in one transaction. An older fold cannot
-    replace a newer copy. A closed question changes nothing.
+    replace a newer copy. A closed question changes nothing. Any error
+    after the write transaction opens rolls it back, including a failed
+    read of the ink store.
 
     Args:
         school: Open school database.
@@ -1224,34 +1399,16 @@ def submit_live_board(
     board_key, group = _resolve_board_key(
         school, int(session_id), int(student_id), item
     )
-    rows, seq = _board_rows(school, run_key, board_key)
-    copy = compact_saved_copy(rows, seq)
-    size = copy_byte_size(copy)
-    if size > COPY_CAP_BYTES:
-        raise QuestionBoardError(SIZE_LINE, 413)
-    strokes = copy.get("strokes") or []
-    labels = copy.get("texts") or []
-    if not strokes and not labels and not typed.strip():
-        raise QuestionBoardError(EMPTY_LINE, 400)
-    mode = answer_with_of(payload)
-    if mode == "board" and not strokes and not labels:
-        raise QuestionBoardError(EMPTY_LINE, 400)
+    gate_rows, _gate_seq = _board_rows(school, run_key, board_key)
     members = _member_ids(
         school, int(session_id), group=group, student_id=int(student_id), board_key=board_key
     )
-    if group and _gate_members(school, item, members, rows):
+    if group and _gate_members(school, item, members, gate_rows):
         raise QuestionBoardError(GATE_LINE, 409)
+    mode = answer_with_of(payload)
     now = _now_stamp(school)
-    blob = copy_json(copy)
     prior = None
     with school._lock:
-        prior = school.conn.execute(
-            """
-            SELECT submitted_at, board_seq FROM board_answer_copies
-            WHERE class_id = ? AND run_key = ? AND board_key = ?
-            """,
-            (int(_session["class_id"]), run_key, board_key),
-        ).fetchone()
         started = _begin_immediate(school)
         try:
             fresh = school.conn.execute(
@@ -1259,8 +1416,28 @@ def submit_live_board(
                 (int(item["id"]),),
             ).fetchone()
             if fresh is None or str(fresh["status"] or "") != "active":
-                _abort_write(school, started)
                 raise QuestionBoardError(CLOSED_LINE, 409)
+            rows, seq = _board_rows_held(school, run_key, board_key)
+            copy = compact_saved_copy(rows, seq)
+            size = copy_byte_size(copy)
+            if size > COPY_CAP_BYTES:
+                raise QuestionBoardError(SIZE_LINE, 413)
+            strokes = copy.get("strokes") or []
+            labels = copy.get("texts") or []
+            if not strokes and not labels and not typed.strip():
+                raise QuestionBoardError(EMPTY_LINE, 400)
+            if mode == "board" and not strokes and not labels:
+                raise QuestionBoardError(EMPTY_LINE, 400)
+            prior = school.conn.execute(
+                """
+                SELECT submitted_at, board_seq FROM board_answer_copies
+                WHERE class_id = ? AND run_key = ? AND board_key = ?
+                """,
+                (int(_session["class_id"]), run_key, board_key),
+            ).fetchone()
+            if prior is not None and str(prior["submitted_at"] or "").strip():
+                raise QuestionBoardError(LOCKED_LINE, 409)
+            blob = copy_json(copy)
             landed = _upsert_copy(
                 school,
                 class_id=int(_session["class_id"]),
@@ -1293,11 +1470,11 @@ def submit_live_board(
                     now=now,
                 )
             _finish_write(school, started)
-        except QuestionBoardError:
-            raise
-        except Exception:
+        finally:
+            # A committed write is not in a transaction, so this is a no-op
+            # on success. Every error, including a 503 from the ink snapshot,
+            # rolls back the school transaction this call opened.
             _abort_write(school, started)
-            raise
     updated = bool(prior and str(prior["submitted_at"] or "").strip())
     return {
         "ok": True,
@@ -1306,6 +1483,8 @@ def submit_live_board(
         "group": group,
         "answer": pointer,
         "submitted_by": int(student_id),
+        "status_line": "Submitted.",
+        "editing_locked": True,
     }
 
 
@@ -1350,6 +1529,8 @@ def save_team_draft(
             """,
             (int(session["class_id"]), run_key, board_key),
         ).fetchone()
+        if row is not None and str(row["submitted_at"] or "").strip():
+            raise QuestionBoardError(LOCKED_LINE, 409)
         if row is not None and not str(row["submitted_at"] or "").strip():
             try:
                 previous = datetime.fromisoformat(str(row["updated_at"] or ""))
@@ -1686,8 +1867,9 @@ def read_student_question_board(
     """Whole board for one student, including their own ink.
 
     After Close the phone is read-only and shows the saved copy when one
-    exists. Teacher ink is included immediately. ``since`` selects the
-    same since-seq shape the live whiteboard poll uses.
+    exists. After Submit, ``editing_locked`` is true: the drawing stays
+    visible and student edits stop. Teacher ink is included immediately.
+    ``since`` selects the same since-seq shape the live whiteboard poll uses.
 
     Args:
         school: Open school database.
@@ -1731,11 +1913,9 @@ def read_student_question_board(
     who_name = names.get(who_id, "") if who_id is not None else ""
     line = ""
     if submitted_at and group and who_name:
-        line = f"Submitted by {who_name}. Anyone on your team can update it."
-        if str(saved.get("updated_at") or "") != submitted_at:
-            line = f"Updated by {who_name}."
+        line = f"Submitted by {who_name}."
     elif submitted_at:
-        line = "Submitted. You can still make changes."
+        line = "Submitted."
     body = {
         "ok": True,
         "run_key": run_key,
@@ -1744,6 +1924,7 @@ def read_student_question_board(
         "snapshot": True,
         "canvas_view": view,
         "read_only": closed or str(session.get("status") or "") != "active",
+        "editing_locked": bool(submitted_at),
         "group": group,
         "viewer_id": int(student_id),
         "answer_with": answer_with_of(payload),
@@ -1790,7 +1971,8 @@ def append_question_board_ops(
     """Append ink on this question's board and nowhere else.
 
     The server chooses a student's board key. A teacher passes the tile
-    key. A closed question is a 409 and stores nothing.
+    key. A closed question is a 409 and stores nothing. A submitted
+    board refuses student ops and still accepts teacher ink.
 
     Args:
         school: Open school database.
@@ -1937,7 +2119,7 @@ def apply_question_presence(
 
     Points, text, and undo use the same board store as the live
     whiteboard. The question run key keeps this ink off the deck board.
-    Names are not copied onto the stroke.
+    Names are not copied onto the stroke. A submitted board stores nothing.
 
     Args:
         school: Open school database.
@@ -2004,6 +2186,8 @@ def apply_question_presence(
                 client_batch_id=batch,
             )
     except BoardSessionClosed as exc:
+        if getattr(exc, "submitted", False):
+            raise QuestionBoardError(LOCKED_LINE, 409) from exc
         raise QuestionBoardError(CLOSED_LINE, 409) from exc
     except BoardOpRejected as exc:
         raise QuestionBoardError("That stroke is not yours.", 403) from exc
@@ -2787,6 +2971,8 @@ def apply_catchup_presence(
                 client_batch_id=batch,
             )
     except BoardSessionClosed as exc:
+        if getattr(exc, "submitted", False):
+            raise QuestionBoardError(LOCKED_LINE, 409) from exc
         raise QuestionBoardError(CLOSED_LINE, 409) from exc
     except BoardOpRejected as exc:
         raise QuestionBoardError("That stroke is not yours.", 403) from exc
