@@ -591,6 +591,60 @@ def _require_open_item(item: dict[str, Any]) -> None:
     raise QuestionBoardError(CLOSED_LINE, 409)
 
 
+def _copy_field(row: Any, name: str, index: int) -> Any:
+    """Read one column from a sqlite row or a plain sequence.
+
+    Args:
+        row: Driver row or dict.
+        name: Column name when the row has keys.
+        index: Position when the row is a sequence.
+    """
+    if isinstance(row, dict) or hasattr(row, "keys"):
+        return row[name]
+    return row[index]
+
+
+def submitted_copy_covers(rows: Any, board_key: str, owner: str) -> bool:
+    """True when a submitted copy on this run covers the writer.
+
+    An exact board key matches that tile. A group Submit stores the copy
+    under the team key and lists the members, so a later write that the
+    canvas routes onto ``solo:<id>`` is the same question.
+
+    Args:
+        rows: Copy rows with ``board_key``, ``member_ids_json``, and
+            ``submitted_at``.
+        board_key: Key the write would land on.
+        owner: Writer. A numeric roster id is matched to members.
+    """
+    owner_s = str(owner or "").strip()
+    owner_id = int(owner_s) if owner_s.isdigit() else None
+    wanted = str(board_key or "")
+    for row in rows:
+        submitted = _copy_field(row, "submitted_at", 2)
+        if not str(submitted or "").strip():
+            continue
+        key = str(_copy_field(row, "board_key", 0) or "")
+        if key == wanted or (owner_s and key == f"solo:{owner_s}"):
+            return True
+        if owner_id is None:
+            continue
+        raw = _copy_field(row, "member_ids_json", 1)
+        try:
+            members = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            members = []
+        if not isinstance(members, list):
+            continue
+        for member in members:
+            try:
+                if int(member) == owner_id:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
 def refuse_submitted_student_ink(
     exec_: Any,
     run_key: str,
@@ -599,12 +653,14 @@ def refuse_submitted_student_ink(
     *,
     message: str = LOCKED_LINE,
 ) -> None:
-    """Refuse a student write when this question copy is already submitted.
+    """Refuse a student write when this question run is already submitted.
 
     The SELECT uses ``exec_`` so it joins the transaction that will insert
-    the ops. Teacher writes, including Clear, are allowed. A run key that
-    is not a live question (the deck board, a fresh board, or catch-up)
-    is ignored. A store that has no copy table is not a submitted board.
+    the ops. The match is the run, not only the key the writer computed:
+    a team copy covers every member. Teacher writes, including Clear, are
+    allowed. A run key that is not a live question (the deck board, a
+    fresh board, or catch-up) is ignored. A store that has no copy table
+    is not a submitted board.
 
     Args:
         exec_: ``execute(sql, params)`` for the open board transaction.
@@ -629,21 +685,17 @@ def refuse_submitted_student_ink(
     try:
         cursor = exec_(
             """
-            SELECT submitted_at FROM board_answer_copies
-            WHERE run_key = ? AND board_key = ?
-            LIMIT 1
+            SELECT board_key, member_ids_json, submitted_at
+            FROM board_answer_copies
+            WHERE run_key = ?
             """,
-            (str(run_key), str(board_key)),
+            (str(run_key),),
         )
     except Exception as exc:  # noqa: BLE001 - a private board db has no copies
         if "no such table" not in str(exc).lower():
             raise
         return
-    row = cursor.fetchone()
-    if row is None:
-        return
-    submitted = row["submitted_at"] if hasattr(row, "keys") else row[0]
-    if str(submitted or "").strip():
+    if submitted_copy_covers(cursor.fetchall(), board_key, owner):
         raise BoardSessionClosed(message, submitted=True)
 
 
@@ -701,11 +753,13 @@ def _board_rows(school: Any, run_key: str, board_key: str) -> tuple[list[dict[st
 def _board_rows_held(
     school: Any, run_key: str, board_key: str
 ) -> tuple[list[dict[str, Any]], int]:
-    """Read one board's ops on the open school transaction.
+    """Read one board's ops from the store that holds the ink.
 
-    ``load_keys`` takes the school lock again. Submit already holds that
-    lock, so this reads the connection directly and sees ink that committed
-    before this transaction started.
+    Caller holds the school lock and its write transaction. ``load_keys``
+    on sqlite would take that lock again, so this uses ``load_keys_held``.
+    When live presence is Postgres, the rows come from that store. The
+    open school transaction keeps a stroke from committing until the
+    copy is written.
 
     Args:
         school: Open school database. Caller holds its lock.
@@ -715,16 +769,18 @@ def _board_rows_held(
     Returns:
         Rows and the highest sequence, or 0 when the board is empty.
     """
-    cursor = school.conn.execute(
-        """
-        SELECT board_key, board_seq, op, owner, created_at, stroke_id
-        FROM board_ops
-        WHERE run_key = ? AND board_key = ?
-        ORDER BY board_seq ASC
-        """,
-        (str(run_key), str(board_key)),
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
+    boards = getattr(school, "boards", None)
+    if boards is None:
+        raise QuestionBoardError(DOWN_LINE, 503)
+    reader = getattr(boards, "load_keys_held", None)
+    try:
+        if reader is None:
+            rows = list(boards.load_keys(str(run_key), [str(board_key)]))
+        else:
+            rows = list(reader(str(run_key), [str(board_key)]))
+    except Exception as exc:  # noqa: BLE001 - Postgres down or a closed pool
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
+    rows = [dict(row) for row in rows]
     seq = 0
     for row in rows:
         try:

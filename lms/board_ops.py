@@ -1143,11 +1143,57 @@ class _BoardStore:
         Returns:
             Rows ordered by board key then sequence.
         """
-        if keys is not None and not keys:
+        query = self._keys_query(run_key, keys)
+        if query is None:
             return []
+        return self._read(query)
+
+    def load_keys_held(
+        self, run_key: str, keys: list[str] | None
+    ) -> list[dict[str, Any]]:
+        """Load rows while the caller already holds the write lock.
+
+        Submit holds the school lock for the snapshot and the copy write.
+        Sqlite ``load_keys`` would take that lock again and deadlock.
+        Postgres ``_read`` does not take ``write_lock``, so this read
+        stays inside the lock Submit and the ink writers share.
+
+        Args:
+            run_key: Key minted when this live run started.
+            keys: Board keys. ``None`` loads every board in the session.
+                An empty list loads nothing.
+
+        Returns:
+            Rows ordered by board key then sequence.
+        """
+        query = self._keys_query(run_key, keys)
+        if query is None:
+            return []
+        return self._read_unlocked(query)
+
+    def _keys_query(
+        self, run_key: str, keys: list[str] | None
+    ) -> Callable[[Exec], list[dict[str, Any]]] | None:
+        """Build the SELECT used by ``load_keys``.
+
+        Args:
+            run_key: Key minted when this live run started.
+            keys: Board keys. ``None`` loads every board. An empty list
+                loads nothing.
+
+        Returns:
+            A statement callable, or ``None`` when there is nothing to read.
+        """
+        if keys is not None and not keys:
+            return None
         cleaned = [normalize_board_key(key) for key in keys] if keys is not None else None
 
         def work(exec_: Exec) -> list[dict[str, Any]]:
+            """Read the requested board rows.
+
+            Args:
+                exec_: Statement runner for the open connection.
+            """
             if cleaned is None:
                 cursor = exec_(
                     """
@@ -1171,6 +1217,17 @@ class _BoardStore:
                 )
             return [_row_dict(row) for row in cursor.fetchall()]
 
+        return work
+
+    def _read_unlocked(self, work: Callable[[Exec], Any]) -> Any:
+        """Run a read without taking the write lock again.
+
+        Postgres does not lock inside ``_read``. Sqlite overrides this
+        so a caller that already holds ``self.lock`` does not deadlock.
+
+        Args:
+            work: Statement body.
+        """
         return self._read(work)
 
     def purge_board_key(self, run_key: str, board_key: str) -> None:
@@ -2069,6 +2126,16 @@ class SqliteBoardOps(_BoardStore):
         with self.lock:
             return work(self._exec)
 
+    def _read_unlocked(self, work: Callable[[Exec], Any]) -> Any:
+        """Run a read without taking ``self.lock``.
+
+        Submit already holds that lock. Taking it again deadlocks.
+
+        Args:
+            work: Statement body.
+        """
+        return work(self._exec)
+
     def _begin(self) -> None:
         """Start a reserved write transaction, closing one already open.
 
@@ -2209,16 +2276,48 @@ class PostgresBoardOps(_BoardStore):
         lock = getattr(self, "write_lock", None)
 
         def body() -> Any:
-            """Run the write on one pooled connection."""
-            with self.presence._conn() as wrapped:
-                raw = wrapped.connection
-                with raw.transaction():
-                    return work(_pg_exec(raw))
+            """Reserve the school transaction, then write Postgres.
+
+            The school ``BEGIN IMMEDIATE`` is held until the Postgres
+            transaction commits, so Submit cannot snapshot a gap and a
+            stroke cannot insert after that snapshot.
+            """
+            self._hold_school()
+            try:
+                with self.presence._conn() as wrapped:
+                    raw = wrapped.connection
+                    with raw.transaction():
+                        result = work(_pg_exec(raw))
+            except Exception:
+                self._drop_school(commit=False)
+                raise
+            self._drop_school(commit=True)
+            return result
 
         if lock is None:
             return body()
         with lock:
             return body()
+
+    def _hold_school(self) -> None:
+        """Open the school write transaction when SchoolDB wired one.
+
+        A store built without the school database, such as a schema
+        test, writes Postgres alone.
+        """
+        reserve = getattr(self, "reserve_school", None)
+        if reserve is not None:
+            reserve()
+
+    def _drop_school(self, *, commit: bool) -> None:
+        """Finish the school transaction opened for this ink write.
+
+        Args:
+            commit: True releases the reservation. False rolls it back.
+        """
+        release = getattr(self, "release_school", None)
+        if release is not None:
+            release(commit=commit)
 
     def _read(self, work: Callable[[Exec], Any]) -> Any:
         """Run a read on a pooled autocommit connection.
