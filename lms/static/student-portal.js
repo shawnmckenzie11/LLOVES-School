@@ -198,10 +198,10 @@ let holdJoinFeedback = false;
 const dismissedPromptIds = new Set();
 /** Question cards and surfaces minimized into the right-hand dock. */
 const dockedLiveCardKeys = new Set();
-/** sessionStorage prefix for question dock keys, one entry per live session. */
+/** sessionStorage prefix for minimized questions, one entry per student and run. */
 const DOCKED_QUESTION_STORE = "lloves.dockedQuestions";
-/** Session id whose dock keys were restored this page load. ``0`` before that. */
-let dockedQuestionsLoadedFor = 0;
+/** ``student:run`` scope restored this page load. Empty before that. */
+let dockedQuestionsLoadedFor = "";
 /** Floating panes currently following a held pointer. Do not remount or hide. */
 const activePaneDrags = new Set();
 /** Original parent/sibling so Reset can put a reparented card back. */
@@ -3606,23 +3606,50 @@ function boardFeedbackHtml(text) {
 }
 
 /**
- * Storage key for one live session's minimized questions.
- * @param {number|string} sessionId ``live_class_sessions.id`` from /state.
- * @returns {string} Empty when the session is unknown.
+ * Opaque student part of the dock scope. Roster id, or the visit token
+ * for a guest. Never the display name.
+ * @param {any} payload Student /state body.
+ * @returns {string}
  */
-function dockedQuestionStoreKey(sessionId) {
-  const id = Number(sessionId) || 0;
-  return id ? `${DOCKED_QUESTION_STORE}:${id}` : "";
+function dockedQuestionStudentPart(payload) {
+  const studentId = Number(payload?.me?.id) || 0;
+  if (studentId) return `s${studentId}`;
+  const visit = String(document.body?.dataset?.visitToken || "").trim();
+  return visit ? `v${visit}` : "";
 }
 
 /**
- * Read minimized question keys for one session.
+ * Dock scope for this student and this run.
+ * The run nonce is ``live_run_key`` (the session run key, or its start
+ * time). A later run that reuses the session id does not match.
+ * @param {any} payload Student /state body.
+ * @returns {string} Empty until both parts are known.
+ */
+function dockedQuestionScope(payload) {
+  const student = dockedQuestionStudentPart(payload);
+  const run = String(payload?.live_run_key || "").trim();
+  if (!student || !run) return "";
+  return `${student}:${run}`;
+}
+
+/**
+ * Storage key for one student on one live run.
+ * @param {string} scope From {@link dockedQuestionScope}.
+ * @returns {string} Empty when the scope is unknown.
+ */
+function dockedQuestionStoreKey(scope) {
+  const token = String(scope || "");
+  return token ? `${DOCKED_QUESTION_STORE}:${token}` : "";
+}
+
+/**
+ * Read minimized question keys for one student on one run.
  * A missing or blocked sessionStorage returns an empty list.
- * @param {number|string} sessionId
+ * @param {string} scope
  * @returns {string[]}
  */
-function readDockedQuestionKeys(sessionId) {
-  const storeKey = dockedQuestionStoreKey(sessionId);
+function readDockedQuestionKeys(scope) {
+  const storeKey = dockedQuestionStoreKey(scope);
   if (!storeKey) return [];
   const raw = readSessionValue(storeKey);
   if (!raw) return [];
@@ -3636,12 +3663,12 @@ function readDockedQuestionKeys(sessionId) {
 }
 
 /**
- * Persist the current minimized question keys for one session.
+ * Persist the current minimized question keys for this student and run.
  * An empty list removes the entry. Private mode is ignored.
- * @param {number|string} sessionId
+ * @param {any} payload Student /state body.
  */
-function writeDockedQuestionKeys(sessionId) {
-  const storeKey = dockedQuestionStoreKey(sessionId);
+function writeDockedQuestionKeys(payload) {
+  const storeKey = dockedQuestionStoreKey(dockedQuestionScope(payload));
   if (!storeKey) return;
   const keys = [...dockedLiveCardKeys].filter((token) => String(token).startsWith("card:"));
   if (!keys.length) {
@@ -3652,14 +3679,26 @@ function writeDockedQuestionKeys(sessionId) {
 }
 
 /**
- * Forget minimized questions for one session.
- * @param {number|string} sessionId
+ * Forget every minimized-question entry in this tab.
+ * Logout, Quit, session end, and Done all use this so the next person
+ * or the next run cannot inherit a dock.
  */
-function clearDockedQuestionKeys(sessionId) {
+function clearAllDockedQuestionKeys() {
   for (const token of [...dockedLiveCardKeys]) {
     if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
   }
-  removeSessionValue(dockedQuestionStoreKey(sessionId));
+  dockedQuestionsLoadedFor = "";
+  try {
+    const storage = window.sessionStorage;
+    const drop = [];
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (key && key.startsWith(DOCKED_QUESTION_STORE)) drop.push(key);
+    }
+    for (const key of drop) storage.removeItem(key);
+  } catch (_err) {
+    /* private mode: nothing was stored */
+  }
 }
 
 /**
@@ -3681,19 +3720,18 @@ function dockedQuestionLiveId(token) {
  * @param {any[]} items Questions about to be painted.
  */
 function restoreDockedQuestions(payload, items) {
-  const sessionId = Number(payload?.live_session_id) || 0;
-  if (!sessionId) return;
   if (studentSessionOver(payload)) {
-    clearDockedQuestionKeys(sessionId);
-    dockedQuestionsLoadedFor = sessionId;
+    clearAllDockedQuestionKeys();
     return;
   }
-  if (dockedQuestionsLoadedFor !== sessionId) {
+  const scope = dockedQuestionScope(payload);
+  if (!scope) return;
+  if (dockedQuestionsLoadedFor !== scope) {
     for (const token of [...dockedLiveCardKeys]) {
       if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
     }
-    dockedQuestionsLoadedFor = sessionId;
-    for (const token of readDockedQuestionKeys(sessionId)) {
+    dockedQuestionsLoadedFor = scope;
+    for (const token of readDockedQuestionKeys(scope)) {
       dockedLiveCardKeys.add(token);
     }
   }
@@ -3717,19 +3755,19 @@ function restoreDockedQuestions(payload, items) {
     if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
   }
   for (const token of kept) dockedLiveCardKeys.add(token);
-  writeDockedQuestionKeys(sessionId);
+  writeDockedQuestionKeys(payload);
 }
 
 /**
  * Minimize one question into the right-hand dock without dropping its results.
- * The key is stored for this live session so a reload keeps it minimized.
+ * The key is stored for this student and run so a reload keeps it minimized.
  * @param {string} key Dock key from the question card.
  */
 function minimizeLiveQuestion(key) {
   const token = String(key || "");
   if (!token) return;
   dockedLiveCardKeys.add(token);
-  writeDockedQuestionKeys(lastStudentPayload?.live_session_id);
+  writeDockedQuestionKeys(lastStudentPayload);
 }
 
 /**
@@ -6006,8 +6044,21 @@ async function submitExitFeedback(opts = {}) {
 document.addEventListener("submit", (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement) || form.id !== "celebration-done") return;
-  clearDockedQuestionKeys(lastStudentPayload?.live_session_id);
+  clearAllDockedQuestionKeys();
 });
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  const link = target instanceof Element ? target.closest("a[href]") : null;
+  if (!(link instanceof HTMLAnchorElement)) return;
+  let path = "";
+  try {
+    path = new URL(link.href, window.location.href).pathname;
+  } catch (_err) {
+    return;
+  }
+  if (path === "/logout") clearAllDockedQuestionKeys();
+});
+
 document.getElementById("exit-feedback-send")?.addEventListener("click", () => {
   submitExitFeedback();
 });
@@ -6495,6 +6546,9 @@ async function tick() {
     ) {
       paintCelebrate({ celebrate: false });
     }
+    if (studentSessionOver(data) || data.status === "ended") {
+      clearAllDockedQuestionKeys();
+    }
     if (
       data.redirect &&
       data.redirect !== "/student/home" &&
@@ -6947,7 +7001,7 @@ window.addEventListener("lloves-question-board-submitted", (event) => {
     const item = pool.find((row) => Number(row?.prompt?.id) === promptId);
     if (!item) continue;
     dockedLiveCardKeys.add(liveCardDockKey(item));
-    writeDockedQuestionKeys(lastStudentPayload?.live_session_id);
+    writeDockedQuestionKeys(lastStudentPayload);
   }
   paintLifecycleQuestionStack(lastStudentPayload);
 });
@@ -6981,7 +7035,7 @@ if (studentQuestionDock) {
     const undock = event.target.closest("[data-undock-live-card]");
     if (!(undock instanceof HTMLButtonElement)) return;
     dockedLiveCardKeys.delete(undock.dataset.undockLiveCard || "");
-    writeDockedQuestionKeys(lastStudentPayload?.live_session_id);
+    writeDockedQuestionKeys(lastStudentPayload);
     if (lastStudentPayload) {
       applyTeacherProjection(lastStudentPayload);
       paintMedia(lastStudentPayload);

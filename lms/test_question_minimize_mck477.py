@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 import unittest
 from pathlib import Path
@@ -482,6 +483,224 @@ class MinimizeQuestionBrowserTests(AlwaysSavedQuestionTests):
         self.assertEqual(out["openAfterReload"], 0)
         self.assertTrue(out["showsAnswer"], out)
         self.assertTrue(out["showsScore"], out)
+
+    def _join_browser(self, student_id: int, label: str):
+        """Sign a roster student in and return the client plus home path.
+
+        Args:
+            student_id: Roster id. The label is the synthetic codename.
+            label: Codename already on the roster. Not included in failures.
+        """
+        live = self.school.get_live_session(self.session_id)
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = '2000-01-01T00:00:00'
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (self.session_id, student_id),
+            )
+            self.school.conn.commit()
+        student = self.app.test_client()
+        joined = student.post(
+            "/auth/student-code",
+            data={"code": str(live["session_code"]), "name": label},
+        )
+        self.assertIn(joined.status_code, (302, 303))
+        match = re.search(r"[?&]v=([^&]+)", joined.headers.get("Location", ""))
+        self.assertIsNotNone(match)
+        visit = match.group(1)
+        student.post("/student/mood", data={"visit_token": visit, "skip": "1"})
+        page = student.get(f"/student/character?v={visit}").get_data(as_text=True)
+        pick = re.search(r'name="character" value="([^"]+)"', page)
+        if pick:
+            student.post(
+                "/student/character",
+                data={"visit_token": visit, "character": pick.group(1)},
+            )
+        return student, f"/student/home?v={visit}"
+
+    def _run_browser(self, cfg: dict[str, Any]) -> dict[str, Any]:
+        """Run the question e2e script and return its JSON result.
+
+        Args:
+            cfg: Local playwright config. Paths stay in the temp dir.
+        """
+        path = Path(self.tmp.name) / "e2e-scope.json"
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        env = {**os.environ}
+        node_path = os.environ.get("LLOVES_E2E_NODE_PATH", "").strip()
+        if node_path:
+            env["NODE_PATH"] = node_path
+        proc = subprocess.run(
+            ["node", str(SCRIPT), str(path)],
+            cwd=str(REPO_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        lines = [line for line in proc.stdout.splitlines() if line.startswith("{")]
+        self.assertTrue(lines, proc.stderr[-1500:])
+        return json.loads(lines[-1])
+
+    def test_second_student_same_tab_does_not_inherit_the_dock(self) -> None:
+        """Another student in the same tab does not inherit minimized questions."""
+        from werkzeug.serving import make_server
+
+        case = QUESTION_CASES[0]
+        row = self._add(case["body"])
+        prompt = self.school._prompt_for_live_item(row)
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.student_id, case["answer"]
+        )
+        self.school.close_live_session_item(self.session_id, int(row["id"]))
+        second_id = self.school.game._insert_student_row(
+            self.class_id, last_display="", first_name="S2", codename="S2"
+        )
+        self.school.game.conn.commit()
+        self.school.join_live_class_session(self.session_id, second_id, codename="S2")
+        first, path_a = self._join_browser(self.student_id, "S1")
+        second, path_b = self._join_browser(second_id, "S2")
+        self.server = make_server("127.0.0.1", 0, self.app, threaded=True)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        try:
+            out = self._run_browser({
+                "base": f"http://127.0.0.1:{self.server.server_port}",
+                "chrome": _chrome(),
+                "cookies": {ck.key: ck.value for ck in first._cookies.values()},
+                "cookiesB": {ck.key: ck.value for ck in second._cookies.values()},
+                "path": path_a,
+                "pathB": path_b,
+                "mode": "second",
+            })
+        finally:
+            self.server.shutdown()
+        self.assertEqual(out["errors"], [], out)
+        self.assertGreaterEqual(out["firstStored"], 1)
+        self.assertTrue(out["firstScoped"])
+        self.assertGreaterEqual(out["openForSecond"], 1)
+        self.assertEqual(out["chipsForSecond"], 0)
+        self.assertGreaterEqual(out["keptStored"], 1)
+        self.assertEqual(out["afterLogout"], 0)
+
+    def test_quit_then_reused_run_does_not_restore_the_dock(self) -> None:
+        """Quit then a new run that reuses ids opens the question, not the dock."""
+        from werkzeug.serving import make_server
+
+        case = QUESTION_CASES[0]
+        row = self._add(case["body"])
+        first_item = int(row["id"])
+        first_session = int(self.session_id)
+        prompt = self.school._prompt_for_live_item(row)
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.student_id, case["answer"]
+        )
+        self.school.close_live_session_item(self.session_id, int(row["id"]))
+        student, path = self._join_browser(self.student_id, "S1")
+        handoff = Path(self.tmp.name) / "quit-handoff.json"
+        self.server = make_server("127.0.0.1", 0, self.app, threaded=True)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{self.server.server_port}"
+        cfg = {
+            "base": base,
+            "chrome": _chrome(),
+            "cookies": {ck.key: ck.value for ck in student._cookies.values()},
+            "path": path,
+            "mode": "quit-rerun",
+            "handoff": str(handoff),
+        }
+        cfg_path = Path(self.tmp.name) / "e2e-quit.json"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        env = {**os.environ}
+        node_path = os.environ.get("LLOVES_E2E_NODE_PATH", "").strip()
+        if node_path:
+            env["NODE_PATH"] = node_path
+        proc = subprocess.Popen(
+            ["node", str(SCRIPT), str(cfg_path)],
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            for _ in range(80):
+                if handoff.exists():
+                    note = json.loads(handoff.read_text(encoding="utf-8"))
+                    if note.get("phase") == "parked":
+                        break
+                if proc.poll() is not None:
+                    _out, err = proc.communicate()
+                    self.fail(err[-1500:])
+                time.sleep(0.25)
+            else:
+                proc.kill()
+                self.fail("student did not park the question")
+            self.school.finish_live_class(
+                self.class_id, persist=False, celebrate=False
+            )
+            live = self.school.start_live_class_session(
+                self.class_id, int(self.teacher["id"]), is_test=True
+            )
+            self.session_id = int(live["id"])
+            self.assertEqual(self.session_id, first_session)
+            self.assertTrue(str(live.get("run_key") or ""))
+            self.client.post(
+                f"/api/live-sessions/{self.session_id}/teacher-state",
+                json={
+                    "live_module": "M1",
+                    "live_slot": "C2",
+                    "stage": "round",
+                    "page_number": 4,
+                    "class_set": True,
+                },
+            )
+            again = self._add(case["body"])
+            if int(again["id"]) != first_item:
+                with self.school._lock:
+                    self.school.conn.execute(
+                        "DELETE FROM live_session_items WHERE id = ?",
+                        (first_item,),
+                    )
+                    self.school.conn.execute(
+                        "UPDATE live_session_items SET id = ? WHERE id = ?",
+                        (first_item, int(again["id"])),
+                    )
+                    self.school.conn.commit()
+                again = self.school.get_live_session_item(
+                    self.session_id, first_item
+                )
+            self.assertIsNotNone(again)
+            self.assertEqual(int(again["id"]), first_item)
+            prompt = self.school._prompt_for_live_item(again)
+            self.school.submit_live_prompt_response(
+                int(prompt["id"]), self.student_id, case["answer"]
+            )
+            self.school.close_live_session_item(self.session_id, int(again["id"]))
+            _student, next_path = self._join_browser(self.student_id, "S1")
+            handoff.write_text(
+                json.dumps({"phase": "ready", "path": next_path}),
+                encoding="utf-8",
+            )
+            out, err = proc.communicate(timeout=90)
+        finally:
+            self.server.shutdown()
+            if proc.poll() is None:
+                proc.kill()
+        lines = [line for line in out.splitlines() if line.startswith("{")]
+        self.assertTrue(lines, err[-1500:])
+        checked = json.loads(lines[-1])
+        self.assertEqual(checked["errors"], [], checked)
+        self.assertGreaterEqual(checked["parkedStored"], 1)
+        self.assertTrue(checked["parkedScoped"])
+        self.assertGreaterEqual(checked["openCards"], 1)
+        self.assertEqual(checked["chips"], 0)
+        self.assertGreaterEqual(checked["stored"], 1)
+
+
 
 
 if __name__ == "__main__":

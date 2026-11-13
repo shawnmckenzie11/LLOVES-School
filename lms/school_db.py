@@ -30156,6 +30156,92 @@ class SchoolDB(LovesDB):
             "parked": True,
         }
 
+
+    def _parked_student_card_key(
+        self,
+        session_id: int,
+        item: dict[str, Any],
+        student_id: int | None,
+        participant_uuid: str,
+        *,
+        stage: str,
+        current_page: int | None,
+    ) -> tuple[Any, ...] | None:
+        """Cache key for a question that is not on the live stage.
+
+        Facing cards are rebuilt every poll because answers still move.
+        A parked or closed card stays put until its row changes, so the
+        next poll can skip the tally. ``None`` means do not cache.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row from ``list_live_session_items``.
+            student_id: Roster id, when the attendee is on the roster.
+            participant_uuid: Live-session person key.
+            stage: Teacher stage, already lowercased.
+            current_page: Teacher deck page, or None when pages are unset.
+        """
+        status = str(item.get("status") or "")
+        on_page = self._student_item_on_current_page(
+            session_id, item, current_page=current_page
+        )
+        item_stage = str(item.get("stage") or "").strip().lower()
+        stage_ok = not item_stage or not stage or item_stage == stage
+        if status == "active" and on_page and stage_ok:
+            return None
+        try:
+            item_pk = int(item["id"])
+        except (TypeError, ValueError):
+            return None
+        return (
+            int(session_id),
+            item_pk,
+            int(student_id or 0),
+            str(participant_uuid or ""),
+            status,
+            str(item.get("closed_at") or ""),
+            str(item.get("updated_at") or ""),
+            1 if item.get("show_live_results") else 0,
+            str(item.get("page_number") or ""),
+            str(item.get("stage") or ""),
+        )
+
+    def _cached_parked_student_card(
+        self, key: tuple[Any, ...]
+    ) -> dict[str, Any] | None:
+        """Return a copy of a parked card built earlier in this process.
+
+        Args:
+            key: From :meth:`_parked_student_card_key`.
+        """
+        with self._lock:
+            cache = getattr(self, "_parked_student_cards", None)
+            if not isinstance(cache, dict):
+                return None
+            found = cache.get(key)
+        if not isinstance(found, dict):
+            return None
+        return deepcopy(found)
+
+    def _remember_parked_student_card(
+        self, key: tuple[Any, ...], card: dict[str, Any]
+    ) -> None:
+        """Keep one parked card so the next poll does not rebuild its tally.
+
+        Args:
+            key: From :meth:`_parked_student_card_key`.
+            card: Public student row, already aliased.
+        """
+        snapshot = deepcopy(card)
+        with self._lock:
+            cache = getattr(self, "_parked_student_cards", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._parked_student_cards = cache
+            if len(cache) > 240:
+                cache.clear()
+            cache[key] = snapshot
+
     def student_live_items_payload(
         self,
         session_id: int,
@@ -30220,6 +30306,19 @@ class SchoolDB(LovesDB):
             items.append(row)
         public_items: list[dict[str, Any]] = []
         for item in items:
+            parked_key = self._parked_student_card_key(
+                session_id,
+                item,
+                student_id,
+                participant_uuid,
+                stage=stage,
+                current_page=current_page,
+            )
+            if parked_key is not None:
+                cached_card = self._cached_parked_student_card(parked_key)
+                if cached_card is not None:
+                    public_items.append(cached_card)
+                    continue
             prompt = self._prompt_for_live_item(item)
             raw_payload = (
                 prompt.get("payload")
@@ -30487,6 +30586,8 @@ class SchoolDB(LovesDB):
                 public_items[-1]["group_q_ready"] = status_q["ready"]
             # MCK-176: students only ever see option aliases.
             public_items[-1] = self._alias_for_student(item, public_items[-1])
+            if parked_key is not None:
+                self._remember_parked_student_card(parked_key, public_items[-1])
         facing = [
             row
             for row in public_items
@@ -53035,6 +53136,28 @@ class SchoolDB(LovesDB):
         finally:
             end_poll_budget(token)
 
+
+    def _stamp_student_run_key(
+        self, payload: dict[str, Any], session_row: dict[str, Any] | None
+    ) -> None:
+        """Attach this run's nonce to a student snapshot.
+
+        The row is already loaded for the poll. ``run_key`` changes when
+        Quit deletes the session and the next insert reuses the id.
+        ``started_at`` covers a row that has no run key yet.
+
+        Args:
+            payload: Student snapshot about to be returned.
+            session_row: ``live_class_sessions`` row for this build.
+        """
+        if not isinstance(payload, dict) or not isinstance(session_row, dict):
+            return
+        token = str(session_row.get("run_key") or "").strip()
+        if not token:
+            token = str(session_row.get("started_at") or "").strip()
+        if token:
+            payload["live_run_key"] = token
+
     def _fill_student_live_payload(
         self,
         live_session_id: int,
@@ -53100,6 +53223,7 @@ class SchoolDB(LovesDB):
                 sid,
                 participant_uuid,
             )
+            self._stamp_student_run_key(payload, session_row)
             return payload
         ensure_poll_budget()
         media = self.live_session_active_media_payload(int(live_session_id))
@@ -53163,6 +53287,7 @@ class SchoolDB(LovesDB):
                 key = ""
             if key:
                 payload["board_key"] = key
+        self._stamp_student_run_key(payload, session_row)
         return payload
 
     def guest_student_live_payload(
