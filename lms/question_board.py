@@ -1367,7 +1367,9 @@ def submit_live_board(
 
     Order: read the fold, compact, strip names, check the cap, then write
     the copy and the answer rows in one transaction. An older fold cannot
-    replace a newer copy. A closed question changes nothing.
+    replace a newer copy. A closed question changes nothing. Any error
+    after the write transaction opens rolls it back, including a failed
+    read of the ink store.
 
     Args:
         school: Open school database.
@@ -1414,21 +1416,17 @@ def submit_live_board(
                 (int(item["id"]),),
             ).fetchone()
             if fresh is None or str(fresh["status"] or "") != "active":
-                _abort_write(school, started)
                 raise QuestionBoardError(CLOSED_LINE, 409)
             rows, seq = _board_rows_held(school, run_key, board_key)
             copy = compact_saved_copy(rows, seq)
             size = copy_byte_size(copy)
             if size > COPY_CAP_BYTES:
-                _abort_write(school, started)
                 raise QuestionBoardError(SIZE_LINE, 413)
             strokes = copy.get("strokes") or []
             labels = copy.get("texts") or []
             if not strokes and not labels and not typed.strip():
-                _abort_write(school, started)
                 raise QuestionBoardError(EMPTY_LINE, 400)
             if mode == "board" and not strokes and not labels:
-                _abort_write(school, started)
                 raise QuestionBoardError(EMPTY_LINE, 400)
             prior = school.conn.execute(
                 """
@@ -1438,7 +1436,6 @@ def submit_live_board(
                 (int(_session["class_id"]), run_key, board_key),
             ).fetchone()
             if prior is not None and str(prior["submitted_at"] or "").strip():
-                _abort_write(school, started)
                 raise QuestionBoardError(LOCKED_LINE, 409)
             blob = copy_json(copy)
             landed = _upsert_copy(
@@ -1473,11 +1470,11 @@ def submit_live_board(
                     now=now,
                 )
             _finish_write(school, started)
-        except QuestionBoardError:
-            raise
-        except Exception:
+        finally:
+            # A committed write is not in a transaction, so this is a no-op
+            # on success. Every error, including a 503 from the ink snapshot,
+            # rolls back the school transaction this call opened.
             _abort_write(school, started)
-            raise
     updated = bool(prior and str(prior["submitted_at"] or "").strip())
     return {
         "ok": True,

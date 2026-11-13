@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from board_ops import BoardSessionClosed  # noqa: E402
-from question_board import LOCKED_LINE, QuestionBoardError  # noqa: E402
+from question_board import DOWN_LINE, LOCKED_LINE, QuestionBoardError  # noqa: E402
 
 
 def _stroke(stroke_id: str, salt: int = 0) -> list[dict]:
@@ -689,6 +690,111 @@ class PostgresQuestionSubmitLockTests(QuestionBoardSubmitLockTests):
         self.assertEqual(self._op_count(run_key, board_key), before)
         self.assertEqual(self._copy_json(run_key, board_key), before_copy)
         self.assertEqual(self._sqlite_board_ops(run_key), 0)
+
+    def test_failed_snapshot_read_rolls_back_so_retry_commits(self) -> None:
+        """A failed Postgres snapshot closes the school transaction.
+
+        The 503 leaves no copy and another connection can write. The
+        retry commits a copy a fresh connection can see.
+        """
+        prompt_id = self._add("Pg snapshot")
+        phone = self._phone(0)
+        base = f"/api/student/question-board/{prompt_id}"
+        drawn = phone.post(
+            f"{base}/ops",
+            json={
+                "points": [[0.2, 0.3], [0.4, 0.5]],
+                "stroke_id": "snap",
+                "ended": True,
+            },
+        )
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        view = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0]
+        )
+        run_key = str(view["run_key"])
+        board_key = str(view["board_key"])
+        db_file = self._school_db_file()
+        boards = self.school.boards
+        original = boards.load_keys_held
+        state = {"failed": False}
+
+        def fail_once(run_key_arg, keys):
+            """Fail the first ink snapshot, then read the store."""
+            if not state["failed"]:
+                state["failed"] = True
+                raise RuntimeError("snapshot down")
+            return original(run_key_arg, keys)
+
+        boards.load_keys_held = fail_once
+        try:
+            failed = phone.post(f"{base}/submit", json={"text": ""})
+        finally:
+            boards.load_keys_held = original
+        self.assertTrue(state["failed"])
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual((failed.get_json() or {}).get("error"), DOWN_LINE)
+        self.assertFalse(self.school.conn.in_transaction)
+        self._other_connection_can_write(db_file)
+        self.assertIsNone(self._fresh_copy(db_file, run_key, board_key))
+        sent = phone.post(f"{base}/submit", json={"text": ""})
+        self.assertEqual(sent.status_code, 200, sent.get_json())
+        self.assertTrue((sent.get_json() or {}).get("editing_locked"))
+        self.assertFalse(self.school.conn.in_transaction)
+        saved = self._fresh_copy(db_file, run_key, board_key)
+        self.assertIsNotNone(saved)
+        self.assertTrue(str(saved["submitted_at"] or "").strip())
+        strokes = json.loads(str(saved["strokes_json"] or "{}")).get("strokes") or []
+        self.assertGreaterEqual(len(strokes), 1)
+
+    def _school_db_file(self) -> str:
+        """Path of the school sqlite file.
+
+        Returns:
+            Absolute path from ``PRAGMA database_list``.
+        """
+        row = self.school.conn.execute("PRAGMA database_list").fetchone()
+        return str(row[2])
+
+    def _other_connection_can_write(self, db_file: str) -> None:
+        """Take the sqlite write lock from a second connection.
+
+        An open ``BEGIN IMMEDIATE`` on the school connection blocks this.
+
+        Args:
+            db_file: School sqlite path.
+        """
+        other = sqlite3.connect(db_file, timeout=1)
+        try:
+            other.execute("BEGIN IMMEDIATE")
+            other.execute("SELECT 1")
+            other.commit()
+        finally:
+            other.close()
+
+    def _fresh_copy(self, db_file: str, run_key: str, board_key: str):
+        """Read the saved copy from a connection that did not write it.
+
+        Args:
+            db_file: School sqlite path.
+            run_key: Question run key.
+            board_key: ``solo:`` or ``team:`` key.
+
+        Returns:
+            The copy row, or ``None`` when nothing is committed.
+        """
+        other = sqlite3.connect(db_file, timeout=1)
+        other.row_factory = sqlite3.Row
+        try:
+            return other.execute(
+                """
+                SELECT submitted_at, strokes_json FROM board_answer_copies
+                WHERE run_key = ? AND board_key = ?
+                """,
+                (run_key, board_key),
+            ).fetchone()
+        finally:
+            other.close()
 
 
 class QuestionBoardLockClientTests(unittest.TestCase):
