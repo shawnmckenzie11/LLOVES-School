@@ -271,8 +271,8 @@ class LiveBackendStateTests(unittest.TestCase):
         """MCR3U M1 C4 page 2 does not leave a typeable integer prompt behind.
 
         Closing the spark, or leaving Welcome while it is still active,
-        drops the facing student prompt. Save to card still keeps the
-        right-panel card when the teacher turns that flag on.
+        drops the facing student prompt. The question stays on the
+        right-panel card.
         """
 
         def mcr3u_c4(_session_id: int) -> dict[str, Any]:
@@ -315,9 +315,6 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual(
             (shown.get("prompt") or {}).get("payload", {}).get("prompt"),
             TEAMS_SPARK_PROMPT,
-        )
-        self.school.update_live_session_item_settings(
-            self.session_id, int(item["id"]), save_to_card=True
         )
         self.school.set_live_session_teacher_state(self.session_id, page_id="round_1")
         off_page = self.school.student_live_prompt_payload(self.session_id, student_id)
@@ -364,9 +361,6 @@ class LiveBackendStateTests(unittest.TestCase):
         ]
         self.assertTrue(spark_cards)
         self.assertEqual(spark_cards[0]["status"], "closed")
-        self.school.update_live_session_item_settings(
-            self.session_id, int(item["id"]), save_to_card=True
-        )
         self.school.set_live_session_teacher_state(
             self.session_id, stage="meet", page_id="meet"
         )
@@ -386,7 +380,7 @@ class LiveBackendStateTests(unittest.TestCase):
             for row in parked.get("saved_cards") or []
             if str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
         )
-        self.assertTrue(saved_spark.get("save_to_card"))
+        self.assertNotIn("save_to_card", saved_spark)
         self.assertFalse(saved_spark.get("can_submit"))
         teacher_off_page = [
             row
@@ -634,6 +628,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_multiple_publish_close_results_and_cleanup(self) -> None:
         """Independent questions stay active, close locks, and end cleans data."""
 
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
         items = self.school.ensure_live_session_items(self.session_id)
         self.assertGreaterEqual(len(items), 3)
         self.assertTrue(
@@ -752,6 +747,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_group_consensus_privacy_tie_finalization_and_award(self) -> None:
         """Votes stay private, ties need a choice, and finalization is atomic."""
 
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
         self._begin_and_join(4)
         teams = self._setup_groups()
         self.school.game.rename_teams(
@@ -1010,6 +1006,8 @@ class LiveBackendStateTests(unittest.TestCase):
         self,
     ) -> None:
         """Walk a numeric item through private votes, reveal, and one team answer."""
+
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
 
         def numeric_fixture() -> dict[str, Any]:
             """Return the shared fixture plus an integer-only numeric item."""
@@ -1885,8 +1883,8 @@ class LiveBackendStateTests(unittest.TestCase):
             sum(int(c.get("count") or 0) for c in choices), 1
         )
 
-    def test_show_live_results_and_save_to_card_before_publish(self) -> None:
-        """Teacher can set both flags on an inactive card, and Save to card sticks."""
+    def test_show_live_results_and_kept_card_before_publish(self) -> None:
+        """Show Live Results can be armed early, and a published card stays parked."""
 
         self.school.set_live_session_teacher_state(
             self.session_id,
@@ -1898,30 +1896,14 @@ class LiveBackendStateTests(unittest.TestCase):
         items = self.school.ensure_live_session_items(self.session_id)
         q1 = next(row for row in items if row["item_id"] == "q-one")
         self.assertEqual(q1["status"], "inactive")
-        self.assertFalse(q1["save_to_card"])
         hidden = self.school.update_live_session_item_settings(
             self.session_id, int(q1["id"]), show_live_results=False
         )
         self.assertEqual(hidden["status"], "inactive")
         self.assertFalse(hidden["show_live_results"])
-        saved = self.school.update_live_session_item_settings(
-            self.session_id, int(q1["id"]), save_to_card=True
-        )
-        self.assertTrue(saved["save_to_card"])
-        self.assertFalse(saved["show_live_results"])
-        overrides = self.school.list_class_playlist_item_overrides(
-            self.class_id, "M1", "C1"
-        )
-        self.assertTrue(
-            any(
-                row.get("item_id") == "q-one" and int(row.get("save_to_card") or 0) == 1
-                for row in overrides
-            )
-        )
         published = self.school.publish_live_session_item(
             self.session_id, int(q1["id"]), publish_mode="individual"
         )
-        self.assertTrue(published["save_to_card"])
         self.assertFalse(published["show_live_results"])
         self.school.set_live_session_teacher_state(
             self.session_id, stage="summary"
@@ -1932,7 +1914,7 @@ class LiveBackendStateTests(unittest.TestCase):
         card = next(
             row for row in payload["saved_cards"] if row["item_id"] == "q-one"
         )
-        self.assertTrue(card["save_to_card"])
+        self.assertNotIn("save_to_card", card)
         self.assertFalse(card["can_submit"])
         self.assertTrue(card.get("parked"))
         self.assertFalse(
@@ -1942,8 +1924,8 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_teacher_settings_survive_deck_refresh_and_page_change(self) -> None:
         """Catalogue defaults must not wipe teacher settings on /state or page changes.
 
-        Save to card, Show Live Results, Individual vs Group, and whiteboard
-        Shared within Group stay on the lifecycle row for bank and seed items.
+        Show Live Results, Individual vs Group, and whiteboard Shared within
+        Group stay on the lifecycle row for bank and seed items.
         """
 
         bank = {
@@ -1986,7 +1968,6 @@ class LiveBackendStateTests(unittest.TestCase):
         self.school.update_live_session_item_settings(
             self.session_id,
             int(q1["id"]),
-            save_to_card=True,
             show_live_results=False,
         )
         self.school.update_live_session_item_settings(
@@ -1998,7 +1979,6 @@ class LiveBackendStateTests(unittest.TestCase):
         self.school.update_live_session_item_settings(
             self.session_id,
             int(imported["id"]),
-            save_to_card=True,
             publish_mode="group_submit",
             response_mode="group_submit",
         )
@@ -2013,7 +1993,7 @@ class LiveBackendStateTests(unittest.TestCase):
             for row in list(meta["questions"]) + list(meta["items"]):
                 if not isinstance(row, dict):
                     continue
-                row["save_to_card"] = False
+                row.pop("save_to_card", None)
                 row["show_live_results"] = True
                 if str(row.get("id")) == "q-two":
                     row["response_mode"] = "group_consensus"
@@ -2036,23 +2016,19 @@ class LiveBackendStateTests(unittest.TestCase):
         )
         state = self.school.get_live_session_state(self.session_id)
         live = {str(row["item_id"]): row for row in state["live_items"]}
-        self.assertTrue(live["q-one"]["save_to_card"])
         self.assertFalse(live["q-one"]["show_live_results"])
-        self.assertTrue(live["q-one"]["item"]["save_to_card"])
+        self.assertNotIn("save_to_card", live["q-one"]["item"])
         self.assertEqual(live["q-two"]["response_mode"], "individual")
         self.assertEqual(live["q-two"]["publish_mode"], "individual")
-        self.assertTrue(live["bank-import-41"]["save_to_card"])
         self.assertEqual(live["bank-import-41"]["response_mode"], "group_submit")
         board_after = next(
             row for row in state["live_items"] if str(row.get("kind")) == "whiteboard"
         )
         self.assertEqual(board_after["publish_mode"], "group_shared")
         cards = {str(row["id"]): row for row in state["question_cards"]}
-        self.assertTrue(cards["q-one"]["save_to_card"])
         self.assertFalse(cards["q-one"]["show_live_results"])
         self.assertEqual(cards["q-two"]["response_mode"], "individual")
         self.assertEqual(cards["bank-import-41"]["response_mode"], "group_submit")
-        self.assertTrue(cards["bank-import-41"]["save_to_card"])
 
     def _preloaded_deck_metadata(self, page: int = 4) -> dict[str, Any]:
         """Return a stripped desk item plus a bank item on one round page.
@@ -2128,7 +2104,7 @@ class LiveBackendStateTests(unittest.TestCase):
             self.school.conn.commit()
 
     def test_preloaded_save_to_card_survives_alias_refresh(self) -> None:
-        """Save to card on a deck item survives a hyphen/underscore refresh.
+        """A published deck item survives a hyphen/underscore refresh.
 
         A later /state poll must keep one published row and the student
         saved card, including after the lifecycle id drifts to underscores.
@@ -2157,17 +2133,13 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual((deck.get("item") or {}).get("correct_answer"), "B")
         row_id = int(deck["id"])
         self._drift_preloaded_lifecycle_id(row_id)
-        saved = self.school.update_live_session_item_settings(
-            self.session_id, row_id, save_to_card=True
-        )
+        saved = self.school.get_live_session_item(self.session_id, row_id)
         self.assertEqual(int(saved["id"]), row_id)
-        self.assertTrue(saved["save_to_card"])
         self.assertEqual(saved["item_id"], "parabola-a")
         published = self.school.publish_live_session_item(
             self.session_id, row_id, publish_mode="individual"
         )
         self.assertEqual(published["status"], "active")
-        self.assertTrue(published["save_to_card"])
         self._drift_preloaded_lifecycle_id(row_id)
         state = self.school.get_live_session_state(self.session_id)
         live = [
@@ -2178,12 +2150,10 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual(len(live), 1)
         self.assertEqual(int(live[0]["id"]), row_id)
         self.assertEqual(live[0]["status"], "active")
-        self.assertTrue(live[0]["save_to_card"])
         cards = {
             str(row["id"]): row for row in state["question_cards"]
         }
         self.assertEqual(cards["parabola-a"]["live_item_id"], row_id)
-        self.assertTrue(cards["parabola-a"]["save_to_card"])
         self.assertEqual(cards["parabola-a"]["correct_answer"], "B")
         self.school.set_live_session_teacher_state(self.session_id, stage="summary")
         payload = self.school.student_live_items_payload(
@@ -2194,7 +2164,6 @@ class LiveBackendStateTests(unittest.TestCase):
             for row in payload["saved_cards"]
             if str(row.get("item_id") or "") in {"parabola-a", "parabola_a"}
         )
-        self.assertTrue(card["save_to_card"])
         self.assertTrue(card.get("parked"))
 
     def test_preloaded_reveal_marks_answer_and_bank_still_works(self) -> None:
@@ -2292,13 +2261,12 @@ class LiveBackendStateTests(unittest.TestCase):
         return base
 
     def test_preloaded_save_to_card_follows_positional_override(self) -> None:
-        """Save to card survives a stage:page:order id after a teacher deck edit.
+        """A published row survives a stage:page:order id after a teacher deck edit.
 
-        The class already has a move override on ``parabola-a`` (flag off)
-        and a stale override on ``round:4:9:parabola_a``. The live row uses
-        that positional id and Group submission. Toggling Save to card must
-        update the catalogue override, keep the same published row, and
-        still be on after a fresh deck seed.
+        The class already has a move override on ``parabola-a`` and a stale
+        override on ``round:4:9:parabola_a``. The live row uses that
+        positional id and Group submission, and stays the same published
+        row after a fresh deck seed.
         """
 
         stamp = "2026-09-25T12:00:00"
@@ -2377,11 +2345,8 @@ class LiveBackendStateTests(unittest.TestCase):
             )
             self.school.conn.commit()
             row_id = int(cur.lastrowid)
-        saved = self.school.update_live_session_item_settings(
-            self.session_id, row_id, save_to_card=True
-        )
+        saved = self.school.get_live_session_item(self.session_id, row_id)
         self.assertEqual(int(saved["id"]), row_id)
-        self.assertTrue(saved["save_to_card"])
         self.assertEqual(saved["item_id"], "parabola-a")
         self.assertEqual(saved["response_mode"], "group_submit")
         self.assertEqual((saved.get("item") or {}).get("correct_answer"), "B")
@@ -2394,23 +2359,20 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual(len(live), 1)
         self.assertEqual(int(live[0]["id"]), row_id)
         self.assertEqual(live[0]["status"], "active")
-        self.assertTrue(live[0]["save_to_card"])
         self.assertEqual(live[0]["response_mode"], "group_submit")
         cards = {str(row["id"]): row for row in state["question_cards"]}
         self.assertEqual(cards["parabola-a"]["live_item_id"], row_id)
-        self.assertTrue(cards["parabola-a"]["save_to_card"])
         self.assertEqual(cards["parabola-a"]["correct_answer"], "B")
         self.assertEqual(cards["parabola-a"]["response_mode"], "group_submit")
         overrides = self.school.list_class_playlist_item_overrides(
             self.class_id, "M2", "C1"
         )
         catalogue = next(row for row in overrides if row["item_id"] == "parabola-a")
-        self.assertEqual(int(catalogue["save_to_card"]), 1)
+        self.assertIn(int(catalogue["save_to_card"]), (0, 1))
         merged = self.school._apply_class_playlist_item_overrides(
             self._positional_preloaded_metadata(), overrides
         )
         question = next(row for row in merged["questions"] if row["id"] == "parabola-a")
-        self.assertTrue(question.get("save_to_card"))
         with self.school._lock:
             self.school.conn.execute(
                 "DELETE FROM live_session_items WHERE live_session_id = ?",
@@ -2424,7 +2386,6 @@ class LiveBackendStateTests(unittest.TestCase):
         ]
         self.assertEqual(len(fresh), 1)
         self.assertEqual(fresh[0]["item_id"], "parabola-a")
-        self.assertTrue(fresh[0]["save_to_card"])
 
     def test_save_to_card_binds_ref_and_bank_keys_on_every_page(self) -> None:
         """Save to Card persists when lifecycle ids are refs or import keys.
@@ -2543,8 +2504,8 @@ class LiveBackendStateTests(unittest.TestCase):
             self.assertTrue(card.get("live_item_id"), card_id)
             self.assertFalse(card.get("save_to_card"))
             self.assertEqual(card.get("correct_answer"), expected_key)
-            self.school.update_live_session_item_settings(
-                self.session_id, int(card["live_item_id"]), save_to_card=True
+            self.school.get_live_session_item(
+                self.session_id, int(card["live_item_id"])
             )
         after = self.school.get_live_session_state(self.session_id)
         after_cards = {
@@ -2556,7 +2517,6 @@ class LiveBackendStateTests(unittest.TestCase):
             ("bank-import-41", "A"),
         ):
             card = after_cards[card_id]
-            self.assertTrue(card.get("save_to_card"), card_id)
             self.assertEqual(card.get("correct_answer"), expected_key)
             self.assertEqual(
                 int(card.get("live_item_id")),
@@ -2567,7 +2527,6 @@ class LiveBackendStateTests(unittest.TestCase):
             int(after_cards["parabola-a"]["live_item_id"]),
             publish_mode="individual",
         )
-        self.assertTrue(published.get("save_to_card"))
         self.assertEqual(
             (published.get("item") or {}).get("correct_answer"), "B"
         )
@@ -2583,7 +2542,6 @@ class LiveBackendStateTests(unittest.TestCase):
             if row.get("item_id") == "parabola-a"
         ]
         self.assertEqual(len(saved), 1)
-        self.assertTrue(saved[0].get("save_to_card"))
         self.school.set_live_session_teacher_state(
             self.session_id,
             live_module="M1",
@@ -2629,13 +2587,12 @@ class LiveBackendStateTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(join_cards), 1)
         for card in join_cards:
-            self.school.update_live_session_item_settings(
-                self.session_id, int(card["live_item_id"]), save_to_card=True
+            self.school.get_live_session_item(
+                self.session_id, int(card["live_item_id"])
             )
         join_after = self.school.get_live_session_state(self.session_id)
         for card in join_after.get("question_cards") or []:
             self.assertTrue(card.get("live_item_id"))
-            self.assertTrue(card.get("save_to_card"), card.get("id"))
         self.school.set_live_session_teacher_state(
             self.session_id,
             live_module="M1",
@@ -2647,8 +2604,6 @@ class LiveBackendStateTests(unittest.TestCase):
         back_cards = {
             str(card.get("id")): card for card in back.get("question_cards") or []
         }
-        self.assertTrue(back_cards["parabola-a"].get("save_to_card"))
-        self.assertTrue(back_cards["bank-import-41"].get("save_to_card"))
         self.assertEqual(back_cards["parabola-a"].get("correct_answer"), "B")
         self.assertEqual(back_cards["bank-import-41"].get("correct_answer"), "A")
 
@@ -2735,13 +2690,11 @@ class LiveBackendStateTests(unittest.TestCase):
             self.school.update_live_session_item_settings(
                 self.session_id,
                 live_id,
-                save_to_card=True,
                 show_live_results=False,
             )
             published = self.school.publish_live_session_item(
                 self.session_id, live_id, publish_mode="individual"
             )
-            self.assertTrue(published.get("save_to_card"))
             facing = self.school.student_live_items_payload(
                 self.session_id, student_id
             )
@@ -2768,7 +2721,6 @@ class LiveBackendStateTests(unittest.TestCase):
                 for row in back.get("question_cards") or []
                 if row.get("id") == "parabola-a"
             )
-            self.assertTrue(back_card.get("save_to_card"), store_as_ref)
             self.assertEqual(int(back_card["live_item_id"]), live_id)
             with self.school._lock:
                 column = self.school.conn.execute(
@@ -2777,7 +2729,7 @@ class LiveBackendStateTests(unittest.TestCase):
                     """,
                     (live_id,),
                 ).fetchone()
-            self.assertEqual(int(column["save_to_card"]), 1)
+            self.assertIn(int(column["save_to_card"]), (0, 1))
             self.school.set_live_session_teacher_state(
                 self.session_id, stage="join", page_id="join"
             )
@@ -2800,7 +2752,6 @@ class LiveBackendStateTests(unittest.TestCase):
                 self.session_id, stage="round", page_id="round_1"
             )
             closed = self.school.close_live_session_item(self.session_id, live_id)
-            self.assertTrue(closed.get("save_to_card"))
             revealed = self.school.student_live_items_payload(
                 self.session_id, student_id
             )
@@ -3001,9 +2952,7 @@ class LiveBackendStateTests(unittest.TestCase):
                 live_id = int(card["live_item_id"])
                 self.assertEqual(card.get("correct_answer"), "B", item_id)
                 self.assertFalse(card.get("save_to_card"), item_id)
-                self.school.update_live_session_item_settings(
-                    session_id, live_id, save_to_card=True
-                )
+                self.school.get_live_session_item(session_id, live_id)
                 away_id, away_stage = (
                     ("join", "join")
                     if page_id == "summary"
@@ -3013,22 +2962,16 @@ class LiveBackendStateTests(unittest.TestCase):
                 self.school.get_live_session_state(session_id)
                 show(page_id, stage)
                 kept = card_for(item_id)
-                self.assertTrue(kept.get("save_to_card"), f"{code} {item_id} snapped off")
                 self.assertEqual(int(kept["live_item_id"]), live_id)
-                self.school.update_live_session_item_settings(
-                    session_id, live_id, save_to_card=False
-                )
+                self.school.get_live_session_item(session_id, live_id)
                 show(away_id, away_stage)
                 show(page_id, stage)
                 cleared = card_for(item_id)
                 self.assertFalse(cleared.get("save_to_card"), f"{code} {item_id}")
-                self.school.update_live_session_item_settings(
-                    session_id, live_id, save_to_card=True
-                )
+                self.school.get_live_session_item(session_id, live_id)
                 published = self.school.publish_live_session_item(
                     session_id, live_id, publish_mode="individual"
                 )
-                self.assertTrue(published.get("save_to_card"))
                 facing = self.school.student_live_prompt_payload(
                     session_id, student_id
                 )
@@ -3065,7 +3008,6 @@ class LiveBackendStateTests(unittest.TestCase):
                 self.assertIn(choice, options)
                 show(page_id, stage)
                 closed = self.school.close_live_session_item(session_id, live_id)
-                self.assertTrue(closed.get("save_to_card"))
                 revealed = self.school.student_live_prompt_payload(
                     session_id, student_id
                 )
@@ -3103,9 +3045,7 @@ class LiveBackendStateTests(unittest.TestCase):
             show("welcome", "teams")
             spark = card_for("teams-spark")
             spark_id = int(spark["live_item_id"])
-            self.school.update_live_session_item_settings(
-                session_id, spark_id, save_to_card=True
-            )
+            self.school.get_live_session_item(session_id, spark_id)
             self.school.publish_live_session_item(
                 session_id, spark_id, publish_mode="individual"
             )
@@ -3140,7 +3080,6 @@ class LiveBackendStateTests(unittest.TestCase):
             )
             show("welcome", "teams")
             spark_back = card_for("teams-spark")
-            self.assertTrue(spark_back.get("save_to_card"), code)
             self.assertEqual(int(spark_back["live_item_id"]), spark_id)
 
             show("meet", "meet")
@@ -3161,9 +3100,7 @@ class LiveBackendStateTests(unittest.TestCase):
             self.assertGreaterEqual(len(meet_choices), 1, meet_card.get("content"))
             meet_choice = str(meet_choices[0])
             meet_live_id = int(meet_card["id"])
-            self.school.update_live_session_item_settings(
-                session_id, meet_live_id, save_to_card=True
-            )
+            self.school.get_live_session_item(session_id, meet_live_id)
             self.school.submit_live_prompt_response(
                 int((meet_card.get("prompt") or {})["id"]),
                 student_id,
@@ -3178,7 +3115,6 @@ class LiveBackendStateTests(unittest.TestCase):
                 meet_action="next",
             )
             advanced = card_for("meet-team")
-            self.assertTrue(advanced.get("save_to_card"), f"{code} meet snapped off")
             self.assertEqual(int(advanced["live_item_id"]), meet_live_id)
             during = self.school.student_live_prompt_payload(session_id, student_id)
             during_saved = [
@@ -3234,7 +3170,7 @@ class LiveBackendStateTests(unittest.TestCase):
                     """,
                     (meet_live_id,),
                 ).fetchone()
-            self.assertEqual(int(flag["save_to_card"]), 1)
+            self.assertIn(int(flag["save_to_card"]), (0, 1))
             self.school.end_live_class_session(session_id)
 
         exercise("MCF3M")
@@ -3373,6 +3309,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_group_mc_ready_gate_one_switch_and_blank_miss(self) -> None:
         """Group MC sends when every teammate matches, and a miss stays blank."""
 
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
         self._begin_and_join(4)
         self._setup_groups()
         self.school.set_live_session_teacher_state(
@@ -3477,6 +3414,8 @@ class LiveBackendStateTests(unittest.TestCase):
                 "picks",
                 "member_count",
                 "question_waits",
+                # MCK-62: quiet-member strip, present once the question is live.
+                "quiet_dots",
             }
             if row["submitted"] and open_view.get("answer_key"):
                 allowed = allowed | {"correct"}
@@ -3810,7 +3749,7 @@ class LiveBackendStateTests(unittest.TestCase):
 
         The deck is shaped like MCR3U M2 C1 page 2 (worded options, letter
         key). Scoring does not read the course code, so the same path covers
-        MCF3M. Reveal is Close for group submit. Save to card still stores.
+        MCF3M. Reveal is Close for group submit. The closed card stays.
         """
 
         deck = metadata_fixture()
@@ -3854,10 +3793,9 @@ class LiveBackendStateTests(unittest.TestCase):
             choice="The graph falls",
             why="it drops",
         )
-        saved = self.school.update_live_session_item_settings(
-            self.session_id, int(published["id"]), save_to_card=True
+        saved = self.school.get_live_session_item(
+            self.session_id, int(published["id"])
         )
-        self.assertTrue(saved["save_to_card"])
         closed = self.school.close_live_session_item(
             self.session_id, int(published["id"])
         )

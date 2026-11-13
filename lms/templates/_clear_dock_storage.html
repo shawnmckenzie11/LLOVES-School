@@ -1,0 +1,13 @@
+{# Drop minimized questions when this tab leaves the live run.
+   Logout and Quit land here. A reload of the student home does not. #}
+<script>
+try {
+  var prefix = "lloves.dockedQuestions";
+  var drop = [];
+  for (var i = 0; i < sessionStorage.length; i++) {
+    var key = sessionStorage.key(i);
+    if (key && key.indexOf(prefix) === 0) drop.push(key);
+  }
+  for (var n = 0; n < drop.length; n++) sessionStorage.removeItem(drop[n]);
+} catch (e) {}
+</script>

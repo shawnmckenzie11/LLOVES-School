@@ -3715,7 +3715,7 @@ body.staff-shell .live-question-card-actions {
 }
 body.staff-shell .live-q-strip {
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
   gap: 0.45rem 0.65rem;
   align-items: stretch;
 }
@@ -3744,7 +3744,7 @@ body.staff-shell .live-q-group-actions {
   align-items: center;
   gap: 0.35rem;
 }
-/* Tablet: Persist + Visibility on row 1, Lifecycle on row 2 (≤2 wrap rows). */
+/* Tablet: Visibility on row 1, Lifecycle on row 2 (≤2 wrap rows). */
 @media (max-width: 1024px) {
   body.staff-shell .live-q-strip {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3754,7 +3754,7 @@ body.staff-shell .live-q-group-actions {
     grid-column: 1 / -1;
   }
 }
-/* Under 720px the three groups stack, still left-aligned in A→B→C order. */
+/* Under 720px the groups stack, still left-aligned. */
 @media (max-width: 719px) {
   body.staff-shell .live-q-strip {
     grid-template-columns: minmax(0, 1fr);

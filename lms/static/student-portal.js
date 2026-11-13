@@ -196,10 +196,12 @@ let feedbackDismissed = false;
 let holdJoinFeedback = false;
 /** Prompt ids explicitly dismissed after submission. */
 const dismissedPromptIds = new Set();
-/** Lifecycle Active/Closed cards explicitly dismissed in this tab. */
+/** Question cards and surfaces minimized into the right-hand dock. */
 const dockedLiveCardKeys = new Set();
-/** Question cards closed with × — removed from the student view, not docked. */
-const dismissedLiveCardKeys = new Set();
+/** sessionStorage prefix for minimized questions, one entry per student and run. */
+const DOCKED_QUESTION_STORE = "lloves.dockedQuestions";
+/** ``student:run`` scope restored this page load. Empty before that. */
+let dockedQuestionsLoadedFor = "";
 /** Floating panes currently following a held pointer. Do not remount or hide. */
 const activePaneDrags = new Set();
 /** Original parent/sibling so Reset can put a reparented card back. */
@@ -1743,6 +1745,18 @@ function writeSessionValue(key, value) {
     window.sessionStorage.setItem(key, value);
   } catch (_err) {
     /* private mode: the cue just may not show */
+  }
+}
+
+/**
+ * Remove one sessionStorage value without throwing in private mode.
+ * @param {string} key
+ */
+function removeSessionValue(key) {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch (_err) {
+    /* private mode: nothing was stored */
   }
 }
 
@@ -3592,9 +3606,174 @@ function boardFeedbackHtml(text) {
 }
 
 /**
- * Render dock chips for media, whiteboard, slides, and submitted questions.
- * Dismissed questions are removed from the student view, not docked.
- * A submitted poll board docks here the same way a closed surface does.
+ * Opaque student part of the dock scope. Roster id, or the visit token
+ * for a guest. Never the display name.
+ * @param {any} payload Student /state body.
+ * @returns {string}
+ */
+function dockedQuestionStudentPart(payload) {
+  const studentId = Number(payload?.me?.id) || 0;
+  if (studentId) return `s${studentId}`;
+  const visit = String(document.body?.dataset?.visitToken || "").trim();
+  return visit ? `v${visit}` : "";
+}
+
+/**
+ * Dock scope for this student and this run.
+ * The run nonce is ``live_run_key`` (the session run key, or its start
+ * time). A later run that reuses the session id does not match.
+ * @param {any} payload Student /state body.
+ * @returns {string} Empty until both parts are known.
+ */
+function dockedQuestionScope(payload) {
+  const student = dockedQuestionStudentPart(payload);
+  const run = String(payload?.live_run_key || "").trim();
+  if (!student || !run) return "";
+  return `${student}:${run}`;
+}
+
+/**
+ * Storage key for one student on one live run.
+ * @param {string} scope From {@link dockedQuestionScope}.
+ * @returns {string} Empty when the scope is unknown.
+ */
+function dockedQuestionStoreKey(scope) {
+  const token = String(scope || "");
+  return token ? `${DOCKED_QUESTION_STORE}:${token}` : "";
+}
+
+/**
+ * Read minimized question keys for one student on one run.
+ * A missing or blocked sessionStorage returns an empty list.
+ * @param {string} scope
+ * @returns {string[]}
+ */
+function readDockedQuestionKeys(scope) {
+  const storeKey = dockedQuestionStoreKey(scope);
+  if (!storeKey) return [];
+  const raw = readSessionValue(storeKey);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => String(item || "")).filter((item) => item.startsWith("card:"));
+  } catch (_err) {
+    return [];
+  }
+}
+
+/**
+ * Persist the current minimized question keys for this student and run.
+ * An empty list removes the entry. Private mode is ignored.
+ * @param {any} payload Student /state body.
+ */
+function writeDockedQuestionKeys(payload) {
+  const storeKey = dockedQuestionStoreKey(dockedQuestionScope(payload));
+  if (!storeKey) return;
+  const keys = [...dockedLiveCardKeys].filter((token) => String(token).startsWith("card:"));
+  if (!keys.length) {
+    removeSessionValue(storeKey);
+    return;
+  }
+  writeSessionValue(storeKey, JSON.stringify(keys));
+}
+
+/**
+ * Forget every minimized-question entry in this tab.
+ * Logout, Quit, session end, and Done all use this so the next person
+ * or the next run cannot inherit a dock.
+ */
+function clearAllDockedQuestionKeys() {
+  for (const token of [...dockedLiveCardKeys]) {
+    if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
+  }
+  dockedQuestionsLoadedFor = "";
+  try {
+    const storage = window.sessionStorage;
+    const drop = [];
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (key && key.startsWith(DOCKED_QUESTION_STORE)) drop.push(key);
+    }
+    for (const key of drop) storage.removeItem(key);
+  } catch (_err) {
+    /* private mode: nothing was stored */
+  }
+}
+
+/**
+ * Live-item id encoded in a question dock key, or 0.
+ * @param {string} token
+ * @returns {number}
+ */
+function dockedQuestionLiveId(token) {
+  const parts = String(token || "").split(":");
+  if (parts[0] !== "card") return 0;
+  return Number(parts[1]) || 0;
+}
+
+/**
+ * Put this tab's saved dock back before the question stack paints.
+ * Keys whose question is gone are dropped. A status change keeps the
+ * question docked under its current key.
+ * @param {any} payload Student /state body.
+ * @param {any[]} items Questions about to be painted.
+ */
+function restoreDockedQuestions(payload, items) {
+  if (studentSessionOver(payload)) {
+    clearAllDockedQuestionKeys();
+    return;
+  }
+  const scope = dockedQuestionScope(payload);
+  if (!scope) return;
+  if (dockedQuestionsLoadedFor !== scope) {
+    for (const token of [...dockedLiveCardKeys]) {
+      if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
+    }
+    dockedQuestionsLoadedFor = scope;
+    for (const token of readDockedQuestionKeys(scope)) {
+      dockedLiveCardKeys.add(token);
+    }
+  }
+  const listsPresent = ["active_questions", "closed_results", "saved_cards"].some(
+    (name) => Array.isArray(payload?.[name])
+  );
+  if (!listsPresent) return;
+  const current = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const liveId = Number(item?.id) || 0;
+    if (!liveId) continue;
+    current.set(liveId, liveCardDockKey(item));
+  }
+  const kept = [];
+  for (const token of dockedLiveCardKeys) {
+    if (!String(token).startsWith("card:")) continue;
+    const fresh = current.get(dockedQuestionLiveId(token));
+    if (fresh) kept.push(fresh);
+  }
+  for (const token of [...dockedLiveCardKeys]) {
+    if (String(token).startsWith("card:")) dockedLiveCardKeys.delete(token);
+  }
+  for (const token of kept) dockedLiveCardKeys.add(token);
+  writeDockedQuestionKeys(payload);
+}
+
+/**
+ * Minimize one question into the right-hand dock without dropping its results.
+ * The key is stored for this student and run so a reload keeps it minimized.
+ * @param {string} key Dock key from the question card.
+ */
+function minimizeLiveQuestion(key) {
+  const token = String(key || "");
+  if (!token) return;
+  dockedLiveCardKeys.add(token);
+  writeDockedQuestionKeys(lastStudentPayload);
+}
+
+/**
+ * Render dock chips for media, whiteboard, slides, and minimized questions.
+ * Closing a question with × parks it here and keeps its results.
+ * A submitted poll board docks here the same way.
  * @param {any[]} items
  * @param {any} payload
  */
@@ -3726,9 +3905,9 @@ function isArtifactLifecycleItem(item) {
 /**
  * Write a submitted answer onto the card once the controls have closed.
  *
- * Save to card parks the question after the teacher leaves the page and
- * sets ``can_submit`` false. The choice buttons are gone, so the answer
- * has to stay on the card itself. Rank already prints "Your order".
+ * A parked question has ``can_submit`` false. The choice buttons are gone,
+ * so the answer has to stay on the card itself. Rank already prints
+ * "Your order".
  *
  * @param {any} item
  * @returns {string}
@@ -3744,14 +3923,14 @@ function studentOwnAnswerHtml(item) {
 
 /**
  * Badge for one student question card.
- * A still-published question parked by Save to card reads Saved, not Active.
+ * A still-published question parked off the live page reads Saved, not Active.
  * @param {any} item
  * @returns {string}
  */
 function studentLiveCardBadge(item) {
   const status = String(item?.status || "active").toLowerCase();
   if (status === "closed") return "Results";
-  if (item?.parked || (item?.save_to_card && status !== "active")) return "Saved";
+  if (item?.parked) return "Saved";
   return "Active";
 }
 
@@ -4243,8 +4422,6 @@ function paintLifecycleQuestionStack(payload) {
   ) {
     active = [legacy, ...active];
   }
-  const stage = String(payload?.teacher_state?.stage || "").toLowerCase();
-  const hasPublishedJoinCatalogue = publishedJoinCatalogueActive(payload);
   const seenCardIds = new Set();
   const all = [...active, ...closed, ...saved].filter((item) => {
     const cardId = Number(item?.id) || 0;
@@ -4253,39 +4430,10 @@ function paintLifecycleQuestionStack(payload) {
     const kind = String(
       item?.content?.item_type || item?.item_type || item?.kind || ""
     ).toLowerCase();
-    if (["media", "whiteboard", "slides"].includes(kind)) return false;
-    const status = String(item?.status || "active").toLowerCase();
-    const itemStage = String(item?.stage || item?.content?.stage || "").toLowerCase();
-    const itemId = String(item?.item_id || item?.content?.item_id || "")
-      .toLowerCase()
-      .replace(/_/g, "-");
-    const keepSaved = Boolean(item?.save_to_card);
-    if (isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue) && !keepSaved) {
-      return false;
-    }
-    if (
-      !keepSaved &&
-      ["meet-team", "meet-a", "meet-b", "meet-c"].includes(itemId) &&
-      stage !== "meet"
-    ) {
-      return false;
-    }
-    if (isArtifactLifecycleItem(item)) {
-      return status === "active" || status === "closed" || keepSaved;
-    }
-    if (keepSaved) return true;
-    if (status === "active" && item?.response_mode === "group_submit") {
-      return true;
-    }
-    if (status === "active") {
-      return !itemStage || !stage || itemStage === stage;
-    }
-    return !itemStage || !stage || itemStage === stage;
+    return !["media", "whiteboard", "slides"].includes(kind);
   });
-  const visible = all.filter((item) => {
-    const key = liveCardDockKey(item);
-    return !dismissedLiveCardKeys.has(key) && !dockedLiveCardKeys.has(key);
-  });
+  restoreDockedQuestions(payload, all);
+  const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
   paintQuestionDock(all, payload);
   const floatingCards = new Map();
   document.querySelectorAll(".student-live-card.is-floating").forEach((card) => {
@@ -4397,7 +4545,7 @@ function paintLifecycleQuestionStack(payload) {
           <span>Question</span>
           <span class="student-live-card-status">${badge}</span>
           <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
-          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dismiss question">×</button>
+          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize question">×</button>
         </div>
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
@@ -5893,6 +6041,24 @@ async function submitExitFeedback(opts = {}) {
   }
 }
 
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.id !== "celebration-done") return;
+  clearAllDockedQuestionKeys();
+});
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  const link = target instanceof Element ? target.closest("a[href]") : null;
+  if (!(link instanceof HTMLAnchorElement)) return;
+  let path = "";
+  try {
+    path = new URL(link.href, window.location.href).pathname;
+  } catch (_err) {
+    return;
+  }
+  if (path === "/logout") clearAllDockedQuestionKeys();
+});
+
 document.getElementById("exit-feedback-send")?.addEventListener("click", () => {
   submitExitFeedback();
 });
@@ -6380,6 +6546,9 @@ async function tick() {
     ) {
       paintCelebrate({ celebrate: false });
     }
+    if (studentSessionOver(data) || data.status === "ended") {
+      clearAllDockedQuestionKeys();
+    }
     if (
       data.redirect &&
       data.redirect !== "/student/home" &&
@@ -6734,7 +6903,7 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
   const dismissCard = event.target.closest("[data-dismiss-live-card]");
   if (dismissCard instanceof HTMLButtonElement) {
     event.stopPropagation();
-    dismissedLiveCardKeys.add(dismissCard.dataset.dismissLiveCard || "");
+    minimizeLiveQuestion(dismissCard.dataset.dismissLiveCard || "");
     const floating = dismissCard.closest(".student-live-card");
     if (floating instanceof HTMLElement && floating.classList.contains("is-floating")) {
       floating.remove();
@@ -6832,6 +7001,7 @@ window.addEventListener("lloves-question-board-submitted", (event) => {
     const item = pool.find((row) => Number(row?.prompt?.id) === promptId);
     if (!item) continue;
     dockedLiveCardKeys.add(liveCardDockKey(item));
+    writeDockedQuestionKeys(lastStudentPayload);
   }
   paintLifecycleQuestionStack(lastStudentPayload);
 });
@@ -6865,6 +7035,7 @@ if (studentQuestionDock) {
     const undock = event.target.closest("[data-undock-live-card]");
     if (!(undock instanceof HTMLButtonElement)) return;
     dockedLiveCardKeys.delete(undock.dataset.undockLiveCard || "");
+    writeDockedQuestionKeys(lastStudentPayload);
     if (lastStudentPayload) {
       applyTeacherProjection(lastStudentPayload);
       paintMedia(lastStudentPayload);

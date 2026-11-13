@@ -9,6 +9,7 @@
   {% include "_sentry_browser.html" %}
 </head>
 <body class="landing-page">
+  {% include "_clear_dock_storage.html" %}
   {# MCK-195: root URL is the student join; staff/admin sign-in are quiet top-bar links. #}
   {% set staff_next = safe_next_url(request.args.get('next')) %}
   {% if staff_next and staff_next.startswith('/staff') %}

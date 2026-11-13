@@ -572,13 +572,13 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("/items/${liveItemId}/settings", js)
         self.assertIn("/items/${liveItemId}/end-voting", js)
         self.assertIn("Show Live Results", js)
-        self.assertIn("Save to card", js)
-        self.assertIn("data-save-to-card", js)
-        self.assertIn("function setLifecycleSaveToCard(", js)
-        self.assertIn("saveToCardHold", js)
+        self.assertNotIn("Save to card", js)
+        self.assertNotIn("data-save-to-card", js)
+        self.assertNotIn("function setLifecycleSaveToCard(", js)
+        self.assertNotIn("saveToCardHold", js)
         self.assertIn("function absorbSaveToCardSnapshot(", js)
-        self.assertIn("saveToCardHoldByAlias", js)
-        self.assertIn("function cardSaveToCardChecked(", js)
+        self.assertNotIn("saveToCardHoldByAlias", js)
+        self.assertNotIn("function cardSaveToCardChecked(", js)
         alias = js.split("function liveItemAlias(")[1].split("function ")[0]
         self.assertIn("round_3", alias)
         local_change = js.split("function applyLocalPlaylistCardChange(")[1].split(
@@ -595,10 +595,6 @@ class LiveShellTests(unittest.TestCase):
             '$(`live-view-${surface}`)?.addEventListener("change"',
             js,
         )
-        setter = js.split("async function setLifecycleSaveToCard(")[1].split(
-            "async function endLifecycleVoting("
-        )[0]
-        self.assertIn("saveToCardHold.set", setter)
         chart = js.split("function individualLifecycleResultsHtml(")[1].split(
             "function groupAnswerLabel("
         )[0]
@@ -633,8 +629,8 @@ class LiveShellTests(unittest.TestCase):
     def test_prepublish_strip_groups_show_live_results(self) -> None:
         """Inactive chrome shows grouped Show Live Results before Publish.
 
-        Mobbin order is A Persist, B Visibility, C Lifecycle. (Re)move stays
-        in the card head. Tablet CSS wraps that strip to two rows.
+        Visibility then Lifecycle. There is no persist checkbox. (Re)move
+        stays in the card head. Tablet CSS wraps that strip to two rows.
         """
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
@@ -642,14 +638,12 @@ class LiveShellTests(unittest.TestCase):
         strip = js.split("function liveQuestionControlStrip(")[1].split(
             "function paintLiveQuestionCards("
         )[0]
-        persist_at = strip.index('data-live-q-group="persist"')
         visibility_at = strip.index('data-live-q-group="visibility"')
         lifecycle_at = strip.index('data-live-q-group="lifecycle"')
-        self.assertLess(persist_at, visibility_at)
         self.assertLess(visibility_at, lifecycle_at)
-        self.assertLess(strip.index("Save to card"), strip.index("Show Live Results"))
+        self.assertNotIn("Save to card", strip)
+        self.assertNotIn('data-live-q-group="persist"', strip)
         self.assertLess(strip.index("Show Live Results"), lifecycle_at)
-        self.assertIn("A Persist", strip)
         self.assertIn("B Visibility", strip)
         self.assertIn("C Lifecycle", strip)
         self.assertIn("data-live-results-toggle", strip)
@@ -1745,7 +1739,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("liveGroupMcKeepsResponsePoints", points_gate)
         self.assertIn("group_consensus", points_gate)
         self.assertIn("groupChrome", points_gate)
-        self.assertIn('data-save-to-card="', js)
+        self.assertNotIn('data-save-to-card="', js)
         self.assertIn("data-close-live-item", js)
         self.assertIn("data-end-voting", js)
         consensus = js.split("function groupConsensusResultsHtml(")[1].split(
