@@ -52112,9 +52112,10 @@ class SchoolDB(LovesDB):
         """Hash what a parked card shows, not the row timestamps.
 
         A replaced answer keeps its row id. A prompt rewrite can leave
-        ``updated_at`` alone. Points, board feedback, and a group or
-        team-draw submit have to move this token anyway. Board strokes
-        stay out so a pen mark does not rebuild ``/state``.
+        ``updated_at`` alone. Points and board feedback have to move this
+        token anyway. Only the question text and choices are hashed, so
+        one student's answer does not rebuild every other phone. Board
+        strokes stay out.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -52130,39 +52131,6 @@ class SchoolDB(LovesDB):
                     JOIN live_session_prompts AS p ON p.id = r.prompt_id
                     WHERE p.live_session_id = ? AND r.student_id = ?
                     ORDER BY r.prompt_id
-                    """,
-                    (sid, int(student_id)),
-                ).fetchall()
-            else:
-                responses = self.conn.execute(
-                    """
-                    SELECT r.prompt_id, r.student_id, r.response_json, r.awarded_points
-                    FROM live_session_responses AS r
-                    JOIN live_session_prompts AS p ON p.id = r.prompt_id
-                    WHERE p.live_session_id = ?
-                    ORDER BY r.prompt_id, r.student_id
-                    """,
-                    (sid,),
-                ).fetchall()
-            prompts = self.conn.execute(
-                """
-                SELECT id, payload FROM live_session_prompts
-                WHERE live_session_id = ?
-                ORDER BY id
-                """,
-                (sid,),
-            ).fetchall()
-            if student_id not in (None, ""):
-                groups = self.conn.execute(
-                    """
-                    SELECT g.live_item_id, g.team_id, g.submit_count,
-                           g.final_answer_json, g.why_text, g.awarded_points
-                    FROM live_group_responses AS g
-                    JOIN live_session_items AS i ON i.id = g.live_item_id
-                    JOIN live_group_members AS m
-                      ON m.live_item_id = g.live_item_id AND m.team_id = g.team_id
-                    WHERE i.live_session_id = ? AND m.student_id = ?
-                    ORDER BY g.live_item_id, g.team_id
                     """,
                     (sid, int(student_id)),
                 ).fetchall()
@@ -52187,14 +52155,13 @@ class SchoolDB(LovesDB):
                     (sid, int(student_id), int(student_id)),
                 ).fetchall()
             else:
-                groups = self.conn.execute(
+                responses = self.conn.execute(
                     """
-                    SELECT g.live_item_id, g.team_id, g.submit_count,
-                           g.final_answer_json, g.why_text, g.awarded_points
-                    FROM live_group_responses AS g
-                    JOIN live_session_items AS i ON i.id = g.live_item_id
-                    WHERE i.live_session_id = ?
-                    ORDER BY g.live_item_id, g.team_id
+                    SELECT r.prompt_id, r.student_id, r.response_json, r.awarded_points
+                    FROM live_session_responses AS r
+                    JOIN live_session_prompts AS p ON p.id = r.prompt_id
+                    WHERE p.live_session_id = ?
+                    ORDER BY r.prompt_id, r.student_id
                     """,
                     (sid,),
                 ).fetchall()
@@ -52209,37 +52176,33 @@ class SchoolDB(LovesDB):
                     """,
                     (sid,),
                 ).fetchall()
-        parts: list[str] = []
-        for row in responses:
-            parts.append(
-                "r:{pid}:{body}:{points}".format(
-                    pid=row["prompt_id"],
-                    body=row["response_json"],
-                    points=row["awarded_points"],
-                )
+            prompt_row = self.conn.execute(
+                """
+                SELECT GROUP_CONCAT(
+                    id || ':' ||
+                    COALESCE(json_extract(payload, '$.text'), '') || ':' ||
+                    COALESCE(json_extract(payload, '$.options'), '') || ':' ||
+                    COALESCE(json_extract(payload, '$.choices'), '') || ':' ||
+                    COALESCE(json_extract(payload, '$.rank_options'), ''),
+                    '|'
+                ) AS body
+                FROM live_session_prompts
+                WHERE live_session_id = ?
+                """,
+                (sid,),
+            ).fetchone()
+        parts = [
+            "r:{pid}:{body}:{points}".format(
+                pid=row["prompt_id"],
+                body=row["response_json"],
+                points=row["awarded_points"],
             )
-        shown = (
-            "text", "prompt", "stem", "options", "choices", "rank_options",
-            "type", "kind", "answer_with", "team_draw_prompt_id",
+            for row in responses
+        ]
+        parts.append("p:" + str(prompt_row["body"] if prompt_row is not None else ""))
+        parts.extend(
+            f"f:{row['board_key']}:{row['feedback_text']}" for row in feedback
         )
-        for row in prompts:
-            raw = row["payload"] or ""
-            try:
-                body = json.loads(raw) if isinstance(raw, str) else (raw or {})
-            except json.JSONDecodeError:
-                body = {"raw": raw}
-            if not isinstance(body, dict):
-                body = {"raw": raw}
-            visible = {key: body.get(key) for key in shown if key in body}
-            parts.append(
-                "p:{pid}:{body}".format(
-                    pid=row["id"],
-                    body=json.dumps(visible, sort_keys=True, default=str),
-                )
-            )
-        del groups
-        for row in feedback:
-            parts.append(f"f:{row['board_key']}:{row['feedback_text']}")
         return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:20]
 
     def live_student_poll_stamp(
