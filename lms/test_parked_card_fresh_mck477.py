@@ -272,6 +272,7 @@ class ParkedCardFreshTests(unittest.TestCase):
         item_id = str(row["item_id"])
         prompt = self.school._prompt_for_live_item(row)
         self._park()
+        stamp = self.school.live_student_poll_stamp(self.session_id, self.class_id, self.s1)
         body = dict(prompt["payload"])
         body["text"] = "Rewritten stem"
         with self.school._lock:
@@ -286,6 +287,10 @@ class ParkedCardFreshTests(unittest.TestCase):
             self.school.conn.commit()
         card = self._assert_matches_fresh(self.s1, item_id)
         self.assertEqual((card.get("content") or {}).get("text"), "Rewritten stem")
+        self.assertNotEqual(
+            self.school.live_student_poll_stamp(self.session_id, self.class_id, self.s1),
+            stamp,
+        )
 
     def test_group_submit_updates_both_teammates(self) -> None:
         """One group send is on both teammates' next parked read."""

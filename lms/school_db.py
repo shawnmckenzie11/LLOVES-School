@@ -52152,27 +52152,63 @@ class SchoolDB(LovesDB):
                 """,
                 (sid,),
             ).fetchall()
-            groups = self.conn.execute(
-                """
-                SELECT g.live_item_id, g.team_id, g.submit_count,
-                       g.final_answer_json, g.why_text, g.awarded_points
-                FROM live_group_responses AS g
-                JOIN live_session_items AS i ON i.id = g.live_item_id
-                WHERE i.live_session_id = ?
-                ORDER BY g.live_item_id, g.team_id
-                """,
-                (sid,),
-            ).fetchall()
-            feedback = self.conn.execute(
-                """
-                SELECT c.run_key, c.board_key, c.feedback_text
-                FROM board_answer_copies AS c
-                JOIN live_class_sessions AS s ON s.class_id = c.class_id
-                WHERE s.id = ? AND c.run_key = s.run_key
-                ORDER BY c.board_key
-                """,
-                (sid,),
-            ).fetchall()
+            if student_id not in (None, ""):
+                groups = self.conn.execute(
+                    """
+                    SELECT g.live_item_id, g.team_id, g.submit_count,
+                           g.final_answer_json, g.why_text, g.awarded_points
+                    FROM live_group_responses AS g
+                    JOIN live_session_items AS i ON i.id = g.live_item_id
+                    JOIN live_group_members AS m
+                      ON m.live_item_id = g.live_item_id AND m.team_id = g.team_id
+                    WHERE i.live_session_id = ? AND m.student_id = ?
+                    ORDER BY g.live_item_id, g.team_id
+                    """,
+                    (sid, int(student_id)),
+                ).fetchall()
+                feedback = self.conn.execute(
+                    """
+                    SELECT c.board_key, c.feedback_text
+                    FROM board_answer_copies AS c
+                    JOIN live_class_sessions AS s
+                      ON s.class_id = c.class_id AND c.run_key = s.run_key
+                    WHERE s.id = ?
+                      AND (
+                        c.board_key = 'solo:' || ?
+                        OR c.board_key IN (
+                          SELECT 'team:' || m.team_id
+                          FROM live_group_members AS m
+                          JOIN live_session_items AS i ON i.id = m.live_item_id
+                          WHERE i.live_session_id = s.id AND m.student_id = ?
+                        )
+                      )
+                    ORDER BY c.board_key
+                    """,
+                    (sid, int(student_id), int(student_id)),
+                ).fetchall()
+            else:
+                groups = self.conn.execute(
+                    """
+                    SELECT g.live_item_id, g.team_id, g.submit_count,
+                           g.final_answer_json, g.why_text, g.awarded_points
+                    FROM live_group_responses AS g
+                    JOIN live_session_items AS i ON i.id = g.live_item_id
+                    WHERE i.live_session_id = ?
+                    ORDER BY g.live_item_id, g.team_id
+                    """,
+                    (sid,),
+                ).fetchall()
+                feedback = self.conn.execute(
+                    """
+                    SELECT c.board_key, c.feedback_text
+                    FROM board_answer_copies AS c
+                    JOIN live_class_sessions AS s
+                      ON s.class_id = c.class_id AND c.run_key = s.run_key
+                    WHERE s.id = ?
+                    ORDER BY c.board_key
+                    """,
+                    (sid,),
+                ).fetchall()
         parts: list[str] = []
         for row in responses:
             parts.append(
@@ -52182,23 +52218,28 @@ class SchoolDB(LovesDB):
                     points=row["awarded_points"],
                 )
             )
+        shown = (
+            "text", "prompt", "stem", "options", "choices", "rank_options",
+            "type", "kind", "answer_with", "team_draw_prompt_id",
+        )
         for row in prompts:
-            parts.append(f"p:{row['id']}:{row['payload']}")
-        for row in groups:
+            raw = row["payload"] or ""
+            try:
+                body = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except json.JSONDecodeError:
+                body = {"raw": raw}
+            if not isinstance(body, dict):
+                body = {"raw": raw}
+            visible = {key: body.get(key) for key in shown if key in body}
             parts.append(
-                "g:{item}:{team}:{count}:{answer}:{why}:{points}".format(
-                    item=row["live_item_id"],
-                    team=row["team_id"],
-                    count=row["submit_count"],
-                    answer=row["final_answer_json"],
-                    why=row["why_text"],
-                    points=row["awarded_points"],
+                "p:{pid}:{body}".format(
+                    pid=row["id"],
+                    body=json.dumps(visible, sort_keys=True, default=str),
                 )
             )
+        del groups
         for row in feedback:
-            parts.append(
-                f"f:{row['board_key']}:{row['feedback_text']}"
-            )
+            parts.append(f"f:{row['board_key']}:{row['feedback_text']}")
         return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:20]
 
     def live_student_poll_stamp(
@@ -52298,6 +52339,8 @@ class SchoolDB(LovesDB):
                            || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
                                 THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
                                 ELSE 0 END)
+                           || '|' || COALESCE(g.final_answer_json, '')
+                           || '|' || COALESCE(g.why_text, '')
                     FROM live_group_responses g
                     INNER JOIN live_session_items i ON i.id = g.live_item_id
                     WHERE i.live_session_id = ?
