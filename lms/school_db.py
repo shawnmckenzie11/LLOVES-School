@@ -1424,6 +1424,41 @@ def enable_sqlite_wal(
         conn.execute(f"PRAGMA busy_timeout={int(restore)}")
 
 
+
+def _stamp_md5(value: object) -> str:
+    """Stable digest of one stamp column.
+
+    ``None`` and empty text share a digest, so a missing answer stays put.
+    Text and bytes (a team-draw image) both hash their raw contents.
+
+    Args:
+        value: Column value from sqlite, or ``None``.
+    """
+    if value is None:
+        raw = b""
+    elif isinstance(value, str):
+        raw = value.encode()
+    else:
+        raw = bytes(value)
+    return hashlib.md5(raw).hexdigest()
+
+
+def _register_stamp_digest(conn: sqlite3.Connection) -> None:
+    """Register ``lloves_md5`` so a stamp can hash a column in SQL.
+
+    The phone token must change when the rendered answer changes and must
+    stay short. Hashing in the query avoids copying the answer or the
+    drawing into Python on every poll.
+
+    Args:
+        conn: Open sqlite connection.
+    """
+    try:
+        conn.create_function("lloves_md5", 1, _stamp_md5, deterministic=True)
+    except TypeError:
+        conn.create_function("lloves_md5", 1, _stamp_md5)
+
+
 def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     """Keep one sqlite file usable by the school and game-show connections.
 
@@ -1453,6 +1488,7 @@ def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     # WAL's recommended companion. A statement no longer fsyncs the whole
     # file, so a heartbeat write does not sit on the reserved lock.
     conn.execute("PRAGMA synchronous = NORMAL")
+    _register_stamp_digest(conn)
     return conn
 
 
@@ -51977,7 +52013,9 @@ class SchoolDB(LovesDB):
         write they might still be waiting on, unless they joined and are
         not on a game team. That solo attendee gets ``""``. When membership
         is known, only that student's team rows are folded in, so another
-        team's draft does not force a full ``/state`` build.
+        team's draft does not force a full ``/state`` build. The
+        submitted answer, the why, and the team-draw image contribute a
+        length and a digest, not the raw text or the PNG.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -52018,8 +52056,10 @@ class SchoolDB(LovesDB):
                                  WHERE s.live_item_id = g.live_item_id
                                    AND s.team_id = g.team_id
                             ), 0)
-                            || '|' || COALESCE(g.final_answer_json, '')
-                            || '|' || COALESCE(g.why_text, ''),
+                            || '|' || length(COALESCE(g.final_answer_json, ''))
+                            || ':' || lloves_md5(g.final_answer_json)
+                            || '|' || length(COALESCE(g.why_text, ''))
+                            || ':' || lloves_md5(g.why_text),
                             '|'
                             ORDER BY g.live_item_id, g.team_id
                         )
@@ -52032,36 +52072,30 @@ class SchoolDB(LovesDB):
                               AND m.student_id = ?
                               AND m.team_id = g.team_id
                           )
-                    ), '') AS rev
+                    ), '') AS rev,
+                    COALESCE((
+                        SELECT GROUP_CONCAT(
+                            d.live_item_id || ':' || d.team_id || ':' ||
+                            length(d.image_png) || ':' || lloves_md5(d.image_png),
+                            '|'
+                            ORDER BY d.live_item_id, d.team_id
+                        )
+                        FROM live_team_draw_images AS d
+                        INNER JOIN live_group_members AS m
+                          ON m.live_item_id = d.live_item_id
+                         AND m.team_id = d.team_id
+                         AND m.student_id = ?
+                        INNER JOIN live_session_items AS i
+                          ON i.id = m.live_item_id
+                         AND i.live_session_id = d.live_session_id
+                        WHERE d.live_session_id = ?
+                    ), '') AS drawing
                     """,
-                    (sid, student),
+                    (sid, student, student, sid),
                 ).fetchone()
-                images = self.conn.execute(
-                    """
-                    SELECT d.live_item_id, d.team_id, d.image_png
-                    FROM live_team_draw_images AS d
-                    WHERE d.live_session_id = ?
-                      AND EXISTS (
-                        SELECT 1 FROM live_group_members AS m
-                        INNER JOIN live_session_items AS i ON i.id = m.live_item_id
-                        WHERE i.live_session_id = d.live_session_id
-                          AND m.live_item_id = d.live_item_id
-                          AND m.team_id = d.team_id
-                          AND m.student_id = ?
-                      )
-                    ORDER BY d.live_item_id, d.team_id
-                    """,
-                    (sid, student),
-                ).fetchall()
-                drawing = hashlib.sha1()
-                for image in images:
-                    blob = image["image_png"] or b""
-                    if isinstance(blob, str):
-                        blob = blob.encode()
-                    drawing.update(f"{image['live_item_id']}:{image['team_id']}:".encode())
-                    drawing.update(blob)
                 rev = str(row["rev"] if row is not None else "")
-                return rev + "|" + drawing.hexdigest()[:16]
+                drawing = str(row["drawing"] if row is not None else "")
+                return rev + "|" + drawing
         if self._solo_attendee(sid, class_id, student):
             return ""
         return None
@@ -52144,9 +52178,9 @@ class SchoolDB(LovesDB):
 
         A replaced answer keeps its row id. A prompt rewrite can leave
         ``updated_at`` alone. Points and board feedback have to move this
-        token anyway. Only the question text and choices are hashed, so
-        one student's answer does not rebuild every other phone. Board
-        strokes stay out.
+        token anyway. Each column is a length plus a digest, so the stamp
+        stays short and one student's answer does not rebuild every other
+        phone. Board strokes stay out. Prompt fields are ordered by id.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -52154,92 +52188,110 @@ class SchoolDB(LovesDB):
         """
         sid = int(session_id)
         with self._lock:
-            if student_id not in (None, ""):
-                responses = self.conn.execute(
-                    """
-                    SELECT r.prompt_id, r.response_json, r.awarded_points
-                    FROM live_session_responses AS r
-                    JOIN live_session_prompts AS p ON p.id = r.prompt_id
-                    WHERE p.live_session_id = ? AND r.student_id = ?
-                    ORDER BY r.prompt_id
-                    """,
-                    (sid, int(student_id)),
-                ).fetchall()
-                feedback = self.conn.execute(
-                    """
-                    SELECT c.run_key, c.board_key, c.feedback_text
-                    FROM board_answer_copies AS c
-                    JOIN live_class_sessions AS s ON s.class_id = c.class_id
-                    JOIN live_session_prompts AS p
-                      ON p.live_session_id = s.id
-                     AND c.run_key = s.run_key || '~q' || p.id
-                    WHERE s.id = ?
-                      AND (
-                        c.board_key = 'solo:' || ?
-                        OR c.board_key IN (
-                          SELECT 'team:' || m.team_id
-                          FROM live_group_members AS m
-                          JOIN live_session_items AS i ON i.id = m.live_item_id
-                          WHERE i.live_session_id = s.id AND m.student_id = ?
-                        )
-                      )
-                    ORDER BY c.run_key, c.board_key
-                    """,
-                    (sid, int(student_id), int(student_id)),
-                ).fetchall()
-            else:
-                responses = self.conn.execute(
-                    """
-                    SELECT r.prompt_id, r.student_id, r.response_json, r.awarded_points
-                    FROM live_session_responses AS r
-                    JOIN live_session_prompts AS p ON p.id = r.prompt_id
-                    WHERE p.live_session_id = ?
+            response_sql = """
+                SELECT COALESCE(GROUP_CONCAT(
+                    r.prompt_id || ':' || COALESCE(r.student_id, 0) || ':' ||
+                    length(COALESCE(r.response_json, '')) || ':' ||
+                    lloves_md5(r.response_json) || ':' ||
+                    COALESCE(r.awarded_points, ''),
+                    '|'
                     ORDER BY r.prompt_id, r.student_id
-                    """,
-                    (sid,),
-                ).fetchall()
-                feedback = self.conn.execute(
-                    """
-                    SELECT c.run_key, c.board_key, c.feedback_text
-                    FROM board_answer_copies AS c
-                    JOIN live_class_sessions AS s ON s.class_id = c.class_id
-                    JOIN live_session_prompts AS p
-                      ON p.live_session_id = s.id
-                     AND c.run_key = s.run_key || '~q' || p.id
-                    WHERE s.id = ?
-                    ORDER BY c.run_key, c.board_key
-                    """,
-                    (sid,),
-                ).fetchall()
+                ), '') AS body
+                FROM live_session_responses AS r
+                JOIN live_session_prompts AS p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+            """
+            params: tuple[object, ...] = (sid,)
+            if student_id not in (None, ""):
+                response_sql += " AND r.student_id = ?"
+                params = (sid, int(student_id))
+            responses = self.conn.execute(response_sql, params).fetchone()
+            feedback = self._stamp_feedback_digests(sid, student_id)
             prompt_row = self.conn.execute(
                 """
-                SELECT GROUP_CONCAT(
+                SELECT COALESCE(GROUP_CONCAT(
                     id || ':' ||
-                    COALESCE(json_extract(payload, '$.text'), '') || ':' ||
-                    COALESCE(json_extract(payload, '$.options'), '') || ':' ||
-                    COALESCE(json_extract(payload, '$.choices'), '') || ':' ||
-                    COALESCE(json_extract(payload, '$.rank_options'), ''),
+                    length(COALESCE(json_extract(payload, '$.text'), '')) || ':' ||
+                    lloves_md5(json_extract(payload, '$.text')) || ':' ||
+                    length(COALESCE(json_extract(payload, '$.options'), '')) || ':' ||
+                    lloves_md5(json_extract(payload, '$.options')) || ':' ||
+                    length(COALESCE(json_extract(payload, '$.choices'), '')) || ':' ||
+                    lloves_md5(json_extract(payload, '$.choices')) || ':' ||
+                    length(COALESCE(json_extract(payload, '$.rank_options'), '')) || ':' ||
+                    lloves_md5(json_extract(payload, '$.rank_options')),
                     '|'
                     ORDER BY id
-                ) AS body
+                ), '') AS body
                 FROM live_session_prompts
                 WHERE live_session_id = ?
                 """,
                 (sid,),
             ).fetchone()
         parts = [
-            "r:{pid}:{body}:{points}".format(
-                pid=row["prompt_id"],
-                body=row["response_json"],
-                points=row["awarded_points"],
-            )
-            for row in responses
+            "r:" + str(responses["body"] if responses is not None else ""),
+            "p:" + str(prompt_row["body"] if prompt_row is not None else ""),
         ]
-        parts.append("p:" + str(prompt_row["body"] if prompt_row is not None else ""))
         parts.extend(
-            f"f:{row['board_key']}:{row['feedback_text']}" for row in feedback
+            f"f:{row['run_key']}:{row['board_key']}:{row['digest']}" for row in feedback
         )
         return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:20]
+
+    def _stamp_feedback_digests(
+        self, session_id: int, student_id: int | None
+    ) -> list[sqlite3.Row]:
+        """Digests of the board notes stored on the card's question keys.
+
+        ``save_copy_feedback`` writes ``{run}~q{prompt id}``. This seeks
+        those keys on ``(class_id, run_key)`` instead of joining every
+        prompt to every copy. A student stamp includes that student's
+        solo board and their teams.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id. ``None`` includes every board on the run.
+
+        Returns:
+            Rows with ``run_key``, ``board_key``, and ``digest``.
+        """
+        meta = self.conn.execute(
+            "SELECT class_id, run_key FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if meta is None or not str(meta["run_key"] or ""):
+            return []
+        prompt_ids = [
+            int(row["id"])
+            for row in self.conn.execute(
+                "SELECT id FROM live_session_prompts WHERE live_session_id = ?",
+                (int(session_id),),
+            )
+        ]
+        if not prompt_ids:
+            return []
+        keys = [f"{meta['run_key']}~q{prompt_id}" for prompt_id in prompt_ids]
+        marks = ",".join("?" for _ in keys)
+        sql = f"""
+            SELECT c.run_key, c.board_key, lloves_md5(c.feedback_text) AS digest
+            FROM board_answer_copies AS c
+            WHERE c.class_id = ?
+              AND c.run_key IN ({marks})
+        """
+        params: list[object] = [int(meta["class_id"]), *keys]
+        if student_id not in (None, ""):
+            sql += """
+              AND (
+                c.board_key = 'solo:' || ?
+                OR c.board_key IN (
+                  SELECT 'team:' || m.team_id
+                  FROM live_group_members AS m
+                  JOIN live_session_items AS i ON i.id = m.live_item_id
+                  WHERE i.live_session_id = ? AND m.student_id = ?
+                )
+              )
+            """
+            params.extend((int(student_id), int(session_id), int(student_id)))
+        sql += " ORDER BY c.run_key, c.board_key"
+        return list(self.conn.execute(sql, params))
 
     def live_student_poll_stamp(
         self,
@@ -52338,8 +52390,10 @@ class SchoolDB(LovesDB):
                            || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
                                 THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
                                 ELSE 0 END)
-                           || '|' || COALESCE(g.final_answer_json, '')
-                           || '|' || COALESCE(g.why_text, '')
+                           || '|' || length(COALESCE(g.final_answer_json, ''))
+                           || ':' || lloves_md5(g.final_answer_json)
+                           || '|' || length(COALESCE(g.why_text, ''))
+                           || ':' || lloves_md5(g.why_text)
                     FROM live_group_responses g
                     INNER JOIN live_session_items i ON i.id = g.live_item_id
                     WHERE i.live_session_id = ?
