@@ -30157,6 +30157,63 @@ class SchoolDB(LovesDB):
         }
 
 
+    def _parked_card_freshness(
+        self,
+        session_id: int,
+        student_id: int | None,
+        participant_uuid: str,
+    ) -> dict[int, tuple[str, str]]:
+        """Prompt and answer stamps for each lifecycle row in this session.
+
+        A parked card is reused only while both stamps match. An answer,
+        a republish, or a reopen bump changes the stamp and the next poll
+        rebuilds that card.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id, when the attendee is on the roster.
+            participant_uuid: Live-session person key.
+
+        Returns:
+            ``live_session_items.id`` to ``(prompt updated_at, response updated_at)``.
+        """
+        person = str(participant_uuid or "").strip()
+        if person:
+            person_sql = "AND r.participant_uuid = ?"
+            person_param: Any = person
+        elif student_id not in (None, ""):
+            person_sql = "AND r.student_id = ?"
+            person_param = int(student_id)
+        else:
+            person_sql = ""
+            person_param = None
+        params: list[Any] = [int(session_id)]
+        if person_param is not None:
+            params.append(person_param)
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT i.id AS item_id,
+                       COALESCE(p.updated_at, '') AS prompt_at,
+                       COALESCE(MAX(r.updated_at), '') AS response_at
+                FROM live_session_items AS i
+                LEFT JOIN live_session_prompts AS p ON p.id = i.prompt_id
+                LEFT JOIN live_session_responses AS r
+                  ON r.prompt_id = p.id {person_sql}
+                WHERE i.live_session_id = ?
+                GROUP BY i.id, p.updated_at
+                """,
+                (params[-1], params[0]) if person_param is not None else (int(session_id),),
+            ).fetchall()
+        out: dict[int, tuple[str, str]] = {}
+        for row in rows:
+            try:
+                item_pk = int(row["item_id"])
+            except (TypeError, ValueError):
+                continue
+            out[item_pk] = (str(row["prompt_at"] or ""), str(row["response_at"] or ""))
+        return out
+
     def _parked_student_card_key(
         self,
         session_id: int,
@@ -30166,12 +30223,14 @@ class SchoolDB(LovesDB):
         *,
         stage: str,
         current_page: int | None,
+        freshness: dict[int, tuple[str, str]],
     ) -> tuple[Any, ...] | None:
         """Cache key for a question that is not on the live stage.
 
         Facing cards are rebuilt every poll because answers still move.
-        A parked or closed card stays put until its row changes, so the
-        next poll can skip the tally. ``None`` means do not cache.
+        A parked or closed card is reused only while its content, prompt,
+        and this student's answer stamp are unchanged. ``None`` means do
+        not cache.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -30180,8 +30239,20 @@ class SchoolDB(LovesDB):
             participant_uuid: Live-session person key.
             stage: Teacher stage, already lowercased.
             current_page: Teacher deck page, or None when pages are unset.
+            freshness: Prompt and answer stamps from :meth:`_parked_card_freshness`.
         """
         status = str(item.get("status") or "")
+        # Meet and spark answers live on an earlier prompt. Rebuilding
+        # those cards is what puts the written answer back on the parked row.
+        token = str(item.get("item_id") or "").strip().lower().replace("-", "_")
+        if token in {
+            "teams_spark",
+            "meet_team",
+            "meet_a",
+            "meet_b",
+            "meet_c",
+        } or token.endswith("spark"):
+            return None
         on_page = self._student_item_on_current_page(
             session_id, item, current_page=current_page
         )
@@ -30193,6 +30264,9 @@ class SchoolDB(LovesDB):
             item_pk = int(item["id"])
         except (TypeError, ValueError):
             return None
+        prompt_at, response_at = freshness.get(item_pk, ("", ""))
+        blob = json.dumps(item.get("item") or {}, sort_keys=True, default=str)
+        digest = hashlib.sha1(blob.encode()).hexdigest()[:16]
         return (
             int(session_id),
             item_pk,
@@ -30204,6 +30278,10 @@ class SchoolDB(LovesDB):
             1 if item.get("show_live_results") else 0,
             str(item.get("page_number") or ""),
             str(item.get("stage") or ""),
+            "" if current_page is None else str(current_page),
+            prompt_at,
+            response_at,
+            digest,
         )
 
     def _cached_parked_student_card(
@@ -30305,6 +30383,9 @@ class SchoolDB(LovesDB):
                 continue
             items.append(row)
         public_items: list[dict[str, Any]] = []
+        freshness = self._parked_card_freshness(
+            session_id, student_id, participant_uuid
+        )
         for item in items:
             parked_key = self._parked_student_card_key(
                 session_id,
@@ -30313,6 +30394,7 @@ class SchoolDB(LovesDB):
                 participant_uuid,
                 stage=stage,
                 current_page=current_page,
+                freshness=freshness,
             )
             if parked_key is not None:
                 cached_card = self._cached_parked_student_card(parked_key)
