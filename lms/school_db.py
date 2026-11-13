@@ -2625,6 +2625,39 @@ class LovesDB:
         events.ensure_schema()
         self.engagement = events
 
+    def _student_question_ink_locked(self, run_key: str, board_key: str, owner: str) -> bool:
+        """True when this student write would change a submitted question board.
+
+        Postgres board ops cannot see ``board_answer_copies``. The store
+        calls this while it holds ``self._lock``, the same lock Submit
+        holds until the copy commits. Teacher Clear is not locked.
+
+        Args:
+            run_key: Run key the ops will be stored under.
+            board_key: Board the ops will land on.
+            owner: Writer. ``teacher`` is never locked.
+        """
+        if str(owner or "").strip() == "teacher":
+            return False
+        try:
+            from question_board import parse_board_run_key
+        except ImportError:
+            from lms.question_board import parse_board_run_key
+        try:
+            if parse_board_run_key(run_key).kind != "question":
+                return False
+        except ValueError:
+            return False
+        row = self.conn.execute(
+            """
+            SELECT submitted_at FROM board_answer_copies
+            WHERE run_key = ? AND board_key = ?
+            LIMIT 1
+            """,
+            (str(run_key), str(board_key)),
+        ).fetchone()
+        return bool(row and str(row["submitted_at"] or "").strip())
+
     def _install_postgres_board_ops(self, presence: Any) -> None:
         """Point board ops at Postgres and create the tables under an advisory lock.
 
@@ -2634,6 +2667,8 @@ class LovesDB:
         from board_ops import PostgresBoardOps
 
         store = PostgresBoardOps(presence)
+        store.write_lock = self._lock
+        store.submitted_lookup = self._student_question_ink_locked
         store.ensure_schema()
         self.boards = store
         from engagement_events import PostgresEngagementEvents

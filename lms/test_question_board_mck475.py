@@ -9,11 +9,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -282,6 +285,203 @@ class QuestionBoardSubmitLockTests(unittest.TestCase):
         self.assertIn("one", ids)
         self.assertIn("two", ids)
         self.assertNotIn("three", ids)
+
+    def _op_count(self, run_key: str, board_key: str) -> int:
+        """How many stored ops this question board has.
+
+        Args:
+            run_key: Question run key.
+            board_key: ``solo:`` or ``team:`` key.
+        """
+        return len(self.school.boards.load_keys(run_key, [board_key]))
+
+    def _copy_json(self, run_key: str, board_key: str) -> str:
+        """Saved copy JSON for one board.
+
+        Args:
+            run_key: Question run key.
+            board_key: ``solo:`` or ``team:`` key.
+        """
+        with self.school._lock:
+            row = self.school.conn.execute(
+                """
+                SELECT strokes_json FROM board_answer_copies
+                WHERE run_key = ? AND board_key = ?
+                """,
+                (run_key, board_key),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        return str(row["strokes_json"])
+
+    def test_legacy_ink_routes_reject_after_submit(self) -> None:
+        """Old board and canvas writers do not append ops after Submit.
+
+        Teacher Clear still runs. The saved copy stays the submitted ink.
+        """
+        prompt_id = self._add("Board legacy lock")
+        phone = self._phone(0)
+        base = f"/api/student/question-board/{prompt_id}"
+        drawn = phone.post(
+            f"{base}/ops",
+            json={
+                "points": [[0.2, 0.3], [0.5, 0.4]],
+                "stroke_id": "kept",
+                "ended": True,
+            },
+        )
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        sent = phone.post(f"{base}/submit", json={"text": ""})
+        self.assertEqual(sent.status_code, 200, sent.get_json())
+        view = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0]
+        )
+        run_key = str(view["run_key"])
+        board_key = str(view["board_key"])
+        before_ops = self._op_count(run_key, board_key)
+        before_copy = self._copy_json(run_key, board_key)
+        solo = quote(board_key, safe="")
+        posts = [
+            (
+                "student-ops",
+                phone,
+                f"/api/student/board/{solo}/ops",
+                {"ops": _stroke("late-student"), "run_key": run_key},
+            ),
+            (
+                "session-ops",
+                phone,
+                f"/api/live-sessions/{self.session_id}/board/{solo}/ops",
+                {"ops": _stroke("late-session"), "run_key": run_key},
+            ),
+            (
+                "canvas-text",
+                phone,
+                "/api/student/canvas-presence",
+                {"run_key": run_key, "text_id": "tx-late", "text": "later", "x": 0.2, "y": 0.3},
+            ),
+            (
+                "canvas-undo",
+                phone,
+                "/api/student/canvas-presence",
+                {"run_key": run_key, "op": "stroke_remove", "stroke_id": "kept"},
+            ),
+        ]
+        for label, client, path, payload in posts:
+            reply = client.post(path, json=payload)
+            self.assertEqual(reply.status_code, 409, label)
+            self.assertEqual((reply.get_json() or {}).get("error"), LOCKED_LINE)
+            self.assertEqual(self._op_count(run_key, board_key), before_ops, label)
+            self.assertEqual(self._copy_json(run_key, board_key), before_copy, label)
+        cleared = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/boards/{solo}/clear",
+            json={},
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.get_json())
+
+    def test_team_legacy_route_rejects_a_teammate_after_submit(self) -> None:
+        """The session board route 409s a teammate on the shared key."""
+        prompt_id = self._add("Board team legacy", group=True)
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("one")
+        )
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[1], _stroke("two", salt=2)
+        )
+        self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "")
+        view = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[1]
+        )
+        run_key = str(view["run_key"])
+        board_key = str(view["board_key"])
+        before_ops = self._op_count(run_key, board_key)
+        before_copy = self._copy_json(run_key, board_key)
+        mate = self._phone(1)
+        reply = mate.post(
+            f"/api/live-sessions/{self.session_id}/board/{quote(board_key, safe='')}/ops",
+            json={"ops": _stroke("three", salt=4), "run_key": run_key},
+        )
+        self.assertEqual(reply.status_code, 409, reply.get_json())
+        self.assertEqual((reply.get_json() or {}).get("error"), LOCKED_LINE)
+        self.assertEqual(self._op_count(run_key, board_key), before_ops)
+        self.assertEqual(self._copy_json(run_key, board_key), before_copy)
+        self.assertNotIn("three", self._stroke_ids(self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[1]
+        )))
+
+    def test_submit_cannot_commit_while_a_stroke_write_is_open(self) -> None:
+        """Submit waits out an open stroke write, then saves that stroke.
+
+        The lock check and the insert share one transaction. Submit cannot
+        commit a copy in the gap, so the saved ink matches the live board.
+        """
+        prompt_id = self._add("Board race")
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("seed")
+        )
+        store = self.school.boards
+        original = store._insert_ops
+        entered = threading.Event()
+        release = threading.Event()
+
+        def wrapped(exec_, run_key, board_key, owner, ops, client_batch_id):
+            """Hold the write open on the racing stroke, then insert it."""
+            if any(isinstance(op, dict) and op.get("id") == "race" for op in ops):
+                entered.set()
+                if not release.wait(3):
+                    raise TimeoutError("stroke release")
+            return original(exec_, run_key, board_key, owner, ops, client_batch_id)
+
+        store._insert_ops = wrapped
+        errors: list[BaseException] = []
+
+        def writer() -> None:
+            """Append the in-flight stroke."""
+            try:
+                self.school.append_question_board_ops(
+                    self.session_id, prompt_id, self.ids[0], _stroke("race", salt=3)
+                )
+            except BaseException as exc:  # noqa: BLE001 - reported after join
+                errors.append(exc)
+
+        db_file = str(self.school.conn.execute("PRAGMA database_list").fetchone()[2])
+        stroke = threading.Thread(target=writer)
+        stroke.start()
+        self.assertTrue(entered.wait(3))
+        seen = {"submitted": None}
+
+        def watcher() -> None:
+            """Read the copy while the stroke transaction is still open."""
+            other = sqlite3.connect(db_file)
+            try:
+                row = other.execute(
+                    """
+                    SELECT submitted_at FROM board_answer_copies
+                    WHERE run_key LIKE '%~q' || ? AND board_key LIKE 'solo:%'
+                    """,
+                    (str(prompt_id),),
+                ).fetchone()
+            finally:
+                other.close()
+            seen["submitted"] = bool(row and str(row[0] or "").strip())
+
+        look = threading.Thread(target=watcher)
+        look.start()
+        look.join(2)
+        release.set()
+        sent = self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "")
+        stroke.join(3)
+        store._insert_ops = original
+        self.assertEqual(errors, [])
+        self.assertFalse(seen["submitted"])
+        self.assertTrue(sent["editing_locked"])
+        view = self.school.read_student_question_board(
+            self.session_id, prompt_id, self.ids[0]
+        )
+        ids = self._stroke_ids(view)
+        self.assertIn("seed", ids)
+        self.assertIn("race", ids)
+        saved = json.loads(self._copy_json(str(view["run_key"]), str(view["board_key"])))
+        self.assertEqual(len(saved.get("strokes") or []), 2)
 
 
 class QuestionBoardLockClientTests(unittest.TestCase):

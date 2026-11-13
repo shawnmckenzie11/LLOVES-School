@@ -174,10 +174,15 @@ class BoardSessionClosed(Exception):
 
     ``stale_run`` is true when the caller's run key is missing or belongs
     to a different live run. An ended session leaves it false.
+    ``submitted`` is true when a student write hits a question board that
+    has already been submitted. Teacher writes are not this case.
 
     Args:
         message: Short reason stored on the exception.
         stale_run: True when the run key does not match the live run.
+        question_closed: True when a question board was closed. The class
+            itself has not ended.
+        submitted: True when the question copy is already submitted.
     """
 
     def __init__(
@@ -186,6 +191,7 @@ class BoardSessionClosed(Exception):
         *,
         stale_run: bool = False,
         question_closed: bool = False,
+        submitted: bool = False,
     ) -> None:
         """Record whether the rejection is a stale run rather than an end.
 
@@ -194,10 +200,12 @@ class BoardSessionClosed(Exception):
             stale_run: True when the run key is missing or not current.
             question_closed: True when a question board was closed. The
                 class itself has not ended.
+            submitted: True when student ink arrives after Submit.
         """
         super().__init__(message)
         self.stale_run = bool(stale_run)
         self.question_closed = bool(question_closed)
+        self.submitted = bool(submitted)
 
 
 def normalize_board_key(raw: Any) -> str:
@@ -1787,6 +1795,7 @@ class _BoardStore:
             if existing is not None:
                 existing["duplicate"] = True
                 return existing
+        self._refuse_submitted_student(exec_, run_key, board_key, owner)
         current = self._current_seq(exec_, run_key, board_key)
         if not ops:
             return {
@@ -1932,6 +1941,35 @@ class _BoardStore:
         if not row:
             return 0
         return int(row.get("next_seq") or 0)
+
+    def _refuse_submitted_student(
+        self,
+        exec_: Exec,
+        run_key: str,
+        board_key: str,
+        owner: str,
+    ) -> None:
+        """Reject student ink on a submitted question board.
+
+        The check uses ``exec_`` so it joins the insert transaction. A
+        teacher write, including Clear, is allowed. Deck and catch-up
+        run keys are not question copies.
+
+        Args:
+            exec_: Open transaction statement runner.
+            run_key: Run key the ops will be stored under.
+            board_key: Board the ops will land on.
+            owner: Writer. ``teacher`` is never refused.
+
+        Raises:
+            BoardSessionClosed: The question copy is already submitted.
+                ``submitted`` is true.
+        """
+        from question_board import LOCKED_LINE, refuse_submitted_student_ink
+
+        refuse_submitted_student_ink(
+            exec_, run_key, board_key, owner, message=LOCKED_LINE
+        )
 
     def _transaction(self, work: Callable[[Exec], Any]) -> Any:
         """Run ``work`` inside one write transaction.
@@ -2130,16 +2168,57 @@ class PostgresBoardOps(_BoardStore):
                     else:
                         raw.execute("RELEASE SAVEPOINT ddl_step")
 
+    def _refuse_submitted_student(
+        self,
+        exec_: Exec,
+        run_key: str,
+        board_key: str,
+        owner: str,
+    ) -> None:
+        """Reject student ink using the school lookup, not this connection.
+
+        Question copies live on the school database. This connection does
+        not have that table, so a SQL check here would abort the Postgres
+        transaction. ``write_lock`` is held around the whole transaction
+        by ``_transaction``, the same lock Submit holds while it commits.
+
+        Args:
+            exec_: Unused Postgres statement runner.
+            run_key: Run key the ops will be stored under.
+            board_key: Board the ops will land on.
+            owner: Writer. ``teacher`` is never refused.
+
+        Raises:
+            BoardSessionClosed: The question copy is already submitted.
+        """
+        _ = exec_
+        lookup = getattr(self, "submitted_lookup", None)
+        if lookup is None or not lookup(run_key, board_key, owner):
+            return
+        raise BoardSessionClosed("This board is submitted.", submitted=True)
+
     def _transaction(self, work: Callable[[Exec], Any]) -> Any:
         """Run ``work`` in one Postgres transaction on a pooled connection.
+
+        ``write_lock``, when set, is the school lock Submit holds. The
+        ink check and the insert then cannot interleave with Submit.
 
         Args:
             work: Statement body.
         """
-        with self.presence._conn() as wrapped:
-            raw = wrapped.connection
-            with raw.transaction():
-                return work(_pg_exec(raw))
+        lock = getattr(self, "write_lock", None)
+
+        def body() -> Any:
+            """Run the write on one pooled connection."""
+            with self.presence._conn() as wrapped:
+                raw = wrapped.connection
+                with raw.transaction():
+                    return work(_pg_exec(raw))
+
+        if lock is None:
+            return body()
+        with lock:
+            return body()
 
     def _read(self, work: Callable[[Exec], Any]) -> Any:
         """Run a read on a pooled autocommit connection.
