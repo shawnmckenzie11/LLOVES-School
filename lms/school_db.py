@@ -52406,8 +52406,8 @@ class SchoolDB(LovesDB):
             f"{group_response_rev}:{race_step_rev}:"
             f"{self._session_timer_stamp_token(int(class_id))}:"
             f"{self._google_slides_stamp_token(int(session_id))}:"
-            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}:"
-            f"{self._rendered_card_revision(int(session_id), student_id)}"
+            f"{self._rendered_card_revision(int(session_id), student_id)}:"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
         )
 
     def _session_timer_stamp_token(self, class_id: int) -> str:
