@@ -278,6 +278,39 @@ class BoardPollLiveTests(unittest.TestCase):
         self.assertEqual(self._engagement(self.ids[0]), "0/0")
         self.assertEqual(self._engagement(self.ids[1]), "0/0")
 
+    def test_remove_leaves_the_same_question_in_another_class(self) -> None:
+        """A bank item shared with another section keeps that section's points."""
+        board = self._add("Shared poll", answer_with="board", points=4)
+        prompt_id = int(board["prompt_id"])
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("mine")
+        )
+        conn = self.school.conn
+        key = conn.execute(
+            "SELECT question_key FROM board_poll_credit WHERE prompt_id = ?",
+            (prompt_id,),
+        ).fetchone()["question_key"]
+        self.assertTrue(key)
+        conn.execute(
+            """
+            INSERT INTO board_poll_credit (
+                run_key, prompt_id, student_id, question_key, worth,
+                completed, delta, updated_at
+            ) VALUES ('other-section-run', 987654, 1, ?, 4, 1, 1,
+                      '2026-11-17T10:00:00')
+            """,
+            (key,),
+        )
+        conn.commit()
+        self.school.remove_class_playlist_item(
+            self.class_id, "M1", "C2", str(board["item_id"])
+        )
+        rows = conn.execute(
+            "SELECT run_key FROM board_poll_credit WHERE question_key = ?",
+            (key,),
+        ).fetchall()
+        self.assertEqual([r["run_key"] for r in rows], ["other-section-run"])
+
     def test_teacher_steps_change_earned_points_only(self) -> None:
         """Up and down sit on the earned points. Offered points stay put."""
         item = self._add("Adjust poll", answer_with="board", points=4)

@@ -671,10 +671,17 @@ def wipe_removed_question(school: Any, class_id: int, item_id: str) -> None:
         if question_keys:
             marks = ",".join("?" * len(question_keys))
             keys = tuple(sorted(question_keys))
-            school.conn.execute(
-                f"DELETE FROM board_poll_credit WHERE question_key IN ({marks})",
-                keys,
-            )
+            if run_keys:
+                # Bank items are shared across sections; only this class's runs.
+                runs = tuple(sorted(run_keys))
+                run_marks = ",".join("?" * len(runs))
+                school.conn.execute(
+                    f"""
+                    DELETE FROM board_poll_credit
+                    WHERE question_key IN ({marks}) AND run_key IN ({run_marks})
+                    """,
+                    (*keys, *runs),
+                )
             school.conn.execute(
                 f"""
                 DELETE FROM participation_answers
