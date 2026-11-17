@@ -311,6 +311,21 @@ jobs:
           fi
           printf 'LIVE_FIX_ANON_PEPPER=%s\n' "$LIVE_FIX_ANON_PEPPER" | flyctl secrets import --stage -a lloves-lms
 
+      # Sentry read access for the End Live Class report (MCK-480).
+      # Same pattern: empty secrets are skipped, values go on stdin.
+      - name: Stage Sentry report secrets
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN}" ] || [ -z "${SENTRY_ORG}" ]; then
+            echo "SENTRY_AUTH_TOKEN or SENTRY_ORG is empty; Fly secrets left unchanged."
+            exit 0
+          fi
+          printf 'SENTRY_AUTH_TOKEN=%s\nSENTRY_ORG=%s\n' "$SENTRY_AUTH_TOKEN" "$SENTRY_ORG" | flyctl secrets import --stage -a lloves-lms
+
       - name: Deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
