@@ -25974,16 +25974,21 @@ class SchoolDB(LovesDB):
     def _skipped_ids_for_live_item(self, live_item_id: int) -> set[int]:
         """Roster ids already skipped on this lifecycle item.
 
+        The school connection is shared by every thread in one worker.
+        This read takes the same lock as a rank tap's write so two
+        teammates placing at once cannot use that connection together.
+
         Args:
             live_item_id: ``live_session_items.id``.
         """
-        rows = self.conn.execute(
-            """
-            SELECT student_id FROM live_question_skips
-            WHERE live_item_id = ?
-            """,
-            (int(live_item_id),),
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id FROM live_question_skips
+                WHERE live_item_id = ?
+                """,
+                (int(live_item_id),),
+            ).fetchall()
         return {int(row["student_id"]) for row in rows}
 
     def _reject_question_skipped(self, item: dict[str, Any], student_id: int) -> None:
