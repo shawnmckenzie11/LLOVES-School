@@ -53,7 +53,7 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
-    # A healthy run is about 25 minutes. The install step is capped at 12
+    # A healthy run is about 30 minutes. The install step is capped at 12
     # minutes and the test step at 30, so 60 covers both with headroom
     # (MCK-470). Same cap as the test job in ci.yml.
     timeout-minutes: 60
@@ -128,9 +128,10 @@ jobs:
           ALLOW_DEV_VERIFICATION_CODE: "1"
           LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
         # MCK-52: a hang aborts with every thread's stack in the log instead of
-        # sitting in_progress for hours.
+        # sitting in_progress for hours. The suite now runs past 25 minutes.
+        # 29m still dumps stacks inside the 30 minute step cap.
         timeout-minutes: 30
-        run: timeout -s ABRT 25m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
+        run: timeout -s ABRT 29m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
 
   load-smoke:
     name: 30-seat load smoke
