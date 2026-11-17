@@ -969,7 +969,10 @@ export function mountTeacherGrid(root, options = {}) {
     paintGrid(tiles);
     if (openKey) {
       const openTile = tiles.find((row) => String(row.board_key || "") === openKey);
-      if (openTile) paintPanelCopy(openTile);
+      if (openTile) {
+        paintPanelCopy(openTile);
+        if (typeof options.onTileSync === "function") options.onTileSync(openTile);
+      }
     }
     projectedKey = String(payload.projected_board || "");
     const status = part("projected");

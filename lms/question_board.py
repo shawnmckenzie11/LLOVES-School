@@ -1778,6 +1778,9 @@ def question_dashboard(
     projected = ""
     if str(teacher.get("whiteboard_projected_run") or "") == run_key:
         projected = str(teacher.get("whiteboard_projected_board") or "")
+    from board_poll_score import attach_participation
+
+    attach_participation(school, int(session_id), int(prompt_id), tiles)
     return {
         "ok": True,
         "visible": True,
@@ -2005,7 +2008,7 @@ def append_question_board_ops(
         item_op.pop("layer", None)
         cleaned.append(item_op)
     who = "teacher" if owner == "teacher" else str(int(student_id))
-    return school.append_live_board_ops(
+    saved = school.append_live_board_ops(
         int(session_id),
         board_key,
         owner=who,
@@ -2013,6 +2016,49 @@ def append_question_board_ops(
         client_batch_id=client_batch_id,
         claimed_run_key=run_key,
     )
+    if owner != "teacher" and _ops_award_participation(cleaned):
+        from board_poll_score import note_contribution
+
+        note_contribution(school, int(session_id), int(prompt_id), int(student_id))
+    return saved
+
+
+def _ops_award_participation(ops: list[dict[str, Any]]) -> bool:
+    """True when a student batch contains a stroke or text, not only an erase.
+
+    Args:
+        ops: Cleaned board ops.
+    """
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        kind = str(op.get("type") or op.get("op") or "")
+        if kind in {"stroke_remove", "cursor"}:
+            continue
+        if kind in {"stroke_add", "pts_append", "stroke_end"}:
+            return True
+        if kind == "text_upsert" and str(op.get("text") or "").strip():
+            return True
+        points = op.get("points")
+        if isinstance(points, list) and points:
+            return True
+    return False
+
+
+def _presence_awards_participation(body: dict[str, Any]) -> bool:
+    """True when a phone presence write is a stroke or text.
+
+    Args:
+        body: Presence JSON from the phone.
+    """
+    if str(body.get("op") or body.get("type") or "") == "stroke_remove":
+        return False
+    if str(body.get("text_id") or "").strip() and str(body.get("text") or "").strip():
+        return True
+    points = body.get("points")
+    if isinstance(points, list) and points:
+        return True
+    return body.get("point") not in (None, "")
 
 
 def body_is_presence(body: Any) -> bool:
@@ -2195,6 +2241,10 @@ def apply_question_presence(
         raise
     except Exception as exc:  # noqa: BLE001
         raise QuestionBoardError(DOWN_LINE, 503) from exc
+    if _presence_awards_participation(body):
+        from board_poll_score import note_contribution
+
+        note_contribution(school, int(session_id), int(prompt_id), int(student_id))
     return _presence_delta(school, run_key, board_key, body.get("since"))
 
 

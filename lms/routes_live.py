@@ -5492,6 +5492,32 @@ def register_live(app, school, shared):
             return _question_board_error(exc)
 
     @bp.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/participation",
+        methods=["POST"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_question_board_participation(session_id: int, prompt_id: int):
+        """Raise or lower one student's participation on this whiteboard poll."""
+        from board_poll_score import adjust
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        try:
+            student_id = int(body.get("student_id"))
+            delta = int(body.get("delta"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "student_id and delta required"}), 400
+        try:
+            return jsonify(adjust(school, int(session_id), int(prompt_id), student_id, delta))
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @bp.route(
         "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/<path:board_key>/ink",
         methods=["POST"],
     )

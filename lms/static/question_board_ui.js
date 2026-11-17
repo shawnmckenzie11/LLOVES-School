@@ -597,6 +597,7 @@ function teacherGalleryHtml() {
             </div>
             <p class="wb-live-answer" data-wb-part="answer" hidden></p>
             <button type="button" class="wb-live-more" data-wb-part="answer-more" hidden>more</button>
+            <div class="qboard-score" data-wb-part="score" hidden></div>
             <label class="qboard-note-label">Feedback
               <textarea data-wb-part="note" rows="2" maxlength="500" aria-label="Feedback for this board"></textarea>
             </label>
@@ -653,6 +654,134 @@ function paintWaits(root, tile) {
     list.appendChild(li);
   }
   host.appendChild(list);
+}
+
+/**
+ * Per-student participation steps beside the feedback note.
+ *
+ * The gallery poll refreshes the numbers. A click posts one step and
+ * paints the reply so the teacher does not wait for the next poll.
+ *
+ * @param {HTMLElement} root
+ * @param {string} sessionId
+ * @param {string} promptId
+ */
+function wireBoardScore(root, sessionId, promptId) {
+  const host = root.querySelector("[data-wb-part='score']");
+  if (!(host instanceof HTMLElement)) return { open() {} };
+  const url = `/api/live-sessions/${sessionId}/questions/${promptId}/participation`;
+
+  /**
+   * Rows already on the tile, in student order.
+   * @param {any} tile
+   * @returns {{student_id: number, earned: number, possible: number, label: string}[]}
+   */
+  function rowsOf(tile) {
+    const ids = Array.isArray(tile?.student_ids) ? tile.student_ids : [];
+    const stored = Array.isArray(tile?.participation) ? tile.participation : [];
+    const byId = new Map(stored.map((row) => [Number(row?.student_id), row]));
+    const names = Array.isArray(tile?.member_names) ? tile.member_names : [];
+    return ids.map((raw, index) => {
+      const studentId = Number(raw) || 0;
+      const row = byId.get(studentId) || {};
+      const label = names.length
+        ? String(names[index] || "")
+        : ids.length === 1
+          ? String(tile?.name || "")
+          : "";
+      return {
+        student_id: studentId,
+        earned: Number(row.earned) || 0,
+        possible: Number(row.possible) || 0,
+        label,
+      };
+    }).filter((row) => row.student_id);
+  }
+
+  /**
+   * @param {any} tile
+   */
+  function paint(tile) {
+    const rows = rowsOf(tile);
+    host.hidden = !rows.length;
+    const existing = [...host.querySelectorAll("[data-student]")];
+    const same = existing.length === rows.length
+      && rows.every((row, index) => existing[index].getAttribute("data-student") === String(row.student_id));
+    if (same) {
+      rows.forEach((row, index) => {
+        const value = existing[index].querySelector("[data-earned]");
+        if (value) value.textContent = `${row.earned} of ${row.possible}`;
+      });
+      return;
+    }
+    host.replaceChildren();
+    for (const row of rows) {
+      const line = document.createElement("div");
+      line.className = "qboard-score-row";
+      line.setAttribute("data-student", String(row.student_id));
+      if (row.label) {
+        const who = document.createElement("span");
+        who.textContent = row.label;
+        line.appendChild(who);
+      }
+      const down = document.createElement("button");
+      down.type = "button";
+      down.className = "secondary";
+      down.textContent = "−";
+      down.setAttribute("aria-label", "Lower participation");
+      const value = document.createElement("span");
+      value.className = "qboard-score-value";
+      value.setAttribute("data-earned", "");
+      value.textContent = `${row.earned} of ${row.possible}`;
+      const up = document.createElement("button");
+      up.type = "button";
+      up.className = "secondary";
+      up.textContent = "+";
+      up.setAttribute("aria-label", "Raise participation");
+      down.addEventListener("click", () => { void nudge(row.student_id, -1, value, down, up); });
+      up.addEventListener("click", () => { void nudge(row.student_id, 1, value, down, up); });
+      line.append(down, value, up);
+      host.appendChild(line);
+    }
+  }
+
+  /**
+   * @param {number} studentId
+   * @param {number} delta
+   * @param {HTMLElement} value
+   * @param {HTMLButtonElement} down
+   * @param {HTMLButtonElement} up
+   */
+  async function nudge(studentId, delta, value, down, up) {
+    down.disabled = true;
+    up.disabled = true;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ student_id: studentId, delta }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        value.textContent = `${Number(payload.earned) || 0} of ${Number(payload.possible) || 0}`;
+      }
+    } catch (_err) {
+      /* the next gallery poll repaints the stored number */
+    } finally {
+      down.disabled = false;
+      up.disabled = false;
+    }
+  }
+
+  return {
+    /**
+     * @param {any} tile
+     */
+    open(tile) {
+      paint(tile || {});
+    },
+  };
 }
 
 /**
@@ -760,6 +889,7 @@ function paintTeacherDash(slot, sessionId) {
     (key) =>
       `/api/live-sessions/${sessionId}/questions/${promptId}/boards/${encodeURIComponent(key)}/note`
   );
+  const scores = wireBoardScore(root, sessionId, promptId);
   const mounted = mountTeacherGrid(root, {
     sessionId,
     /**
@@ -767,6 +897,13 @@ function paintTeacherDash(slot, sessionId) {
      */
     onOpen(tile) {
       notes.open(tile);
+      scores.open(tile);
+    },
+    /**
+     * @param {any} tile
+     */
+    onTileSync(tile) {
+      scores.open(tile);
     },
     /**
      * @param {string} id

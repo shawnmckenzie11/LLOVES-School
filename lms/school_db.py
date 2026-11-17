@@ -1987,10 +1987,38 @@ def _ev_draft(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
             "payload": {"field": field, "has_why": bool(str(a.get("why") or "").strip())}}
 
 
+def _board_offer_worth(item: Any) -> int | None:
+    """Points a published individual whiteboard poll offers, else None.
+
+    Text polls stay None so the offer counts as 1. The value is the
+    points stored when the question was created.
+
+    Args:
+        item: Return value of ``publish_live_session_item``.
+    """
+    if not isinstance(item, dict):
+        return None
+    mode = str(item.get("publish_mode") or item.get("response_mode") or "").strip().lower()
+    if mode not in {"", "individual"}:
+        return None
+    body = item.get("item") if isinstance(item.get("item"), dict) else {}
+    try:
+        from participation_weight import board_poll_worth
+    except ImportError:
+        from lms.participation_weight import board_poll_worth
+
+    kind = str(item.get("kind") or body.get("type") or "")
+    return board_poll_worth(kind, body)
+
+
 def _ev_item(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
     ref = (r or {}).get("id") if isinstance(r, dict) else None
+    payload: dict[str, Any] = {"mode": str(a.get("publish_mode") or "")[:20]}
+    worth = _board_offer_worth(r)
+    if worth is not None:
+        payload["worth"] = int(worth)
     return {"session_id": a["session_id"], "item_ref": ref or a.get("placement_or_item"),
-            "payload": {"mode": str(a.get("publish_mode") or "")[:20]}}
+            "payload": payload}
 
 
 def _ev_team_points(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
@@ -2017,7 +2045,8 @@ def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
         return None
     with db._lock:
         row = db.conn.execute(
-            "SELECT live_session_id FROM live_session_prompts WHERE id = ?", (int(a["prompt_id"]),)
+            "SELECT live_session_id, kind, payload FROM live_session_prompts WHERE id = ?",
+            (int(a["prompt_id"]),),
         ).fetchone()
     if row is None:
         return None
@@ -2030,8 +2059,21 @@ def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
         str(run["run_key"] or ""), int(a["student_id"]), a["prompt_id"],
         ("answer.submit", "answer.change"),
     ))
-    return {"kind": "answer.change" if seen else "answer.submit", "session_id": row["live_session_id"],
-            "student_id": a["student_id"], "item_ref": a["prompt_id"]}
+    event: dict[str, Any] = {
+        "kind": "answer.change" if seen else "answer.submit",
+        "session_id": row["live_session_id"],
+        "student_id": a["student_id"],
+        "item_ref": a["prompt_id"],
+    }
+    try:
+        from participation_weight import board_poll_worth
+    except ImportError:
+        from lms.participation_weight import board_poll_worth
+
+    worth = board_poll_worth(str(row["kind"] or ""), row["payload"])
+    if worth is not None:
+        event["payload"] = {"worth": int(worth)}
+    return event
 
 
 def _ev_join(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
@@ -2547,6 +2589,12 @@ class LovesDB:
             self._ensure_rank_race_schema()
             self._ensure_question_skip_schema()
             self._ensure_board_copy_feedback_column()
+            try:
+                from board_poll_score import ensure_schema as ensure_board_poll_schema
+            except ImportError:
+                from lms.board_poll_score import ensure_schema as ensure_board_poll_schema
+
+            ensure_board_poll_schema(self.conn)
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
@@ -3440,7 +3488,7 @@ class LovesDB:
         team_for = {
             sid: self.student_team_id_for_class(int(class_id), sid) for sid in student_ids
         }
-        return live_engagement_snapshot(
+        snap = live_engagement_snapshot(
             events,
             class_id=int(class_id),
             live_session=int(live_session_id),
@@ -3449,6 +3497,16 @@ class LovesDB:
             team_for_student=team_for,
             student_ids=student_ids,
         )
+        try:
+            from board_poll_score import live_card_bonus, shift_fraction
+        except ImportError:
+            from lms.board_poll_score import live_card_bonus, shift_fraction
+
+        snap["tier1"] = shift_fraction(
+            str(snap.get("tier1") or "0/0"),
+            live_card_bonus(self, int(live_session_id), int(student_id), events),
+        )
+        return snap
 
     def apply_student_live_engagement(
         self,
@@ -14905,6 +14963,12 @@ class SchoolDB(LovesDB):
                 token,
                 removed=True,
             )
+        try:
+            from board_poll_score import wipe_removed_question
+        except ImportError:
+            from lms.board_poll_score import wipe_removed_question
+
+        wipe_removed_question(self, int(class_id), token)
         self._sync_playlist_change(int(class_id), module, slot)
         if self._engine_ride_item_id(token):
             live = self.get_active_live_session_for_class(int(class_id))
@@ -32923,6 +32987,15 @@ class SchoolDB(LovesDB):
                 student_id=sid,
                 response=response or {},
             )
+            if not replay:
+                try:
+                    from board_poll_score import note_contribution
+                except ImportError:
+                    from lms.board_poll_score import note_contribution
+
+                note_contribution(
+                    self, session_id, int(prompt_id), sid, emit=False
+                )
         return result or {}
 
     def list_live_prompt_responses(self, prompt_id: int) -> list[dict[str, Any]]:
@@ -44434,7 +44507,14 @@ class SchoolDB(LovesDB):
             params.extend(excluded)
         with self._lock:
             rows = self.conn.execute(sql, params).fetchall()
-        return frozenset(str(r["question_key"]) for r in rows if r["question_key"])
+        keys = {str(r["question_key"]) for r in rows if r["question_key"]}
+        try:
+            from board_poll_score import credit_question_keys
+        except ImportError:
+            from lms.board_poll_score import credit_question_keys
+
+        keys.update(credit_question_keys(self, key))
+        return frozenset(keys)
 
     def participation_run_counts_in_tab(self, class_id: int, run_key: str) -> bool:
         """Whether a run belongs on the Participation tab (not test/discarded)."""
@@ -44628,19 +44708,27 @@ class SchoolDB(LovesDB):
         """Distinct module questions the student answered (live or catch-up) in the denominator."""
         from participation_exclusion import sql_exclude_non_counted_participation_run
 
+        from participation_weight import item_participation_weight
+
+        try:
+            from board_poll_score import module_adjustment
+        except ImportError:
+            from lms.board_poll_score import module_adjustment
+
         mod = str(live_module or "").strip().upper()
         pairs = self.participation_module_counted_pairs(class_id, mod)
+        nudge = module_adjustment(self, int(class_id), mod, int(student_id))
         if not pairs:
-            return 0
+            return nudge
         pair_expr = "UPPER(p.live_slot) || char(31) || p.question_key"
         real_run_clause = sql_exclude_non_counted_participation_run(
             "p.class_id", "p.run_key"
         )
         placeholders = ",".join("?" * len(pairs))
         with self._lock:
-            row = self.conn.execute(
+            rows = self.conn.execute(
                 f"""
-                SELECT COUNT(DISTINCT {pair_expr}) AS n
+                SELECT {pair_expr} AS pair_key, p.prompt_kind, p.item_json
                 FROM participation_answers a
                 INNER JOIN participation_items p
                     ON p.class_id = a.class_id AND p.run_key = a.run_key
@@ -44649,8 +44737,23 @@ class SchoolDB(LovesDB):
                   AND {pair_expr} IN ({placeholders}){real_run_clause}
                 """,
                 (int(class_id), mod, int(student_id), *sorted(pairs)),
-            ).fetchone()
-        return int(row["n"] or 0) if row else 0
+            ).fetchall()
+        total = 0
+        seen: set[str] = set()
+        for row in rows:
+            pair_key = str(row["pair_key"] or "")
+            if not pair_key or pair_key in seen:
+                continue
+            weight = item_participation_weight(
+                str(row["prompt_kind"] or ""),
+                publish_mode="individual",
+                item_json=row["item_json"],
+            )
+            if weight <= 0:
+                continue
+            seen.add(pair_key)
+            total += weight
+        return total + nudge
 
     def participation_session_meta(self, class_id: int) -> dict[str, dict[str, Any]]:
         """Map game-show session ids to run, module, slot, and deck items.
@@ -44869,7 +44972,8 @@ class SchoolDB(LovesDB):
                 """,
                 (int(class_id), mod),
             ).fetchall()
-        pairs: set[str] = set()
+        total = 0
+        seen: set[str] = set()
         for row in rows:
             payload = row["item_json"]
             mode = "individual"
@@ -44889,18 +44993,20 @@ class SchoolDB(LovesDB):
                 mode, include_individual=True, include_group=False
             ):
                 continue
-            if (
-                item_participation_weight(
-                    str(row["prompt_kind"] or ""),
-                    publish_mode=mode,
-                    item_json=parsed if isinstance(parsed, dict) else payload,
-                )
-                <= 0
-            ):
+            weight = item_participation_weight(
+                str(row["prompt_kind"] or ""),
+                publish_mode=mode,
+                item_json=parsed if isinstance(parsed, dict) else payload,
+            )
+            if weight <= 0:
                 continue
             slot = str(row["live_slot"] or "").strip().upper()
-            pairs.add(f"{slot}\x1f{row['question_key']}")
-        return len(pairs)
+            token = f"{slot}\x1f{row['question_key']}"
+            if token in seen:
+                continue
+            seen.add(token)
+            total += weight
+        return total
 
     def _individual_module_offered(self, class_id: int, live_module: str) -> int:
         """Individual participation opportunities in one module.

@@ -255,6 +255,54 @@ class _Store:
         )
         return bool(rows)
 
+    def delete_item_events(
+        self,
+        class_id: int,
+        run_keys: Sequence[str],
+        item_refs: Sequence[Any],
+        kinds: Sequence[str],
+    ) -> None:
+        """Delete one question's score events on these runs.
+
+        Other questions, and other kinds such as presence, stay.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_keys: Live run keys that offered the question.
+            item_refs: Lifecycle id, prompt id, or playlist id stored on the event.
+            kinds: Engagement kinds that carry this question's points.
+        """
+        keys = [str(key).strip() for key in run_keys if str(key or "").strip()]
+        refs = [str(ref).strip() for ref in item_refs if str(ref or "").strip()]
+        kind_list = [str(kind) for kind in kinds if str(kind or "").strip()]
+        if not keys or not refs or not kind_list:
+            return
+        key_marks = ",".join("?" * len(keys))
+        ref_marks = ",".join("?" * len(refs))
+        kind_marks = ",".join("?" * len(kind_list))
+        self._write(
+            "DELETE FROM engagement_events "
+            f"WHERE class_id = ? AND run_key IN ({key_marks}) "
+            f"AND kind IN ({kind_marks}) AND item_ref IN ({ref_marks})",
+            (int(class_id), *keys, *kind_list, *refs),
+        )
+
+    def delete_rollup_runs(self, class_id: int, run_keys: Sequence[str]) -> None:
+        """Drop stored rollup cells so a later rebuild can replace them.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_keys: Live run keys whose rollup is stale.
+        """
+        keys = [str(key).strip() for key in run_keys if str(key or "").strip()]
+        if not keys:
+            return
+        marks = ",".join("?" * len(keys))
+        self._write(
+            f"DELETE FROM engagement_rollup WHERE class_id = ? AND run_key IN ({marks})",
+            (int(class_id), *keys),
+        )
+
     def delete_session_rows(
         self,
         session_ids: Sequence[int],
