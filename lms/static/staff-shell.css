@@ -3855,6 +3855,92 @@ body.staff-shell .live-item-chart.is-histogram .live-item-chart-track {
   height: 1.3rem;
   border-radius: 2px 2px 0 0;
 }
+/* MC results graph: one shareable block. Not a second options table. */
+body.staff-shell .mc-results-graph {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.85rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+}
+body.staff-shell .mc-results-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.7rem;
+}
+body.staff-shell .mc-results-order {
+  display: inline-flex;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+}
+body.staff-shell .mc-results-controls button {
+  margin: 0;
+  border: 0;
+  background: #fff;
+  color: #12202e;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.28rem 0.65rem;
+  cursor: pointer;
+}
+body.staff-shell .mc-results-order button + button {
+  border-left: 1px solid #cbd5e1;
+}
+body.staff-shell .mc-results-controls button[aria-pressed="true"] {
+  background: #12202e;
+  color: #fff;
+}
+body.staff-shell .mc-results-controls button[data-mc-key] {
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+body.staff-shell .mc-results-row {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(5rem, 0.8fr) minmax(7rem, 1.4fr) auto auto;
+  gap: 0.55rem;
+  align-items: center;
+  margin-top: 0.45rem;
+}
+body.staff-shell .mc-results-letter {
+  font-weight: 800;
+}
+body.staff-shell .mc-results-label {
+  min-width: 0;
+  line-height: 1.3;
+}
+body.staff-shell .mc-results-track {
+  display: block;
+  height: 1.35rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #e2e8f0;
+}
+body.staff-shell .mc-results-fill {
+  display: block;
+  height: 100%;
+  background: #0f766e;
+}
+body.staff-shell .mc-results-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+body.staff-shell .mc-results-row.is-correct .mc-results-fill {
+  background: #166534;
+}
+body.staff-shell .mc-results-row.is-correct .mc-results-label,
+body.staff-shell .mc-results-row.is-correct .mc-results-letter,
+body.staff-shell .mc-results-key {
+  color: #166534;
+  font-weight: 800;
+}
+body.staff-shell.is-student-view .mc-results-graph {
+  background: #fff;
+}
 /* MCK-112: one "Students work [Individual | Group]" control on every
    group-capable Publish row, plus the options row and live chips. */
 body.staff-shell .live-group-setup {
