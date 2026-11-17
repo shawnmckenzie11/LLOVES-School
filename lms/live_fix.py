@@ -176,6 +176,10 @@ def note_rate_limited(*, session_id: int, student_key: str) -> bool:
 def flag_body_too_large(content_length: int | None) -> bool:
     """True when Content-Length is past the note cap.
 
+    A missing length is not treated as small. Callers still bound the
+    stream with :func:`read_capped_json` so a chunked body cannot grow
+    past the cap.
+
     Args:
         content_length: Declared body size, or None when the header is absent.
     """
@@ -186,6 +190,42 @@ def flag_body_too_large(content_length: int | None) -> bool:
     except (TypeError, ValueError):
         return False
     return size > FLAG_BODY_MAX_BYTES
+
+
+def read_capped_json(environ: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Read one JSON object and stop at the note cap.
+
+    The raw WSGI input is read for one byte past the cap. A longer body,
+    including a chunked body with no Content-Length, returns ``too_large``
+    without pulling the rest into the worker.
+
+    Args:
+        environ: The request environ. ``wsgi.input`` is read directly so a
+            missing Content-Length cannot fall through to an unlimited read.
+
+    Returns:
+        ``(body, too_large)``. An empty or unreadable body is ``{}``.
+    """
+    stream = environ.get("wsgi.input") if isinstance(environ, dict) else None
+    read = getattr(stream, "read", None)
+    if not callable(read):
+        return {}, False
+    raw = read(FLAG_BODY_MAX_BYTES + 1)
+    if raw is None:
+        raw = b""
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    if len(raw) > FLAG_BODY_MAX_BYTES:
+        return {}, True
+    if not raw.strip():
+        return {}, False
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}, False
+    if not isinstance(parsed, dict):
+        return {}, False
+    return parsed, False
 
 
 def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> list[str]:
@@ -262,8 +302,29 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
     return unique
 
 
+def _flexible_secret(secret: str) -> str | None:
+    """Match a secret even when whitespace is inserted between characters.
+
+    Args:
+        secret: One roster value or visit token.
+
+    Returns:
+        A regex, or None when the value is too short to search for.
+    """
+    chars = [ch for ch in secret if not ch.isspace()]
+    if len(chars) < 3 or secret.lower() in {"the", "and"}:
+        return None
+    body = r"\s*".join(re.escape(ch) for ch in chars)
+    if all(ch.isalnum() or ch in " .'-_" for ch in secret):
+        return rf"(?<!\w){body}(?!\w)"
+    return body
+
+
 def scrub_secrets(text: str, secrets: list[str]) -> str:
     """Replace roster secrets and email addresses with ``[redacted]``.
+
+    The text should already be one short line. Whitespace between the
+    characters of a visit token still matches.
 
     Args:
         text: Note, title, or other free text.
@@ -274,12 +335,9 @@ def scrub_secrets(text: str, secrets: list[str]) -> str:
     """
     cleaned = str(text or "")
     for secret in secrets:
-        if len(secret) < 3 or secret.lower() in {"the", "and"}:
+        pattern = _flexible_secret(secret)
+        if not pattern:
             continue
-        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 .'-]*", secret):
-            pattern = rf"\b{re.escape(secret)}\b"
-        else:
-            pattern = re.escape(secret)
         cleaned = re.sub(pattern, "[redacted]", cleaned, flags=re.IGNORECASE)
     cleaned = _EMAIL_RE.sub("[redacted]", cleaned)
     try:
@@ -292,6 +350,9 @@ def scrub_secrets(text: str, secrets: list[str]) -> str:
 def clean_note(text: str, secrets: list[str]) -> str:
     """Turn a submitted note into one short stored line.
 
+    Whitespace is collapsed and the line is cut to 280 characters before
+    any secret scan, so a long note cannot make scrubbing slow.
+
     Args:
         text: Raw note from the teacher or student.
         secrets: Values that must not remain in the note.
@@ -299,9 +360,9 @@ def clean_note(text: str, secrets: list[str]) -> str:
     Returns:
         A single line of at most 280 characters.
     """
-    cleaned = scrub_secrets(text, secrets).replace("\n", " ").replace("\r", " ")
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned[:NOTE_LIMIT]
+    cleaned = str(text or "").replace("\r", " ").replace("\n", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()[:NOTE_LIMIT]
+    return scrub_secrets(cleaned, secrets).strip()[:NOTE_LIMIT]
 
 
 def _session_columns(school: Any, session_id: int) -> dict[str, Any] | None:

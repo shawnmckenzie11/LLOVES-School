@@ -472,9 +472,9 @@ def register_live(app, school, shared):
         if request.method == "POST" and not _same_origin_post():
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         try:
-            from live_fix import add_flag, list_flags
+            from live_fix import add_flag, flag_body_too_large, list_flags, read_capped_json
         except ImportError:
-            from lms.live_fix import add_flag, list_flags
+            from lms.live_fix import add_flag, flag_body_too_large, list_flags, read_capped_json
         loaded = _live_fix_session(int(session_id), writing=request.method == "POST")
         if not (
             isinstance(loaded, tuple)
@@ -486,9 +486,11 @@ def register_live(app, school, shared):
         user, _row = loaded
         if request.method == "GET":
             return jsonify({"ok": True, "flags": list_flags(school, int(session_id))})
-        body = request.get_json(silent=True) or {}
-        if not isinstance(body, dict):
-            body = {}
+        if flag_body_too_large(request.content_length):
+            return jsonify({"ok": False, "error": "Note is too large."}), 413
+        body, too_large = read_capped_json(request.environ)
+        if too_large:
+            return jsonify({"ok": False, "error": "Note is too large."}), 413
         flag = add_flag(
             school,
             int(session_id),
@@ -529,10 +531,18 @@ def register_live(app, school, shared):
     def student_live_fix_flag():
         """Store one student note for the class they are in right now."""
         try:
-            from live_fix import add_flag, flag_body_too_large, note_rate_limited
+            from live_fix import add_flag, flag_body_too_large, note_rate_limited, read_capped_json
         except ImportError:
-            from lms.live_fix import add_flag, flag_body_too_large, note_rate_limited
+            from lms.live_fix import (
+                add_flag,
+                flag_body_too_large,
+                note_rate_limited,
+                read_capped_json,
+            )
         if flag_body_too_large(request.content_length):
+            return jsonify({"ok": False, "error": "Note is too large."}), 413
+        body, too_large = read_capped_json(request.environ)
+        if too_large:
             return jsonify({"ok": False, "error": "Note is too large."}), 413
         if not _same_origin_post():
             return jsonify({"ok": False, "error": "Forbidden"}), 403
@@ -552,9 +562,6 @@ def register_live(app, school, shared):
         raw_key = str(ctx.get("participant_uuid") or ctx.get("student_id") or "")
         if note_rate_limited(session_id=live_id, student_key=raw_key or "unknown"):
             return jsonify({"ok": False, "error": "Too many notes."}), 429
-        body = request.get_json(silent=True) or {}
-        if not isinstance(body, dict):
-            body = {}
         flag = add_flag(
             school,
             live_id,

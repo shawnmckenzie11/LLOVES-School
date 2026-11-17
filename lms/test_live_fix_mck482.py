@@ -8,6 +8,7 @@ Sentry and without calling Claude on the request.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
+from werkzeug.test import EnvironBuilder
 
 LMS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(LMS_DIR))
@@ -443,6 +445,61 @@ class LiveFixReportTests(unittest.TestCase):
                 headers={"X-Student-Visit-Token": self.visit_token},
             )
         self.assertEqual(limited.status_code, 429, limited.get_json())
+
+    def test_split_visit_token_is_scrubbed(self) -> None:
+        """A visit token with a space after the first 12 characters is removed."""
+        token = self.visit_token
+        split = f"{token[:12]} {token[12:]}"
+        response = self.client.post(
+            f"/api/live-sessions/{self.session_id}/flags",
+            json={"note": f"see {split}", "actions": ["live-stage-next"]},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        stored = response.get_json()["flag"]["note"]
+        self.assertNotIn(token[:12], stored)
+        self.assertNotIn(token[12:], stored)
+        self.assertNotIn(token, stored)
+        self.assertLessEqual(len(stored), 280)
+
+    def test_chunked_oversize_note_stops_at_the_cap(self) -> None:
+        """A chunked body with no Content-Length is refused after 4 KB."""
+        payload = json.dumps({"note": "x" * 80000, "actions": ["save-work"]}).encode()
+
+        class CountingStream(io.RawIOBase):
+            """Count bytes pulled from the note body."""
+
+            def __init__(self, raw: bytes) -> None:
+                self._raw = io.BytesIO(raw)
+                self.read_bytes = 0
+
+            def read(self, size: int = -1) -> bytes:
+                if size is None or size < 0:
+                    size = len(payload)
+                chunk = self._raw.read(size)
+                self.read_bytes += len(chunk)
+                return chunk
+
+            def readable(self) -> bool:
+                return True
+
+        stream = CountingStream(payload)
+        builder = EnvironBuilder(
+            path="/api/student/flags",
+            method="POST",
+            content_type="application/json",
+            headers={"X-Student-Visit-Token": self.visit_token},
+        )
+        built = builder.get_request()
+        built.environ.pop("CONTENT_LENGTH", None)
+        built.environ["wsgi.input_terminated"] = True
+        built.environ["wsgi.input"] = stream
+        response = self.student.open(built)
+        self.assertEqual(response.status_code, 413, response.get_data(as_text=True)[:300])
+        self.assertLess(stream.read_bytes, live_fix.FLAG_BODY_MAX_BYTES + 64)
+        self.assertEqual(
+            self.school.conn.execute("SELECT COUNT(*) FROM live_fix_flags").fetchone()[0],
+            0,
+        )
 
 
 if __name__ == "__main__":
