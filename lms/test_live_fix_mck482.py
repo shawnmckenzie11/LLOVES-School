@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -41,13 +42,19 @@ class LiveFixReportTests(unittest.TestCase):
         logging.disable(logging.WARNING)
         self._env = patch.dict(
             os.environ,
-            {"ANTHROPIC_API_KEY": "", "SENTRY_AUTH_TOKEN": "", "SENTRY_ORG": ""},
+            {
+                "ANTHROPIC_API_KEY": "",
+                "SENTRY_AUTH_TOKEN": "",
+                "SENTRY_ORG": "",
+                "LIVE_FIX_ANON_PEPPER": "test-pepper",
+            },
             clear=False,
         )
         self._env.start()
         os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ.pop("SENTRY_AUTH_TOKEN", None)
         os.environ.pop("SENTRY_ORG", None)
+        live_fix.clear_note_rates()
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
@@ -126,16 +133,26 @@ class LiveFixReportTests(unittest.TestCase):
         self.assertNotIn(SECRET_NAME, text)
         self.assertNotIn(STAFF_EMAIL, text)
         self.assertNotIn(self.session_code, text)
+        self.assertNotIn(self.visit_token, text)
 
     def test_flag_captures_slide_and_hides_the_reporter(self) -> None:
         """A teacher flag keeps the slide and drops names, email, and the code."""
-        note = f"{SECRET_NAME} {STAFF_EMAIL} {self.session_code} can't see the image"
+        note = (
+            f"{SECRET_NAME} {STAFF_EMAIL} {self.session_code} "
+            f"{self.visit_token} can't see the image"
+        )
         response = self.client.post(
             f"/api/live-sessions/{self.session_id}/flags",
             json={
                 "note": note,
                 "reporter_name": SECRET_NAME,
-                "actions": ["live-stage-next", f"{SECRET_NAME} said hi", SECRET_NAME, "save-work"],
+                "actions": [
+                    "live-stage-next",
+                    f"{SECRET_NAME} said hi",
+                    SECRET_NAME,
+                    self.visit_token,
+                    "save-work",
+                ],
             },
         )
         self.assertEqual(response.status_code, 200, response.get_json())
@@ -325,6 +342,107 @@ class LiveFixReportTests(unittest.TestCase):
         home = (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         self.assertIn('id="live-fix-student"', home)
         self.assertIn("Report a problem", home)
+        script_ids = set(re.findall(r'"([a-z][a-z0-9-]*)"', script[script.index("const ACTION_IDS"):script.index("function rememberAction")]))
+        self.assertEqual(script_ids, set(live_fix.ACTION_IDS))
+
+    def test_missing_pepper_stores_role_only(self) -> None:
+        """No pepper means no reporter hash, and the warning has no secrets."""
+        live_fix._pepper_warned = False
+        logging.disable(logging.NOTSET)
+        try:
+            with patch.dict(os.environ, {"LIVE_FIX_ANON_PEPPER": ""}, clear=False):
+                with self.assertLogs("live_fix", level="WARNING") as logs:
+                    response = self.client.post(
+                        f"/api/live-sessions/{self.session_id}/flags",
+                        json={"note": "can't see the image", "actions": ["live-stage-next"]},
+                    )
+        finally:
+            logging.disable(logging.WARNING)
+        self.assertEqual(response.status_code, 200, response.get_json())
+        flag = response.get_json()["flag"]
+        self.assertEqual(flag["reporter_role"], "teacher")
+        self.assertEqual(flag["reporter_anon"], "")
+        warning = "\n".join(logs.output)
+        self.assertIn("LIVE_FIX_ANON_PEPPER is unset", warning)
+        self.assertNotIn(SECRET_NAME, warning)
+        self.assertNotIn(self.visit_token, warning)
+        self.assertNotIn(STAFF_EMAIL, warning)
+
+    def test_other_tenant_it_cannot_read_notes(self) -> None:
+        """IT in another school gets 403 on the note list and the report."""
+        tenant = self.school.create_tenant("other-school", "Other School")
+        outsider = self.school.register_staff(
+            "it-other@gmail.com", tenant_id=int(tenant["id"])
+        )
+        self.school.conn.execute(
+            "UPDATE users SET role = 'it' WHERE id = ?",
+            (int(outsider["id"]),),
+        )
+        self.school.conn.commit()
+        foreign = self.app.test_client()
+        foreign.get("/auth/google?portal=it")
+        foreign.get(
+            "/auth/google/callback?portal=it&email=it-other@gmail.com&name=Other"
+        )
+        code = self.school.get_user_by_email("it-other@gmail.com")["verification_code"]
+        foreign.post("/verify-email", data={"code": code})
+        notes = foreign.get(f"/api/live-sessions/{self.session_id}/flags")
+        report = foreign.get(
+            f"/api/staff/class/{self.class_id}/live-fix-reports/latest"
+        )
+        self.assertEqual(notes.status_code, 403)
+        self.assertEqual(report.status_code, 403)
+
+    def test_student_notes_are_rate_limited_and_oversized_bodies_are_refused(self) -> None:
+        """A student is limited per person and per session. A huge body is 413."""
+        headers = {
+            "X-Student-Visit-Token": self.visit_token,
+            "Content-Type": "application/json",
+        }
+        huge = self.student.post(
+            "/api/student/flags",
+            data=b"{}",
+            headers=headers,
+            environ_overrides={"CONTENT_LENGTH": "99999"},
+        )
+        self.assertEqual(huge.status_code, 413, huge.get_data(as_text=True)[:300])
+        self.assertEqual(
+            self.school.conn.execute("SELECT COUNT(*) FROM live_fix_flags").fetchone()[0],
+            0,
+        )
+        with patch.object(live_fix, "STUDENT_NOTE_LIMIT", 2), patch.object(
+            live_fix, "SESSION_NOTE_LIMIT", 100
+        ):
+            for _ in range(2):
+                ok = self.student.post(
+                    "/api/student/flags",
+                    json={"note": "can't see the image", "actions": ["save-work"]},
+                    headers={"X-Student-Visit-Token": self.visit_token},
+                )
+                self.assertEqual(ok.status_code, 200, ok.get_json())
+            limited = self.student.post(
+                "/api/student/flags",
+                json={"note": "again", "actions": ["save-work"]},
+                headers={"X-Student-Visit-Token": self.visit_token},
+            )
+        self.assertEqual(limited.status_code, 429, limited.get_json())
+        live_fix.clear_note_rates()
+        with patch.object(live_fix, "STUDENT_NOTE_LIMIT", 100), patch.object(
+            live_fix, "SESSION_NOTE_LIMIT", 2
+        ):
+            for _ in range(2):
+                ok = self.student.post(
+                    "/api/student/flags",
+                    json={"note": "session cap", "actions": ["save-work"]},
+                    headers={"X-Student-Visit-Token": self.visit_token},
+                )
+                self.assertEqual(ok.status_code, 200, ok.get_json())
+            limited = self.student.post(
+                "/api/student/flags",
+                json={"note": "over session", "actions": ["save-work"]},
+                headers={"X-Student-Visit-Token": self.visit_token},
+            )
+        self.assertEqual(limited.status_code, 429, limited.get_json())
 
 
 if __name__ == "__main__":

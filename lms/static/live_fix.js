@@ -4,9 +4,46 @@
  */
 (function () {
   const actions = [];
+  /** Button ids this page may record. The server keeps only this list. */
+  const ACTION_IDS = new Set([
+    "ap-join-billboard-code",
+    "ap-join-billboard-copy",
+    "ap-meet-minutes-down",
+    "ap-meet-minutes-up",
+    "ap-meet-restart",
+    "ap-meet-start",
+    "ap-meet-stop",
+    "exit-feedback-send",
+    "exit-feedback-skip",
+    "live-add-page",
+    "live-advance",
+    "live-catchup-pin-later",
+    "live-delete-page",
+    "live-end-class",
+    "live-eyes-up",
+    "live-mutation-retry",
+    "live-quit-class",
+    "live-reconnect-retry",
+    "live-stage-next",
+    "live-stage-prev",
+    "live-start",
+    "live-student-view",
+    "prompt-dismiss",
+    "prompt-feedback-close",
+    "rw-chip",
+    "save-work",
+    "set-class-saved-override",
+    "set-class-start",
+    "student-canvas-erase",
+    "student-canvas-pen",
+    "student-canvas-text",
+    "student-canvas-undo",
+    "student-reconnect-retry",
+    "team-draw-submit",
+  ]);
 
   /**
-   * Keep the last ten button ids. Labels and names are ignored.
+   * Keep the last ten allowlisted button ids. Labels and names are ignored.
    * @param {Event} event
    * @returns {void}
    */
@@ -15,8 +52,7 @@
     const el = target ? target.closest("button, [role='button']") : null;
     if (!(el instanceof Element)) return;
     const id = el.id || el.getAttribute("data-action") || "";
-    if (!/^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/.test(id)) return;
-    if (id.indexOf("live-fix") === 0) return;
+    if (!ACTION_IDS.has(id)) return;
     actions.push(id);
     if (actions.length > 10) actions.shift();
   }

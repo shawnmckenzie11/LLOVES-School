@@ -424,7 +424,7 @@ def register_live(app, school, shared):
         )
 
     def _live_fix_staff(class_id: int):
-        """Allow the class teacher or an IT admin to read fix reports.
+        """Allow the class teacher, or IT in the same tenant, to read reports.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -435,10 +435,7 @@ def register_live(app, school, shared):
         user = current_user()
         if user is None:
             abort(401)
-        if (
-            not school.teacher_owns_class(int(user["id"]), int(class_id))
-            and str(user.get("role") or "") != "it"
-        ):
+        if not school.teacher_owns_class(int(user["id"]), int(class_id)):
             abort(403)
         return user
 
@@ -458,10 +455,7 @@ def register_live(app, school, shared):
         row = school.get_live_session(int(session_id))
         if row is None:
             abort(404)
-        if (
-            not school.teacher_owns_class(int(user["id"]), int(row["class_id"]))
-            and str(user.get("role") or "") != "it"
-        ):
+        if not school.teacher_owns_class(int(user["id"]), int(row["class_id"])):
             abort(403)
         if writing and str(row.get("status") or "") != "active":
             return jsonify({"ok": False, "error": "Class is not live."}), 409
@@ -534,12 +528,14 @@ def register_live(app, school, shared):
     @bp.route("/api/student/flags", methods=["POST"])
     def student_live_fix_flag():
         """Store one student note for the class they are in right now."""
+        try:
+            from live_fix import add_flag, flag_body_too_large, note_rate_limited
+        except ImportError:
+            from lms.live_fix import add_flag, flag_body_too_large, note_rate_limited
+        if flag_body_too_large(request.content_length):
+            return jsonify({"ok": False, "error": "Note is too large."}), 413
         if not _same_origin_post():
             return jsonify({"ok": False, "error": "Forbidden"}), 403
-        try:
-            from live_fix import add_flag
-        except ImportError:
-            from lms.live_fix import add_flag
         ctx = _student_live_context()
         live_id = int((ctx or {}).get("live_session_id") or 0)
         if ctx is None or not live_id:
@@ -554,6 +550,8 @@ def register_live(app, school, shared):
         ):
             return jsonify({"ok": False, "error": "Not in a class."}), 403
         raw_key = str(ctx.get("participant_uuid") or ctx.get("student_id") or "")
+        if note_rate_limited(session_id=live_id, student_key=raw_key or "unknown"):
+            return jsonify({"ok": False, "error": "Too many notes."}), 429
         body = request.get_json(silent=True) or {}
         if not isinstance(body, dict):
             body = {}

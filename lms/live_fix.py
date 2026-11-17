@@ -6,8 +6,9 @@ session. A Claude tidy, when ``ANTHROPIC_API_KEY`` is set, runs after
 that request returns. Sentry is included only when ``SENTRY_AUTH_TOKEN``
 and ``SENTRY_ORG`` are set.
 
-Stored context and outbound payloads keep an anonymized reporter id.
-They do not keep student names, teacher emails, or join codes.
+Stored context and outbound payloads keep an anonymized reporter id
+when ``LIVE_FIX_ANON_PEPPER`` is set. They do not keep student names,
+teacher emails, join codes, or visit tokens.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import datetime
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -30,12 +32,58 @@ logger = logging.getLogger(__name__)
 NOTE_LIMIT = 280
 ACTION_LIMIT = 10
 QUESTION_LIMIT = 8
-_ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,63}$")
+# A one-line note plus a short action list. Reject anything larger before parse.
+FLAG_BODY_MAX_BYTES = 4096
+STUDENT_NOTE_LIMIT = 6
+SESSION_NOTE_LIMIT = 30
+NOTE_WINDOW_SECONDS = 600
+_SENTRY_BUDGET_SECONDS = 3.0
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
-_ANON_PEPPER_DEFAULT = "lloves-live-fix-v1"
 _SENTRY_PROJECTS_DEFAULT = "lloves-lms,lloves-live"
 _ANTHROPIC_MODEL_DEFAULT = "claude-haiku-4-5"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+# Button ids live_fix.js records. Anything else, including a visit token, is dropped.
+ACTION_IDS = frozenset(
+    {
+        "ap-join-billboard-code",
+        "ap-join-billboard-copy",
+        "ap-meet-minutes-down",
+        "ap-meet-minutes-up",
+        "ap-meet-restart",
+        "ap-meet-start",
+        "ap-meet-stop",
+        "exit-feedback-send",
+        "exit-feedback-skip",
+        "live-add-page",
+        "live-advance",
+        "live-catchup-pin-later",
+        "live-delete-page",
+        "live-end-class",
+        "live-eyes-up",
+        "live-mutation-retry",
+        "live-quit-class",
+        "live-reconnect-retry",
+        "live-stage-next",
+        "live-stage-prev",
+        "live-start",
+        "live-student-view",
+        "prompt-dismiss",
+        "prompt-feedback-close",
+        "rw-chip",
+        "save-work",
+        "set-class-saved-override",
+        "set-class-start",
+        "student-canvas-erase",
+        "student-canvas-pen",
+        "student-canvas-text",
+        "student-canvas-undo",
+        "student-reconnect-retry",
+        "team-draw-submit",
+    }
+)
+_note_hits: dict[str, list[float]] = {}
+_note_lock = threading.Lock()
+_pepper_warned = False
 
 HttpJson = Callable[..., Any]
 
@@ -43,31 +91,40 @@ HttpJson = Callable[..., Any]
 def anonymize_reporter(session_id: int, role: str, raw_key: str) -> str:
     """Return a stable anonymous id for one person in one live session.
 
+    With no ``LIVE_FIX_ANON_PEPPER``, nothing is hashed and the caller
+    stores the role only.
+
     Args:
         session_id: ``live_class_sessions.id``.
         role: ``teacher`` or ``student``.
         raw_key: Server-side id used only as hash input. It is not stored.
 
     Returns:
-        A short id such as ``student-`` plus 12 hex characters.
+        A short id such as ``student-`` plus 12 hex characters, or ``""``.
     """
-    pepper = (os.environ.get("LIVE_FIX_ANON_PEPPER") or _ANON_PEPPER_DEFAULT).encode()
+    global _pepper_warned
+    pepper = (os.environ.get("LIVE_FIX_ANON_PEPPER") or "").strip()
+    if not pepper:
+        if not _pepper_warned:
+            logger.warning("live fix reporter id skipped; LIVE_FIX_ANON_PEPPER is unset")
+            _pepper_warned = True
+        return ""
     material = f"{int(session_id)}|{role}|{raw_key}".encode()
-    digest = hmac.new(pepper, material, hashlib.sha256).hexdigest()[:12]
+    digest = hmac.new(pepper.encode(), material, hashlib.sha256).hexdigest()[:12]
     return f"{role}-{digest}"
 
 
 def clean_actions(raw: Any, secrets: list[str] | None = None) -> list[str]:
-    """Keep the last button ids and drop labels, names, and free text.
+    """Keep the last allowlisted button ids.
 
     Args:
         raw: Client-supplied action list.
-        secrets: Roster values. An id that equals one of them is dropped.
+        secrets: Values that are dropped even when they match an allowlisted id.
 
     Returns:
-        At most ten id-shaped strings.
+        At most ten ids from :data:`ACTION_IDS`.
     """
-    blocked = {secret.casefold() for secret in (secrets or []) if len(secret) >= 3}
+    blocked = {secret for secret in (secrets or []) if secret}
     if not isinstance(raw, list):
         return []
     kept: list[str] = []
@@ -75,14 +132,60 @@ def clean_actions(raw: Any, secrets: list[str] | None = None) -> list[str]:
         if not isinstance(item, str):
             continue
         token = item.strip()
-        if not _ACTION_RE.fullmatch(token):
-            continue
-        if token.startswith("live-fix"):
-            continue
-        if token.casefold() in blocked:
+        if token not in ACTION_IDS or token in blocked:
             continue
         kept.append(token)
     return kept[-ACTION_LIMIT:]
+
+
+def clear_note_rates() -> None:
+    """Drop in-memory note counters. Tests start from an empty window."""
+    with _note_lock:
+        _note_hits.clear()
+
+
+def note_rate_limited(*, session_id: int, student_key: str) -> bool:
+    """True when this student or this session has sent too many notes.
+
+    Args:
+        session_id: ``live_class_sessions.id``.
+        student_key: Roster id or participant key. It is not logged.
+
+    Returns:
+        True when the note must be refused.
+    """
+    now = time.monotonic()
+    student_bucket = f"student:{int(session_id)}:{student_key}"
+    session_bucket = f"session:{int(session_id)}"
+    with _note_lock:
+        for bucket in (student_bucket, session_bucket):
+            _note_hits[bucket] = [
+                stamp
+                for stamp in _note_hits.get(bucket, [])
+                if now - stamp < NOTE_WINDOW_SECONDS
+            ]
+        over_student = len(_note_hits[student_bucket]) >= STUDENT_NOTE_LIMIT
+        over_session = len(_note_hits[session_bucket]) >= SESSION_NOTE_LIMIT
+        if over_student or over_session:
+            return True
+        _note_hits[student_bucket].append(now)
+        _note_hits[session_bucket].append(now)
+    return False
+
+
+def flag_body_too_large(content_length: int | None) -> bool:
+    """True when Content-Length is past the note cap.
+
+    Args:
+        content_length: Declared body size, or None when the header is absent.
+    """
+    if content_length is None:
+        return False
+    try:
+        size = int(content_length)
+    except (TypeError, ValueError):
+        return False
+    return size > FLAG_BODY_MAX_BYTES
 
 
 def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> list[str]:
@@ -136,6 +239,24 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
                     text = str(value or "").strip()
                     if len(text) >= 3:
                         found.append(text)
+    session_id = session_row.get("id")
+    conn = getattr(school, "conn", None)
+    if session_id not in (None, "") and conn is not None:
+        try:
+            with school._lock:
+                token_rows = conn.execute(
+                    """
+                    SELECT visit_token FROM live_session_attendees
+                    WHERE live_session_id = ?
+                    """,
+                    (int(session_id),),
+                ).fetchall()
+        except Exception:
+            token_rows = []
+        for row in token_rows:
+            token = str(row["visit_token"] or "").strip()
+            if len(token) >= 8:
+                found.append(token)
     unique = list(dict.fromkeys(found))
     unique.sort(key=len, reverse=True)
     return unique
@@ -706,7 +827,12 @@ def fetch_sentry_issues(
     minutes = _class_window_minutes(started_at, ended_at)
     issues: list[dict[str, Any]] = []
     errors: list[str] = []
+    deadline = time.monotonic() + _SENTRY_BUDGET_SECONDS
     for project in config["projects"]:
+        remaining = deadline - time.monotonic()
+        if remaining < 0.2:
+            errors.append(f"{project}: budget")
+            break
         url = (
             f"{config['base']}/api/0/projects/{quote(str(config['org']))}/"
             f"{quote(project)}/issues/?query={quote(f'lastSeen:-{minutes}m')}"
@@ -716,7 +842,7 @@ def fetch_sentry_issues(
             payload = call(
                 url,
                 headers={"Authorization": f"Bearer {config['token']}"},
-                timeout=2.5,
+                timeout=min(2.0, remaining),
             )
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
             errors.append(f"{project}: {exc.__class__.__name__}")
