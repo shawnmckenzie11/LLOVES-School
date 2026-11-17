@@ -8,6 +8,9 @@
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
   <link rel="stylesheet" href="/static/whiteboard_formative.css">
+  {% if tab == 'live' or tab == 'ap' %}
+  <link rel="stylesheet" href="/static/live_fix.css">
+  {% endif %}
 
   {% include "_sentry_browser.html" %}
   <script id="lloves-features" type="application/json">{{ teacher_features_json|safe }}</script>
@@ -313,6 +316,7 @@
           <button type="button" class="live-stage-stepper" id="live-delete-page">Delete Page</button>
         </nav>
         <div class="live-header-actions">
+          <button type="button" class="live-fix-flag" id="live-fix-flag" aria-haspopup="dialog" aria-controls="live-fix-dialog" title="Flag a problem (Shift+F)">Flag</button>
           {# MCK-26: one-tap pause for every student screen. #}
           <button type="button" class="live-header-eyes-up secondary" id="live-eyes-up"
                   aria-pressed="false"
@@ -334,6 +338,21 @@
           <span class="live-header-present" id="live-header-present">Present 0</span>
         </div>
       </header>
+      <dialog id="live-fix-dialog" class="live-fix-dialog" aria-labelledby="live-fix-title">
+        <form id="live-fix-form">
+          <h2 id="live-fix-title">Flag</h2>
+          <label class="live-fix-label" for="live-fix-note">One-line note</label>
+          <input id="live-fix-note" class="live-fix-note" maxlength="280" autocomplete="off" placeholder="can't see the image">
+          <div class="live-fix-actions">
+            <button type="button" class="secondary" id="live-fix-mic" hidden>Dictate</button>
+            <button type="button" class="secondary" id="live-fix-cancel">Cancel</button>
+            <button type="submit" id="live-fix-send">Send</button>
+          </div>
+          <p id="live-fix-status" class="live-fix-status" role="status"></p>
+        </form>
+        <ul id="live-fix-list" class="live-fix-list" aria-label="Flags this class"></ul>
+      </dialog>
+      <script src="/static/live_fix.js"></script>
 
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
         <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip live-general-options">
@@ -1195,6 +1214,16 @@
       </div>
 
       {% if ap_view == 'attendance' %}
+      <section id="live-fix-history" class="live-fix-history" data-class-id="{{ cls.id }}" hidden>
+        <h2>Class reports</h2>
+        <ul id="live-fix-history-list"></ul>
+      </section>
+      <dialog id="live-fix-report" class="live-fix-report" aria-labelledby="live-fix-report-title">
+        <h2 id="live-fix-report-title">End Class report</h2>
+        <div id="live-fix-report-body"></div>
+        <button type="button" id="live-fix-report-close">Close</button>
+      </dialog>
+      <script src="/static/live_fix.js"></script>
       <div id="attendance-root" data-class-id="{{ cls.id }}">
         <div class="topbar">
           <div class="row-actions ap-toolbar">

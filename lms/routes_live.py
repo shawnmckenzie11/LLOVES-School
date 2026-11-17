@@ -406,14 +406,213 @@ def register_live(app, school, shared):
                 }
             ],
         )
+        # Claude tidy stays off this response. The report itself was saved
+        # when the session closed.
+        try:
+            from live_fix import kick_tidy
+        except ImportError:
+            from lms.live_fix import kick_tidy
+        kick_tidy(school, ended_id)
         return redirect(
             url_for(
                 "staff_course",
                 class_id=int(class_id),
                 tab="ap",
                 view="attendance",
+                fix_report=ended_id,
             )
         )
+
+    def _live_fix_staff(class_id: int):
+        """Allow the class teacher or an IT admin to read fix reports.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            The signed-in user, or a Flask error response.
+        """
+        user = current_user()
+        if user is None:
+            abort(401)
+        if (
+            not school.teacher_owns_class(int(user["id"]), int(class_id))
+            and str(user.get("role") or "") != "it"
+        ):
+            abort(403)
+        return user
+
+    def _live_fix_session(session_id: int, *, writing: bool = False):
+        """Load a live session the signed-in teacher may see.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            writing: When true, the session must still be active.
+
+        Returns:
+            ``(user, session row)`` or a Flask error response.
+        """
+        user = current_user()
+        if user is None:
+            abort(401)
+        row = school.get_live_session(int(session_id))
+        if row is None:
+            abort(404)
+        if (
+            not school.teacher_owns_class(int(user["id"]), int(row["class_id"]))
+            and str(user.get("role") or "") != "it"
+        ):
+            abort(403)
+        if writing and str(row.get("status") or "") != "active":
+            return jsonify({"ok": False, "error": "Class is not live."}), 409
+        return user, row
+
+    @bp.route("/api/live-sessions/<int:session_id>/flags", methods=["GET", "POST"])
+    @staff_required
+    def staff_live_fix_flags(session_id: int):
+        """List or add in-class flags for the teacher's live session.
+
+        POST stores one note. GET is on demand when the teacher opens the
+        list. Neither runs on the student poll.
+        """
+        if request.method == "POST" and not _same_origin_post():
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            from live_fix import add_flag, list_flags
+        except ImportError:
+            from lms.live_fix import add_flag, list_flags
+        loaded = _live_fix_session(int(session_id), writing=request.method == "POST")
+        if not (
+            isinstance(loaded, tuple)
+            and len(loaded) == 2
+            and isinstance(loaded[0], dict)
+            and isinstance(loaded[1], dict)
+        ):
+            return loaded
+        user, _row = loaded
+        if request.method == "GET":
+            return jsonify({"ok": True, "flags": list_flags(school, int(session_id))})
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        flag = add_flag(
+            school,
+            int(session_id),
+            role="teacher",
+            raw_key=str(user["id"]),
+            note=str(body.get("note") or ""),
+            actions=body.get("actions"),
+        )
+        return jsonify({"ok": True, "flag": flag})
+
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/flags/<int:flag_id>",
+        methods=["DELETE"],
+    )
+    @staff_required
+    def staff_live_fix_flag_delete(session_id: int, flag_id: int):
+        """Delete one flag while the class is still live."""
+        if not _same_origin_post():
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            from live_fix import delete_flag
+        except ImportError:
+            from lms.live_fix import delete_flag
+        loaded = _live_fix_session(int(session_id), writing=True)
+        if not (
+            isinstance(loaded, tuple)
+            and len(loaded) == 2
+            and isinstance(loaded[0], dict)
+            and isinstance(loaded[1], dict)
+        ):
+            return loaded
+        removed = delete_flag(school, int(session_id), int(flag_id))
+        if not removed:
+            return jsonify({"ok": False, "error": "Flag not found."}), 404
+        return jsonify({"ok": True})
+
+    @bp.route("/api/student/flags", methods=["POST"])
+    def student_live_fix_flag():
+        """Store one student note for the class they are in right now."""
+        if not _same_origin_post():
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            from live_fix import add_flag
+        except ImportError:
+            from lms.live_fix import add_flag
+        ctx = _student_live_context()
+        live_id = int((ctx or {}).get("live_session_id") or 0)
+        if ctx is None or not live_id:
+            return jsonify({"ok": False, "error": "Not in a class."}), 403
+        row = school.get_live_session(live_id)
+        if row is None or str(row.get("status") or "") != "active":
+            return jsonify({"ok": False, "error": "Class is not live."}), 409
+        if not school.student_is_active_live_attendee(
+            live_id,
+            ctx.get("student_id"),
+            visit_token=str(ctx.get("visit_token") or ""),
+        ):
+            return jsonify({"ok": False, "error": "Not in a class."}), 403
+        raw_key = str(ctx.get("participant_uuid") or ctx.get("student_id") or "")
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        flag = add_flag(
+            school,
+            live_id,
+            role="student",
+            raw_key=raw_key,
+            note=str(body.get("note") or ""),
+            actions=body.get("actions"),
+        )
+        return jsonify({"ok": True, "id": int(flag["id"])})
+
+    @bp.route("/api/staff/class/<int:class_id>/live-fix-reports", methods=["GET"])
+    @staff_required
+    def staff_live_fix_reports(class_id: int):
+        """List End Class reports for this class, newest first."""
+        _live_fix_staff(int(class_id))
+        try:
+            from live_fix import report_summaries
+        except ImportError:
+            from lms.live_fix import report_summaries
+        return jsonify(
+            {"ok": True, "reports": report_summaries(school, int(class_id))}
+        )
+
+    @bp.route(
+        "/api/staff/class/<int:class_id>/live-fix-reports/latest",
+        methods=["GET"],
+    )
+    @staff_required
+    def staff_live_fix_report_latest(class_id: int):
+        """Return the newest End Class report for an outside assistant."""
+        _live_fix_staff(int(class_id))
+        try:
+            from live_fix import latest_report
+        except ImportError:
+            from lms.live_fix import latest_report
+        report = latest_report(school, int(class_id))
+        if report is None:
+            return jsonify({"ok": False, "error": "No report yet."}), 404
+        return jsonify({"ok": True, "report": report})
+
+    @bp.route(
+        "/api/staff/class/<int:class_id>/live-fix-reports/<int:session_id>",
+        methods=["GET"],
+    )
+    @staff_required
+    def staff_live_fix_report(class_id: int, session_id: int):
+        """Return one stored End Class report."""
+        _live_fix_staff(int(class_id))
+        try:
+            from live_fix import report_row
+        except ImportError:
+            from lms.live_fix import report_row
+        report = report_row(school, int(class_id), int(session_id))
+        if report is None:
+            return jsonify({"ok": False, "error": "No report yet."}), 404
+        return jsonify({"ok": True, "report": report})
 
     def _wants_quit_json() -> bool:
         """True when Quit was submitted by fetch, not a plain form POST.

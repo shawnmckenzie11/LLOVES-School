@@ -1,0 +1,151 @@
+/* In-class Flag and End Class report (MCK-482, MCK-480). */
+
+.live-fix-flag {
+  appearance: none;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.live-fix-flag:focus-visible,
+.live-fix-student:focus-visible,
+.live-fix-dialog button:focus-visible,
+.live-fix-report button:focus-visible {
+  outline: 2px solid #f5c518;
+  outline-offset: 2px;
+}
+
+.live-fix-dialog,
+.live-fix-report {
+  width: min(28rem, calc(100vw - 1.5rem));
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.live-fix-dialog::backdrop,
+.live-fix-report::backdrop {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.live-fix-dialog h2,
+.live-fix-report h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.live-fix-label {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.live-fix-note {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 2.25rem;
+  font: inherit;
+}
+
+.live-fix-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  margin-top: 0.6rem;
+}
+
+.live-fix-status {
+  min-height: 1.1rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+}
+
+.live-fix-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.live-fix-list li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.3rem 0;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.85rem;
+}
+
+.live-fix-delete {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.live-fix-student {
+  appearance: none;
+  display: block;
+  margin: 0 auto 0.2rem;
+  padding: 0.15rem 0.4rem;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 0.75rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.live-fix-history {
+  margin: 0 0 1rem;
+}
+
+.live-fix-history h2 {
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+
+.live-fix-history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.live-fix-history button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+
+.live-fix-slide {
+  margin: 0.6rem 0;
+}
+
+.live-fix-slide h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
+}
+
+.live-fix-meta {
+  color: #64748b;
+  font-size: 0.75rem;
+}

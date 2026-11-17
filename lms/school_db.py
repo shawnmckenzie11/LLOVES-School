@@ -979,6 +979,42 @@ CREATE TABLE IF NOT EXISTS live_class_feedback (
 CREATE INDEX IF NOT EXISTS idx_live_class_feedback_class
     ON live_class_feedback(class_id, submitted_at);
 
+-- MCK-482: one-line in-class notes. Written on submit, never on student poll.
+CREATE TABLE IF NOT EXISTS live_fix_flags (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    reporter_role TEXT NOT NULL,
+    reporter_anon TEXT NOT NULL,
+    slide_number INTEGER,
+    page_id TEXT NOT NULL DEFAULT '',
+    question_id TEXT NOT NULL DEFAULT '',
+    content_type TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    actions_json TEXT NOT NULL DEFAULT '[]',
+    context_json TEXT NOT NULL DEFAULT '{}',
+    tidy_title TEXT NOT NULL DEFAULT '',
+    tidy_description TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_fix_flags_session
+    ON live_fix_flags(live_session_id, id);
+
+-- MCK-480: one End Class triage report per live session.
+CREATE TABLE IF NOT EXISTS live_fix_reports (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL UNIQUE,
+    class_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT '',
+    ended_at TEXT NOT NULL DEFAULT '',
+    report_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_fix_reports_class
+    ON live_fix_reports(class_id, id);
+
 CREATE TABLE IF NOT EXISTS google_api_tokens (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     refresh_token TEXT NOT NULL,
@@ -7431,6 +7467,8 @@ class LovesDB:
             "live_session_interactions",
             "live_team_draw_images",
             "live_individual_draw_images",
+            "live_fix_flags",
+            "live_fix_reports",
         ):
             if table in present:
                 self.conn.execute(
@@ -8062,6 +8100,8 @@ class LovesDB:
             "engagement_rollup",
             "portfolio_mark_suggestions",
             "live_class_feedback",
+            "live_fix_flags",
+            "live_fix_reports",
             "student_moods",
         )
         if not class_ids:
@@ -48548,6 +48588,13 @@ class SchoolDB(LovesDB):
                 # retried while the session is still the live run.
                 self._delete_presence_sessions(session_ids)
             if session_ids:
+                # Quit deletes the session row. Flags must go with it so a
+                # reused id cannot inherit another class's notes.
+                try:
+                    from live_fix import delete_session_rows
+                except ImportError:
+                    from lms.live_fix import delete_session_rows
+                delete_session_rows(self, session_ids)
                 # Only the ids passed in are deleted. Start does not call
                 # this. Quit passes the active session of this class.
                 self.conn.execute(
@@ -49382,6 +49429,11 @@ class SchoolDB(LovesDB):
                 (now, session_id),
             )
             self.conn.commit()
+        try:
+            from live_fix import record_end_report
+        except ImportError:
+            from lms.live_fix import record_end_report
+        record_end_report(self, session_id)
         return {
             "ok": True,
             "class_id": int(class_id),

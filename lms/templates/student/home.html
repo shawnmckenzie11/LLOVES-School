@@ -6,6 +6,7 @@
   <title>{% if codename %}{{ codename }} · {% endif %}Class · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
+  <link rel="stylesheet" href="/static/live_fix.css">
   <link rel="stylesheet" href="/static/whiteboard_formative.css">
 
   {% include "_sentry_browser.html" %}
@@ -136,6 +137,7 @@
     <p id="prompt-ack" class="prompt-ack" hidden>Response received.</p>
   </main>
   <footer class="student-chrome student-chrome-bottom" aria-label="Class scoreboard">
+    <button type="button" class="live-fix-student" id="live-fix-student" aria-haspopup="dialog" aria-controls="live-fix-student-dialog">Report a problem</button>
     <div id="class-board" class="student-scoreboard"></div>
     <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
   </footer>
@@ -212,6 +214,20 @@
     })();
   </script>
   {% endif %}
+  <dialog id="live-fix-student-dialog" class="live-fix-dialog" aria-labelledby="live-fix-student-title">
+    <form id="live-fix-student-form">
+      <h2 id="live-fix-student-title">Report a problem</h2>
+      <label class="live-fix-label" for="live-fix-student-note">One-line note</label>
+      <input id="live-fix-student-note" class="live-fix-note" maxlength="280" autocomplete="off" placeholder="can't see the image">
+      <div class="live-fix-actions">
+        <button type="button" class="secondary" id="live-fix-student-mic" hidden>Dictate</button>
+        <button type="button" class="secondary" id="live-fix-student-cancel">Cancel</button>
+        <button type="submit" id="live-fix-student-send">Send</button>
+      </div>
+      <p id="live-fix-student-status" class="live-fix-status" role="status"></p>
+    </form>
+  </dialog>
+  <script src="/static/live_fix.js"></script>
   <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
   <script type="module" src="/static/student-portal.js"></script>

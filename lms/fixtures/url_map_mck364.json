@@ -899,6 +899,24 @@
       "api_live_session_canvas_presence"
     ],
     [
+      "/api/live-sessions/<int:session_id>/flags",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "POST"
+      ],
+      "staff_live_fix_flags"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/flags/<int:flag_id>",
+      [
+        "DELETE",
+        "OPTIONS"
+      ],
+      "staff_live_fix_flag_delete"
+    ],
+    [
       "/api/live-sessions/<int:session_id>/google-slides/current",
       [
         "OPTIONS",
@@ -1392,6 +1410,33 @@
       "staff_live_bank_add_question"
     ],
     [
+      "/api/staff/class/<int:class_id>/live-fix-reports",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_live_fix_reports"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/live-fix-reports/<int:session_id>",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_live_fix_report"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/live-fix-reports/latest",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_live_fix_report_latest"
+    ],
+    [
       "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/add-question",
       [
         "OPTIONS",
@@ -1692,6 +1737,14 @@
         "POST"
       ],
       "api_student_exit_feedback"
+    ],
+    [
+      "/api/student/flags",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "student_live_fix_flag"
     ],
     [
       "/api/student/heartbeat",
