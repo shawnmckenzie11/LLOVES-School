@@ -25828,21 +25828,21 @@ class SchoolDB(LovesDB):
             ValueError: Not a take-turns rank, or not a member.
             RankTurnConflict: Out of turn, already placed, or locked.
         """
-        self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
-        if self._group_rank_mode(item) != "turns":
-            raise ValueError("This question does not take turns.")
-        team_id = self._require_group_submit_member(item, student_id)
-        self._reject_question_skipped(item, int(student_id))
-        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
-        aliases = self.student_rank_aliases(item)
-        if aliases is not None and not undo and option_id not in (None, ""):
-            # MCK-176: students send aliases; unknown ones are refused.
-            option_id = aliases.back(option_id)
-        active = self._present_without_skips(item, int(team_id))
-        now = _now()
-        conflict: TurnConflict | None = None
         with self._lock:
+            self._require_active_live_session(session_id)
+            item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
+            if self._group_rank_mode(item) != "turns":
+                raise ValueError("This question does not take turns.")
+            team_id = self._require_group_submit_member(item, student_id)
+            self._reject_question_skipped(item, int(student_id))
+            allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+            aliases = self.student_rank_aliases(item)
+            if aliases is not None and not undo and option_id not in (None, ""):
+                # MCK-176: students send aliases; unknown ones are refused.
+                option_id = aliases.back(option_id)
+            active = self._present_without_skips(item, int(team_id))
+            now = _now()
+            conflict: TurnConflict | None = None
             current = self.conn.execute(
                 """
                 SELECT proposed_answer_json, submit_count, submitter_ids_json
@@ -25907,20 +25907,20 @@ class SchoolDB(LovesDB):
                     (json.dumps(state), now, int(item["id"]), int(team_id)),
                 )
                 self.conn.commit()
-        card = self.student_group_submit_state(item, student_id) or {}
-        if conflict is not None:
-            if conflict.reason == "turn_taken" and conflict.by is not None:
-                session_row = self.get_live_session(session_id)
-                name = self._first_name(int(session_row["class_id"]), int(conflict.by)) if session_row else ""
-                message = (
-                    f"{name} just placed that one. Pick another."
-                    if name
-                    else "That one was just placed. Pick another."
-                )
-            else:
-                message = str(conflict)
-            raise RankTurnConflict(message, conflict.reason, card)
-        return card
+            card = self.student_group_submit_state(item, student_id) or {}
+            if conflict is not None:
+                if conflict.reason == "turn_taken" and conflict.by is not None:
+                    session_row = self.get_live_session(session_id)
+                    name = self._first_name(int(session_row["class_id"]), int(conflict.by)) if session_row else ""
+                    message = (
+                        f"{name} just placed that one. Pick another."
+                        if name
+                        else "That one was just placed. Pick another."
+                    )
+                else:
+                    message = str(conflict)
+                raise RankTurnConflict(message, conflict.reason, card)
+            return card
 
     def _live_question_key(self, item: dict[str, Any]) -> str:
         """Stable question key for one lifecycle row (``item:<placement>``).
