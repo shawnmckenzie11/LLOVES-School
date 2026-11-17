@@ -485,7 +485,8 @@ def list_questions_matching_codes(
 
     One SQL query keyed by ``library_id`` plus code LIKE clauses — does not
     scan other courses. Banks whose title or import_key mention ``M{n}`` or
-    ``M{n}/{strand}`` sort first when those keys are provided.
+    ``M{n}/{strand}`` sort first when those keys are provided. Soft-removed
+    rows stay stored and are left out, so a new slide deck does not pick them.
 
     Args:
         db: School database.
@@ -537,6 +538,7 @@ def list_questions_matching_codes(
         FROM questions q
         JOIN question_banks b ON b.id = q.bank_id
         WHERE b.library_id = ?
+          AND q.removed_at IS NULL
           AND ({' OR '.join(clauses)})
         ORDER BY {rank_sql}, q.id
         """,

@@ -22,8 +22,17 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 import bank_bot  # noqa: E402
-from bank_bot import NOT_CONFIGURED_MESSAGE, content_for_model, prompt_from_contents  # noqa: E402
+from bank_bot import (  # noqa: E402
+    NOT_CONFIGURED_MESSAGE,
+    allow_generate,
+    content_for_model,
+    prompt_from_contents,
+    reset_generate_limit,
+)
+from bank_edit import list_staff_bank_questions  # noqa: E402
+from components import list_questions_matching_codes  # noqa: E402
 from school_db import _now  # noqa: E402
+from slide_builder import collect_consolidation_items  # noqa: E402
 
 
 def _user(school, token: str, role: str) -> int:
@@ -45,6 +54,7 @@ class BankBotTests(unittest.TestCase):
     def setUp(self) -> None:
         """One course library and a signed-in owner. No model key."""
         self._saved_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+        reset_generate_limit()
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
@@ -522,6 +532,104 @@ class BankBotTests(unittest.TestCase):
         teacher_poll = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertNotIn("bank-bot", student)
         self.assertNotIn("bank-bot", teacher_poll)
+
+    def test_removed_question_stays_out_of_new_slide_decks(self) -> None:
+        """A removed multiple-choice row is not a consolidation candidate."""
+        kept = self._add_mc("Keep the A2.2 practice item")
+        removed = self._add_mc("Drop the A2.1 practice item")
+        self.school.soft_remove_library_bank_questions(
+            self.library_id,
+            [(int(removed["bank_id"]), int(removed["id"]))],
+        )
+        matched = list_questions_matching_codes(
+            self.school, self.library_id, ["A2.1"], module_number=1, strand="A"
+        )
+        matched_ids = {int(row["id"]) for row in matched}
+        self.assertNotIn(int(removed["id"]), matched_ids)
+        self.assertNotIn(int(kept["id"]), matched_ids)
+        still = list_questions_matching_codes(
+            self.school, self.library_id, ["A2.2"], module_number=1, strand="A"
+        )
+        self.assertIn(int(kept["id"]), {int(row["id"]) for row in still})
+        cache = Path(self.tmp.name) / "empty-curriculum"
+        cache.mkdir()
+        rows = collect_consolidation_items(
+            self.school,
+            course_code="MCR3U",
+            module_number=1,
+            strand="A",
+            expectation_codes={"A2.1"},
+            library_id=self.library_id,
+            cache_root=cache,
+        )
+        blob = " ".join(str(row.get("stem") or "") for row in rows)
+        self.assertNotIn("A2.1 practice", blob)
+
+    def test_removing_the_canonical_copy_shows_the_twin(self) -> None:
+        """The surviving duplicate stays on the bank list, and undo hides it again."""
+        first = self._add_mc("Duplicate slope stem")
+        second = self._add_mc("Duplicate slope stem")
+        bank_id = int(first["bank_id"])
+        shown = [
+            int(row["id"])
+            for row in list_staff_bank_questions(self.school, self.library_id, bank_id)
+        ]
+        self.assertEqual(shown, [int(first["id"])])
+        self.school.soft_remove_library_bank_questions(
+            self.library_id, [(bank_id, int(first["id"]))]
+        )
+        shown = [
+            int(row["id"])
+            for row in list_staff_bank_questions(self.school, self.library_id, bank_id)
+        ]
+        self.assertEqual(shown, [int(second["id"])])
+        self.school.restore_removed_library_questions(
+            self.library_id, [int(first["id"])]
+        )
+        shown = [
+            int(row["id"])
+            for row in list_staff_bank_questions(self.school, self.library_id, bank_id)
+        ]
+        self.assertEqual(shown, [int(first["id"])])
+
+    def test_generate_is_limited_per_teacher(self) -> None:
+        """A fifth generate in the same minute does not call Claude."""
+        self._add_mc("Limited slope")
+        os.environ["ANTHROPIC_API_KEY"] = "test-key"
+        self.assertTrue(all(allow_generate(9001, now=100.0) for _ in range(4)))
+        self.assertFalse(allow_generate(9001, now=130.0))
+        self.assertTrue(allow_generate(9002, now=130.0))
+        self.assertTrue(allow_generate(9001, now=160.0))
+        reset_generate_limit()
+        calls = {"n": 0}
+
+        def fake_claude(prompt: str) -> str:
+            """Count calls and return one ranking draft."""
+            del prompt
+            calls["n"] += 1
+            return json.dumps(
+                {
+                    "items": [
+                        {
+                            "stem": "Order the limited slopes",
+                            "options": ["flat", "gentle", "steep"],
+                            "rank_key": [0, 1, 2],
+                        }
+                    ]
+                }
+            )
+
+        with patch("bank_bot.request_claude", side_effect=fake_claude):
+            codes = [
+                self.client.post(
+                    f"/api/staff/class/{self.class_id}/bank-bot/generate",
+                    json={"bank_scope": "M1", "question_type": "mc"},
+                ).status_code
+                for _ in range(5)
+            ]
+        self.assertEqual(codes, [200, 200, 200, 200, 429])
+        self.assertEqual(calls["n"], 4)
+        self.assertTrue(allow_generate(self.other_id, now=10.0))
 
 
 if __name__ == "__main__":

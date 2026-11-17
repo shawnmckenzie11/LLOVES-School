@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -28,6 +30,11 @@ NOT_CONFIGURED_MESSAGE = (
     "Ranking generation is not configured. Set ANTHROPIC_API_KEY on the server. "
     "Removing questions still works."
 )
+GENERATE_PER_MINUTE = 4
+GENERATE_WINDOW_S = 60.0
+GENERATE_LIMIT_MESSAGE = "Wait a minute before generating more ranking questions."
+_generate_lock = threading.Lock()
+_generate_hits: dict[int, list[float]] = {}
 MAX_SOURCE_QUESTIONS = 12
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _DEFAULT_MODEL = "claude-sonnet-4-5"
@@ -35,6 +42,41 @@ _MC_ITEM_TYPES = frozenset(
     {"multiple_choice_question", "multiple_choice", "mc", "true_false_question"}
 )
 _LETTERS = "ABCDEFGH"
+
+
+def reset_generate_limit() -> None:
+    """Clear the in-memory generate window.
+
+    Tests call this so one case does not use another teacher's minute.
+    """
+    with _generate_lock:
+        _generate_hits.clear()
+
+
+def allow_generate(user_id: int, *, now: float | None = None) -> bool:
+    """Return True when this teacher may start another ranking generation.
+
+    Four calls per rolling minute. A call that is refused does not start
+    Claude. The clock is ``time.monotonic`` unless ``now`` is passed, and
+    the window lives in this process.
+
+    Args:
+        user_id: Staff user id.
+        now: Optional timestamp in the same units as ``time.monotonic``.
+    """
+    stamp = time.monotonic() if now is None else float(now)
+    with _generate_lock:
+        recent = [
+            hit
+            for hit in _generate_hits.get(int(user_id), [])
+            if stamp - hit < GENERATE_WINDOW_S
+        ]
+        if len(recent) >= GENERATE_PER_MINUTE:
+            _generate_hits[int(user_id)] = recent
+            return False
+        recent.append(stamp)
+        _generate_hits[int(user_id)] = recent
+        return True
 
 
 def ranking_generation_configured() -> bool:

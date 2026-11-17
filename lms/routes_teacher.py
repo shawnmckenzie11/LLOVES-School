@@ -3048,13 +3048,17 @@ def register_teacher(app, school, shared):
         """Draft ranking questions. Nothing is added to the bank."""
         try:
             from bank_bot import (
+                GENERATE_LIMIT_MESSAGE,
                 NOT_CONFIGURED_MESSAGE,
+                allow_generate,
                 generate_ranking_drafts,
                 ranking_generation_configured,
             )
         except ImportError:
             from lms.bank_bot import (
+                GENERATE_LIMIT_MESSAGE,
                 NOT_CONFIGURED_MESSAGE,
+                allow_generate,
                 generate_ranking_drafts,
                 ranking_generation_configured,
             )
@@ -3066,6 +3070,9 @@ def register_teacher(app, school, shared):
             return jsonify(
                 {"ok": False, "configured": False, "error": NOT_CONFIGURED_MESSAGE}
             )
+        caller = current_user()
+        if caller is not None and not allow_generate(int(caller["id"])):
+            return jsonify({"ok": False, "error": GENERATE_LIMIT_MESSAGE}), 429
         body = request.get_json(silent=True) or {}
         if not isinstance(body, dict):
             body = {}
