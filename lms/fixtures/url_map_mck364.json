@@ -1159,6 +1159,14 @@
       "api_question_board_show"
     ],
     [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/participation",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_board_participation"
+    ],
+    [
       "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/responses",
       [
         "GET",

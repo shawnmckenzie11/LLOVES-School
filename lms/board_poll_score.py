@@ -593,7 +593,8 @@ def wipe_removed_question(school: Any, class_id: int, item_id: str) -> None:
     """Drop earned and possible points for one removed deck question.
 
     Every student loses that question. Other questions stay. Drawings
-    are left on the board; only the score rows go.
+    and the answer rows stay, so a later import of the same question
+    starts blank. Only the score rows go.
 
     Args:
         school: Open school database.
@@ -660,10 +661,10 @@ def wipe_removed_question(school: Any, class_id: int, item_id: str) -> None:
     with school._lock:
         if prompt_ids:
             marks = ",".join("?" * len(prompt_ids))
-            school.conn.execute(
-                f"DELETE FROM live_session_responses WHERE prompt_id IN ({marks})",
-                tuple(sorted(prompt_ids)),
-            )
+            # Leave the answer rows. A later import of the same bank
+            # question must not inherit them, and the old prompt keeps
+            # the answers it already stored. Scores live in the events
+            # and participation tables, which this wipe removes.
             school.conn.execute(
                 f"DELETE FROM board_poll_credit WHERE prompt_id IN ({marks})",
                 tuple(sorted(prompt_ids)),
