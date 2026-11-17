@@ -262,7 +262,8 @@ def library_canonical_ids(school: Any, library_id: int) -> dict[int, int]:
 
     Returns:
         ``{question_id: canonical_question_id}``. Ids that map to themselves
-        are the kept rows.
+        are the kept rows. Soft-removed rows are not fingerprints, so a
+        surviving copy becomes the one the Question banks tab shows.
     """
     with school._lock:
         rows = school.conn.execute(
@@ -275,6 +276,7 @@ def library_canonical_ids(school: Any, library_id: int) -> dict[int, int]:
             LEFT JOIN library_question_overlays o
                 ON o.library_id = b.library_id AND o.question_id = q.id
             WHERE b.library_id = ?
+              AND q.removed_at IS NULL
             ORDER BY q.id
             """,
             (int(library_id),),
@@ -357,6 +359,7 @@ def apply_visible_bank_question_counts(
             FROM questions q
             JOIN question_banks b ON b.id = q.bank_id
             WHERE b.library_id = ?
+              AND q.removed_at IS NULL
             """,
             (int(library_id),),
         ).fetchall()

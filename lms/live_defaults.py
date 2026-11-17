@@ -40,6 +40,10 @@ def ensure_question_editor_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE questions ADD COLUMN live_points REAL")
     if "bank_scope" not in cols:
         conn.execute("ALTER TABLE questions ADD COLUMN bank_scope TEXT")
+    # MCK-481: a timestamp hides the row from pickers. NULL stays in the bank.
+    # The row is kept so past live results and overlays are not cascaded away.
+    if "removed_at" not in cols:
+        conn.execute("ALTER TABLE questions ADD COLUMN removed_at TEXT")
 
 
 def _parse_show_results(raw: Any) -> bool | None:
