@@ -4411,6 +4411,54 @@ function refreshFloatingCard(card, html) {
   return fresh;
 }
 
+/**
+ * Catalogue id shared by a slide item and a catch-up pin of that question.
+ * Hyphens and underscores match. A positional key peels to the item id.
+ * @param {any} item
+ * @returns {string}
+ */
+function catalogueItemAlias(item) {
+  const content = item?.content && typeof item.content === "object" ? item.content : {};
+  const promptBody = item?.prompt?.payload && typeof item.prompt.payload === "object" ? item.prompt.payload : {};
+  const raw = String(
+    item?.item_id || content.item_id || content.id || promptBody.item_id || promptBody.pack || ""
+  ).trim();
+  const parts = raw.split(":");
+  const token = parts.length >= 4 && /^\d+$/.test(parts[1]) ? parts.slice(3).join(":") : raw;
+  return token.toLowerCase().replaceAll("-", "_");
+}
+
+/**
+ * True for Meet, Teams Spark, and the other rides that keep two cards.
+ * @param {string} alias
+ * @returns {boolean}
+ */
+function engineRideAlias(alias) {
+  return (
+    alias === "minds_on" ||
+    alias === "teams_spark" ||
+    alias === "meet_team" ||
+    alias === "meet_a" ||
+    alias === "meet_b" ||
+    alias === "meet_c" ||
+    alias === "team_challenge"
+  );
+}
+
+/**
+ * True when two cards are the same catalogue question.
+ * Engine rides stay separate. A shared prompt id also matches.
+ * @param {any} item
+ * @param {number} promptId
+ * @param {string} alias
+ * @returns {boolean}
+ */
+function sameCatalogueQuestion(item, promptId, alias) {
+  if (promptId && Number(item?.prompt?.id || item?.id) === promptId) return true;
+  const itemAlias = catalogueItemAlias(item);
+  return Boolean(alias) && itemAlias === alias && !engineRideAlias(itemAlias);
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   hydrateUnsentDrafts();
@@ -4430,15 +4478,18 @@ function paintLifecycleQuestionStack(payload) {
   const saved = Array.isArray(payload?.saved_cards) ? payload.saved_cards : [];
   const legacy = promptAsLifecycleItem(payload);
   const welcomeOn = hasGameShowWelcome(payload);
+  const legacyPromptId = Number(legacy?.prompt?.id) || 0;
+  const legacyAlias = catalogueItemAlias(legacy);
   if (
     legacy &&
     !unpublishedTeamsSparkPrompt(payload) &&
     (welcomeOn || !active.length) &&
-    !active.some((item) => Number(item?.prompt?.id || item?.id) === Number(legacy.prompt.id))
+    !active.some((item) => sameCatalogueQuestion(item, legacyPromptId, legacyAlias))
   ) {
     active = [legacy, ...active];
   }
   const seenCardIds = new Set();
+  const seenQuestionAliases = new Set();
   const all = [...active, ...closed, ...saved].filter((item) => {
     const cardId = Number(item?.id) || 0;
     if (cardId && seenCardIds.has(cardId)) return false;
@@ -4446,7 +4497,13 @@ function paintLifecycleQuestionStack(payload) {
     const kind = String(
       item?.content?.item_type || item?.item_type || item?.kind || ""
     ).toLowerCase();
-    return !["media", "whiteboard", "slides"].includes(kind);
+    if (["media", "whiteboard", "slides"].includes(kind)) return false;
+    const alias = catalogueItemAlias(item);
+    if (alias && !engineRideAlias(alias)) {
+      if (seenQuestionAliases.has(alias)) return false;
+      seenQuestionAliases.add(alias);
+    }
+    return true;
   });
   restoreDockedQuestions(payload, all);
   const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
@@ -4607,9 +4664,13 @@ function paintLifecycleQuestionStack(payload) {
   });
   liveQuestionStack.hidden = visible.length === 0;
   liveQuestionStack.dataset.hasLifecycle = all.length ? "1" : "0";
-  const legacyPromptId = Number(payload?.prompt?.id) || 0;
-  const lifecycleOwnsLegacy = all.some(
-    (item) => Number(item?.prompt?.id) === legacyPromptId
+  const shownPromptId = Number(payload?.prompt?.id) || 0;
+  const shownAlias = catalogueItemAlias({
+    item_id: payload?.prompt?.payload?.item_id || payload?.prompt?.payload?.pack || "",
+    prompt: payload?.prompt,
+  });
+  const lifecycleOwnsLegacy = all.some((item) =>
+    sameCatalogueQuestion(item, shownPromptId, shownAlias)
   );
   if (questionFrame && (lifecycleOwnsLegacy || (welcomeOn && visible.length))) {
     questionFrame.hidden = true;

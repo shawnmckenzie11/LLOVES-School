@@ -263,6 +263,7 @@ class LiveFixReportTests(unittest.TestCase):
         html = page.get_data(as_text=True)
         self.assertIn('id="live-fix-history"', html)
         self.assertIn('id="live-fix-report"', html)
+        self.assertIn('id="live-fix-report-copy"', html)
 
     def test_sentry_issues_are_optional_and_drop_user_fields(self) -> None:
         """A configured token adds counts. A user name on the issue is not stored."""
@@ -328,6 +329,68 @@ class LiveFixReportTests(unittest.TestCase):
         self.assertEqual(flag["tidy_title"], "Image missing on slide 1")
         self.assertIn("equation image", flag["tidy_description"])
         self._assert_secrets_absent(self._stored_fix_text())
+
+    def test_copy_report_is_plain_text_without_secrets(self) -> None:
+        """Copy report carries the class, the debug label, Sentry, and the release."""
+        self.addCleanup(os.environ.pop, "SENTRY_AUTH_TOKEN", None)
+        self.addCleanup(os.environ.pop, "SENTRY_ORG", None)
+        self.addCleanup(os.environ.pop, "GH_SHA", None)
+        os.environ["SENTRY_AUTH_TOKEN"] = "test-token"
+        os.environ["SENTRY_ORG"] = "mckenzian"
+        os.environ["GH_SHA"] = "abc1234deadbeef"
+        self.student.post(
+            "/api/student/flags",
+            json={
+                "note": f"{SECRET_NAME} saw the question twice",
+                "actions": ["live-catchup-pin-later"],
+            },
+            headers={"X-Student-Visit-Token": self.visit_token},
+        )
+
+        def fake_http(url, **_kwargs):
+            """Return one issue whose title still names the student."""
+            if "/lloves-live/" in url:
+                return []
+            return [
+                {
+                    "shortId": "LLOVES-LMS-9",
+                    "title": f"duplicate card {SECRET_NAME}",
+                    "count": "2",
+                    "firstSeen": "2020-01-01T00:00:00Z",
+                    "lastSeen": datetime.now().replace(microsecond=0).isoformat(),
+                    "permalink": "https://sentry.io/issues/9",
+                    "user": {"email": STAFF_EMAIL, "name": SECRET_NAME},
+                }
+            ]
+
+        with patch.object(live_fix, "_http_json", fake_http):
+            self.school.finish_live_class(self.class_id, celebrate=True, live_run=True)
+        report = live_fix.latest_report(self.school, self.class_id)
+        self.assertIsNotNone(report)
+        text = str(report["copy_text"])
+        self.assertIn("Course: MCR3U", text)
+        self.assertIn("Section: MCR3U", text)
+        self.assertIn("Lesson: M1 C2", text)
+        self.assertIn("Deck: M1 C2", text)
+        self.assertIn(" ET", text)
+        self.assertIn("Release: abc1234deadbeef", text)
+        self.assertIn("Slide 1", text)
+        self.assertIn("eq-image-1", text)
+        self.assertIn("live-catchup-pin-later", text)
+        self.assertIn("Catch-up pin: later", text)
+        self.assertRegex(
+            text,
+            r"Debug: student · student-[0-9a-f]{12} · mc · eq-image-1 · live-catchup-pin-later",
+        )
+        self.assertRegex(text, r"Reporter: student student-[0-9a-f]{12}")
+        self.assertIn("LLOVES-LMS-9", text)
+        self.assertIn("https://sentry.io/issues/9", text)
+        self.assertNotIn(self.session_code, text)
+        self._assert_secrets_absent(text)
+        self._assert_secrets_absent(json.dumps(report))
+        script = (LMS_DIR / "static" / "live_fix.js").read_text(encoding="utf-8")
+        self.assertIn("copy_text", script)
+        self.assertIn("live-fix-report-copy", script)
 
     def test_live_and_student_pages_offer_the_note_box(self) -> None:
         """The teacher shell has Flag and the student phone has Report a problem."""

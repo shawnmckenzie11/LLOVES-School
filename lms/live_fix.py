@@ -23,6 +23,7 @@ import threading
 import time
 from datetime import datetime
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -318,6 +319,26 @@ def _flexible_secret(secret: str) -> str | None:
     if all(ch.isalnum() or ch in " .'-_" for ch in secret):
         return rf"(?<!\w){body}(?!\w)"
     return body
+
+
+def scrub_roster_values(text: str, secrets: list[str]) -> str:
+    """Replace known names, emails, and join codes. Leave SHAs and dates.
+
+    Unlike :func:`scrub_secrets`, this does not treat every 4-digit group
+    or short code as a secret. A release SHA and a Sentry id must stay
+    readable in the pasted report.
+
+    Args:
+        text: The pasteable report.
+        secrets: Values from :func:`roster_secrets`.
+    """
+    cleaned = str(text or "")
+    for secret in secrets:
+        pattern = _flexible_secret(secret)
+        if not pattern:
+            continue
+        cleaned = re.sub(pattern, "[redacted]", cleaned, flags=re.IGNORECASE)
+    return _EMAIL_RE.sub("[redacted]", cleaned)
 
 
 def scrub_secrets(text: str, secrets: list[str]) -> str:
@@ -940,6 +961,286 @@ def anthropic_api_key() -> str:
     return (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
 
 
+def _parse_moment(value: str) -> datetime | None:
+    """Parse a stored timestamp. Naive values are Eastern Time.
+
+    The school runs in Ontario. A timestamp with no offset is the time
+    the server stored locally, which is Eastern. A ``Z`` or offset is
+    converted to Eastern.
+
+    Args:
+        value: ISO timestamp from a session or Sentry.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    eastern = ZoneInfo("America/Toronto")
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=eastern)
+    return parsed.astimezone(eastern)
+
+
+def format_eastern(value: str) -> str:
+    """Return one timestamp as ``YYYY-MM-DD HH:MM ET``.
+
+    Args:
+        value: ISO timestamp. Empty or unparseable text is returned trimmed.
+    """
+    parsed = _parse_moment(value)
+    if parsed is None:
+        return str(value or "").strip()
+    return parsed.strftime("%Y-%m-%d %H:%M ET")
+
+
+def flag_debug_label(flag: dict[str, Any]) -> str:
+    """Return the same debug line the End Class report shows under a note.
+
+    Order matches the on-screen meta: role, anonymized id, content type,
+    question id, then recent button ids. Empty pieces are left out, so a
+    student note on a bank import after Later reads
+    ``student · question · bank-import-28920 · live-catchup-pin-later``.
+
+    Args:
+        flag: Public flag dict.
+    """
+    actions = flag.get("actions") if isinstance(flag.get("actions"), list) else []
+    action_text = ", ".join(str(item) for item in actions if str(item).strip())
+    bits = [
+        str(flag.get("reporter_role") or "").strip(),
+        str(flag.get("reporter_anon") or "").strip(),
+        str(flag.get("content_type") or "").strip(),
+        str(flag.get("question_id") or "").strip(),
+    ]
+    if action_text:
+        bits.append(action_text)
+    return " · ".join(bit for bit in bits if bit)
+
+
+def _teacher_state_dict(raw_state: Any) -> dict[str, Any]:
+    """Return teacher state as a dict, or an empty dict.
+
+    Args:
+        raw_state: ``teacher_state_json`` text or a dict.
+    """
+    if isinstance(raw_state, dict):
+        return raw_state
+    if isinstance(raw_state, str) and raw_state.strip():
+        try:
+            loaded = json.loads(raw_state)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(loaded, dict):
+            return loaded
+    return {}
+
+
+def _lesson_context(school: Any, session_row: dict[str, Any]) -> dict[str, str]:
+    """Course, section, lesson, and deck for one ended class.
+
+    Join codes and access codes are not copied. A missing offering leaves
+    the course fields blank.
+
+    Args:
+        school: Open school database.
+        session_row: Session columns, including teacher state.
+    """
+    course = ""
+    section = ""
+    class_id = session_row.get("class_id")
+    game = getattr(school, "game", None)
+    if class_id not in (None, "") and game is not None:
+        try:
+            cls = game.get_class(int(class_id))
+        except (TypeError, ValueError, KeyError):
+            cls = None
+        offering_id = (cls or {}).get("offering_id") if isinstance(cls, dict) else None
+        offering = None
+        if offering_id not in (None, ""):
+            try:
+                offering = school.get_offering(int(offering_id))
+            except (TypeError, ValueError, KeyError):
+                offering = None
+        if isinstance(offering, dict):
+            course = str(offering.get("ontario_code") or "").strip().upper()
+            try:
+                from school_db import section_code
+            except ImportError:
+                from lms.school_db import section_code
+
+            section = str(offering.get("section_code") or "").strip() or section_code(
+                course, offering.get("section_index")
+            )
+    state = _teacher_state_dict(session_row.get("teacher_state_json"))
+    module = str(state.get("live_module") or "").strip().upper()
+    slot = str(state.get("live_slot") or "").strip().upper()
+    lesson = " ".join(part for part in (module, slot) if part)
+    title = ""
+    presentation = ""
+    try:
+        deck = school.google_slides_deck(int(session_row["id"]))
+    except (TypeError, ValueError, AttributeError):
+        deck = None
+    if isinstance(deck, dict):
+        title = str(deck.get("title") or "").strip()
+        presentation = str(deck.get("presentation_id") or "").strip()
+    deck_bits = [lesson]
+    if title:
+        deck_bits.append(title)
+    if presentation:
+        deck_bits.append(presentation)
+    try:
+        from sentry_wire import release_name
+    except ImportError:
+        from lms.sentry_wire import release_name
+
+    release = release_name() or ""
+    return {
+        "course_code": course,
+        "section": section,
+        "module": module,
+        "slot": slot,
+        "lesson": lesson,
+        "deck": " · ".join(bit for bit in deck_bits if bit),
+        "release": release,
+    }
+
+
+def report_copy_text(report: dict[str, Any]) -> str:
+    """Plain text a developer can paste into a chat.
+
+    Includes the course, section, lesson, deck, Eastern start and end,
+    each note's slide and question ids, the debug label, Sentry issues,
+    the release SHA, and the reporter role with an anonymized id.
+    Names, emails, and join codes must already be gone from ``report``.
+
+    Args:
+        report: Dict from :func:`build_report`.
+    """
+    lines = ["End Class report"]
+    course = str(report.get("course_code") or "").strip()
+    section = str(report.get("section") or "").strip()
+    lesson = str(report.get("lesson") or "").strip()
+    deck = str(report.get("deck") or "").strip()
+    if course:
+        lines.append(f"Course: {course}")
+    if section:
+        lines.append(f"Section: {section}")
+    if lesson:
+        lines.append(f"Lesson: {lesson}")
+    if deck:
+        lines.append(f"Deck: {deck}")
+    started = format_eastern(str(report.get("started_at") or ""))
+    ended = format_eastern(str(report.get("ended_at") or ""))
+    if started:
+        lines.append(f"Date: {started[:10]}")
+        lines.append(f"Started: {started}")
+    if ended:
+        lines.append(f"Ended: {ended}")
+    release = str(report.get("release") or "").strip()
+    lines.append(f"Release: {release or 'unknown'}")
+    if report.get("session_id") not in (None, ""):
+        lines.append(f"Session: {int(report['session_id'])}")
+    if report.get("class_id") not in (None, ""):
+        lines.append(f"Class: {int(report['class_id'])}")
+    groups = report.get("flags_by_slide")
+    if not isinstance(groups, list) or not groups:
+        lines.append("")
+        lines.append("No in-class notes.")
+    else:
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            slide = group.get("slide")
+            lines.append("")
+            lines.append("Slide unknown" if slide in (None, "") else f"Slide {int(slide)}")
+            flags = group.get("flags") if isinstance(group.get("flags"), list) else []
+            for flag in flags:
+                if not isinstance(flag, dict):
+                    continue
+                page_id = str(flag.get("page_id") or "").strip()
+                if page_id:
+                    lines.append(f"Page: {page_id}")
+                questions = flag.get("questions")
+                if not isinstance(questions, list) or not questions:
+                    question_id = str(flag.get("question_id") or "").strip()
+                    content_type = str(flag.get("content_type") or "").strip()
+                    questions = [
+                        {"question_id": question_id, "content_type": content_type}
+                    ]
+                item_bits = []
+                for item in questions:
+                    if not isinstance(item, dict):
+                        continue
+                    question_id = str(item.get("question_id") or "").strip()
+                    content_type = str(item.get("content_type") or "").strip()
+                    if question_id and content_type:
+                        item_bits.append(f"{question_id} ({content_type})")
+                    elif question_id or content_type:
+                        item_bits.append(question_id or content_type)
+                if item_bits:
+                    lines.append("Items: " + "; ".join(item_bits))
+                title = str(flag.get("tidy_title") or "").strip()
+                note = str(flag.get("note") or "").strip()
+                description = str(flag.get("tidy_description") or "").strip()
+                if title:
+                    lines.append(f"Note: {title}")
+                if note and note != title:
+                    lines.append(f"Detail: {note}")
+                if description and description not in {title, note}:
+                    lines.append(f"Tidy: {description}")
+                label = flag_debug_label(flag)
+                if label:
+                    lines.append(f"Debug: {label}")
+                role = str(flag.get("reporter_role") or "").strip()
+                anon = str(flag.get("reporter_anon") or "").strip()
+                who = " ".join(part for part in (role, anon) if part)
+                if who:
+                    lines.append(f"Reporter: {who}")
+                actions = flag.get("actions") if isinstance(flag.get("actions"), list) else []
+                action_text = ", ".join(str(item) for item in actions if str(item).strip())
+                if "live-catchup-pin-later" in action_text:
+                    lines.append("Catch-up pin: later")
+                elif action_text:
+                    lines.append(f"Actions: {action_text}")
+    sentry = report.get("sentry") if isinstance(report.get("sentry"), dict) else {}
+    lines.append("")
+    lines.append("Sentry")
+    if not sentry.get("configured"):
+        lines.append("Sentry was not checked.")
+    else:
+        issues = sentry.get("issues") if isinstance(sentry.get("issues"), list) else []
+        if not issues:
+            lines.append("No Sentry issues in this class window.")
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            lines.append(
+                " ".join(
+                    part
+                    for part in (
+                        str(issue.get("project") or "").strip(),
+                        str(issue.get("id") or "").strip(),
+                        str(issue.get("title") or "").strip(),
+                    )
+                    if part
+                )
+                + f" · count {issue.get('count') or 0}"
+                + f" · {issue.get('first_seen') or ''} – {issue.get('last_seen') or ''}"
+            )
+            url = str(issue.get("url") or "").strip()
+            if url:
+                lines.append(url)
+        if sentry.get("error"):
+            lines.append(f"Sentry error: {sentry.get('error')}")
+    return "\n".join(lines).strip() + "\n"
+
+
 def build_report(
     school: Any,
     session_id: int,
@@ -971,9 +1272,17 @@ def build_report(
         secrets,
         http_json=http_json,
     )
-    return {
+    lesson = _lesson_context(school, session_row)
+    report = {
         "session_id": int(session_id),
         "class_id": int(session_row["class_id"]),
+        "course_code": lesson["course_code"],
+        "section": lesson["section"],
+        "module": lesson["module"],
+        "slot": lesson["slot"],
+        "lesson": lesson["lesson"],
+        "deck": scrub_roster_values(lesson["deck"], secrets),
+        "release": lesson["release"],
         "started_at": str(session_row.get("started_at") or ""),
         "ended_at": ended_at,
         "flag_count": len(flags),
@@ -981,6 +1290,8 @@ def build_report(
         "sentry": sentry,
         "tidy": {"status": _tidy_status(bool(anthropic_api_key()))},
     }
+    report["copy_text"] = scrub_roster_values(report_copy_text(report), secrets)
+    return report
 
 
 def save_report(school: Any, report: dict[str, Any]) -> None:
@@ -1294,6 +1605,11 @@ def _mark_tidy(school: Any, class_id: int, session_id: int, status: str) -> None
     report["tidy"] = {"status": status}
     report["flags_by_slide"] = _group_flags(list_flags(school, int(session_id)))
     report["flag_count"] = sum(len(group["flags"]) for group in report["flags_by_slide"])
+    session_row = _session_columns(school, int(session_id))
+    secrets = (
+        roster_secrets(school, int(class_id), session_row) if session_row is not None else []
+    )
+    report["copy_text"] = scrub_roster_values(report_copy_text(report), secrets)
     save_report(school, report)
 
 

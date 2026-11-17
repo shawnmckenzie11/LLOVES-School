@@ -1232,7 +1232,11 @@
       <dialog id="live-fix-report" class="live-fix-report" aria-labelledby="live-fix-report-title">
         <h2 id="live-fix-report-title">End Class report</h2>
         <div id="live-fix-report-body"></div>
-        <button type="button" id="live-fix-report-close">Close</button>
+        <div class="live-fix-report-actions">
+          <button type="button" id="live-fix-report-copy">Copy report</button>
+          <p id="live-fix-report-copy-status" class="live-fix-status" role="status"></p>
+          <button type="button" id="live-fix-report-close">Close</button>
+        </div>
       </dialog>
       <script src="/static/live_fix.js"></script>
       <div id="attendance-root" data-class-id="{{ cls.id }}">

@@ -136,6 +136,18 @@
   padding: 0.15rem 0;
 }
 
+.live-fix-report-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.live-fix-report-actions .live-fix-status {
+  margin-right: auto;
+}
+
 .live-fix-slide {
   margin: 0.6rem 0;
 }

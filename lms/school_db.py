@@ -30851,6 +30851,9 @@ class SchoolDB(LovesDB):
                 public_items[-1]["group_q_ready"] = status_q["ready"]
             # MCK-176: students only ever see option aliases.
             public_items[-1] = self._alias_for_student(item, public_items[-1])
+        public_items = self._one_card_per_catalogue_question(
+            public_items, current_page=current_page
+        )
         facing = [
             row
             for row in public_items
@@ -35746,7 +35749,148 @@ class SchoolDB(LovesDB):
                 session_id, int(student_id), prompt
             )
             out["group_q_ready"] = status["ready"]
-        return out
+        return self._point_prompt_at_single_question(out)
+
+    def _catalogue_question_key(self, row: dict[str, Any]) -> str:
+        """Return the id shared by a slide item and its catch-up pin.
+
+        Engine rides return an empty string. Meet and Teams Spark park an
+        earlier step beside the live step, and those two cards are not the
+        same question. A ``stage:page:order:item`` key peels to the
+        catalogue id. Hyphens and underscores match.
+
+        Args:
+            row: One public student item.
+        """
+        content = row.get("content") if isinstance(row.get("content"), dict) else {}
+        item_id = str(
+            row.get("item_id") or content.get("item_id") or content.get("id") or ""
+        )
+        if self._engine_ride_item_id(item_id, content):
+            return ""
+        return self._live_item_alias(item_id)
+
+    def _student_card_keep_rank(
+        self, row: dict[str, Any], current_page: int | None
+    ) -> tuple[int, int, int, int, int, int]:
+        """Rank which copy of one question the student should keep.
+
+        A copy that already holds this student's answer wins, so the score
+        stays on that prompt. Otherwise the row bound to the current slide
+        wins over an unpaged catch-up pin. An active row beats a parked one.
+
+        Args:
+            row: Public student item.
+            current_page: Teacher page, or None when the deck page is unset.
+        """
+        status = str(row.get("status") or "")
+        raw_page = row.get("page_number")
+        explicit = False
+        try:
+            if current_page is not None and raw_page not in (None, ""):
+                explicit = int(raw_page) == int(current_page)
+        except (TypeError, ValueError):
+            explicit = False
+        on_page = explicit or raw_page in (None, "") or current_page is None
+        prompt = row.get("prompt") if isinstance(row.get("prompt"), dict) else {}
+        return (
+            1 if row.get("my_response") else 0,
+            1 if explicit else 0,
+            1 if status == "active" and on_page else 0,
+            1 if status == "active" else 0,
+            1 if prompt.get("id") not in (None, "") else 0,
+            -int(row.get("id") or 0),
+        )
+
+    def _one_card_per_catalogue_question(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        current_page: int | None,
+    ) -> list[dict[str, Any]]:
+        """Drop a second student card of the same catalogue question.
+
+        A bank import can be published as the slide item and again as a
+        catch-up pin: another lifecycle row with the same item id, often
+        with no page so it stays on the student card. The phone paints
+        active, closed, and saved cards together, so both copies showed.
+        The kept card keeps its lifecycle id and prompt. Later answers
+        and scores stay on that one question.
+
+        Args:
+            rows: Public student items for one poll.
+            current_page: Teacher page, or None.
+        """
+        best: dict[str, tuple[tuple[int, int, int, int, int, int], dict[str, Any]]] = {}
+        for row in rows:
+            key = self._catalogue_question_key(row)
+            if not key:
+                continue
+            rank = self._student_card_keep_rank(row, current_page)
+            current = best.get(key)
+            if current is None or rank > current[0]:
+                best[key] = (rank, row)
+        emitted: set[str] = set()
+        kept: list[dict[str, Any]] = []
+        for row in rows:
+            key = self._catalogue_question_key(row)
+            if not key:
+                kept.append(row)
+                continue
+            if key in emitted or best[key][1] is not row:
+                continue
+            emitted.add(key)
+            kept.append(row)
+        return kept
+
+    def _point_prompt_at_single_question(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Point the legacy prompt at the one remaining card.
+
+        The prompt channel and the lifecycle card can name different
+        prompt rows for one bank import: the slide item and the catch-up
+        pin. The phone then paints the question in both places. After the
+        extra card is dropped, this moves the prompt channel onto the
+        card that remains, including the answer stored on that prompt.
+
+        Args:
+            payload: Student prompt payload already merged with item lists.
+        """
+        prompt = payload.get("prompt")
+        if not isinstance(prompt, dict):
+            return payload
+        body = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        item_id = str(body.get("item_id") or body.get("pack") or body.get("id") or "")
+        if self._engine_ride_item_id(item_id, body):
+            return payload
+        alias = self._live_item_alias(item_id)
+        if not alias:
+            return payload
+        try:
+            prompt_id = int(prompt.get("id") or 0)
+        except (TypeError, ValueError):
+            prompt_id = 0
+        for row in payload.get("active_questions") or []:
+            if self._live_item_alias(row.get("item_id")) != alias:
+                continue
+            card_prompt = row.get("prompt") if isinstance(row.get("prompt"), dict) else None
+            if not isinstance(card_prompt, dict) or card_prompt.get("id") in (None, ""):
+                return payload
+            try:
+                card_prompt_id = int(card_prompt.get("id") or 0)
+            except (TypeError, ValueError):
+                return payload
+            if not card_prompt_id or card_prompt_id == prompt_id:
+                return payload
+            card_body = card_prompt.get("payload")
+            payload["prompt"] = {
+                "id": card_prompt_id,
+                "slide_index": int(card_prompt.get("slide_index") or 0),
+                "kind": str(card_prompt.get("kind") or prompt.get("kind") or ""),
+                "payload": card_body if isinstance(card_body, dict) else body,
+            }
+            payload["my_response"] = row.get("my_response")
+            return payload
+        return payload
 
     def live_session_active_media_payload(
         self, session_id: int
