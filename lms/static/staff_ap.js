@@ -6382,6 +6382,7 @@ function paintLiveQuestionCards() {
             {
               image_urls: item.image_urls || card.image_urls,
               image_url: item.image_url || card.image_url,
+              text_html: item.text_html || item.stem_html || card.text_html || "",
             },
             { variant: "thumb" }
           )}

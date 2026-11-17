@@ -74,6 +74,31 @@ function itemPreview(item) {
 }
 
 /**
+ * Choice HTML for the picker preview.
+ *
+ * Shown when a choice is an equation image or TeX, so KaTeX and figures
+ * paint in the list. Plain word choices stay on the answer line.
+ *
+ * @param {Record<string, unknown>} item
+ * @returns {string}
+ */
+function choicePreviewHtml(item) {
+  const htmls = Array.isArray(item.options_html) ? item.options_html : [];
+  const rich = htmls.some(
+    (html) =>
+      typeof html === "string" &&
+      (html.includes("math-latex") || html.includes("<img"))
+  );
+  if (!rich) return "";
+  return `<ol class="bank-mc-picker-choices" type="A">${htmls
+    .map(
+      (html) =>
+        `<li><span class="live-question-html">${typeof html === "string" ? html : ""}</span></li>`
+    )
+    .join("")}</ol>`;
+}
+
+/**
  * @typedef {{ items: Record<string, unknown>[], total: number, filtered: number }} ModuleMcSearchResult
  */
 
@@ -473,6 +498,7 @@ export async function mountBankMcPicker(opts) {
           <div class="bank-mc-picker-row-main">
             ${thumb}
             <div class="bank-mc-picker-text live-question-html">${label}</div>
+            ${choicePreviewHtml(item)}
             ${preview}
             <p class="hint compact">${meta}</p>
           </div>
@@ -815,6 +841,7 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
             <span class="bank-mc-picker-row-main">
               ${row.title ? `<span class="bank-mc-picker-title">${escapeHtml(row.title)}</span>` : ""}
               <span class="bank-mc-picker-text live-question-html">${stem}</span>
+              ${choicePreviewHtml(row.item)}
               <span class="hint compact">${escapeHtml(`${label} · #${row.rank} · ${row.meta}`)}</span>
             </span>
           </label>

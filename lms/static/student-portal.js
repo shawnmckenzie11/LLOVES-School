@@ -3469,9 +3469,13 @@ function questionBoardSlot(item, content) {
   const promptId = Number(item?.prompt?.id) || 0;
   if (!promptId) return "";
   const team = String(item?.response_mode || "") === "group_shared" ? "1" : "0";
+  const stemHtml = String(content?.text_html || content?.stem_html || "");
+  const imageUrl = String(content?.image_url || "");
   const image =
-    content?.image_as_board_background !== false && content?.image_url
-      ? String(content.image_url)
+    content?.image_as_board_background !== false &&
+    imageUrl &&
+    !stemHtml.includes(imageUrl)
+      ? imageUrl
       : "";
   return `<div class="qboard-slot" data-qboard-prompt="${promptId}" data-qboard-mode="${mode}" data-qboard-team="${team}" data-qboard-image="${escapeText(image)}"></div>`;
 }

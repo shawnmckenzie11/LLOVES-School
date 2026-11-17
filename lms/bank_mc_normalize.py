@@ -263,6 +263,24 @@ def normalize_bank_mc(
     if not stem:
         return None, "empty_stem"
     stem = normalize_house_tex(stem)
+    raw_urls = blob.get("image_urls")
+    figure_urls = (
+        [str(url).strip() for url in raw_urls if str(url).strip()]
+        if isinstance(raw_urls, list)
+        else []
+    )
+    if figure_urls and raw_stem_html:
+        try:
+            from bank_stem_figures import restore_inline_equation_images
+        except ImportError:
+            from lms.bank_stem_figures import restore_inline_equation_images
+
+        raw_stem_html, _reason = restore_inline_equation_images(
+            raw_stem_html,
+            figure_urls,
+            choice_html="\n".join(raw_option_htmls),
+            stem_text=stem,
+        )
     options = [normalize_house_tex(opt) for opt in options]
     if len(options) < 2:
         return None, "need_two_options"

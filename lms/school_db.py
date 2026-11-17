@@ -12267,6 +12267,17 @@ class SchoolDB(LovesDB):
             apply_mcf3m_m567_cartridge_banks(self)
         except Exception:  # noqa: BLE001 - bank apply must not block boot
             logger.exception("MCF3M module 5-7 cartridge bank apply failed")
+        try:
+            # Already-imported MCF3M rows keep the holed stem until this
+            # pass. It only updates stem HTML. A second boot writes nothing.
+            try:
+                from bank_stem_figures import apply_inline_equation_repairs
+            except ImportError:
+                from lms.bank_stem_figures import apply_inline_equation_repairs
+
+            apply_inline_equation_repairs(self)
+        except Exception:  # noqa: BLE001 - stem repair must not block boot
+            logger.exception("MCF3M inline equation repair failed")
 
     def close(self) -> None:
         """Close both sqlite connections."""

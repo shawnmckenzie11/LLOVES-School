@@ -6754,6 +6754,20 @@ body.staff-shell .prompt-choice .live-question-html img,
 .student-live-card .prompt-choice .live-question-html img {
   max-width: 12rem;
 }
+.live-question-html img.equation-inline,
+.student-live-card .live-question-html img.equation-inline,
+body.staff-shell .live-question-html img.equation-inline,
+.bank-mc-picker-text img.equation-inline,
+.bank-mc-picker-choices img.equation-inline,
+.prompt-choice .live-question-html img.equation-inline {
+  display: inline-block;
+  vertical-align: middle;
+  width: auto;
+  max-width: 14rem;
+  height: auto;
+  max-height: 2.8em;
+  margin: 0 0.15em;
+}
 
 
 

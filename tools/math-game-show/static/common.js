@@ -464,8 +464,25 @@ export function questionFieldHtml(item, field, index) {
 }
 
 /**
+ * True when the stem HTML already shows this figure inline.
+ * @param {unknown} source
+ * @param {string} url
+ * @returns {boolean}
+ */
+function figureAlreadyInStem(source, url) {
+  if (!url || !source || typeof source !== "object" || Array.isArray(source)) return false;
+  const html = String(
+    /** @type {{text_html?: unknown, stem_html?: unknown}} */ (source).text_html ||
+      /** @type {{stem_html?: unknown}} */ (source).stem_html ||
+      ""
+  );
+  return Boolean(html) && html.includes(url);
+}
+
+/**
  * Every figure URL on a question, in bank order.
  * A string is one URL. An object may carry ``image_urls`` and ``image_url``.
+ * URLs already painted inside the stem HTML are left there.
  * @param {unknown} source
  * @returns {string[]}
  */
@@ -478,12 +495,13 @@ export function questionFigureUrls(source) {
       .image_urls;
     if (Array.isArray(many)) {
       const urls = many.map((url) => String(url || "").trim()).filter(Boolean);
-      if (urls.length) return urls;
+      if (urls.length) return urls.filter((url) => !figureAlreadyInStem(source, url));
     }
     const one = String(
       /** @type {{image_url?: unknown}} */ (source).image_url || ""
     ).trim();
-    return one ? [one] : [];
+    const urls = one ? [one] : [];
+    return urls.filter((url) => !figureAlreadyInStem(source, url));
   }
   const one = String(source || "").trim();
   return one ? [one] : [];
