@@ -9696,7 +9696,27 @@ async function ensureMeetingDate(iso) {
 }
 
 /**
+ * Re-read days the attendance grid still treats as logged.
+ *
+ * Page load keeps ``logContext.logged_dates``. Deleting a Lesson Slides
+ * class does not clear that list, and a cached calendar response would
+ * bring the old day back. ``cache: "no-store"`` skips that response.
+ *
+ * @returns {Promise<string[]>}
+ */
+async function reloadLoggedDates() {
+  const fresh = await api(`/api/classes/${classId}/log-context`, { cache: "no-store" });
+  const dates = Array.isArray(fresh?.logged_dates) ? fresh.logged_dates : [];
+  if (logContext) logContext.logged_dates = dates;
+  return dates;
+}
+
+/**
  * Fetch whether attendance is logged for a date.
+ *
+ * Uses the list from the last calendar load. Start calls
+ * ``reloadLoggedDates`` first so a delete on this page is visible.
+ *
  * @param {string} iso
  * @returns {Promise<boolean>}
  */
@@ -9705,21 +9725,35 @@ async function isDateLogged(iso) {
   if (Array.isArray(logContext?.logged_dates)) {
     return logContext.logged_dates.includes(iso);
   }
-  const day = await api(`/api/classes/${classId}/attendance-day?date=${encodeURIComponent(iso)}`);
-  return Boolean(day.logged);
+  const dates = await reloadLoggedDates();
+  return dates.includes(iso);
 }
 
 /**
  * Confirm before overriding an already-logged school day.
- * Cancel leaves the prior choice untouched (caller must not proceed).
+ *
+ * The question is an in-page dialog, same family as the saved-slot
+ * start dialog. Cancel and Escape leave the class unstarted.
+ *
  * @param {string} iso
  * @returns {Promise<boolean>}
  */
 async function confirmOverrideIfLogged(iso) {
-  if (!iso || !(await isDateLogged(iso))) return true;
-  return window.confirm(
-    `Stored attendance and participation for ${iso} will be overridden. Continue?`
-  );
+  if (!iso) return true;
+  const dates = await reloadLoggedDates();
+  if (!dates.includes(iso)) return true;
+  const dialog = $("set-class-override-dialog");
+  if (!(dialog instanceof HTMLDialogElement)) return false;
+  const body = $("set-class-override-body");
+  if (body) {
+    body.textContent = `Stored attendance and participation for ${iso} will be overridden. Continue?`;
+  }
+  dialog.returnValue = "";
+  const choice = await new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue), { once: true });
+    dialog.showModal();
+  });
+  return choice === "continue";
 }
 
 /**
@@ -9917,20 +9951,19 @@ async function applyValidateDateChoice(opts = {}) {
     String($("ap-meeting-date")?.value || "").trim() ||
     overlayState?.session?.meeting_date ||
     "";
-  if (selectedRunKind() !== "test" && !(await confirmOverrideIfLogged(iso))) {
-    // Cancel: keep prior date selection; do not begin/clobber.
-    if (priorIso) {
-      syncOverlayPickers(logContext, priorIso);
-      showValidateGrid(priorIso);
-    }
-    if (opts.reservedWin && !opts.reservedWin.closed) {
-      try {
-        opts.reservedWin.close();
-      } catch (_) {
-        /* ignore */
+  try {
+    if (selectedRunKind() !== "test" && !(await confirmOverrideIfLogged(iso))) {
+      // Cancel: keep prior date selection; do not begin/clobber.
+      if (priorIso) {
+        syncOverlayPickers(logContext, priorIso);
+        showValidateGrid(priorIso);
       }
+      closeReservedLiveWindow(opts.reservedWin);
+      return;
     }
-    return;
+  } catch (err) {
+    closeReservedLiveWindow(opts.reservedWin);
+    throw err;
   }
   hideError("#ap-overlay-error");
   syncOverlayPickers(logContext, iso);

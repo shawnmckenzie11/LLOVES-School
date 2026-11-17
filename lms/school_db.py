@@ -54591,25 +54591,29 @@ class SchoolDB(LovesDB):
         }
 
     def _logged_meeting_dates(self, class_id: int) -> list[str]:
-        """ISO school days that already have ended attendance/participation.
+        """ISO days whose ended column Attendance & Participation still shows.
+
+        Uses the same session list as the attendance grid. Test runs are
+        left out, and so is a Lesson Slides run the teacher deleted. Delete
+        can leave that column in ``sessions`` when an open game still
+        points at it. The grid hides the column. This list hides it too,
+        so Start does not offer to override a day the grid does not show.
+        Rows are not removed here.
 
         Args:
             class_id: Class primary key.
 
         Returns:
-            Sorted unique ``YYYY-MM-DD`` strings for finalized session columns.
+            Sorted unique ``YYYY-MM-DD`` strings for those columns.
         """
         try:
             from gradebook import session_meeting_date
         except ImportError:
             from lms.gradebook import session_meeting_date
 
-        marks = self.game.attendance_score_rows(class_id)
-        test_ids = self.test_mgs_session_ids(class_id)
+        marks = self._attendance_marks_without_test_runs(class_id)
         logged: set[str] = set()
         for sess in marks.get("sessions") or []:
-            if int(sess.get("id") or 0) in test_ids:
-                continue
             if str(sess.get("status") or "") != "ended":
                 continue
             meeting = session_meeting_date(sess.get("starts_at"))
@@ -54638,8 +54642,8 @@ class SchoolDB(LovesDB):
     ) -> str:
         """Next picker-valid school day without finalized attendance.
 
-        In-progress setup sessions and test runs are ignored so the next
-        day stays available.
+        In-progress setup sessions, test runs, and a Lesson Slides run
+        the teacher deleted are ignored so the next day stays available.
 
         Args:
             class_id: Class primary key.
@@ -54649,25 +54653,10 @@ class SchoolDB(LovesDB):
         Returns:
             ISO date string for the next open attendance slot.
         """
-        try:
-            from gradebook import session_meeting_date
-        except ImportError:
-            from lms.gradebook import session_meeting_date
-
         allowed = picker_set if picker_set is not None else set(picker_isos)
         if not picker_isos:
             return date.today().isoformat()
-        marks = self.game.attendance_score_rows(class_id)
-        test_ids = self.test_mgs_session_ids(class_id)
-        logged_dates: set[str] = set()
-        for sess in marks.get("sessions") or []:
-            if int(sess.get("id") or 0) in test_ids:
-                continue
-            if str(sess.get("status") or "") != "ended":
-                continue
-            meeting = session_meeting_date(sess.get("starts_at"))
-            if meeting is not None:
-                logged_dates.add(meeting.isoformat())
+        logged_dates = set(self._logged_meeting_dates(class_id))
         today_iso = date.today().isoformat()
         if logged_dates:
             last_logged = max(logged_dates)

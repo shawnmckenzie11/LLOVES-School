@@ -6247,10 +6247,12 @@ body.staff-shell .end-live-dialog-actions > button {
   align-items: center;
   justify-content: center;
 }
-body.staff-shell #set-class-saved-dialog {
+body.staff-shell #set-class-saved-dialog,
+body.staff-shell #set-class-override-dialog {
   max-width: 28rem;
 }
-body.staff-shell #set-class-saved-dialog .end-live-dialog-actions {
+body.staff-shell #set-class-saved-dialog .end-live-dialog-actions,
+body.staff-shell #set-class-override-dialog .end-live-dialog-actions {
   flex-wrap: wrap;
 }
 body.staff-shell .feedback-live-group {

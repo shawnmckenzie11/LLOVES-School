@@ -634,6 +634,17 @@
             </div>
           </form>
         </dialog>
+        {# Text is set by confirmOverrideIfLogged in staff_ap.js. #}
+        <dialog id="set-class-override-dialog" class="end-live-dialog" aria-labelledby="set-class-override-title">
+          <form method="dialog" class="end-live-dialog-form">
+            <h2 id="set-class-override-title">This day already has attendance</h2>
+            <p id="set-class-override-body"></p>
+            <div class="end-live-dialog-actions">
+              <button type="submit" class="secondary" value="cancel" autofocus>Cancel</button>
+              <button type="submit" class="btn-danger" value="continue" id="set-class-override-continue">Continue</button>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       <div class="live-shell-body">
