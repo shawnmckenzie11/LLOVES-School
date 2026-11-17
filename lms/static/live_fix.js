@@ -336,12 +336,76 @@
     parent.appendChild(block);
   }
 
+  /** @type {Record<string, unknown> | null} Report currently open in the dialog. */
+  let currentReport = null;
+
+  /**
+   * Plain text for the open report. The server text is the one to paste.
+   * @param {Record<string, unknown> | null} report
+   * @returns {string}
+   */
+  function plainReport(report) {
+    const stored = String((report && report.copy_text) || "").trim();
+    if (stored) return stored + (stored.endsWith("\n") ? "" : "\n");
+    const lines = ["End Class report"];
+    const course = String((report && report.course_code) || "");
+    const section = String((report && report.section) || "");
+    const lesson = String((report && report.lesson) || "");
+    const deck = String((report && report.deck) || "");
+    if (course) lines.push("Course: " + course);
+    if (section) lines.push("Section: " + section);
+    if (lesson) lines.push("Lesson: " + lesson);
+    if (deck) lines.push("Deck: " + deck);
+    lines.push("Release: " + String((report && report.release) || "unknown"));
+    return lines.join("\n") + "\n";
+  }
+
+  /**
+   * Copy the open report. A missing clipboard API uses a hidden field.
+   * @returns {void}
+   */
+  function copyCurrentReport() {
+    const text = plainReport(currentReport);
+    const status = document.getElementById("live-fix-report-copy-status");
+    const mark = function (message) {
+      if (status) status.textContent = message;
+    };
+    const fallback = function () {
+      const field = document.createElement("textarea");
+      field.value = text;
+      field.setAttribute("readonly", "readonly");
+      document.body.appendChild(field);
+      field.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (_err) {
+        copied = false;
+      }
+      field.remove();
+      mark(copied ? "Copied." : "Select the report and copy it.");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () {
+          mark("Copied.");
+        },
+        fallback
+      );
+      return;
+    }
+    fallback();
+  }
+
   /**
    * Paint a stored report into the dismissable dialog.
    * @param {Record<string, unknown>} report
    * @returns {void}
    */
   function paintReport(report) {
+    currentReport = report;
+    const copyStatus = document.getElementById("live-fix-report-copy-status");
+    if (copyStatus) copyStatus.textContent = "";
     const body = document.getElementById("live-fix-report-body");
     const dialog = document.getElementById("live-fix-report");
     if (!(body instanceof HTMLElement) || !(dialog instanceof HTMLDialogElement)) return;
@@ -422,9 +486,13 @@
     const host = document.getElementById("live-fix-history");
     const list = document.getElementById("live-fix-history-list");
     const close = document.getElementById("live-fix-report-close");
+    const copy = document.getElementById("live-fix-report-copy");
     const dialog = document.getElementById("live-fix-report");
     const cid = classId();
     if (!(host instanceof HTMLElement) || !(list instanceof HTMLElement) || !cid) return;
+    copy?.addEventListener("click", function () {
+      copyCurrentReport();
+    });
     close?.addEventListener("click", function () {
       if (dialog instanceof HTMLDialogElement) dialog.close();
     });
