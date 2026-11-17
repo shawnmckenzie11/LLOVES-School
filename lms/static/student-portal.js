@@ -4559,7 +4559,6 @@ function paintLifecycleQuestionStack(payload) {
       </article>`;
   };
   liveQuestionStackBody.innerHTML = stacked.map(renderLiveCard).join("");
-  mountStudentQuestionBoards();
   // MCK-184: a card the student lifted (phone resize pill, desktop drag)
   // used to keep its old DOM forever: a Take turns pick greyed the
   // buttons, the server took it, and that phone never showed it or any
@@ -4571,6 +4570,8 @@ function paintLifecycleQuestionStack(payload) {
     const item = visible.find((row) => liveCardDockKey(row) === key);
     if (item) floatingCards.set(key, refreshFloatingCard(card, renderLiveCard(item)));
   });
+  // After the card HTML, so a lifted card is not replaced out from under the board.
+  mountStudentQuestionBoards();
   void renderLiveQuestionMath(liveQuestionStackBody);
   floatingCards.forEach((card) => void renderLiveQuestionMath(card));
   visible.forEach((item, index) => {

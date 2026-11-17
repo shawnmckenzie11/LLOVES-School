@@ -194,6 +194,11 @@ const phoneRoots = new Map();
 
 /**
  * Mount one phone board on the live whiteboard sync path.
+ *
+ * A live-sync paint replaces the question card, which detaches this
+ * phone. The same node is moved into the new card. Building another
+ * canvas would blank the drawing on every poll.
+ *
  * @param {HTMLElement} slot
  * @param {string} key Map key.
  * @param {{read: string, ops: string, submit: string, draft: string | null}} urls
@@ -201,8 +206,14 @@ const phoneRoots = new Map();
  */
 async function ensurePhoneBoard(slot, key, urls, options) {
   let root = phoneRoots.get(key);
-  if (root && root.isConnected) {
+  if (root instanceof HTMLElement && root.querySelector("canvas.student-canvas")) {
+    const place = root._place;
+    if (place) place.slot = slot;
     if (root.parentElement !== slot) slot.appendChild(root);
+    const typed = root.querySelector(".qboard-text");
+    if (typed instanceof HTMLTextAreaElement) {
+      typed.hidden = slot.getAttribute("data-qboard-mode") !== "both";
+    }
     return;
   }
   if (root && root._poll) {
@@ -240,6 +251,9 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   submitRow.className = "qboard-tools";
   submitRow.appendChild(submit);
   root.append(text, tools, stage, submitRow);
+  /** Current card. Live sync swaps the slot; the poll and notes follow it. */
+  const place = { slot };
+  root._place = place;
   phoneRoots.set(key, root);
   slot.appendChild(root);
 
@@ -276,8 +290,8 @@ async function ensurePhoneBoard(slot, key, urls, options) {
       submit.disabled = !data.submit_ready;
     }
     if (typeof data.feedback === "string") {
-      paintBoardFeedback(slot, data.feedback);
-      const promptId = slot.getAttribute("data-qboard-prompt") || "";
+      paintBoardFeedback(place.slot, data.feedback);
+      const promptId = place.slot.getAttribute("data-qboard-prompt") || "";
       if (promptId && root._feedback !== data.feedback) {
         root._feedback = data.feedback;
         window.dispatchEvent(
@@ -288,7 +302,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
       }
     }
     if (data.editing_locked) freezePhone();
-    const locked = Boolean(data.read_only) || slot.getAttribute("data-qboard-readonly") === "1";
+    const locked = Boolean(data.read_only) || place.slot.getAttribute("data-qboard-readonly") === "1";
     if (locked) {
       board.setEnabled?.(false);
       submit.hidden = true;
@@ -412,7 +426,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   board.setCollab(true);
 
   const poll = createBoardDeltaPoll({
-    isShown: () => slot.isConnected && !slot.hidden,
+    isShown: () => place.slot.isConnected && !place.slot.hidden,
     poll() {
       const query = since ? `?since=${since}` : "";
       return fetch(urls.read + query, studentInit({ credentials: "same-origin", headers: { Accept: "application/json" } })).then(
@@ -459,7 +473,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     showLine(root, String(payload.status_line || fallback), "status");
     since = 0;
     poll.kick(true);
-    const promptId = slot.getAttribute("data-qboard-prompt") || "";
+    const promptId = place.slot.getAttribute("data-qboard-prompt") || "";
     if (promptId) {
       window.dispatchEvent(
         new CustomEvent("lloves-question-board-submitted", { detail: { promptId } })
@@ -704,6 +718,29 @@ function wireBoardNote(root, noteUrl) {
 }
 
 /**
+ * Move an existing question gallery into the card this poll just built.
+ *
+ * Live sync replaces the question list, so the dash slot is a new node.
+ * The whiteboard section is still the same element. Moving it keeps the
+ * canvases, an opened board, and the tile polls. A new gallery is built
+ * only when this session does not already have one.
+ *
+ * @param {HTMLElement} slot Fresh dash slot from this paint.
+ * @param {{root?: HTMLElement, slot?: HTMLElement, sessionId?: string}|undefined} held
+ * @param {string} sessionId Live session this gallery is reading.
+ * @returns {boolean} True when the existing gallery was kept.
+ */
+function reuseTeacherGallery(slot, held, sessionId) {
+  const root = held && held.root;
+  if (!(root instanceof HTMLElement)) return false;
+  if (String(held.sessionId || "") !== String(sessionId || "")) return false;
+  if (root.dataset.wbMounted !== "1") return false;
+  if (root.parentElement !== slot) slot.replaceChildren(root);
+  held.slot = slot;
+  return true;
+}
+
+/**
  * Paint the existing teacher whiteboard for one question.
  * @param {HTMLElement} slot
  * @param {string} sessionId
@@ -712,7 +749,7 @@ function paintTeacherDash(slot, sessionId) {
   const promptId = String(slot.getAttribute("data-qboard-dash") || "");
   if (!promptId || !sessionId) return;
   const held = galleries.get(promptId);
-  if (held && held.slot === slot && slot.querySelector(".wb-live")) return;
+  if (reuseTeacherGallery(slot, held, sessionId)) return;
   if (held) held.stop();
   const root = document.createElement("section");
   root.className = "wb-live";
@@ -754,6 +791,8 @@ function paintTeacherDash(slot, sessionId) {
   });
   galleries.set(promptId, {
     slot,
+    root,
+    sessionId: String(sessionId),
     stop() {
       mounted?.stop?.();
     },
@@ -816,7 +855,16 @@ export function mountSubmissionDashboard(slot, options) {
  */
 export function mountTeacherQuestionBoards(sessionId) {
   const id = String(sessionId || "");
+  const seen = new Set();
   document.querySelectorAll("[data-qboard-dash]").forEach((slot) => {
-    if (slot instanceof HTMLElement) paintTeacherDash(slot, id);
+    if (!(slot instanceof HTMLElement)) return;
+    const promptId = String(slot.getAttribute("data-qboard-dash") || "");
+    if (promptId) seen.add(promptId);
+    paintTeacherDash(slot, id);
   });
+  for (const [promptId, held] of [...galleries]) {
+    if (seen.has(promptId)) continue;
+    held.stop();
+    galleries.delete(promptId);
+  }
 }
