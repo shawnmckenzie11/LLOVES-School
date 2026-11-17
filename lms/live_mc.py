@@ -460,6 +460,8 @@ def build_numeric_tally(
     key, including any tolerance on the prompt. A wrong answer that rounds
     into a correct bar gets its own exact bar instead (MCK-83).
     Non-numeric replies and dropped fractions are counted as Other.
+    The teacher card draws one bar per value for eight or fewer
+    distinct numbers and bins the rest.
 
     Args:
         prompt: Active live-prompt row (``kind=numeric``).
