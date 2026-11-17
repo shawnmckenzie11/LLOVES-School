@@ -205,7 +205,7 @@ class QuestionBankGapTests(unittest.TestCase):
         self.assertNotIn("window.confirm(", js)
 
     def test_bulk_remove_rolls_back_when_a_later_delete_fails(self) -> None:
-        """A delete that fails partway through leaves every question in place."""
+        """A remove that fails partway through leaves every question in place."""
         import sqlite3
 
         first = self._add_bank(
@@ -231,7 +231,8 @@ class QuestionBankGapTests(unittest.TestCase):
         conn.execute("INSERT INTO _mck262_fail (n) VALUES (0)")
         conn.execute(
             """
-            CREATE TEMP TRIGGER _mck262_fail_second BEFORE DELETE ON questions
+            CREATE TEMP TRIGGER _mck262_fail_second
+            BEFORE UPDATE OF removed_at ON questions
             BEGIN
               UPDATE _mck262_fail SET n = n + 1;
               SELECT RAISE(ABORT, 'forced failure')

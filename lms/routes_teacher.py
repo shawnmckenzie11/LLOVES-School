@@ -2986,6 +2986,202 @@ def register_teacher(app, school, shared):
             return jsonify({"ok": False, "error": "Question not found"}), 404
         return jsonify({"ok": True, **result})
 
+    def _bank_bot_library(class_id: int):
+        """Course library for a teacher or admin who owns this class."""
+        try:
+            from bank_bot import require_class_library
+        except ImportError:
+            from lms.bank_bot import require_class_library
+
+        user = current_user()
+        library_id, failed = require_class_library(
+            school, user, int(class_id), _ready_library
+        )
+        if failed:
+            payload, status = failed
+            return None, (jsonify(payload), status)
+        return library_id, None
+
+    @bp.route("/api/staff/class/<int:class_id>/bank-bot/removed")
+    @staff_required
+    def staff_bank_bot_removed(class_id: int):
+        """List questions hidden by a soft remove, newest first."""
+        try:
+            from bank_bot import removed_question_views
+        except ImportError:
+            from lms.bank_bot import removed_question_views
+
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        rows = school.list_removed_library_questions(int(library_id))
+        return jsonify({"ok": True, "questions": removed_question_views(rows)})
+
+    @bp.route("/api/staff/class/<int:class_id>/bank-bot/restore", methods=["POST"])
+    @staff_required
+    def staff_bank_bot_restore(class_id: int):
+        """Put soft-removed questions back into pickers."""
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        raw_ids = body.get("question_ids") or body.get("questionIds") or []
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return jsonify({"ok": False, "error": "question_ids required"}), 400
+        try:
+            ids = [int(qid) for qid in raw_ids]
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "question_ids required"}), 400
+        try:
+            restored = school.restore_removed_library_questions(int(library_id), ids)
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "restored": restored})
+
+    @bp.route("/api/staff/class/<int:class_id>/bank-bot/generate", methods=["POST"])
+    @staff_required
+    def staff_bank_bot_generate(class_id: int):
+        """Draft ranking questions. Nothing is added to the bank."""
+        try:
+            from bank_bot import (
+                NOT_CONFIGURED_MESSAGE,
+                generate_ranking_drafts,
+                ranking_generation_configured,
+            )
+        except ImportError:
+            from lms.bank_bot import (
+                NOT_CONFIGURED_MESSAGE,
+                generate_ranking_drafts,
+                ranking_generation_configured,
+            )
+
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        if not ranking_generation_configured():
+            return jsonify(
+                {"ok": False, "configured": False, "error": NOT_CONFIGURED_MESSAGE}
+            )
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            result = generate_ranking_drafts(
+                school,
+                library_id=int(library_id),
+                class_id=int(class_id),
+                body=body,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        return jsonify({"ok": True, "configured": True, **result})
+
+    @bp.route("/api/staff/class/<int:class_id>/bank-bot/drafts")
+    @staff_required
+    def staff_bank_bot_drafts(class_id: int):
+        """List ranking drafts that are not in the bank yet."""
+        try:
+            from bank_bot import list_rank_drafts
+        except ImportError:
+            from lms.bank_bot import list_rank_drafts
+
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        return jsonify({"ok": True, "drafts": list_rank_drafts(school, int(library_id))})
+
+    @bp.route(
+        "/api/staff/class/<int:class_id>/bank-bot/drafts/<int:draft_id>",
+        methods=["PATCH"],
+    )
+    @staff_required
+    def staff_bank_bot_patch_draft(class_id: int, draft_id: int):
+        """Save edits on a ranking draft."""
+        try:
+            from bank_bot import update_rank_draft
+        except ImportError:
+            from lms.bank_bot import update_rank_draft
+
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            draft = update_rank_draft(
+                school,
+                library_id=int(library_id),
+                draft_id=int(draft_id),
+                body=body,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Draft not found"}), 404
+        return jsonify({"ok": True, "draft": draft})
+
+    @bp.route(
+        "/api/staff/class/<int:class_id>/bank-bot/drafts/<int:draft_id>/approve",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_bank_bot_approve_draft(class_id: int, draft_id: int):
+        """Approve a draft into the question bank."""
+        try:
+            from bank_bot import approve_rank_draft
+        except ImportError:
+            from lms.bank_bot import approve_rank_draft
+
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            question = approve_rank_draft(
+                school,
+                library_id=int(library_id),
+                class_id=int(class_id),
+                draft_id=int(draft_id),
+                body=body,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Draft not found"}), 404
+        return jsonify({"ok": True, "question": question})
+
+    @bp.route(
+        "/api/staff/class/<int:class_id>/bank-bot/drafts/<int:draft_id>/discard",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_bank_bot_discard_draft(class_id: int, draft_id: int):
+        """Discard a draft so it never enters the bank."""
+        try:
+            from bank_bot import discard_rank_draft
+        except ImportError:
+            from lms.bank_bot import discard_rank_draft
+
+        library_id, failed = _bank_bot_library(class_id)
+        if failed:
+            return failed
+        try:
+            discard_rank_draft(
+                school, library_id=int(library_id), draft_id=int(draft_id)
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Draft not found"}), 404
+        return jsonify({"ok": True})
+
     @bp.route(
         "/api/staff/class/<int:class_id>/live-bank/questions",
         methods=["POST"],

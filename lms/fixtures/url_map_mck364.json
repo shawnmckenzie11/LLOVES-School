@@ -1317,6 +1317,64 @@
       "staff_celebration_start_fresh"
     ],
     [
+      "/api/staff/class/<int:class_id>/bank-bot/drafts",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_bank_bot_drafts"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/bank-bot/drafts/<int:draft_id>",
+      [
+        "OPTIONS",
+        "PATCH"
+      ],
+      "staff_bank_bot_patch_draft"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/bank-bot/drafts/<int:draft_id>/approve",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "staff_bank_bot_approve_draft"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/bank-bot/drafts/<int:draft_id>/discard",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "staff_bank_bot_discard_draft"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/bank-bot/generate",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "staff_bank_bot_generate"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/bank-bot/removed",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_bank_bot_removed"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/bank-bot/restore",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "staff_bank_bot_restore"
+    ],
+    [
       "/api/staff/class/<int:class_id>/components/<kind>",
       [
         "GET",

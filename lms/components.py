@@ -414,6 +414,8 @@ def list_quizzes(db: Any, library_id: int) -> list[dict[str, Any]]:
 def list_question_banks(db: Any, library_id: int) -> list[dict[str, Any]]:
     """List question banks with item counts for the staff tab.
 
+    Soft-removed questions stay in the table and are left out of the count.
+
     Args:
         db: School database.
         library_id: Owning library.
@@ -425,7 +427,8 @@ def list_question_banks(db: Any, library_id: int) -> list[dict[str, Any]]:
         SELECT b.id, b.import_key, b.title,
                COUNT(q.id) AS question_count
         FROM question_banks b
-        LEFT JOIN questions q ON q.bank_id = b.id
+        LEFT JOIN questions q
+            ON q.bank_id = b.id AND q.removed_at IS NULL
         WHERE b.library_id = ?
         GROUP BY b.id
         ORDER BY b.title
@@ -438,6 +441,8 @@ def list_question_banks(db: Any, library_id: int) -> list[dict[str, Any]]:
 def list_questions(db: Any, library_id: int, bank_id: int) -> list[dict[str, Any]]:
     """List questions in one bank, scoped to a library.
 
+    Soft-removed rows stay stored and are omitted here.
+
     Args:
         db: School database.
         library_id: Owning library.
@@ -449,6 +454,7 @@ def list_questions(db: Any, library_id: int, bank_id: int) -> list[dict[str, Any
         FROM questions q
         JOIN question_banks b ON b.id = q.bank_id
         WHERE b.library_id = ? AND b.id = ?
+          AND q.removed_at IS NULL
         ORDER BY q.id
         """,
         (int(library_id), int(bank_id)),
