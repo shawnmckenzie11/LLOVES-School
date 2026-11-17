@@ -43,8 +43,9 @@ class McResultsGraphTests(unittest.TestCase):
             "function groupAnswerLabel("
         )[0]
         self.assertIn("mcResultsGraphHtml(", chart)
-        self.assertIn("answerMarkHtml(true)", chart)
-        self.assertIn("answerMarkHtml(false)", chart)
+        self.assertIn("numericResultsGraphHtml(", chart)
+        self.assertNotIn("answerMarkHtml(", chart)
+        self.assertNotIn("live-item-chart", chart)
         student = (LMS_DIR / "static" / "live_question_card.js").read_text(encoding="utf-8")
         self.assertIn("stripDuplicateOptionTable(", student)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")

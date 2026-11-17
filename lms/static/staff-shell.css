@@ -3906,6 +3906,15 @@ body.staff-shell .mc-results-bars {
   row-gap: 0.55rem;
   align-items: center;
 }
+body.staff-shell .mc-results-bars.is-numeric {
+  grid-template-columns: minmax(4.5rem, 0.7fr) minmax(8.5rem, 1.15fr) 6.25rem 4.75rem;
+}
+body.staff-shell .mc-results-other {
+  margin: 0.45rem 0 0;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
 body.staff-shell .mc-results-row {
   display: grid;
   grid-template-columns: subgrid;

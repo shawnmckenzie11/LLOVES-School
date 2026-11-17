@@ -2,9 +2,13 @@
  * MCK-479 / MCK-478: result order, answer-key toggle, counts, one options list.
  */
 import {
+  histogramEdges,
   mcGraphSlot,
   mcResultsGraphHtml,
+  NUMERIC_VALUE_BAR_MAX,
+  numericResultsGraphHtml,
   orderMcChoices,
+  planNumericResults,
   stripDuplicateOptionTable,
   tallyFromChoiceLabels,
 } from "./mc_results_graph.js";
@@ -105,3 +109,83 @@ if (!first.includes("mc-results-graph") || first.includes("Group status")) fail(
 if (mcResultsGraphHtml({ choices: [] }, { controls: true })) fail("empty tally still rendered a graph");
 
 console.log("ok");
+
+
+const numericBars = {
+  kind: "numeric",
+  choices: [
+    { id: "12", label: "12", count: 1, correct: false },
+    { id: "8.2", label: "8.2", count: 1, correct: false },
+    { id: "8", label: "8", count: 2, correct: true },
+    { id: "2", label: "2", count: 1, correct: false },
+    { id: "5", label: "5", count: 4, correct: false },
+    { id: "other", label: "Other", count: 2, other: true, correct: false },
+  ],
+};
+const bars = numericResultsGraphHtml(numericBars, {
+  order: "default",
+  showKey: true,
+  controls: true,
+  correctValue: 8,
+  tolerance: 0.5,
+});
+if (!bars.includes('data-mc-mode="bars"')) fail("small numeric tally is not value bars");
+if (!bars.includes('aria-pressed="true">Number order')) fail("number order is not the default");
+const barLabels = [...bars.matchAll(/mc-results-label">([^<]+)/g)].map((m) => m[1]);
+if (barLabels.join(",") !== "2,5,8,8.2,12") fail(`numeric order ${barLabels.join(",")}`);
+if ((bars.match(/is-correct/g) || []).length !== 2) fail("tolerance window did not mark both bars");
+if (!bars.includes(">8.2<")) fail("within-tolerance bar missing");
+if (!bars.includes("Other · 2")) fail("other count missing");
+if (bars.includes('mc-results-label">Other')) fail("other became a bar");
+const rankedBars = numericResultsGraphHtml(numericBars, { order: "ranked", showKey: false });
+const rankedLabels = [...rankedBars.matchAll(/mc-results-label">([^<]+)/g)].map((m) => m[1]);
+if (rankedLabels.join(",") !== "5,8,2,8.2,12") fail(`most picked ${rankedLabels.join(",")}`);
+if (rankedBars.includes("is-correct")) fail("hidden numeric key is highlighted");
+
+const many = [];
+for (let n = 1; n <= 12; n += 1) {
+  many.push({ id: String(n), label: String(n), count: n === 7 ? 5 : 1, correct: n === 7 });
+}
+if (many.length <= NUMERIC_VALUE_BAR_MAX) fail("fixture is not past the bar threshold");
+const hist = numericResultsGraphHtml(
+  { kind: "numeric", choices: many },
+  { order: "default", showKey: true, controls: true, correctValue: 7 }
+);
+if (!hist.includes('data-mc-mode="histogram"')) fail("many values did not bin");
+const histLabels = [...hist.matchAll(/mc-results-label">([^<]+)/g)].map((m) => m[1]);
+if (histLabels.length < 6 || histLabels.length > 10) fail(`bin count ${histLabels.length}`);
+const plan = planNumericResults({ choices: many }, { correctValue: 7 });
+const binSum = plan.rows.reduce((sum, row) => sum + row.count, 0);
+if (binSum !== many.reduce((sum, row) => sum + row.count, 0)) fail("histogram dropped counts");
+const marked = plan.rows.filter((row) => row.correct);
+if (marked.length !== 1 || !(marked[0].start <= 7 && marked[0].end > 7)) {
+  fail("key bin was not the only highlighted bin");
+}
+const edges = histogramEdges(0, 100);
+if (edges.step !== 10 || edges.count !== 10 || edges.start !== 0) {
+  fail(`0..100 edges ${JSON.stringify(edges)}`);
+}
+const spread = [];
+for (let n = 0; n <= 100; n += 10) {
+  spread.push({ id: String(n), label: String(n), count: 1, correct: n === 40 });
+}
+const spreadPlan = planNumericResults({ choices: spread }, { correctValue: 40 });
+if (spreadPlan.mode !== "histogram") fail("0..100 stayed as bars");
+if (spreadPlan.rows.length < 6 || spreadPlan.rows.length > 10) fail("0..100 bin count");
+const step = spreadPlan.rows[1].start - spreadPlan.rows[0].start;
+if (step !== 10 || spreadPlan.rows[0].start !== 0) fail(`0..100 step ${step} start ${spreadPlan.rows[0].start}`);
+if (spreadPlan.rows.some((row, i) => i && row.start !== spreadPlan.rows[0].start + i * step)) {
+  fail("bin edges are not regular");
+}
+if (spreadPlan.rows.reduce((s, r) => s + r.count, 0) !== spread.length) fail("spread counts");
+const eight = Array.from({ length: 8 }, (_, i) => ({ id: String(i), label: String(i), count: 1 }));
+const nine = Array.from({ length: 9 }, (_, i) => ({ id: String(i), label: String(i), count: 1 }));
+if (planNumericResults({ choices: eight }).mode !== "bars") fail("eight values should stay bars");
+if (planNumericResults({ choices: nine }).mode !== "histogram") fail("nine values should bin");
+const keyOnly = planNumericResults(
+  { choices: spread.map((row) => ({ ...row, correct: false })) },
+  { correctValue: 40 }
+);
+if (!keyOnly.rows.some((row) => row.correct && row.start <= 40 && row.end > 40)) {
+  fail("unanswered key did not highlight its bin");
+}

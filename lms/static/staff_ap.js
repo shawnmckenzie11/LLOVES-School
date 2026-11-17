@@ -25,6 +25,7 @@ import {
 import {
   mcGraphSlot,
   mcResultsGraphHtml,
+  numericResultsGraphHtml,
   stripDuplicateOptionTable,
   tallyFromChoiceLabels,
 } from "/static/mc_results_graph.js";
@@ -6283,7 +6284,11 @@ function paintLiveQuestionCards() {
                 },
                 liveItemId
               )
-            : individualLifecycleResultsHtml(result?.tally, mcGraphItemKey(liveItemId, card));
+            : individualLifecycleResultsHtml(result?.tally, mcGraphItemKey(liveItemId, card), {
+                correctValue: answerKey,
+                tolerance: item.tolerance ?? card.tolerance,
+                toleranceKind: item.tolerance_kind ?? card.tolerance_kind,
+              });
       const tally = lastMcTally;
       const cardRef = String(card.id || card.item_id || "").replace(/_/g, "-");
       const tallyRef = String(tally?.item_id || tally?.prompt_ref || "").replace(/_/g, "-");
@@ -6309,17 +6314,38 @@ function paintLiveQuestionCards() {
           ? tally
           : null;
       const fallbackTally = matchedTally || tallyFromChoiceLabels(options, result, answerKey);
-      const extraGraph =
-        mcCard
-          ? mcGraphSlot(
-              resultHtml,
-              mcResultsGraphHtml(fallbackTally, {
-                order: graphPref.order,
-                showKey: graphPref.showKey,
-                controls: true,
-                itemKey: graphKey,
-              })
-            )
+      const numericCard =
+        !isRankCard &&
+        !mcCard &&
+        String(item.type || card.type || "").toLowerCase() === "numeric";
+      const numericTally =
+        tallyRef &&
+        cardRef &&
+        tallyRef === cardRef &&
+        String(tally?.kind || "") === "numeric"
+          ? tally
+          : null;
+      const numericOpts = {
+        order: graphPref.order,
+        showKey: graphPref.showKey,
+        controls: true,
+        itemKey: graphKey,
+        correctValue: answerKey,
+        tolerance: item.tolerance ?? card.tolerance,
+        toleranceKind: item.tolerance_kind ?? card.tolerance_kind,
+      };
+      const extraGraph = mcCard
+        ? mcGraphSlot(
+            resultHtml,
+            mcResultsGraphHtml(fallbackTally, {
+              order: graphPref.order,
+              showKey: graphPref.showKey,
+              controls: true,
+              itemKey: graphKey,
+            })
+          )
+        : numericCard
+          ? mcGraphSlot(resultHtml, numericResultsGraphHtml(numericTally, numericOpts))
           : "";
       const answered = Number(
         result?.response_count ??
@@ -6579,47 +6605,35 @@ function writeQuestionCardsKeepingConfirms(host, html) {
  * Render a numeric histogram, or the shareable MC bar graph.
  *
  * Choice tallies used to repeat every option in a second grid under the
- * options list. That grid was the duplicated options table. MC results
- * are the bar graph instead. Numeric stays a histogram.
+ * options list. That grid was the duplicated options table. MC and numeric
+ * results are the bar graph instead. Eight or fewer distinct numbers are
+ * one bar each; more become bins.
  *
  * @param {any} tally
  * @param {string} [itemKey] Toggle state for this question.
+ * @param {{correctValue?: unknown, tolerance?: unknown, toleranceKind?: unknown}} [numeric]
  * @returns {string}
  */
-function individualLifecycleResultsHtml(tally, itemKey) {
+function individualLifecycleResultsHtml(tally, itemKey, numeric = {}) {
   if (!tally || !Array.isArray(tally.choices)) return "";
   const kind = String(tally.kind || "");
-  if (kind !== "numeric") {
-    if (kind === "rank" || !tally.choices.length) return "";
-    const pref = mcGraphPref(itemKey);
-    return mcResultsGraphHtml(tally, {
-      order: pref.order,
-      showKey: pref.showKey,
-      controls: true,
-      itemKey: String(itemKey || ""),
+  if (kind === "rank" || !tally.choices.length) return "";
+  const pref = mcGraphPref(itemKey);
+  const shared = {
+    order: pref.order,
+    showKey: pref.showKey,
+    controls: true,
+    itemKey: String(itemKey || ""),
+  };
+  if (kind === "numeric") {
+    return numericResultsGraphHtml(tally, {
+      ...shared,
+      correctValue: numeric.correctValue,
+      tolerance: numeric.tolerance,
+      toleranceKind: numeric.toleranceKind,
     });
   }
-  const keyed = tally.choices.some((row) => row?.correct === true);
-  return `<div class="live-item-chart is-histogram" aria-label="Numeric answer histogram">${tally.choices
-    .map((row) => {
-      const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
-      const correct = row.correct ? " is-correct" : "";
-      // MCK-155 S3: icon + word, teacher only. The key bar says Correct;
-      // a picked wrong bar says Incorrect. Unkeyed (poll) has no marks.
-      const mark = keyed
-        ? row.correct
-          ? answerMarkHtml(true)
-          : Number(row.count) > 0
-            ? answerMarkHtml(false)
-            : ""
-        : "";
-      return `<div class="live-item-chart-row${correct}">
-        <span class="live-item-chart-label">${escapeHtml(row.label ?? row.id ?? "")}</span>
-        <span class="live-item-chart-track"><span style="width:${pct}%"></span></span>
-        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%</span>${mark}
-      </div>`;
-    })
-    .join("")}</div>`;
+  return mcResultsGraphHtml(tally, shared);
 }
 
 /**

@@ -452,13 +452,14 @@ def build_numeric_tally(
     present: int = 0,
     teacher_state: Any = None,
 ) -> dict[str, Any] | None:
-    """Build a class-wide histogram of numeric answers.
+    """Build a class-wide tally of numeric answers.
 
     Whole-number prompts still drop fractions. Decimal prompts bucket
     equivalent values together, including negatives, and sort the bars
     by number. A bar is correct when its responses match the authored
     key, including any tolerance on the prompt. A wrong answer that rounds
     into a correct bar gets its own exact bar instead (MCK-83).
+    Non-numeric replies and dropped fractions are counted as Other.
 
     Args:
         prompt: Active live-prompt row (``kind=numeric``).
@@ -479,6 +480,7 @@ def build_numeric_tally(
     integer_only = _prompt_requires_integer(payload)
     expected = _numeric_expected(payload)
     entries: list[tuple[str, float, bool]] = []
+    other_count = 0
     for row in responses or []:
         if not isinstance(row, dict):
             continue
@@ -489,9 +491,12 @@ def build_numeric_tally(
         try:
             number = float(raw)
         except (TypeError, ValueError):
+            # Blank and non-numeric replies stay off the number line.
+            other_count += 1
             continue
         label = _numeric_bucket_label(number, integer_only=integer_only)
         if label is None:
+            other_count += 1
             continue
         ok = expected is not None and _numeric_within_tolerance(
             number,
@@ -553,8 +558,8 @@ def build_numeric_tally(
         bars.items(),
         key=lambda item: (item[1]["value"], not item[1]["correct"]),
     )
-    present_n = max(0, int(present), responded)
-    denom = responded if responded > 0 else 0
+    present_n = max(0, int(present), responded, responded + other_count)
+    denom = responded + other_count
     choices_out: list[dict[str, Any]] = []
     count_list: list[int] = []
     for bar_id, bar in ordered:
@@ -570,6 +575,18 @@ def build_numeric_tally(
                 "correct": bool(bar["correct"]),
             }
         )
+    if other_count:
+        count_list.append(other_count)
+        choices_out.append(
+            {
+                "id": "other",
+                "label": "Other",
+                "count": other_count,
+                "pct": int(round(100.0 * other_count / denom)) if denom else 0,
+                "correct": False,
+                "other": True,
+            }
+        )
     ref = prompt_ref_for(prompt, teacher_state)
     prompt_id = prompt.get("id")
     return {
@@ -583,7 +600,8 @@ def build_numeric_tally(
         "responded": responded,
         "present": present_n,
         "response_count": responded,
-        "response_seq": _fingerprint(count_list, responded),
+        "other_count": other_count,
+        "response_seq": _fingerprint(count_list, responded + other_count),
     }
 
 
