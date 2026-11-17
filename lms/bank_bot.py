@@ -38,9 +38,10 @@ _LETTERS = "ABCDEFGH"
 
 
 def ranking_generation_configured() -> bool:
-    """Return True when a Claude key is present.
+    """Return True when a Claude key is present in the environment.
 
-    The value is never returned or logged.
+    Read on each check. The value is never returned or logged. Deploy
+    injects ``ANTHROPIC_API_KEY``; this module does not load it itself.
     """
     return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
 
@@ -48,14 +49,18 @@ def ranking_generation_configured() -> bool:
 def request_claude(prompt: str) -> str:
     """Send question content to Claude and return the text reply.
 
+    The key is ``os.environ["ANTHROPIC_API_KEY"]`` at this call, not a
+    value cached at import.
+
     Args:
         prompt: Question stems and options only.
 
     Raises:
+        KeyError: When ``ANTHROPIC_API_KEY`` is unset.
         ValueError: When the call fails. The client message has no key
             and no response body.
     """
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    key = os.environ["ANTHROPIC_API_KEY"].strip()
     if not key:
         raise ValueError(NOT_CONFIGURED_MESSAGE)
     model = os.environ.get("ANTHROPIC_MODEL", "").strip() or _DEFAULT_MODEL

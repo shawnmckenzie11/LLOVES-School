@@ -21,6 +21,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+import bank_bot  # noqa: E402
 from bank_bot import NOT_CONFIGURED_MESSAGE, content_for_model, prompt_from_contents  # noqa: E402
 from school_db import _now  # noqa: E402
 
@@ -146,6 +147,39 @@ class BankBotTests(unittest.TestCase):
         self.assertIn("Slope of a line", prompt)
         self.assertNotIn("DO-NOT-SEND", prompt)
         self.assertNotIn("private_note", prompt)
+
+    def test_claude_reads_the_key_when_the_call_runs(self) -> None:
+        """The key is taken from the environment at the HTTP call, not import."""
+        with self.assertRaises(KeyError):
+            bank_bot.request_claude("Slope of a line")
+        os.environ["ANTHROPIC_API_KEY"] = "call-time-key"
+        seen: dict[str, str] = {}
+
+        class _Body:
+            """Minimal response for ``urlopen``."""
+
+            def read(self) -> bytes:
+                """Return one empty ranking payload."""
+                return b'{"content":[{"type":"text","text":"{}"}]}'
+
+            def __enter__(self) -> "_Body":
+                """Enter the ``urlopen`` context."""
+                return self
+
+            def __exit__(self, *exc: object) -> bool:
+                """Leave the ``urlopen`` context."""
+                return False
+
+        def fake_urlopen(request: object, timeout: float = 0) -> _Body:
+            """Capture the key header and skip the network."""
+            del timeout
+            header = getattr(request, "get_header")
+            seen["key"] = str(header("X-api-key") or "")
+            return _Body()
+
+        with patch("bank_bot.urllib.request.urlopen", fake_urlopen):
+            bank_bot.request_claude("Slope of a line")
+        self.assertEqual(seen["key"], "call-time-key")
 
     def test_soft_delete_hides_from_picker_and_undo_restores(self) -> None:
         """Remove hides the row. Undo puts it back. The stored payload stays."""
