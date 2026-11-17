@@ -13,10 +13,13 @@ HTML changes nothing.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import logging
 import re
+from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -34,7 +37,14 @@ _FOR_WRITTEN_RE = re.compile(r"\bfor written\b")
 _STEP_RE = re.compile(r"\d\.(?:&nbsp;|\xa0)")
 _CELL_ONE_RE = re.compile(r"<div>1, or\s*</div>", re.IGNORECASE)
 _CELL_REST_RE = re.compile(r"<div>\s*, or\s*</div>", re.IGNORECASE)
-_FIGURE_WORDS = ("above", "below", "figure", "triangle", "table")
+_COLON_DOT_RE = re.compile(r":\s*\.")
+_COLON_SPAN_RE = re.compile(r":\s*<span>\s*</span>\s*\.", re.IGNORECASE)
+_EMPTY_PAD_RE = re.compile(r'<td class="pad">\s*</td>', re.IGNORECASE)
+_TRAILING_EXPR_RE = re.compile(
+    r"\b(?:Evaluate|Simplify) \.|equivalent to \?|\bis \."
+)
+#: A diagram that sat above the sentence is the first file in IMSCC order.
+_FIGURE_FIRST_WORDS = ("above", "figure", "triangle", "table")
 _TAG_RE = re.compile(r"<[^>]+>")
 _TOKEN_RE = re.compile(r"([A-Za-z0-9°]+)\s*$")
 
@@ -139,7 +149,8 @@ def open_equation_holes(stem_html: str) -> list[_Hole]:
 
     A hole is a place the cartridge left empty when it removed an equation
     image: a bare equals span, a double space, ``is ,``, a blank proof
-    step, or an empty population-table cell. Spots that already name the
+    step, an empty population cell, ``: .``, an empty span before a
+    period, or an empty ``td.pad`` step cell. Spots that already name the
     variable are not holes.
 
     Args:
@@ -210,6 +221,25 @@ def open_equation_holes(stem_html: str) -> list[_Hole]:
             )
         )
 
+    for match in _COLON_SPAN_RE.finditer(source):
+        found.append(_Hole(match.start(), match.end(), 1, one(": {img}.")))
+
+    for match in _COLON_DOT_RE.finditer(source):
+        found.append(_Hole(match.start(), match.end(), 1, one(": {img}.")))
+
+    for match in _EMPTY_PAD_RE.finditer(source):
+        found.append(
+            _Hole(match.start(), match.end(), 1, one('<td class="pad">{img}</td>'))
+        )
+
+    for match in _TRAILING_EXPR_RE.finditer(source):
+        label = match.group(0)
+        if label.endswith("?"):
+            template = label[:-1] + "{img}?"
+        else:
+            template = label[:-1] + "{img}."
+        found.append(_Hole(match.start(), match.end(), 1, one(template)))
+
     return _keep_open(found)
 
 
@@ -238,6 +268,74 @@ def _choice_html(choices: Any, options_html: Any) -> str:
     if isinstance(options_html, list):
         parts.extend(str(item or "") for item in options_html)
     return "\n".join(parts)
+
+
+def _stem_hash(text: str) -> str:
+    """Return a stable hash of one plain stem.
+
+    Args:
+        text: Stem text with any spacing the editor stored.
+    """
+    collapsed = re.sub(r"\s+", " ", str(text or "")).strip()
+    return hashlib.sha256(collapsed.encode("utf-8")).hexdigest()
+
+
+def _payload_stem_text(payload: dict[str, Any]) -> str:
+    """Return the plain stem stored on a bank or card payload.
+
+    Args:
+        payload: Question or playlist JSON.
+    """
+    for key in ("text", "stem", "prompt"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return _plain(str(payload.get("stem_html") or payload.get("text_html") or ""))
+
+
+@lru_cache(maxsize=1)
+def original_stem_hashes() -> dict[str, str]:
+    """Map each MCF3M module 5–7 ``smart_id`` to its cartridge stem hash.
+
+    Returns:
+        Hex hashes of the plain stems in the committed bank JSON.
+    """
+    try:
+        from curriculum_bank_images import MCF3M_M567_BANK_DIR
+    except ImportError:
+        from lms.curriculum_bank_images import MCF3M_M567_BANK_DIR
+
+    found: dict[str, str] = {}
+    for module in (5, 6, 7):
+        path = MCF3M_M567_BANK_DIR / f"M{module}.json"
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        items = document.get("items") if isinstance(document, dict) else None
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            smart_id = str(item.get("smart_id") or "").strip()
+            if smart_id:
+                found[smart_id] = _stem_hash(str(item.get("stem") or ""))
+    return found
+
+
+def _is_mcf3m_m567(course: str, import_key: str, bank_key: str) -> bool:
+    """True when this bank row is MCF3M module 5, 6, or 7.
+
+    Args:
+        course: Library Ontario course code.
+        import_key: Question import key.
+        bank_key: Question-bank import key.
+    """
+    if str(course or "").strip().upper() != "MCF3M":
+        return False
+    blob = f"{import_key or ''} {bank_key or ''}"
+    return re.search(r"(?:^|:)M[567](?:$|:)", blob) is not None
 
 
 def _figure_urls(payload: dict[str, Any]) -> list[str]:
@@ -288,9 +386,12 @@ def inline_equation_urls(
         return [] if not slots else None
     if len(orphans) == slots:
         return orphans
-    mentions_figure = any(word in str(stem_text or "").lower() for word in _FIGURE_WORDS)
-    if mentions_figure and len(orphans) == slots + 1:
+    text = str(stem_text or "").lower()
+    if len(orphans) == slots + 1 and any(word in text for word in _FIGURE_FIRST_WORDS):
         return orphans[1:]
+    # "Steps below" keeps the expression in the sentence and the steps graphic last.
+    if len(orphans) == slots + 1 and "below" in text:
+        return orphans[:-1]
     return None
 
 
@@ -439,64 +540,253 @@ def _table_exists(school: Any, name: str) -> bool:
     return row is not None
 
 
-def _repair_json_column(
-    school: Any,
-    *,
-    table: str,
-    column: str,
-) -> int:
-    """Inline equation images in one JSON column. No deletes.
-
-    A row is rewritten only when the stored text is still the text that
-    was read and the stem HTML actually changes. A second run writes
-    nothing.
+def _overlay_edited_ids(school: Any) -> set[int]:
+    """Return question ids whose teacher overlay replaced the stem.
 
     Args:
         school: Open school database. The caller holds ``school._lock``.
-        table: ``questions`` or ``class_live_playlist_placements``.
-        column: ``payload_json`` or ``item_json``.
+    """
+    if not _table_exists(school, "library_question_overlays"):
+        return set()
+    rows = school.conn.execute(
+        """
+        SELECT question_id FROM library_question_overlays
+        WHERE TRIM(COALESCE(stem_text, '')) != ''
+        """
+    ).fetchall()
+    return {int(row["question_id"]) for row in rows}
+
+
+def _repaired_json(
+    raw: str,
+    *,
+    course: str,
+    import_key: str,
+    bank_key: str,
+    smart_id: str,
+    question_id: int | None,
+    edited_ids: set[int],
+) -> str | None:
+    """Return replacement JSON when this row is an unedited MCF3M M5–M7 stem.
+
+    A teacher edit (different stem text, ``edited_in_lms``, or an overlay)
+    is left alone. Another course is left alone even when its JSON mentions
+    an MCF3M figure URL.
+
+    Args:
+        raw: Stored JSON text.
+        course: Library course code for the source question.
+        import_key: Question import key.
+        bank_key: Bank import key.
+        smart_id: Cartridge id from the row or its source question.
+        question_id: ``questions.id`` when this row is or copies one.
+        edited_ids: Question ids with a teacher stem overlay.
+
+    Returns:
+        The new JSON, or ``None`` when the row must not change.
+    """
+    if question_id is not None and int(question_id) in edited_ids:
+        return None
+    if not _is_mcf3m_m567(course, import_key, bank_key):
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("edited_in_lms"):
+        return None
+    token = str(payload.get("smart_id") or smart_id or "").strip()
+    if not token and str(import_key or "").startswith("cartridge:"):
+        token = str(import_key).rsplit(":", 1)[-1]
+    expected = original_stem_hashes().get(token)
+    if not expected or _stem_hash(_payload_stem_text(payload)) != expected:
+        return None
+    restored = restore_payload_figures(payload)
+    if restored is None:
+        return None
+    encoded = json.dumps(restored)
+    if encoded == raw:
+        return None
+    return encoded
+
+
+def _apply_repairs(school: Any, rows: list[Any], *, column: str, touch_updated: bool) -> int:
+    """Write repaired JSON for rows that still match the cartridge stem.
+
+    Args:
+        school: Open school database. The caller holds ``school._lock``.
+        rows: Query rows with ``id``, ``blob``, ``course``, ``import_key``,
+            ``bank_key``, ``smart_id``, and ``question_id``.
+        column: JSON column being replaced. Whitelisted by the caller.
+        touch_updated: When True, also set ``updated_at`` so a phone stamp
+            that reads prompt time moves.
 
     Returns:
         How many rows were updated.
     """
-    if table not in {
-        "questions",
-        "class_live_playlist_placements",
-        "live_session_prompts",
-        "participation_items",
-    }:
-        return 0
     if column not in {"payload_json", "item_json", "payload"}:
         return 0
-    if not _table_exists(school, table):
-        return 0
-    rows = school.conn.execute(
-        f"""
-        SELECT id, {column} AS blob
-        FROM {table}
-        WHERE {column} LIKE '%/curriculum-bank-images/MCF3M/%'
-        """
-    ).fetchall()
+    edited_ids = _overlay_edited_ids(school)
     updated = 0
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     for row in rows:
         raw = str(row["blob"] or "")
+        question_id = row["question_id"]
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        restored = restore_payload_figures(payload)
-        if restored is None:
-            continue
-        encoded = json.dumps(restored)
-        if encoded == raw:
-            continue
-        cursor = school.conn.execute(
-            f"UPDATE {table} SET {column} = ? WHERE id = ? AND {column} = ?",
-            (encoded, int(row["id"]), raw),
+            question_id = int(question_id) if question_id not in (None, "") else None
+        except (TypeError, ValueError):
+            question_id = None
+        encoded = _repaired_json(
+            raw,
+            course=str(row["course"] or ""),
+            import_key=str(row["import_key"] or ""),
+            bank_key=str(row["bank_key"] or ""),
+            smart_id=str(row["smart_id"] or ""),
+            question_id=question_id,
+            edited_ids=edited_ids,
         )
+        if encoded is None:
+            continue
+        table_name = str(row["table_name"])
+        if table_name not in {
+            "questions",
+            "class_live_playlist_placements",
+            "live_session_prompts",
+            "participation_items",
+        }:
+            continue
+        if touch_updated and table_name == "live_session_prompts":
+            cursor = school.conn.execute(
+                f"UPDATE {table_name} SET {column} = ?, updated_at = ? WHERE id = ? AND {column} = ?",
+                (encoded, now, int(row["id"]), raw),
+            )
+        else:
+            cursor = school.conn.execute(
+                f"UPDATE {table_name} SET {column} = ? WHERE id = ? AND {column} = ?",
+                (encoded, int(row["id"]), raw),
+            )
         if int(cursor.rowcount or 0) > 0:
             updated += 1
     return updated
+
+
+def _question_rows(school: Any) -> list[Any]:
+    """MCF3M figure questions, still filtered by course and module later.
+
+    Args:
+        school: Open school database. The caller holds ``school._lock``.
+    """
+    if not _table_exists(school, "questions"):
+        return []
+    return list(
+        school.conn.execute(
+            """
+            SELECT q.id, q.payload_json AS blob, 'questions' AS table_name,
+                   l.ontario_code AS course, q.import_key AS import_key,
+                   b.import_key AS bank_key,
+                   json_extract(q.payload_json, '$.smart_id') AS smart_id,
+                   q.id AS question_id
+            FROM questions q
+            JOIN question_banks b ON b.id = q.bank_id
+            JOIN content_libraries l ON l.id = b.library_id
+            WHERE q.payload_json LIKE '%/curriculum-bank-images/MCF3M/%'
+            """
+        ).fetchall()
+    )
+
+
+def _placement_rows(school: Any) -> list[Any]:
+    """Playlist cards that cite an MCF3M figure, joined to their source question.
+
+    Args:
+        school: Open school database. The caller holds ``school._lock``.
+    """
+    if not _table_exists(school, "class_live_playlist_placements"):
+        return []
+    return list(
+        school.conn.execute(
+            """
+            SELECT p.id, p.item_json AS blob,
+                   'class_live_playlist_placements' AS table_name,
+                   l.ontario_code AS course, q.import_key AS import_key,
+                   b.import_key AS bank_key,
+                   COALESCE(
+                       json_extract(p.item_json, '$.smart_id'),
+                       json_extract(q.payload_json, '$.smart_id')
+                   ) AS smart_id,
+                   p.source_question_id AS question_id
+            FROM class_live_playlist_placements p
+            LEFT JOIN questions q ON q.id = p.source_question_id
+            LEFT JOIN question_banks b ON b.id = q.bank_id
+            LEFT JOIN content_libraries l ON l.id = b.library_id
+            WHERE p.item_json LIKE '%/curriculum-bank-images/MCF3M/%'
+            """
+        ).fetchall()
+    )
+
+
+def _prompt_rows(school: Any) -> list[Any]:
+    """Published prompts that cite an MCF3M figure, joined to their source question.
+
+    Args:
+        school: Open school database. The caller holds ``school._lock``.
+    """
+    if not _table_exists(school, "live_session_prompts"):
+        return []
+    return list(
+        school.conn.execute(
+            """
+            SELECT p.id, p.payload AS blob, 'live_session_prompts' AS table_name,
+                   l.ontario_code AS course, q.import_key AS import_key,
+                   b.import_key AS bank_key,
+                   COALESCE(
+                       json_extract(p.payload, '$.smart_id'),
+                       json_extract(q.payload_json, '$.smart_id')
+                   ) AS smart_id,
+                   CAST(json_extract(p.payload, '$.source_question_id') AS INTEGER)
+                       AS question_id
+            FROM live_session_prompts p
+            LEFT JOIN questions q
+              ON q.id = CAST(json_extract(p.payload, '$.source_question_id') AS INTEGER)
+            LEFT JOIN question_banks b ON b.id = q.bank_id
+            LEFT JOIN content_libraries l ON l.id = b.library_id
+            WHERE p.payload LIKE '%/curriculum-bank-images/MCF3M/%'
+            """
+        ).fetchall()
+    )
+
+
+def _catchup_rows(school: Any) -> list[Any]:
+    """Catch-up copies that cite an MCF3M figure, joined to their source question.
+
+    Args:
+        school: Open school database. The caller holds ``school._lock``.
+    """
+    if not _table_exists(school, "participation_items"):
+        return []
+    return list(
+        school.conn.execute(
+            """
+            SELECT p.id, p.item_json AS blob, 'participation_items' AS table_name,
+                   l.ontario_code AS course, q.import_key AS import_key,
+                   b.import_key AS bank_key,
+                   COALESCE(
+                       json_extract(p.item_json, '$.smart_id'),
+                       json_extract(q.payload_json, '$.smart_id')
+                   ) AS smart_id,
+                   CAST(json_extract(p.item_json, '$.source_question_id') AS INTEGER)
+                       AS question_id
+            FROM participation_items p
+            LEFT JOIN questions q
+              ON q.id = CAST(json_extract(p.item_json, '$.source_question_id') AS INTEGER)
+            LEFT JOIN question_banks b ON b.id = q.bank_id
+            LEFT JOIN content_libraries l ON l.id = b.library_id
+            WHERE p.item_json LIKE '%/curriculum-bank-images/MCF3M/%'
+            """
+        ).fetchall()
+    )
 
 
 def apply_inline_equation_repairs(school: Any) -> dict[str, int]:
@@ -514,19 +804,17 @@ def apply_inline_equation_repairs(school: Any) -> dict[str, int]:
         Counts for ``questions``, ``placements``, ``prompts``, and ``catchup``.
     """
     with school._lock:
-        questions = _repair_json_column(
-            school, table="questions", column="payload_json"
+        questions = _apply_repairs(
+            school, _question_rows(school), column="payload_json", touch_updated=False
         )
-        placements = _repair_json_column(
-            school,
-            table="class_live_playlist_placements",
-            column="item_json",
+        placements = _apply_repairs(
+            school, _placement_rows(school), column="item_json", touch_updated=False
         )
-        prompts = _repair_json_column(
-            school, table="live_session_prompts", column="payload"
+        prompts = _apply_repairs(
+            school, _prompt_rows(school), column="payload", touch_updated=True
         )
-        catchup = _repair_json_column(
-            school, table="participation_items", column="item_json"
+        catchup = _apply_repairs(
+            school, _catchup_rows(school), column="item_json", touch_updated=False
         )
         if questions or placements or prompts or catchup:
             school.conn.commit()

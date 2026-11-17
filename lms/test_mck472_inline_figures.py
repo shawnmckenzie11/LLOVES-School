@@ -7,8 +7,10 @@ those labels in the sentence and typeset a TeX choice.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -25,6 +27,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from bank_mc_normalize import normalize_bank_mc  # noqa: E402
+from school_db import SchoolDB  # noqa: E402
 from bank_stem_figures import (  # noqa: E402
     apply_inline_equation_repairs,
     restore_inline_equation_images,
@@ -168,7 +171,45 @@ class InlineEquationImageTests(unittest.TestCase):
                 )
                 self.assertEqual(again, restored)
                 self.assertIn('class="equation-inline"', restored)
-        self.assertEqual(changed, 16)
+        self.assertEqual(changed, 28)
+
+    def test_m7_colon_and_step_holes_gain_their_figures(self) -> None:
+        """The three missed Module 7 stems get every equation image in order."""
+        statement = _item("gbb5ff752a04da652c83a01bcbdfae7a3")
+        restored, reason = restore_inline_equation_images(
+            str(statement["stem_html"]),
+            list(statement["image_urls"]),
+            choice_html=_choice_html(statement),
+            stem_text=str(statement["stem"]),
+        )
+        self.assertIsNone(reason)
+        self.assertIn(statement["image_urls"][0], restored)
+        self.assertNotIn(": .", restored)
+
+        steps = _item("g389ac0cca77b981014e32bbe39af1f37")
+        restored, reason = restore_inline_equation_images(
+            str(steps["stem_html"]),
+            list(steps["image_urls"]),
+            choice_html=_choice_html(steps),
+            stem_text=str(steps["stem"]),
+        )
+        self.assertIsNone(reason)
+        self.assertIn(steps["image_urls"][0], restored)
+        self.assertNotIn(steps["image_urls"][1], restored)
+        self.assertNotIn("<span></span>", restored)
+
+        table = _item("g3fc6b5075ccc94b4771ab6ec2bb8b120")
+        restored, reason = restore_inline_equation_images(
+            str(table["stem_html"]),
+            list(table["image_urls"]),
+            choice_html=_choice_html(table),
+            stem_text=str(table["stem"]),
+        )
+        self.assertIsNone(reason)
+        positions = [restored.index(url) for url in table["image_urls"]]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn('<td class="pad"></td>', restored)
+        self.assertNotIn(": .", restored)
 
     def test_student_card_shows_the_label_and_typesets_a_tex_choice(self) -> None:
         """The phone card contains the restored label and a KaTeX choice span."""
@@ -230,22 +271,31 @@ class InlineEquationRepairTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def _insert_question(self, payload: dict, import_key: str) -> int:
+    def _insert_question(
+        self,
+        payload: dict,
+        import_key: str,
+        *,
+        course: str = "MCF3M",
+        bank_key: str = "curriculum-bank:MCF3M:M5",
+    ) -> int:
         """Insert one bank question and return its id.
 
         Args:
             payload: ``questions.payload_json``.
             import_key: Stable key for the question.
+            course: Library course code.
+            bank_key: Bank import key, including the module.
         """
-        library = self.school.create_library("MCF3M", origin="upload")
+        library = self.school.create_library(course, origin="upload")
         with self.school._lock:
             bank = self.school.conn.execute(
                 """
                 INSERT INTO question_banks (
                     library_id, import_key, title, settings_json, created_at
-                ) VALUES (?, ?, 'Module 5', '{}', '2026-11-17T00:00:00+00:00')
+                ) VALUES (?, ?, 'Module bank', '{}', '2026-11-17T00:00:00+00:00')
                 """,
-                (int(library["id"]), f"bank-{import_key}"),
+                (int(library["id"]), bank_key),
             )
             question = self.school.conn.execute(
                 """
@@ -262,6 +312,7 @@ class InlineEquationRepairTests(unittest.TestCase):
         """A holed bank row and its copied card gain the label once."""
         item = _item(_HOLE_ID)
         payload = {
+            "smart_id": _HOLE_ID,
             "stem_html": item["stem_html"],
             "text": item["stem"],
             "image_urls": item["image_urls"],
@@ -269,17 +320,24 @@ class InlineEquationRepairTests(unittest.TestCase):
             "choices": item["choices"],
             "correct_ids": item["correct_ids"],
         }
-        question_id = self._insert_question(payload, "cartridge:MCF3M:M5:hole")
-        other = {
-            "stem_html": "<div>if <span>=</span> 1</div>",
-            "text": "if = 1",
-            "image_urls": ["https://example.test/label.jpg"],
-            "choices": [
-                {"id": "a", "html": "1", "correct": True},
-                {"id": "b", "html": "2", "correct": False},
-            ],
-        }
-        other_id = self._insert_question(other, "other-course")
+        question_id = self._insert_question(
+            payload, f"cartridge:MCF3M:M5:{_HOLE_ID}"
+        )
+        other = dict(payload)
+        other_id = self._insert_question(
+            other,
+            f"cartridge:MCR3U:M5:{_HOLE_ID}",
+            course="MCR3U",
+            bank_key="curriculum-bank:MCR3U:M5",
+        )
+        edited = dict(payload)
+        edited["text"] = "Rewritten stem that no longer matches the cartridge."
+        edited["edited_in_lms"] = True
+        edited_id = self._insert_question(
+            edited,
+            f"cartridge:MCF3M:M5:{_HOLE_ID}-edited",
+            bank_key="curriculum-bank:MCF3M:M5:edited",
+        )
         placed = {
             "type": "mc",
             "text": item["stem"],
@@ -329,6 +387,14 @@ class InlineEquationRepairTests(unittest.TestCase):
             ).fetchone()["payload_json"]
         )
         self.assertEqual(untouched["stem_html"], other["stem_html"])
+        edited_row = json.loads(
+            self.school.conn.execute(
+                "SELECT payload_json FROM questions WHERE id = ?",
+                (edited_id,),
+            ).fetchone()["payload_json"]
+        )
+        self.assertEqual(edited_row["stem_html"], edited["stem_html"])
+        self.assertNotIn(label, edited_row["stem_html"])
         second = apply_inline_equation_repairs(self.school)
         self.assertEqual(
             second,
@@ -337,4 +403,88 @@ class InlineEquationRepairTests(unittest.TestCase):
         question_count = self.school.conn.execute(
             "SELECT COUNT(*) AS n FROM questions"
         ).fetchone()["n"]
-        self.assertGreaterEqual(int(question_count), 2)
+        self.assertGreaterEqual(int(question_count), 3)
+
+    def test_repaired_prompt_moves_the_student_poll_stamp(self) -> None:
+        """A phone holding the previous stamp rebuilds after the stem HTML changes."""
+        revision = inspect.getsource(SchoolDB._rendered_card_revision)
+        self.assertEqual(revision.count("FROM live_session_prompts"), 1)
+        self.assertIn("$.text_html", revision)
+        item = _item(_HOLE_ID)
+        payload = {
+            "smart_id": _HOLE_ID,
+            "stem_html": item["stem_html"],
+            "text": item["stem"],
+            "image_urls": item["image_urls"],
+            "image_url": item["image_urls"][0],
+            "choices": item["choices"],
+            "correct_ids": item["correct_ids"],
+        }
+        question_id = self._insert_question(
+            payload, f"cartridge:MCF3M:M5:{_HOLE_ID}"
+        )
+        prompt = {
+            "type": "mc",
+            "smart_id": _HOLE_ID,
+            "source_question_id": question_id,
+            "text": item["stem"],
+            "text_html": item["stem_html"],
+            "image_urls": list(item["image_urls"]),
+            "options": ["41", "47", "92", "88"],
+        }
+        with self.school._lock:
+            session = self.school.conn.execute(
+                """
+                INSERT INTO live_class_sessions (
+                    class_id, offering_id, session_code, status, started_at,
+                    is_test, teacher_state_json
+                ) VALUES (1, 1, ?, 'active', '2026-11-17T00:00:00+00:00', 1, '{}')
+                """,
+                (secrets.token_hex(8),),
+            )
+            self.school.conn.execute(
+                """
+                INSERT INTO live_session_prompts (
+                    live_session_id, slide_index, kind, payload, active,
+                    created_at, updated_at
+                ) VALUES (?, 0, 'mc', ?, 1, '2026-11-16T00:00:00+00:00',
+                          '2026-11-16T00:00:00+00:00')
+                """,
+                (int(session.lastrowid), json.dumps(prompt)),
+            )
+            self.school.conn.commit()
+            session_id = int(session.lastrowid)
+        before = self.school.live_student_poll_stamp(session_id, 1)
+        calls = {"n": 0}
+
+        def trace(sql: str) -> None:
+            calls["n"] += 1
+
+        self.school.conn.set_trace_callback(trace)
+        try:
+            again = self.school.live_student_poll_stamp(session_id, 1)
+        finally:
+            self.school.conn.set_trace_callback(None)
+        self.assertEqual(again, before)
+        poll_queries = calls["n"]
+        self.assertGreater(poll_queries, 0)
+        repaired = apply_inline_equation_repairs(self.school)
+        self.assertEqual(repaired["prompts"], 1)
+        stored = self.school.conn.execute(
+            "SELECT payload, updated_at FROM live_session_prompts WHERE live_session_id = ?",
+            (session_id,),
+        ).fetchone()
+        self.assertIn(str(item["image_urls"][1]), stored["payload"])
+        self.assertNotEqual(stored["updated_at"], "2026-11-16T00:00:00+00:00")
+        teacher = self.school.live_session_teacher_state_payload(session_id)
+        seq = int(teacher.get("state_seq") or 0)
+        self.assertIsNone(
+            self.school.student_live_poll_unchanged(session_id, 1, seq, before)
+        )
+        calls["n"] = 0
+        self.school.conn.set_trace_callback(trace)
+        try:
+            self.school.live_student_poll_stamp(session_id, 1)
+        finally:
+            self.school.conn.set_trace_callback(None)
+        self.assertEqual(calls["n"], poll_queries)
