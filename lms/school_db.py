@@ -52378,10 +52378,6 @@ class SchoolDB(LovesDB):
                     id || ':' ||
                     length(COALESCE(json_extract(payload, '$.text'), '')) || ':' ||
                     lloves_md5(json_extract(payload, '$.text')) || ':' ||
-                    length(COALESCE(json_extract(payload, '$.text_html'), '')) || ':' ||
-                    lloves_md5(json_extract(payload, '$.text_html')) || ':' ||
-                    length(COALESCE(json_extract(payload, '$.stem_html'), '')) || ':' ||
-                    lloves_md5(json_extract(payload, '$.stem_html')) || ':' ||
                     length(COALESCE(json_extract(payload, '$.options'), '')) || ':' ||
                     lloves_md5(json_extract(payload, '$.options')) || ':' ||
                     length(COALESCE(json_extract(payload, '$.choices'), '')) || ':' ||

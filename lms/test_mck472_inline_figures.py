@@ -409,7 +409,9 @@ class InlineEquationRepairTests(unittest.TestCase):
         """A phone holding the previous stamp rebuilds after the stem HTML changes."""
         revision = inspect.getsource(SchoolDB._rendered_card_revision)
         self.assertEqual(revision.count("FROM live_session_prompts"), 1)
-        self.assertIn("$.text_html", revision)
+        self.assertNotIn("$.text_html", revision)
+        stamp_src = inspect.getsource(SchoolDB.live_student_poll_stamp)
+        self.assertIn("prompt_rev", stamp_src)
         item = _item(_HOLE_ID)
         payload = {
             "smart_id": _HOLE_ID,
