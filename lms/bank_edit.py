@@ -805,7 +805,7 @@ def apply_question_bank_bulk(
 
     Move writes ``questions.bank_scope`` only. It does not link the whole
     bank, so siblings with a blank scope stay where they are. Remove
-    deletes each question after every row has been checked.
+    soft-hides each question after every row has been checked.
 
     Every row is checked before the first write. A missing question or a
     bad scope leaves the earlier rows unchanged. Remove drops duplicate
@@ -847,7 +847,7 @@ def apply_question_bank_bulk(
             school.set_question_bank_scope(int(library_id), question_id, scope)
     elif action == "remove":
         planned = _unique_planned_questions(planned)
-        school.delete_library_bank_questions(
+        school.soft_remove_library_bank_questions(
             int(library_id),
             [(int(row["bank_id"]), question_id) for question_id, row in planned],
         )
@@ -1066,7 +1066,10 @@ def delete_staff_bank_question(
     bank_id: int,
     question_id: int,
 ) -> None:
-    """Remove one question from a bank.
+    """Soft-remove one question from a bank.
+
+    The row stays so past results and overlays remain. Pickers skip it
+    until a teacher restores it.
 
     Args:
         school: School database.
@@ -1074,8 +1077,8 @@ def delete_staff_bank_question(
         bank_id: ``question_banks.id``.
         question_id: ``questions.id``.
     """
-    school.delete_library_bank_question(
-        int(library_id), int(bank_id), int(question_id)
+    school.soft_remove_library_bank_questions(
+        int(library_id), [(int(bank_id), int(question_id))]
     )
 
 

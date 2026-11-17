@@ -871,7 +871,7 @@ def _copy_questions(
     mapping: dict[int, int] = {}
     for staging_bank, target_bank in bank_map.items():
         cursor = conn.execute(
-            "SELECT * FROM questions WHERE bank_id = ?",
+            "SELECT * FROM questions WHERE bank_id = ? AND removed_at IS NULL",
             (int(staging_bank),),
         )
         while True:

@@ -179,14 +179,23 @@
           </select>
         </label>
         <div id="live-bank-types" data-bank-type-chips></div>
+        <button type="button" class="secondary" id="qbank-generate">Generate ranking</button>
+        <button type="button" class="secondary" id="qbank-removed">Recently removed</button>
         <button type="button" class="secondary" id="qbank-clear-selection">Clear</button>
       </div>
       <div id="catalog-list" class="qbank-list">Loading live bank…</div>
+      <section id="qbank-bot" class="qbank-bot card" hidden>
+        <h2 id="qbank-bot-title">Ranking drafts</h2>
+        <p id="qbank-bot-status" class="hint" data-bank-bot-status role="status"></p>
+        <div id="qbank-bot-drafts" data-bank-bot-drafts></div>
+        <div id="qbank-bot-removed"></div>
+      </section>
     </div>
     <div id="qbank-bulk" class="qbank-bulk" hidden>
       <strong id="qbank-bulk-count">0 selected</strong>
       <button type="button" class="secondary" id="qbank-bulk-move">Move to module</button>
       <button type="button" class="secondary" id="qbank-bulk-kind">Set kind</button>
+      <button type="button" class="secondary" id="qbank-bulk-generate">Generate ranking</button>
       <button type="button" class="danger" id="qbank-bulk-remove">Remove</button>
     </div>
     <menu id="qbank-row-menu" class="qbank-more-menu" hidden>
@@ -199,6 +208,7 @@
     <dialog id="bank-remove-dialog" class="bank-remove-dialog" aria-labelledby="bank-remove-title">
       <form method="dialog" class="bank-remove-card">
         <h2 id="bank-remove-title">{{ bank_copy.remove_from_bank }}</h2>
+        <p class="hint">You can undo this from Recently removed.</p>
         <div class="row-actions">
           <button type="submit" value="cancel" class="secondary">Cancel</button>
           <button type="submit" value="ok" class="danger">{{ bank_copy.remove_from_bank.rstrip('?') }}</button>
@@ -708,6 +718,7 @@
                   <div class="live-questions-head-actions">
                     <button type="button" id="live-add-question-btn" class="secondary live-q-btn">Add New</button>
                     <button type="button" id="live-import-mc-btn" class="secondary live-q-btn">Import from bank</button>
+                    <button type="button" id="live-bank-bot-btn" class="secondary live-q-btn">Question bank</button>
                     <button type="button" id="live-hide-key-btn" class="secondary live-q-btn live-hide-key-btn" aria-pressed="false" aria-controls="live-question-list">Hide key</button>
                   </div>
                 </div>
@@ -1000,6 +1011,34 @@
         <button type="button" class="live-legacy-control" id="ap-names-back" data-track-nav="prev">← Prev</button>
       </div>
     </dialog>
+    <dialog id="live-bank-bot-dialog" class="bank-remove-dialog bank-bot-dialog" aria-labelledby="live-bank-bot-title">
+      <div class="bank-remove-card bank-bot-card">
+        <h2 id="live-bank-bot-title">Question bank</h2>
+        <p id="live-bank-bot-status" class="hint" data-bank-bot-status role="status"></p>
+        <div id="live-bank-bot-list"></div>
+        <div class="row-actions">
+          <button type="button" class="danger" id="live-bank-bot-remove">Remove</button>
+          <button type="button" id="live-bank-bot-generate">Generate ranking</button>
+          <button type="button" class="secondary" id="live-bank-bot-removed">Recently removed</button>
+        </div>
+        <div id="live-bank-bot-drafts" data-bank-bot-drafts></div>
+        <div id="live-bank-bot-removed-list"></div>
+        <div class="row-actions">
+          <button type="button" class="secondary" id="live-bank-bot-close">Close</button>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="live-bank-bot-confirm" class="bank-remove-dialog" aria-labelledby="live-bank-bot-confirm-title">
+      <form method="dialog" class="bank-remove-card">
+        <h2 id="live-bank-bot-confirm-title">Remove from bank?</h2>
+        <p class="hint">You can undo this from Recently removed.</p>
+        <div class="row-actions">
+          <button type="submit" value="cancel" class="secondary">Cancel</button>
+          <button type="submit" value="ok" class="danger">Remove from bank</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="module" src="/static/bank_bot.js"></script>
     <script type="module" src="/static/staff_ap.js"></script>
     <script type="module" src="/static/formative_live_board.js"></script>
     {% elif tab == 'lesson-slides' %}

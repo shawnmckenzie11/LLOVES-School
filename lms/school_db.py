@@ -2496,6 +2496,7 @@ class LovesDB:
             ensure_course_shell_schema(self.conn)
             self._ensure_question_editor_columns()
             self._ensure_module_bank_schema()
+            self._ensure_bank_bot_schema()
             self._ensure_archived_column()
             self._ensure_slide_import_started_at()
             self._ensure_gradebook_schema()
@@ -4068,6 +4069,33 @@ class LovesDB:
             from lms.live_defaults import ensure_question_editor_columns
 
         ensure_question_editor_columns(self.conn)
+
+    def _ensure_bank_bot_schema(self) -> None:
+        """Create the ranking-draft table. Safe to run on every boot.
+
+        Drafts are not ``questions`` rows, so pickers and student polling
+        never see a generated item before a teacher approves it.
+        """
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS bank_rank_drafts (
+                id INTEGER PRIMARY KEY,
+                library_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                bank_scope TEXT NOT NULL DEFAULT 'M1',
+                stem_text TEXT NOT NULL DEFAULT '',
+                options_json TEXT NOT NULL DEFAULT '[]',
+                rank_key_json TEXT NOT NULL DEFAULT '[]',
+                source_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'draft',
+                question_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_bank_rank_drafts_library
+                ON bank_rank_drafts(library_id, status, id);
+            """
+        )
 
     def _ensure_module_bank_schema(self) -> None:
         """Create module-bank links, class playlist overlays, and question overlays."""
@@ -13382,6 +13410,7 @@ class SchoolDB(LovesDB):
             LEFT JOIN library_question_overlays o
                 ON o.library_id = b.library_id AND o.question_id = q.id
             WHERE b.library_id = ?
+              AND q.removed_at IS NULL
               {scope_sql}
               AND (
                 {type_sql}
@@ -14056,6 +14085,7 @@ class SchoolDB(LovesDB):
                 FROM questions q
                 JOIN question_banks b ON b.id = q.bank_id
                 WHERE b.library_id = ? AND b.import_key = ?
+                  AND q.removed_at IS NULL
                 ORDER BY q.id
                 """,
                 (int(library_id), COURSE_WIDE_WARMUP_BANK_KEY),
@@ -18607,6 +18637,130 @@ class SchoolDB(LovesDB):
                 raise
         self.invalidate_module_bank_mc_cache(int(library_id))
 
+    def soft_remove_library_bank_questions(
+        self, library_id: int, rows: list[tuple[int, int]]
+    ) -> None:
+        """Hide questions from pickers without deleting them.
+
+        Sets ``questions.removed_at``. The row, its overlay, and any live
+        result that already copied the item stay in place. One transaction:
+        a failure after the first hide rolls the whole batch back.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            rows: ``(bank_id, question_id)`` pairs in this library.
+
+        Raises:
+            KeyError: When a question is missing from this library.
+        """
+        stamp = _now()
+        with self._lock:
+            started = False
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+                started = True
+                for bank_id, question_id in rows:
+                    found = self.conn.execute(
+                        """
+                        SELECT q.id
+                        FROM questions q
+                        JOIN question_banks b ON b.id = q.bank_id
+                        WHERE q.id = ? AND q.bank_id = ? AND b.library_id = ?
+                        """,
+                        (int(question_id), int(bank_id), int(library_id)),
+                    ).fetchone()
+                    if found is None:
+                        raise KeyError(f"question {question_id}")
+                    self.conn.execute(
+                        """
+                        UPDATE questions
+                        SET removed_at = ?
+                        WHERE id = ? AND removed_at IS NULL
+                        """,
+                        (stamp, int(question_id)),
+                    )
+                self.conn.execute("COMMIT")
+            except Exception:
+                if started and self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+        self.invalidate_module_bank_mc_cache(int(library_id))
+
+    def restore_removed_library_questions(
+        self, library_id: int, question_ids: list[int]
+    ) -> int:
+        """Clear ``removed_at`` so the questions show in pickers again.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_ids: ``questions.id`` values in this library.
+
+        Returns:
+            How many rows were restored.
+
+        Raises:
+            KeyError: When an id is not a removed question in this library.
+        """
+        ids = [int(qid) for qid in question_ids]
+        if not ids:
+            raise ValueError("question_ids required")
+        with self._lock:
+            started = False
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+                started = True
+                restored = 0
+                for question_id in ids:
+                    cur = self.conn.execute(
+                        """
+                        UPDATE questions
+                        SET removed_at = NULL
+                        WHERE id = ?
+                          AND removed_at IS NOT NULL
+                          AND bank_id IN (
+                            SELECT id FROM question_banks WHERE library_id = ?
+                          )
+                        """,
+                        (int(question_id), int(library_id)),
+                    )
+                    if cur.rowcount == 0:
+                        raise KeyError(f"question {question_id}")
+                    restored += 1
+                self.conn.execute("COMMIT")
+            except Exception:
+                if started and self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+        self.invalidate_module_bank_mc_cache(int(library_id))
+        return restored
+
+    def list_removed_library_questions(
+        self, library_id: int, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Return recently soft-removed questions for one library.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            limit: Maximum rows, newest first.
+        """
+        cap = max(1, min(int(limit), 100))
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT q.id, q.bank_id, q.title, q.item_type, q.payload_json,
+                       q.bank_scope, q.removed_at, o.stem_text
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                LEFT JOIN library_question_overlays o
+                    ON o.library_id = b.library_id AND o.question_id = q.id
+                WHERE b.library_id = ? AND q.removed_at IS NOT NULL
+                ORDER BY q.removed_at DESC, q.id DESC
+                LIMIT ?
+                """,
+                (int(library_id), cap),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def import_mc_to_class_playlist(
         self,
         class_id: int,
@@ -18670,7 +18824,7 @@ class SchoolDB(LovesDB):
                 """
                 SELECT q.id, q.bank_id, q.item_type, q.title, q.payload_json,
                        q.live_response_mode, q.live_show_results, q.live_points,
-                       q.bank_scope,
+                       q.bank_scope, q.removed_at,
                        b.title AS bank_title, b.library_id,
                        b.import_key AS bank_import_key,
                        o.stem_text, o.options_json, o.correct_answer, o.points
@@ -18682,7 +18836,7 @@ class SchoolDB(LovesDB):
                 """,
                 (int(question_id), int(library_id)),
             ).fetchone()
-            if row is None:
+            if row is None or row["removed_at"]:
                 raise KeyError(f"question {question_id}")
             try:
                 from course_warmup_seed import (

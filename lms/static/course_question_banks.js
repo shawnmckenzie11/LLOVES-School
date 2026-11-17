@@ -2,6 +2,7 @@
  * Question banks tab: one module menu, a light table, and a short bulk bar.
  */
 import { api, escapeHtml, formatQuestionHtml, questionImageHtml, renderLiveQuestionMath } from "/static/common.js";
+import { bindQuestionBankBot } from "/static/bank_bot.js";
 import { mountTypeChips } from "/static/bank_type_chips.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import { questionPointsValue } from "/static/question_points.js";
@@ -827,6 +828,32 @@ document.getElementById("qbank-kind-form")?.addEventListener("submit", (event) =
     showToast(error instanceof Error ? error.message : String(error));
   });
   document.getElementById("qbank-kind-dialog")?.close();
+});
+
+bindQuestionBankBot({
+  classId,
+  getScope: () => (activeTab === "all" ? "all" : activeTab),
+  getType: () => (typeChips ? typeChips.value() : ""),
+  getKind: () => (kindEl instanceof HTMLSelectElement ? String(kindEl.value || "") : ""),
+  getSelection: () => {
+    let any = false;
+    const ids = [];
+    for (const [key, row] of selectedRows) {
+      any = true;
+      const item = items.find((candidate) => itemKey(candidate) === key);
+      const token = String(item?.question_type || item?.type || "mc").toLowerCase();
+      if (token === "mc") ids.push(row.question_id);
+    }
+    return { any, ids };
+  },
+  onChanged: () => refreshAfterWrite(),
+  showMessage: (text) => {
+    const status = document.getElementById("qbank-bot-status");
+    const panel = document.getElementById("qbank-bot");
+    if (panel instanceof HTMLElement) panel.hidden = false;
+    if (status) status.textContent = text;
+    showToast(text);
+  },
 });
 
 paintModule();
