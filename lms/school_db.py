@@ -701,6 +701,8 @@ CREATE TABLE IF NOT EXISTS live_session_items (
     publish_mode TEXT NOT NULL DEFAULT 'individual',
     response_mode TEXT NOT NULL DEFAULT 'individual',
     show_live_results INTEGER NOT NULL DEFAULT 1,
+    show_answer INTEGER NOT NULL DEFAULT 0,
+    results_order TEXT NOT NULL DEFAULT 'default',
     published_at TEXT,
     closed_at TEXT,
     created_at TEXT NOT NULL,
@@ -5152,6 +5154,8 @@ class LovesDB:
                 publish_mode TEXT NOT NULL DEFAULT 'individual',
                 response_mode TEXT NOT NULL DEFAULT 'individual',
                 show_live_results INTEGER NOT NULL DEFAULT 1,
+                show_answer INTEGER NOT NULL DEFAULT 0,
+                results_order TEXT NOT NULL DEFAULT 'default',
                 save_to_card INTEGER NOT NULL DEFAULT 0,
                 published_at TEXT,
                 closed_at TEXT,
@@ -5351,6 +5355,20 @@ class LovesDB:
                 """
                 ALTER TABLE live_session_items
                 ADD COLUMN save_to_card INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "show_answer" not in item_cols:
+            self.conn.execute(
+                """
+                ALTER TABLE live_session_items
+                ADD COLUMN show_answer INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "results_order" not in item_cols:
+            self.conn.execute(
+                """
+                ALTER TABLE live_session_items
+                ADD COLUMN results_order TEXT NOT NULL DEFAULT 'default'
                 """
             )
         override_cols = {
@@ -21754,6 +21772,12 @@ class SchoolDB(LovesDB):
         item["item"] = nested
         item.pop("item_json", None)
         item["show_live_results"] = bool(item.get("show_live_results"))
+        item["show_answer"] = bool(item.get("show_answer"))
+        item["results_order"] = (
+            "ranked"
+            if str(item.get("results_order") or "").strip().lower() == "ranked"
+            else "default"
+        )
         # Catalogue JSON is refreshed on deck polls. Column values are the
         # teacher settings the staff UI must read back. The legacy
         # save_to_card column stays on the row so older sessions still open.
@@ -24347,12 +24371,15 @@ class SchoolDB(LovesDB):
         response_mode: Any = None,
         group_rank_mode: Any = None,
         group_rank_race: Any = None,
+        show_answer: Any = None,
+        results_order: Any = None,
     ) -> dict[str, Any]:
         """Update one item's teacher settings without publishing it.
 
         Any subset may be sent. Publish mode and response mode stay on the
         lifecycle row so a deck refresh cannot put the dropdown back on the
         catalogue default. Every published question stays on the student card.
+        Show answer and bar order are columns, so a deck refresh keeps them.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -24367,6 +24394,9 @@ class SchoolDB(LovesDB):
             group_rank_race: MCK-171, rank only: the "Team challenge"
                 toggle. Turning it on needs an answer order (``rank_key``).
                 Locked once the item is published.
+            show_answer: When set, students may see the correct bar.
+            results_order: ``default`` (authored or number order) or
+                ``ranked`` (most picked).
 
         Raises:
             ValueError: When no setting is present or a value is invalid.
@@ -24377,6 +24407,8 @@ class SchoolDB(LovesDB):
             and response_mode is None
             and group_rank_mode is None
             and group_rank_race is None
+            and show_answer is None
+            and results_order is None
         ):
             raise ValueError(
                 "show_live_results, publish_mode, or response_mode is required"
@@ -24438,6 +24470,16 @@ class SchoolDB(LovesDB):
             ):
                 raise ValueError("Add an answer order to use Team challenge.")
             question[rank_challenge.RACE_FLAG] = bool(race_on)
+        if show_answer is not None:
+            shown = self._coerce_settings_flag(show_answer, "show_answer")
+            assignments.append("show_answer = ?")
+            params.append(1 if shown else 0)
+        if results_order is not None:
+            token = str(results_order or "").strip().lower()
+            if token not in {"default", "ranked"}:
+                raise ValueError("results_order must be default or ranked")
+            assignments.append("results_order = ?")
+            params.append(token)
         assignments.append("item_json = ?")
         params.append(json.dumps(question))
         params.extend([_now(), int(item["id"])])
@@ -30666,14 +30708,13 @@ class SchoolDB(LovesDB):
                 and item["response_mode"] == "individual"
                 and prompt is not None
             ):
-                results = self._tally_for_prompt(
-                    session_id, prompt, teacher, for_student=True
+                # The correct bar follows Show answer, including after Close.
+                results = self.student_safe_tally(
+                    session_id,
+                    prompt,
+                    self._tally_for_prompt(session_id, prompt, teacher),
+                    teacher,
                 )
-                if status != "closed" and isinstance(results, dict):
-                    # MCK-155 S3: no "Correct" on student screens until Close.
-                    for choice_row in results.get("choices") or []:
-                        if isinstance(choice_row, dict):
-                            choice_row.pop("correct", None)
             elif include_results and group_state is not None:
                 team_summaries = self.teacher_group_consensus_summary(
                     session_id, int(item["id"])
@@ -30742,6 +30783,12 @@ class SchoolDB(LovesDB):
                     "publish_mode": item["publish_mode"],
                     "response_mode": item["response_mode"],
                     "show_live_results": bool(item["show_live_results"]),
+                    "show_answer": bool(item.get("show_answer")),
+                    "results_order": (
+                        "ranked"
+                        if str(item.get("results_order") or "") == "ranked"
+                        else "default"
+                    ),
                     "published_at": item.get("published_at"),
                     "closed_at": item.get("closed_at"),
                     "content": public_content,
@@ -35006,12 +35053,11 @@ class SchoolDB(LovesDB):
         tally: dict[str, Any] | None,
         teacher: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """Copy a live tally for a student body without the key while open.
+        """Copy a live tally for a student body without the key until shown.
 
-        MCK-155 gate HIGH-1: ``choices[].correct`` names the answer key, so
-        it rides a student payload only once the question is closed. A
-        prompt with no lifecycle row keeps it only after the teacher's
-        Reveal (or a closed poll).
+        ``choices[].correct`` names the answer key. A lifecycle item
+        includes it only while the teacher has Show answer on. A prompt
+        with no lifecycle row keeps the older Reveal rule.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -35021,8 +35067,8 @@ class SchoolDB(LovesDB):
         """
         if not isinstance(tally, dict):
             return tally
-        closed = self._student_key_visible(session_id, prompt, teacher)
-        if not closed and str(tally.get("kind") or "") == "numeric" and prompt:
+        shown = self._student_key_visible(session_id, prompt, teacher)
+        if not shown and str(tally.get("kind") or "") == "numeric" and prompt:
             # Gate NEW-HIGH-A: the staff numeric tally labels (and splits)
             # bars by the key. Rebuild it from the key-free prompt.
             rebuilt = self._tally_for_prompt(session_id, prompt, teacher, for_student=True)
@@ -35033,14 +35079,35 @@ class SchoolDB(LovesDB):
         for row in tally.get("choices") or []:
             if isinstance(row, dict):
                 row = dict(row)
-                if not closed:
+                if not shown:
                     row.pop("correct", None)
             choices.append(row)
         if "choices" in tally:
             out["choices"] = choices
-        if not closed:
-            for key in ("correct", "correct_answer", "correct_ids", "key", "answer_key", "correct_count"):
+        if not shown:
+            for key in (
+                "correct",
+                "correct_answer",
+                "correct_ids",
+                "key",
+                "answer_key",
+                "correct_count",
+                "correct_value",
+                "tolerance",
+                "tolerance_kind",
+            ):
                 out.pop(key, None)
+        elif str(out.get("kind") or "") == "numeric" and isinstance(prompt, dict):
+            payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+            key_text = payload.get("correct_answer")
+            if key_text in (None, ""):
+                key_text = payload.get("key")
+            if key_text not in (None, ""):
+                out["correct_value"] = key_text
+            if payload.get("tolerance") not in (None, ""):
+                out["tolerance"] = payload.get("tolerance")
+            if payload.get("tolerance_kind") not in (None, ""):
+                out["tolerance_kind"] = payload.get("tolerance_kind")
         return out
 
     def _student_key_visible(
@@ -35051,8 +35118,10 @@ class SchoolDB(LovesDB):
     ) -> bool:
         """True once a student may see this prompt's answer key.
 
-        A lifecycle item shows it only once closed. A prompt with no
-        lifecycle row shows it after Reveal to students or a closed poll.
+        A lifecycle item shows it only while Show answer is on. Closing
+        the question does not reveal it, and Hide answer hides it again.
+        A prompt with no lifecycle row shows it after Reveal to students
+        or a closed poll.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -35061,7 +35130,7 @@ class SchoolDB(LovesDB):
         """
         lifecycle = self._lifecycle_item_for_prompt(session_id, prompt) if prompt else None
         if lifecycle is not None:
-            return str(lifecycle.get("status") or "") == "closed"
+            return bool(lifecycle.get("show_answer"))
         return bool(student_mc_summary_visible(teacher) or mc_poll_closed(teacher))
 
     def _student_may_see_tally(
@@ -35276,10 +35345,10 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             prompt: Prompt row to tally.
             teacher: Public teacher state.
-            for_student: MCK-155 gate NEW-HIGH-A. A student numeric tally
-                is built from the key-free prompt until the key may show
+            for_student: A student numeric tally is built from the
+                key-free prompt until Show answer is on
                 (``_student_key_visible``), so no bar is labelled with, or
-                split around, the key while the question is open.
+                split around, the key before that.
         """
         if not prompt or prompt.get("id") in (None, ""):
             return None
@@ -52512,9 +52581,10 @@ class SchoolDB(LovesDB):
     ) -> str:
         """Return a cheap revision token for student /state short-circuit.
 
-        Includes prompt active flags, item counts, the legacy save column, prompt
-        responses, and private group-consensus votes so a close, unpublish,
-        checkbox, or teammate answer cannot keep a stale student frame.
+        Includes prompt active flags, item counts, the legacy save column,
+        Show answer and bar order, prompt responses, and private
+        group-consensus votes so a close, unpublish, checkbox, answer-key
+        toggle, or teammate answer cannot keep a stale student frame.
         Board ink is not in this stamp. A stroke or text edit must leave
         it unchanged.
 
@@ -52573,7 +52643,10 @@ class SchoolDB(LovesDB):
                     WHERE live_session_id = ?
                   ), 0) AS save_n,
                   COALESCE((
-                    SELECT MAX(updated_at) FROM live_session_items
+                    SELECT MAX(updated_at)
+                      || '|' || TOTAL(COALESCE(show_answer, 0))
+                      || '|' || TOTAL(CASE WHEN results_order = 'ranked' THEN 1 ELSE 0 END)
+                    FROM live_session_items
                     WHERE live_session_id = ?
                   ), '') AS item_rev,
                   COALESCE((

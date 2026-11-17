@@ -246,13 +246,24 @@ class GroupQuestionTests(unittest.TestCase):
         # Staff still see the key.
         teacher = self.school.live_session_item_results(self.session_id, int(item["id"]))
         self.assertTrue(any(c.get("correct") for c in (teacher.get("tally") or {}).get("choices") or []))
-        # Once closed, the student copy carries the key again.
+        # Close does not reveal the key. Show answer does, and Hide takes it back.
         self.school.close_live_session_item(self.session_id, int(item["id"]))
         tally = self.school._tally_for_prompt(self.session_id, prompt, None)
         safe = self.school.student_safe_tally(self.session_id, prompt, tally, None)
-        self.assertTrue(any(c.get("correct") for c in safe["choices"]))
+        self.assertFalse(any(c.get("correct") for c in safe["choices"]))
         closed_row = self._student_row(0, item)
-        self.assertTrue(any(c.get("correct") for c in closed_row["results"]["choices"]))
+        for choice in closed_row["results"]["choices"]:
+            self.assertNotIn("correct", choice)
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), show_answer=True
+        )
+        shown = self.school.student_safe_tally(self.session_id, prompt, tally, None)
+        self.assertTrue(any(c.get("correct") for c in shown["choices"]))
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), show_answer=False
+        )
+        hidden = self.school.student_safe_tally(self.session_id, prompt, tally, None)
+        self.assertFalse(any(c.get("correct") for c in hidden["choices"]))
 
     def test_open_numeric_tally_never_names_the_key(self) -> None:
         """Gate NEW-HIGH-A: key 3.14159 / tolerance 0.01, results on."""
@@ -322,15 +333,23 @@ class GroupQuestionTests(unittest.TestCase):
         # Staff still see the full-precision key bar.
         teacher = self.school._tally_for_prompt(self.session_id, prompt, None)
         self.assertIn("3.14159", labels(teacher))
-        # Once closed, the student copy carries the key bar and mark.
+        # Close still hides the key. Show answer puts the key bar back.
         self.school.close_live_session_item(self.session_id, int(item["id"]))
         closed = self._student_row(0, item)["results"]
-        self.assertIn("3.14159", labels(closed))
-        self.assertTrue(any(c.get("correct") for c in closed["choices"]))
-        safe_closed = self.school.student_safe_tally(
-            self.session_id, prompt, self.school._tally_for_prompt(self.session_id, prompt, None), None
+        self.assertNotIn("3.14159", labels(closed))
+        self.assertNotIn('"correct"', json.dumps(closed))
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), show_answer=True
         )
-        self.assertIn("3.14159", labels(safe_closed))
+        shown = self._student_row(0, item)["results"]
+        self.assertIn("3.14159", labels(shown))
+        self.assertTrue(any(c.get("correct") for c in shown["choices"]))
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), show_answer=False
+        )
+        hidden = self._student_row(0, item)["results"]
+        self.assertNotIn("3.14159", labels(hidden))
+        self.assertNotIn('"correct"', json.dumps(hidden))
 
     def test_group_lines_share_the_card_margin(self) -> None:
         """Gate LOW-1: the strip sits inside .student-group-card, so the rule

@@ -2752,6 +2752,9 @@ class LiveBackendStateTests(unittest.TestCase):
                 self.session_id, stage="round", page_id="round_1"
             )
             closed = self.school.close_live_session_item(self.session_id, live_id)
+            self.school.update_live_session_item_settings(
+                self.session_id, live_id, show_answer=True
+            )
             revealed = self.school.student_live_items_payload(
                 self.session_id, student_id
             )
@@ -3008,6 +3011,9 @@ class LiveBackendStateTests(unittest.TestCase):
                 self.assertIn(choice, options)
                 show(page_id, stage)
                 closed = self.school.close_live_session_item(session_id, live_id)
+                self.school.update_live_session_item_settings(
+                    session_id, live_id, show_answer=True
+                )
                 revealed = self.school.student_live_prompt_payload(
                     session_id, student_id
                 )

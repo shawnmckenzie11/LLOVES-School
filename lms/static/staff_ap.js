@@ -1259,11 +1259,56 @@ function mcGraphItemKey(liveItemId, card) {
  * @returns {{order: "default"|"ranked", showKey: boolean}}
  */
 function mcGraphPref(itemKey) {
-  const saved = mcGraphPrefs.get(String(itemKey || ""));
+  const key = String(itemKey || "");
+  const saved = mcGraphPrefs.get(key);
+  if (saved) {
+    return {
+      order: saved.order === "ranked" ? "ranked" : "default",
+      showKey: Boolean(saved.showKey),
+    };
+  }
+  const liveItemId = key.startsWith("item:") ? Number(key.slice(5)) || 0 : 0;
+  const row = liveItemId
+    ? lastLiveItems.find((item) => Number(item?.id) === liveItemId)
+    : null;
   return {
-    order: saved?.order === "ranked" ? "ranked" : "default",
-    showKey: Boolean(saved?.showKey),
+    order: row?.results_order === "ranked" ? "ranked" : "default",
+    showKey: Boolean(row?.show_answer),
   };
+}
+
+/**
+ * Lifecycle id encoded in a results-graph key, or 0 before publish.
+ * @param {string} itemKey
+ * @returns {number}
+ */
+function liveItemIdFromGraphKey(itemKey) {
+  const key = String(itemKey || "");
+  if (!key.startsWith("item:")) return 0;
+  return Number(key.slice(5)) || 0;
+}
+
+/**
+ * Store Show answer and bar order so student phones match this card.
+ * @param {number} liveItemId
+ * @param {{order: "default"|"ranked", showKey: boolean}} pref
+ * @returns {Promise<void>}
+ */
+async function persistMcGraphPref(liveItemId, pref) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  const id = Number(liveItemId) || 0;
+  if (!sessionId || !id) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${id}/settings`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        show_answer: Boolean(pref.showKey),
+        results_order: pref.order === "ranked" ? "ranked" : "default",
+      }),
+    }
+  );
+  adoptLiveItem(result?.item);
 }
 
 /**
@@ -14233,13 +14278,24 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     event.preventDefault();
     const itemKey = graphControl.getAttribute("data-mc-item") || "";
     const prev = mcGraphPref(itemKey);
-    if (graphControl.hasAttribute("data-mc-order")) {
-      const order = graphControl.getAttribute("data-mc-order") === "ranked" ? "ranked" : "default";
-      mcGraphPrefs.set(itemKey, { ...prev, order });
-    } else {
-      mcGraphPrefs.set(itemKey, { ...prev, showKey: !prev.showKey });
-    }
+    const next = graphControl.hasAttribute("data-mc-order")
+      ? {
+          ...prev,
+          order: graphControl.getAttribute("data-mc-order") === "ranked" ? "ranked" : "default",
+        }
+      : { ...prev, showKey: !prev.showKey };
+    mcGraphPrefs.set(itemKey, next);
     paintLiveQuestionCards();
+    const graphItemId = liveItemIdFromGraphKey(itemKey);
+    if (graphItemId) {
+      try {
+        await persistMcGraphPref(graphItemId, next);
+      } catch (err) {
+        mcGraphPrefs.set(itemKey, prev);
+        paintLiveQuestionCards();
+        showError("#ap-overlay-error", err);
+      }
+    }
     return;
   }
   const publish = event.target.closest("button[data-publish-live-item]");

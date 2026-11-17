@@ -20,6 +20,7 @@ import {
   liveChoiceLabels,
   liveQuestionHeadHtml,
 } from "/static/live_question_card.js";
+import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_graph.js";
 import { paintEyesUp } from "/static/eyes_up.js";
 import {
   RECONNECT_PENDING_MS,
@@ -3353,10 +3354,15 @@ function rankChallengeCardHtml(item) {
 
 /**
  * Render governed answer distribution bars.
+ *
+ * Multiple choice and numeric reuse the teacher bar graph. ``showKey``
+ * is the teacher's Show answer toggle. Rank keeps the class-order stack.
+ *
  * @param {any} results
+ * @param {{showKey?: boolean, order?: "default"|"ranked"}} [graph]
  * @returns {string}
  */
-function lifecycleResultsHtml(results) {
+function lifecycleResultsHtml(results, graph = {}) {
   const rankRows = Array.isArray(results?.rows)
     ? results.rows
     : Array.isArray(results?.class_order)
@@ -3376,12 +3382,22 @@ function lifecycleResultsHtml(results) {
   }
   const choices = Array.isArray(results?.choices) ? results.choices : [];
   if (!choices.length) return "";
-  return `<section class="student-live-results" aria-label="Class results">
-    <p class="student-live-card-kicker">${
-      results.kind === "numeric" ? "Class histogram" : "Class results"
-    }</p>
-    ${mcRevealBarsHtml({ choices })}
-  </section>`;
+  const graphOpts = {
+    order: graph.order === "ranked" ? "ranked" : "default",
+    showKey: Boolean(graph.showKey),
+    controls: false,
+  };
+  if (graphOpts.showKey && String(results?.kind || "") === "numeric") {
+    graphOpts.correctValue = results.correct_value;
+    graphOpts.tolerance = results.tolerance;
+    graphOpts.toleranceKind = results.tolerance_kind;
+  }
+  const graphHtml =
+    String(results?.kind || "") === "numeric"
+      ? numericResultsGraphHtml(results, graphOpts)
+      : mcResultsGraphHtml(results, graphOpts);
+  if (!graphHtml) return "";
+  return `<section class="student-live-results" aria-label="Class results">${graphHtml}</section>`;
 }
 
 /**
@@ -4533,7 +4549,10 @@ function paintLifecycleQuestionStack(payload) {
             ? ""
             : groupMode
               ? lifecycleClassConsensusHtml(item.results)
-              : lifecycleResultsHtml(item.results);
+              : lifecycleResultsHtml(item.results, {
+                  showKey: Boolean(item.show_answer),
+                  order: item.results_order === "ranked" ? "ranked" : "default",
+                });
       const dockKey = liveCardDockKey(item);
       const badge = studentLiveCardBadge(item);
       const shown =
