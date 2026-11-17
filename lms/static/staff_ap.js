@@ -22,6 +22,13 @@ import {
   showError,
   sortStudents,
 } from "/static/common.js";
+import {
+  mcGraphSlot,
+  mcResultsGraphHtml,
+  numericResultsGraphHtml,
+  stripDuplicateOptionTable,
+  tallyFromChoiceLabels,
+} from "/static/mc_results_graph.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import { bankLiveStart } from "/static/live_start.js";
 import { withoutRemovedCards } from "/static/deck_card_merge.js";
@@ -1226,6 +1233,50 @@ let lastGroups = [];
 let lastScoreboard = null;
 /** @type {Map<number, any>} */
 const lifecycleResults = new Map();
+
+/**
+ * Teacher-only bar-graph toggles. Default order, answer hidden.
+ * Keyed by live item id, or the question id when the row has no item yet.
+ * @type {Map<string, {order: "default"|"ranked", showKey: boolean}>}
+ */
+const mcGraphPrefs = new Map();
+
+/**
+ * Stable key for one question's results toggles.
+ * @param {number} liveItemId
+ * @param {any} card
+ * @returns {string}
+ */
+function mcGraphItemKey(liveItemId, card) {
+  const id = Number(liveItemId) || 0;
+  if (id) return `item:${id}`;
+  return `q:${String(card?.id || card?.item_id || "").trim()}`;
+}
+
+/**
+ * Saved order and answer-key toggles. Missing cards use the defaults.
+ * @param {string} itemKey
+ * @returns {{order: "default"|"ranked", showKey: boolean}}
+ */
+function mcGraphPref(itemKey) {
+  const saved = mcGraphPrefs.get(String(itemKey || ""));
+  return {
+    order: saved?.order === "ranked" ? "ranked" : "default",
+    showKey: Boolean(saved?.showKey),
+  };
+}
+
+/**
+ * Plain option label for stem comparison and a zero tally.
+ * @param {unknown} option
+ * @returns {string}
+ */
+function mcOptionLabel(option) {
+  if (option && typeof option === "object") {
+    return String(option.label || option.text || option.choice || "").trim();
+  }
+  return String(option ?? "").trim();
+}
 
 /**
  * True when a lifecycle row or its last results payload is a rank question.
@@ -6122,13 +6173,16 @@ function paintLiveQuestionCards() {
         : Array.isArray(card.options)
           ? card.options
           : [];
+      const mcCard = !isRankCard && liveQuestionIsMultipleChoice(item, card);
       const optionHtml = isRankCard
         ? optionLabels.length
           ? `<ol class="rank-authored-list">${optionLabels
               .map((option) => `<li>${escapeHtml(option)}</li>`)
               .join("")}</ol>`
           : ""
-        : options.length
+        : mcCard
+          ? ""
+          : options.length
           ? `<ol class="live-question-card-options" type="A">${options
               .map((option, optIndex) => `<li>${questionFieldHtml(item, "option", optIndex) || formatQuestionHtml(option)}</li>`)
               .join("")}</ol>`
@@ -6230,7 +6284,11 @@ function paintLiveQuestionCards() {
                 },
                 liveItemId
               )
-            : individualLifecycleResultsHtml(result?.tally);
+            : individualLifecycleResultsHtml(result?.tally, mcGraphItemKey(liveItemId, card), {
+                correctValue: answerKey,
+                tolerance: item.tolerance ?? card.tolerance,
+                toleranceKind: item.tolerance_kind ?? card.tolerance_kind,
+              });
       const tally = lastMcTally;
       const cardRef = String(card.id || card.item_id || "").replace(/_/g, "-");
       const tallyRef = String(tally?.item_id || tally?.prompt_ref || "").replace(/_/g, "-");
@@ -6238,6 +6296,57 @@ function paintLiveQuestionCards() {
         tallyRef && cardRef && tallyRef === cardRef
           ? Number(tally?.response_count ?? tally?.responded ?? 0)
           : 0;
+      const choiceLabels = options.map(mcOptionLabel);
+      const stemShown = stripDuplicateOptionTable(
+        questionFieldHtml(item, "text") || plainPromptHtml(item.title || item.text || item.prompt || card.text || ""),
+        choiceLabels
+      );
+      const graphKey = mcGraphItemKey(liveItemId, card);
+      const graphPref = mcGraphPref(graphKey);
+      const matchedTally =
+        tallyRef &&
+        cardRef &&
+        tallyRef === cardRef &&
+        Array.isArray(tally?.choices) &&
+        tally.choices.length &&
+        String(tally?.kind || "") !== "numeric" &&
+        String(tally?.kind || "") !== "rank"
+          ? tally
+          : null;
+      const fallbackTally = matchedTally || tallyFromChoiceLabels(options, result, answerKey);
+      const numericCard =
+        !isRankCard &&
+        !mcCard &&
+        String(item.type || card.type || "").toLowerCase() === "numeric";
+      const numericTally =
+        tallyRef &&
+        cardRef &&
+        tallyRef === cardRef &&
+        String(tally?.kind || "") === "numeric"
+          ? tally
+          : null;
+      const numericOpts = {
+        order: graphPref.order,
+        showKey: graphPref.showKey,
+        controls: true,
+        itemKey: graphKey,
+        correctValue: answerKey,
+        tolerance: item.tolerance ?? card.tolerance,
+        toleranceKind: item.tolerance_kind ?? card.tolerance_kind,
+      };
+      const extraGraph = mcCard
+        ? mcGraphSlot(
+            resultHtml,
+            mcResultsGraphHtml(fallbackTally, {
+              order: graphPref.order,
+              showKey: graphPref.showKey,
+              controls: true,
+              itemKey: graphKey,
+            })
+          )
+        : numericCard
+          ? mcGraphSlot(resultHtml, numericResultsGraphHtml(numericTally, numericOpts))
+          : "";
       const answered = Number(
         result?.response_count ??
           result?.tally?.responded ??
@@ -6385,9 +6494,10 @@ function paintLiveQuestionCards() {
             },
             { variant: "thumb" }
           )}
-          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || plainPromptHtml(item.title || item.text || item.prompt || card.text || "")}</div>
+          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${stemShown}</div>
           ${liveQuestionEquationHtml(item, card)}
           ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}
+          ${extraGraph}
           ${resultHtml}
           ${progress}
         </div>
@@ -6492,36 +6602,38 @@ function writeQuestionCardsKeepingConfirms(host, html) {
 }
 
 /**
- * Render a bar chart or numeric histogram from a lifecycle tally.
+ * Render a numeric histogram, or the shareable MC bar graph.
+ *
+ * Choice tallies used to repeat every option in a second grid under the
+ * options list. That grid was the duplicated options table. MC and numeric
+ * results are the bar graph instead. Eight or fewer distinct numbers are
+ * one bar each; more become bins.
+ *
  * @param {any} tally
+ * @param {string} [itemKey] Toggle state for this question.
+ * @param {{correctValue?: unknown, tolerance?: unknown, toleranceKind?: unknown}} [numeric]
  * @returns {string}
  */
-function individualLifecycleResultsHtml(tally) {
+function individualLifecycleResultsHtml(tally, itemKey, numeric = {}) {
   if (!tally || !Array.isArray(tally.choices)) return "";
-  const numeric = String(tally.kind || "") === "numeric";
-  const keyed = tally.choices.some((row) => row?.correct === true);
-  return `<div class="live-item-chart${numeric ? " is-histogram" : ""}" aria-label="${
-    numeric ? "Numeric answer histogram" : "Live answer distribution"
-  }">${tally.choices
-    .map((row) => {
-      const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
-      const correct = row.correct ? " is-correct" : "";
-      // MCK-155 S3: icon + word, teacher only. The key bar says Correct;
-      // a picked wrong bar says Incorrect. Unkeyed (poll) has no marks.
-      const mark = keyed
-        ? row.correct
-          ? answerMarkHtml(true)
-          : Number(row.count) > 0
-            ? answerMarkHtml(false)
-            : ""
-        : "";
-      return `<div class="live-item-chart-row${correct}">
-        <span class="live-item-chart-label">${escapeHtml(row.label ?? row.id ?? "")}</span>
-        <span class="live-item-chart-track"><span style="width:${pct}%"></span></span>
-        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%</span>${mark}
-      </div>`;
-    })
-    .join("")}</div>`;
+  const kind = String(tally.kind || "");
+  if (kind === "rank" || !tally.choices.length) return "";
+  const pref = mcGraphPref(itemKey);
+  const shared = {
+    order: pref.order,
+    showKey: pref.showKey,
+    controls: true,
+    itemKey: String(itemKey || ""),
+  };
+  if (kind === "numeric") {
+    return numericResultsGraphHtml(tally, {
+      ...shared,
+      correctValue: numeric.correctValue,
+      tolerance: numeric.tolerance,
+      toleranceKind: numeric.toleranceKind,
+    });
+  }
+  return mcResultsGraphHtml(tally, shared);
 }
 
 /**
@@ -14083,6 +14195,20 @@ $("live-question-list")?.addEventListener("change", async (event) => {
 });
 
 $("live-question-list")?.addEventListener("click", async (event) => {
+  const graphControl = event.target.closest("[data-mc-order], [data-mc-key]");
+  if (graphControl instanceof HTMLButtonElement) {
+    event.preventDefault();
+    const itemKey = graphControl.getAttribute("data-mc-item") || "";
+    const prev = mcGraphPref(itemKey);
+    if (graphControl.hasAttribute("data-mc-order")) {
+      const order = graphControl.getAttribute("data-mc-order") === "ranked" ? "ranked" : "default";
+      mcGraphPrefs.set(itemKey, { ...prev, order });
+    } else {
+      mcGraphPrefs.set(itemKey, { ...prev, showKey: !prev.showKey });
+    }
+    paintLiveQuestionCards();
+    return;
+  }
   const publish = event.target.closest("button[data-publish-live-item]");
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");

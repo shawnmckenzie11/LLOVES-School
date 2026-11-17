@@ -445,7 +445,7 @@ class NumericTallyTests(unittest.TestCase):
             present=6,
         )
         assert tally is not None
-        labels = [row["label"] for row in tally["choices"]]
+        labels = [row["label"] for row in tally["choices"] if not row.get("other")]
         self.assertEqual(labels, ["-2", "-1", "3"])
         by_label = {row["label"]: row for row in tally["choices"]}
         self.assertEqual(by_label["-2"]["count"], 2)
@@ -453,6 +453,24 @@ class NumericTallyTests(unittest.TestCase):
         self.assertFalse(by_label["3"]["correct"])
         self.assertEqual(tally["responded"], 4)
         self.assertNotIn("2.5", labels)
+        self.assertEqual(by_label["Other"]["count"], 2)
+        self.assertTrue(by_label["Other"]["other"])
+        self.assertFalse(by_label["Other"]["correct"])
+
+    def test_non_numeric_replies_count_as_other(self) -> None:
+        """Text that is not a number stays off the number line as Other."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="4"),
+            responses=self._answers(4, "4.0", "nope", ""),
+            present=4,
+        )
+        assert tally is not None
+        by_label = {row["label"]: row for row in tally["choices"]}
+        self.assertEqual(by_label["4"]["count"], 2)
+        self.assertTrue(by_label["4"]["correct"])
+        self.assertEqual(by_label["Other"]["count"], 2)
+        self.assertEqual(tally["other_count"], 2)
+        self.assertEqual(tally["responded"], 2)
 
     def test_decimal_correct_answer_uses_tolerance(self) -> None:
         """A decimal key marks the matching bar, including an absolute window."""
@@ -653,16 +671,22 @@ class NumericTallyTests(unittest.TestCase):
         self.assertEqual(rows, [("3.14", 2, False)])
 
     def test_missing_integer_only_keeps_decimal_buckets(self) -> None:
-        """A numeric prompt with no integer_only flag still charts decimals."""
+        """A numeric prompt with no integer_only flag still charts decimals.
+
+        Text and empty values stay off the number line as Other.
+        """
         tally = build_numeric_tally(
             self._prompt(),
             responses=self._answers(1.5, "nope", None),
             present=1,
         )
         assert tally is not None
-        self.assertEqual([row["label"] for row in tally["choices"]], ["1.5"])
+        labels = [row["label"] for row in tally["choices"] if not row.get("other")]
+        self.assertEqual(labels, ["1.5"])
         self.assertEqual(tally["responded"], 1)
         self.assertFalse(tally["choices"][0]["correct"])
+        self.assertEqual(tally["other_count"], 2)
+        self.assertEqual(tally["choices"][-1]["label"], "Other")
 
 
 if __name__ == "__main__":

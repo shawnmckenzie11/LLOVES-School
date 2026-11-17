@@ -598,9 +598,10 @@ class LiveShellTests(unittest.TestCase):
         chart = js.split("function individualLifecycleResultsHtml(")[1].split(
             "function groupAnswerLabel("
         )[0]
-        # MCK-155 S3: icon + word marks (Correct / Incorrect).
-        self.assertIn("answerMarkHtml(true)", chart)
-        self.assertIn("answerMarkHtml(false)", chart)
+        # Numeric results use the shared bar graph. Per-student marks stay
+        # on the Responses & points table, not on every wrong bar.
+        self.assertIn("numericResultsGraphHtml(", chart)
+        self.assertNotIn("live-item-chart", chart)
         merged = js.split("function questionCardsFromMetadata(")[1].split(
             "function applyLocalPlaylistCardChange("
         )[0]

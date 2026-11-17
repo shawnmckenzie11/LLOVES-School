@@ -8,6 +8,8 @@
 
 /** @typedef {(value: unknown) => string} QuestionFormatter ``formatQuestionHtml`` from ``/static/common.js``. */
 
+import { stripDuplicateOptionTable } from "./mc_results_graph.js";
+
 /**
  * Escape text for HTML.
  * @param {unknown} value
@@ -61,7 +63,10 @@ export function questionImageHtmlStudent(imageUrl) {
  */
 export function lifecyclePromptHtml(content, formatQuestionHtml) {
   const rendered = String(content?.text_html || "").trim();
-  if (rendered) return `<span class="live-question-html">${rendered}</span>`;
+  if (rendered) {
+    const stem = stripDuplicateOptionTable(rendered, liveChoiceLabels(content));
+    return `<span class="live-question-html">${stem}</span>`;
+  }
   const raw = String(
     content?.text || content?.prompt || content?.question || "Live question"
   ).trim();
