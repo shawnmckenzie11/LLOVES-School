@@ -11,10 +11,10 @@ LMS_DIR = Path(__file__).resolve().parent
 
 
 class McResultsGraphTests(unittest.TestCase):
-    """Toggles, counts, and one options list on the teacher card."""
+    """Toggles, counts, and a single MC results graph on the teacher card."""
 
     def test_node_harness(self) -> None:
-        """Order, answer key, counts, and a single options list."""
+        """Order, answer key, counts, and no second options list."""
         node = LMS_DIR / "static" / "mc_results_graph.test.mjs"
         result = subprocess.run(
             ["node", str(node)],
@@ -26,13 +26,15 @@ class McResultsGraphTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("ok", result.stdout)
 
-    def test_teacher_card_keeps_one_options_list(self) -> None:
-        """The card paints the options list once and the bar graph beside it."""
+    def test_teacher_mc_card_is_the_graph_only(self) -> None:
+        """Multiple choice skips the options list. Other types still render it."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         paint = js.split("function paintLiveQuestionCards()")[1].split(
             "function focusedGroupConfirmButton("
         )[0]
         self.assertEqual(paint.count("live-question-card-options"), 1)
+        mc_gate = paint.split("const mcCard =")[1].split("const answerKey")[0]
+        self.assertIn('mcCard\n          ? ""', mc_gate)
         self.assertIn("stripDuplicateOptionTable(", paint)
         self.assertIn("mcGraphSlot(", paint)
         self.assertIn("mcResultsGraphHtml(", paint)

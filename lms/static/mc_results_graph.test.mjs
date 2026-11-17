@@ -78,9 +78,8 @@ const dataTable = '<p>Read the table.</p><table><tr><td>Hours</td><td>1</td></tr
 const kept = stripDuplicateOptionTable(dataTable, ["1", "2", "3", "4"]);
 if (!kept.includes("<table") || !kept.includes("Hours")) fail("data table was treated as the options table");
 
-const optionsList = '<ol class="live-question-card-options" type="A"><li>north</li><li>east</li><li>south</li><li>west</li></ol>';
-const body = `${stripped}${optionsList}${hidden}`;
-if ((body.match(/live-question-card-options/g) || []).length !== 1) fail("options list rendered more than once");
+const body = `${stripped}${hidden}`;
+if (body.includes("live-question-card-options")) fail("teacher MC still renders an options list");
 if ((body.match(/<table/gi) || []).length !== 0) fail("body still has an options table");
 if ((body.match(/mc-results-graph/g) || []).length !== 1) fail("results graph rendered more than once");
 

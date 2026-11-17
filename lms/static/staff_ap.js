@@ -6172,13 +6172,16 @@ function paintLiveQuestionCards() {
         : Array.isArray(card.options)
           ? card.options
           : [];
+      const mcCard = !isRankCard && liveQuestionIsMultipleChoice(item, card);
       const optionHtml = isRankCard
         ? optionLabels.length
           ? `<ol class="rank-authored-list">${optionLabels
               .map((option) => `<li>${escapeHtml(option)}</li>`)
               .join("")}</ol>`
           : ""
-        : options.length
+        : mcCard
+          ? ""
+          : options.length
           ? `<ol class="live-question-card-options" type="A">${options
               .map((option, optIndex) => `<li>${questionFieldHtml(item, "option", optIndex) || formatQuestionHtml(option)}</li>`)
               .join("")}</ol>`
@@ -6307,7 +6310,7 @@ function paintLiveQuestionCards() {
           : null;
       const fallbackTally = matchedTally || tallyFromChoiceLabels(options, result, answerKey);
       const extraGraph =
-        !isRankCard && liveQuestionIsMultipleChoice(item, card) && (active || closed)
+        mcCard
           ? mcGraphSlot(
               resultHtml,
               mcResultsGraphHtml(fallbackTally, {
