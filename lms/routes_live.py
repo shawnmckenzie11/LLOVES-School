@@ -4625,8 +4625,18 @@ def register_live(app, school, shared):
         has_rank_mode = "group_rank_mode" in body
         # MCK-171: Team challenge (Group line).
         has_race = "group_rank_race" in body
+        has_show_answer = "show_answer" in body
+        has_results_order = "results_order" in body
         if not any(
-            (has_results, has_publish, has_response, has_rank_mode, has_race)
+            (
+                has_results,
+                has_publish,
+                has_response,
+                has_rank_mode,
+                has_race,
+                has_show_answer,
+                has_results_order,
+            )
         ):
             return jsonify(
                 {
@@ -4646,6 +4656,8 @@ def register_live(app, school, shared):
                 response_mode=body.get("response_mode") if has_response else None,
                 group_rank_mode=body.get("group_rank_mode") if has_rank_mode else None,
                 group_rank_race=body.get("group_rank_race") if has_race else None,
+                show_answer=body.get("show_answer") if has_show_answer else None,
+                results_order=body.get("results_order") if has_results_order else None,
             )
             teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
