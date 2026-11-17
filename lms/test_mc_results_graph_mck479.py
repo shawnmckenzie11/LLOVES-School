@@ -48,6 +48,11 @@ class McResultsGraphTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("body.staff-shell .mc-results-graph {", css)
         self.assertIn("body.staff-shell.is-student-view .mc-results-graph {", css)
+        bars = css.split("body.staff-shell .mc-results-bars {")[1].split("}")[0]
+        self.assertIn("grid-template-columns:", bars)
+        row = css.split("body.staff-shell .mc-results-row {")[1].split("}")[0]
+        self.assertIn("grid-template-columns: subgrid", row)
+        self.assertNotIn("minmax(5rem, 0.8fr)", row)
 
 
 if __name__ == "__main__":
