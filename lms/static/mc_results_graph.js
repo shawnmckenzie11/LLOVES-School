@@ -110,73 +110,24 @@ function barPercent(row, count, total) {
   return Math.round((100 * count) / total);
 }
 
-/** A label longer than this is shortened until the row is tapped. */
-export const RESULTS_LABEL_ELLIPSIS = 24;
-
 /**
- * One results row: name, bar, count, and the correct mark.
- *
- * Short answers stay on one line. Text longer than
- * {@link RESULTS_LABEL_ELLIPSIS} is marked so a tap can show it all.
+ * One results row. The answer sits on the bar. The count stays at the
+ * right. The Correct tag is present only while the answer is revealed.
  *
  * @param {{letter?: string, label: string, pct: number, count: number, marked: boolean}} row
  * @returns {string}
  */
 function resultsRowHtml(row) {
   const label = String(row.label ?? "");
-  const long = [...label].length > RESULTS_LABEL_ELLIPSIS;
   const letter = row.letter
     ? `<span class="mc-results-letter">${escapeGraphText(row.letter)}</span>`
     : "";
   const marked = row.marked ? " is-correct" : "";
-  const expandable = long ? " is-long" : "";
-  const open = long ? ' tabindex="0" role="button" aria-expanded="false"' : "";
-  return `<div class="mc-results-row${marked}${expandable}"${open}>
-        <span class="mc-results-name">${letter}<span class="mc-results-label">${escapeGraphText(label)}</span></span>
-        <span class="mc-results-track"><span class="mc-results-fill" style="width:${row.pct}%"></span></span>
-        <span class="mc-results-score"><span class="mc-results-count">${row.count} · ${row.pct}%</span><span class="mc-results-key">${row.marked ? "Correct" : ""}</span></span>
+  return `<div class="mc-results-row${marked}">
+        <span class="mc-results-track"><span class="mc-results-fill" style="width:${row.pct}%"></span><span class="mc-results-face"><span class="mc-results-name">${letter}<span class="mc-results-label">${escapeGraphText(label)}</span></span><span class="mc-results-score"><span class="mc-results-count">${row.count} · ${row.pct}%</span><span class="mc-results-key">${row.marked ? "Correct" : ""}</span></span></span></span>
       </div>`;
 }
 
-/**
- * Show the full answer when a shortened row is tapped or activated.
- *
- * Numbers and short answers are not expandable. Safe to call more than
- * once; the listener is installed on the document once.
- */
-export function installMcResultsLabelExpand() {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  if (!root || root.dataset.mcResultsExpand === "1") return;
-  root.dataset.mcResultsExpand = "1";
-  /**
-   * Toggle one long row between the ellipsis and the full answer.
-   * @param {Element} row
-   */
-  const toggle = (row) => {
-    const open = !row.classList.contains("is-expanded");
-    row.classList.toggle("is-expanded", open);
-    row.setAttribute("aria-expanded", open ? "true" : "false");
-  };
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (target.closest("button, a")) return;
-    const row = target.closest(".mc-results-row.is-long");
-    if (!row) return;
-    toggle(row);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (!target.classList.contains("is-long")) return;
-    event.preventDefault();
-    toggle(target);
-  });
-}
-
-installMcResultsLabelExpand();
 
 /**
  * Bar graph of answer counts. No names. The key highlight follows

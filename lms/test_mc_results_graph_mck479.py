@@ -52,17 +52,16 @@ class McResultsGraphTests(unittest.TestCase):
         self.assertIn(".mc-results-graph {", css)
         self.assertIn("color: #12202e", css)
         bars = css.split(".mc-results-bars,")[1].split("}")[0]
-        self.assertIn("grid-template-columns:", bars)
-        row = css.split(".mc-results-row {")[1].split("}")[0]
-        self.assertIn("grid-template-columns: subgrid", row)
-        self.assertNotIn("minmax(5rem, 0.8fr)", row)
-        phone = css.split("@media (max-width: 600px)")[1]
-        self.assertIn("minmax(0, max-content) minmax(0, 1fr) auto", phone)
-        self.assertIn("column-gap: 8px", phone)
-        self.assertIn("max-width: 40cqw", phone)
-        self.assertIn("grid-template-columns: subgrid", phone)
-        self.assertNotIn("clip:", phone)
-        self.assertIn("display: flex", phone)
+        self.assertIn("flex-direction: column", bars)
+        self.assertNotIn("grid-template-columns:", bars)
+        self.assertIn(".mc-results-face {", css)
+        self.assertIn("padding: 6px 8px", css)
+        self.assertIn("transition: width", css)
+        self.assertIn("background: #e8eef4", css)
+        self.assertIn("background: #c9ebe4", css)
+        self.assertIn("background: #c8efd4", css)
+        self.assertNotIn("text-overflow: ellipsis", css)
+        self.assertNotIn("@media (max-width: 600px)", css)
         for name in ("staff-shell.css", "student-portal.css"):
             sheet = (LMS_DIR / "static" / name).read_text(encoding="utf-8")
             self.assertIn('@import url("mc_results_graph.css");', sheet)
