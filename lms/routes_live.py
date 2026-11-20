@@ -125,6 +125,25 @@ def register_live(app, school, shared):
     """
     bp = LaneBlueprint('live', __name__)
     try:
+        from live_fix import (
+            install_authorization_log_scrub,
+            live_fix_report_access,
+            prepare_report_token_request,
+        )
+    except ImportError:
+        from lms.live_fix import (
+            install_authorization_log_scrub,
+            live_fix_report_access,
+            prepare_report_token_request,
+        )
+    install_authorization_log_scrub()
+
+    def _prepare_live_fix_report_token() -> None:
+        """Drop Authorization after the read-only report token is checked."""
+        prepare_report_token_request()
+
+    app.before_request(_prepare_live_fix_report_token)
+    try:
         from features import (
             deny_unless,
             feature_required,
@@ -423,6 +442,48 @@ def register_live(app, school, shared):
             )
         )
 
+    def _live_fix_token_only() -> bool:
+        """True when the report token is the only auth on this request.
+
+        A signed-in teacher wins, including when the token header is also
+        present, so the staff view stays complete.
+        """
+        from flask import g
+
+        if current_user() is not None:
+            return False
+        return bool(getattr(g, "live_fix_report_token", False))
+
+    def _redact_report_body(class_id: int, payload: Any):
+        """Return the staff body, or a redacted copy for the report token.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            payload: JSON object the route is about to return.
+
+        Returns:
+            The original payload for a staff session. A token request gets
+            a copy with names, join codes, and PINs removed. None when that
+            copy could not be built, so the caller does not send the raw body.
+        """
+        if not _live_fix_token_only():
+            return payload
+        try:
+            from live_fix import redact_report_for_token, report_token_secrets
+        except ImportError:
+            from lms.live_fix import redact_report_for_token, report_token_secrets
+        try:
+            return redact_report_for_token(
+                payload,
+                report_token_secrets(school, int(class_id)),
+            )
+        except Exception:
+            logger.warning(
+                "live fix token report was not redacted for class %s",
+                int(class_id),
+            )
+            return None
+
     def _live_fix_staff(class_id: int):
         """Allow the class teacher, or IT in the same tenant, to read reports.
 
@@ -572,27 +633,42 @@ def register_live(app, school, shared):
         )
         return jsonify({"ok": True, "id": int(flag["id"])})
 
+    def _json_report(class_id: int, payload: Any):
+        """Send a report body, redacted when the report token is the auth.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            payload: JSON object for a staff reader.
+        """
+        body = _redact_report_body(int(class_id), payload)
+        if body is None:
+            return jsonify({"ok": False, "error": "Report unavailable."}), 500
+        return jsonify(body)
+
     @bp.route("/api/staff/class/<int:class_id>/live-fix-reports", methods=["GET"])
-    @staff_required
+    @live_fix_report_access
     def staff_live_fix_reports(class_id: int):
         """List End Class reports for this class, newest first."""
-        _live_fix_staff(int(class_id))
+        if not _live_fix_token_only():
+            _live_fix_staff(int(class_id))
         try:
             from live_fix import report_summaries
         except ImportError:
             from lms.live_fix import report_summaries
-        return jsonify(
-            {"ok": True, "reports": report_summaries(school, int(class_id))}
+        return _json_report(
+            int(class_id),
+            {"ok": True, "reports": report_summaries(school, int(class_id))},
         )
 
     @bp.route(
         "/api/staff/class/<int:class_id>/live-fix-reports/latest",
         methods=["GET"],
     )
-    @staff_required
+    @live_fix_report_access
     def staff_live_fix_report_latest(class_id: int):
         """Return the newest End Class report for an outside assistant."""
-        _live_fix_staff(int(class_id))
+        if not _live_fix_token_only():
+            _live_fix_staff(int(class_id))
         try:
             from live_fix import latest_report
         except ImportError:
@@ -600,16 +676,17 @@ def register_live(app, school, shared):
         report = latest_report(school, int(class_id))
         if report is None:
             return jsonify({"ok": False, "error": "No report yet."}), 404
-        return jsonify({"ok": True, "report": report})
+        return _json_report(int(class_id), {"ok": True, "report": report})
 
     @bp.route(
         "/api/staff/class/<int:class_id>/live-fix-reports/<int:session_id>",
         methods=["GET"],
     )
-    @staff_required
+    @live_fix_report_access
     def staff_live_fix_report(class_id: int, session_id: int):
         """Return one stored End Class report."""
-        _live_fix_staff(int(class_id))
+        if not _live_fix_token_only():
+            _live_fix_staff(int(class_id))
         try:
             from live_fix import report_row
         except ImportError:
@@ -617,7 +694,7 @@ def register_live(app, school, shared):
         report = report_row(school, int(class_id), int(session_id))
         if report is None:
             return jsonify({"ok": False, "error": "No report yet."}), 404
-        return jsonify({"ok": True, "report": report})
+        return _json_report(int(class_id), {"ok": True, "report": report})
 
     def _wants_quit_json() -> bool:
         """True when Quit was submitted by fetch, not a plain form POST.

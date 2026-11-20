@@ -9,6 +9,13 @@ and ``SENTRY_ORG`` are set.
 Stored context and outbound payloads keep an anonymized reporter id
 when ``LIVE_FIX_ANON_PEPPER`` is set. They do not keep student names,
 teacher emails, join codes, or visit tokens.
+
+``LIVE_FIX_REPORT_TOKEN`` is an optional read-only bearer for the three
+End Class report GETs. When it is unset, that path stays off. A match
+does not write and does not open any other route. The token response
+drops student names, join codes, and PINs. Opaque ids such as
+``student-73ab…`` stay. The token is compared in constant time and is
+not logged.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ import re
 import threading
 import time
 from datetime import datetime
+from functools import wraps
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
@@ -239,6 +247,10 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
 
     Returns:
         Secrets of at least three characters, longest first.
+
+    Raises:
+        Exception: A roster or visit-token lookup failed. Callers must not
+            send free text when this list is incomplete.
     """
     found: list[str] = []
     code = str(session_row.get("session_code") or "").strip()
@@ -258,10 +270,7 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
     game = getattr(school, "game", None)
     conn = getattr(game, "conn", None)
     if conn is not None:
-        try:
-            columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(students)")]
-        except Exception:
-            columns = []
+        columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(students)")]
         wanted = [
             name
             for name in ("codename", "first_name", "last_name", "email", "student_raw")
@@ -271,10 +280,7 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
             sql = (
                 f"SELECT {', '.join(wanted)} FROM students WHERE class_id = ?"
             )
-            try:
-                rows = conn.execute(sql, (int(class_id),)).fetchall()
-            except Exception:
-                rows = []
+            rows = conn.execute(sql, (int(class_id),)).fetchall()
             for row in rows:
                 for value in row:
                     text = str(value or "").strip()
@@ -283,17 +289,14 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
     session_id = session_row.get("id")
     conn = getattr(school, "conn", None)
     if session_id not in (None, "") and conn is not None:
-        try:
-            with school._lock:
-                token_rows = conn.execute(
-                    """
-                    SELECT visit_token FROM live_session_attendees
-                    WHERE live_session_id = ?
-                    """,
-                    (int(session_id),),
-                ).fetchall()
-        except Exception:
-            token_rows = []
+        with school._lock:
+            token_rows = conn.execute(
+                """
+                SELECT visit_token FROM live_session_attendees
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
         for row in token_rows:
             token = str(row["visit_token"] or "").strip()
             if len(token) >= 8:
@@ -1668,3 +1671,452 @@ def _tidy_safe(school: Any, session_id: int) -> None:
 def _now() -> str:
     """Local ISO timestamp without microseconds."""
     return datetime.now().replace(microsecond=0).isoformat()
+
+
+# Keys a token response must not include. Staff JSON is unchanged.
+_REPORT_SECRET_KEYS = frozenset(
+    {
+        "pin",
+        "course_pin",
+        "student_pin",
+        "catchup_pin",
+        "catch_up_pin",
+        "default_pin",
+        "pin_hash",
+        "default_pin_ciphertext",
+        "join_code",
+        "session_code",
+        "portal_join_code",
+        "catchup_code",
+        "catch_up_code",
+        "live_access_code",
+        "access_code",
+        "name",
+        "student_name",
+        "first_name",
+        "last_name",
+        "display_name",
+        "full_name",
+        "preferred_name",
+        "roster_name",
+        "given_name",
+        "family_name",
+        "codename",
+        "last_display",
+        "username",
+        "email",
+        "reporter_name",
+        "teacher_email",
+        "teacher_name",
+        "student_email",
+    }
+)
+# Opaque reporter ids stay intact while surrounding text is scrubbed.
+_ANON_ID_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:student|teacher)-[0-9a-f]{12}(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_BEARER_LOG_RE = re.compile(r"(?i)\bBearer\s+\S+")
+_AUTH_HEADER_LOG_RE = re.compile(
+    r"(?i)((?:http_)?authorization['\"]?\s*[:=]\s*['\"]?)([^'\"\s,}&]+)"
+)
+_log_scrub_installed = False
+
+
+class _AuthorizationLogFilter(logging.Filter):
+    """Remove Authorization bearer values from log lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Keep the record, with any bearer token replaced.
+
+        Args:
+            record: Log record that may mention an Authorization header.
+
+        Returns:
+            True. The record is not dropped.
+        """
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        lowered = message.lower()
+        if "authorization" not in lowered and "bearer " not in lowered:
+            return True
+        cleaned = _BEARER_LOG_RE.sub("Bearer [redacted]", message)
+        cleaned = _AUTH_HEADER_LOG_RE.sub(r"\1[redacted]", cleaned)
+        record.msg = cleaned
+        record.args = ()
+        return True
+
+
+def install_authorization_log_scrub() -> None:
+    """Redact Authorization bearer values on the process loggers.
+
+    Werkzeug and gunicorn access lines do not include headers. A record
+    that still contains an Authorization value, including the report
+    token, loses that value before it is emitted. The token is not written.
+    """
+    global _log_scrub_installed
+    if _log_scrub_installed:
+        return
+    scrub = _AuthorizationLogFilter()
+    for name in ("", "werkzeug", "gunicorn", "gunicorn.access", "gunicorn.error"):
+        logging.getLogger(name).addFilter(scrub)
+    _log_scrub_installed = True
+
+
+def _bearer_value(header: str) -> str:
+    """Return the token from a Bearer header, or empty when it is not one.
+
+    Args:
+        header: Raw Authorization value. It is not logged.
+    """
+    text = str(header or "").strip()
+    if not text:
+        return ""
+    scheme, sep, rest = text.partition(" ")
+    if not sep or scheme.lower() != "bearer":
+        return ""
+    token = rest.strip()
+    if not token or any(ch.isspace() for ch in token):
+        return ""
+    return token
+
+
+def bearer_token_matches(header: str) -> bool:
+    """True when ``header`` matches ``LIVE_FIX_REPORT_TOKEN``.
+
+    An empty or missing env value disables the path. The compare is
+    ``hmac.compare_digest``. Neither side is logged.
+
+    Args:
+        header: Raw Authorization value.
+    """
+    expected = (os.environ.get("LIVE_FIX_REPORT_TOKEN") or "").strip()
+    if not expected or len(expected) > 256:
+        return False
+    presented = _bearer_value(header)
+    if not presented or len(presented) > 256:
+        return False
+    try:
+        return hmac.compare_digest(
+            presented.encode("utf-8"),
+            expected.encode("utf-8"),
+        )
+    except Exception:
+        return False
+
+
+_REPORT_TOKEN_ENDPOINTS = frozenset(
+    {
+        "staff_live_fix_reports",
+        "staff_live_fix_report_latest",
+        "staff_live_fix_report",
+    }
+)
+
+
+def prepare_report_token_request() -> None:
+    """Check the report bearer token, then drop Authorization.
+
+    Only the three End Class report GETs are touched. Every other
+    request keeps its Authorization header, and the token flag is left
+    unset. The raw token is not stored.
+    """
+    from flask import g, request
+
+    if request.endpoint not in _REPORT_TOKEN_ENDPOINTS:
+        return
+    raw = request.environ.pop("HTTP_AUTHORIZATION", None)
+    header = raw if isinstance(raw, str) else ""
+    g.live_fix_report_token = bearer_token_matches(header)
+
+
+def live_fix_report_access(view: Callable) -> Callable:
+    """Allow a staff session, or the read-only report token, on one view.
+
+    The token flag is set only by :func:`prepare_report_token_request`.
+    A signed-in teacher keeps the existing staff checks and the full
+    report. With no session, a matching token calls the view; anything
+    else is the usual 401. Other routes do not use this decorator.
+
+    Args:
+        view: One of the three End Class report GET views.
+    """
+    try:
+        from auth import current_user, staff_required
+    except ImportError:
+        from lms.auth import current_user, staff_required
+
+    guarded = staff_required(view)
+
+    @wraps(view)
+    def decorated(*args: Any, **kwargs: Any):
+        """Dispatch staff auth or the report token."""
+        from flask import g
+
+        if current_user() is not None:
+            return guarded(*args, **kwargs)
+        if getattr(g, "live_fix_report_token", False):
+            return view(*args, **kwargs)
+        return guarded(*args, **kwargs)
+
+    return decorated
+
+
+def _is_report_secret_key(key: Any, child: Any) -> bool:
+    """True when this JSON key is a name, join code, or PIN.
+
+    Args:
+        key: Dict key from a report payload.
+        child: Value stored under that key.
+    """
+    lowered = str(key).strip().lower()
+    if lowered in _REPORT_SECRET_KEYS or lowered.endswith("_pin") or lowered.endswith("_name"):
+        return True
+    if lowered != "code" or not isinstance(child, str):
+        return False
+    try:
+        from sentry_wire import _is_ontario_course_code, _looks_like_join_code
+    except ImportError:
+        from lms.sentry_wire import _is_ontario_course_code, _looks_like_join_code
+    if _is_ontario_course_code(child):
+        return False
+    return _looks_like_join_code(child)
+
+
+def _gather_secret_strings(value: Any, found: list[str]) -> None:
+    """Collect secret strings from a dropped name, code, or PIN field.
+
+    Args:
+        value: Field value that will not be returned.
+        found: Secret list to extend. Opaque reporter ids are skipped.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if _ANON_ID_RE.fullmatch(text):
+            return
+        if len(text) >= 3:
+            found.append(text)
+        for part in re.split(r"\s+", text):
+            piece = part.strip(".,;:()[]{}")
+            if len(piece) >= 3 and not _ANON_ID_RE.fullmatch(piece):
+                found.append(piece)
+        return
+    if isinstance(value, dict):
+        for child in value.values():
+            _gather_secret_strings(child, found)
+        return
+    if isinstance(value, list):
+        for child in value:
+            _gather_secret_strings(child, found)
+
+
+def _dropped_secret_strings(node: Any, found: list[str]) -> None:
+    """Walk a payload and collect values of secret keys.
+
+    Args:
+        node: Report JSON node.
+        found: Secret list to extend.
+    """
+    if isinstance(node, dict):
+        for key, child in node.items():
+            if _is_report_secret_key(key, child):
+                _gather_secret_strings(child, found)
+                continue
+            _dropped_secret_strings(child, found)
+        return
+    if isinstance(node, list):
+        for child in node:
+            _dropped_secret_strings(child, found)
+
+
+def _redact_report_text(text: str, secrets: list[str]) -> str:
+    """Remove names, join codes, and PINs from one string.
+
+    Opaque ids such as ``student-73ab…`` are held aside so a code or
+    PIN scrub cannot split them. Ministry course codes and years are
+    left to the same rules the Sentry scrubber already uses.
+
+    Args:
+        text: A note, title, or ``copy_text`` field.
+        secrets: Known roster values, join codes, and PINs.
+    """
+    try:
+        from sentry_wire import (
+            _BY_NAME_RE,
+            _CODE_TEXT_RE,
+            _NAME_PAIR_RE,
+            _NAME_TEXT_RE,
+            _PIN_TEXT_RE,
+            _STUDENT_LABEL_RE,
+            _scrub_by_name,
+            _scrub_name_pair,
+            _scrub_student_label,
+        )
+    except ImportError:
+        from lms.sentry_wire import (
+            _BY_NAME_RE,
+            _CODE_TEXT_RE,
+            _NAME_PAIR_RE,
+            _NAME_TEXT_RE,
+            _PIN_TEXT_RE,
+            _STUDENT_LABEL_RE,
+            _scrub_by_name,
+            _scrub_name_pair,
+            _scrub_student_label,
+        )
+
+    held: list[str] = []
+
+    def hold(match: re.Match[str]) -> str:
+        """Replace one opaque id with a placeholder that scrubbing skips."""
+        held.append(match.group(0))
+        return "\uE000" + ("\uE001" * len(held)) + "\uE002"
+
+    cleaned = scrub_roster_values(_ANON_ID_RE.sub(hold, str(text or "")), secrets)
+    cleaned = _PIN_TEXT_RE.sub(r"\1\2[redacted]", cleaned)
+    cleaned = _CODE_TEXT_RE.sub(r"\1\2[redacted]", cleaned)
+    cleaned = _NAME_TEXT_RE.sub(r"\1\2[redacted]", cleaned)
+    cleaned = _STUDENT_LABEL_RE.sub(_scrub_student_label, cleaned)
+    cleaned = _BY_NAME_RE.sub(_scrub_by_name, cleaned)
+    cleaned = _NAME_PAIR_RE.sub(_scrub_name_pair, cleaned)
+    for index, original in enumerate(held):
+        cleaned = cleaned.replace("\uE000" + ("\uE001" * (index + 1)) + "\uE002", original)
+    return cleaned
+
+
+def _redact_report_node(node: Any, secrets: list[str]) -> Any:
+    """Copy one JSON node without secret keys, scrubbing remaining text.
+
+    Args:
+        node: Report JSON node.
+        secrets: Values removed from strings.
+    """
+    if isinstance(node, dict):
+        cleaned: dict[str, Any] = {}
+        for key, child in node.items():
+            if _is_report_secret_key(key, child):
+                continue
+            cleaned[str(key)] = _redact_report_node(child, secrets)
+        return cleaned
+    if isinstance(node, list):
+        return [_redact_report_node(child, secrets) for child in node]
+    if isinstance(node, str):
+        return _redact_report_text(node, secrets)
+    return node
+
+
+def redact_report_for_token(payload: Any, secrets: list[str] | None = None) -> Any:
+    """Return a token-safe copy of an End Class report payload.
+
+    Secret keys (names, join codes, PINs) are omitted. Their values are
+    also removed from remaining strings, including ``copy_text``. Opaque
+    reporter ids stay. The stored report is not modified.
+
+    Args:
+        payload: JSON object the route would return to a teacher.
+        secrets: Extra roster values, join codes, and PINs to strip.
+    """
+    found = [item for item in (secrets or []) if isinstance(item, str) and item.strip()]
+    _dropped_secret_strings(payload, found)
+    unique = list(dict.fromkeys(item.strip() for item in found if len(item.strip()) >= 3))
+    unique.sort(key=len, reverse=True)
+    return _redact_report_node(payload, unique)
+
+
+def report_token_secrets(school: Any, class_id: int) -> list[str]:
+    """Names, join codes, and default PINs for one class.
+
+    Plaintext PINs are used only to find them in a token response. They
+    are not logged and are not written back.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show ``classes.id``.
+
+    Raises:
+        Exception: A class, roster, or visit-token lookup failed. The
+            token response must not be sent from a partial list.
+    """
+    found: list[str] = []
+    session_row: dict[str, Any] = {"session_code": "", "teacher_user_id": None}
+    pin_rows: list[Any] = []
+    with school._lock:
+        sessions = school.conn.execute(
+            """
+            SELECT id, session_code, teacher_user_id
+            FROM live_class_sessions
+            WHERE class_id = ?
+            ORDER BY id DESC
+            """,
+            (int(class_id),),
+        ).fetchall()
+        portals = school.conn.execute(
+            """
+            SELECT portal_join_code FROM catchup_links
+            WHERE class_id = ?
+            """,
+            (int(class_id),),
+        ).fetchall()
+        game = getattr(school, "game", None)
+        game_conn = getattr(game, "conn", None)
+        if game_conn is not None:
+            pin_rows = game_conn.execute(
+                """
+                SELECT default_pin_ciphertext FROM students
+                WHERE class_id = ?
+                  AND TRIM(COALESCE(default_pin_ciphertext, '')) <> ''
+                """,
+                (int(class_id),),
+            ).fetchall()
+    if sessions:
+        session_row = dict(sessions[0])
+        for row in sessions:
+            code = str(row["session_code"] or "").strip()
+            if code:
+                found.append(code)
+    for row in portals:
+        code = str(row["portal_join_code"] or "").strip()
+        if code:
+            found.append(code)
+    found.extend(roster_secrets(school, int(class_id), session_row))
+    found.extend(_default_pin_secrets(pin_rows))
+    return found
+
+
+def _default_pin_secrets(rows: list[Any]) -> list[str]:
+    """Decrypt default PINs so the token response can drop those digits.
+
+    Args:
+        rows: Student rows with ``default_pin_ciphertext``. Failures are
+            skipped and not logged, so a ciphertext is not written to a log.
+    """
+    if not rows:
+        return []
+    try:
+        from default_pin import decrypt_pin
+    except ImportError:
+        from lms.default_pin import decrypt_pin
+    secret = (os.environ.get("FLASK_SECRET_KEY") or os.environ.get("DEFAULT_PIN_KEY") or "")
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            secret = str(current_app.secret_key or secret)
+    except Exception:
+        pass
+    if not secret:
+        return []
+    pins: list[str] = []
+    for row in rows:
+        raw = str(row["default_pin_ciphertext"] or "").strip()
+        if not raw:
+            continue
+        try:
+            pin = decrypt_pin(raw, secret)
+        except Exception:
+            continue
+        if pin and pin not in pins:
+            pins.append(pin)
+    return pins
