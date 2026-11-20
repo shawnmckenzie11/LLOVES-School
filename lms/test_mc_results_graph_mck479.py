@@ -56,6 +56,13 @@ class McResultsGraphTests(unittest.TestCase):
         row = css.split(".mc-results-row {")[1].split("}")[0]
         self.assertIn("grid-template-columns: subgrid", row)
         self.assertNotIn("minmax(5rem, 0.8fr)", row)
+        phone = css.split("@media (max-width: 600px)")[1]
+        self.assertIn("minmax(0, max-content) minmax(0, 1fr) auto", phone)
+        self.assertIn("column-gap: 8px", phone)
+        self.assertIn("max-width: 40cqw", phone)
+        self.assertIn("grid-template-columns: subgrid", phone)
+        self.assertNotIn("clip:", phone)
+        self.assertIn("display: flex", phone)
         for name in ("staff-shell.css", "student-portal.css"):
             sheet = (LMS_DIR / "static" / name).read_text(encoding="utf-8")
             self.assertIn('@import url("mc_results_graph.css");', sheet)

@@ -134,8 +134,7 @@ function resultsRowHtml(row) {
   return `<div class="mc-results-row${marked}${expandable}"${open}>
         <span class="mc-results-name">${letter}<span class="mc-results-label">${escapeGraphText(label)}</span></span>
         <span class="mc-results-track"><span class="mc-results-fill" style="width:${row.pct}%"></span></span>
-        <span class="mc-results-count">${row.count} · ${row.pct}%</span>
-        <span class="mc-results-key">${row.marked ? "Correct" : ""}</span>
+        <span class="mc-results-score"><span class="mc-results-count">${row.count} · ${row.pct}%</span><span class="mc-results-key">${row.marked ? "Correct" : ""}</span></span>
       </div>`;
 }
 

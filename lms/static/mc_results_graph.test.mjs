@@ -200,6 +200,12 @@ const fourAt = widthLabels.indexOf(">4096<");
 const fourTag = widthLabels.slice(widthLabels.lastIndexOf("mc-results-row", fourAt), fourAt);
 if (fourTag.includes("is-long")) fail("4-digit answer was marked for ellipsis");
 if (!fourTag.includes("is-correct")) fail("teacher mark stayed off when Show answer is off");
+const fourEnd = widthLabels.indexOf("mc-results-row", widthLabels.lastIndexOf("mc-results-row", fourAt) + 1);
+const fourRow = widthLabels.slice(widthLabels.lastIndexOf("mc-results-row", fourAt), fourEnd);
+if (!fourRow.includes('class="mc-results-score"') || !fourRow.includes(">Correct<")) {
+  fail("revealed row is missing the Correct tag");
+}
+if (widthLabels.split(">Correct<").length !== 2) fail("Correct tag rendered more than once");
 const longAt = widthLabels.indexOf("harbour wind");
 const longTag = widthLabels.slice(widthLabels.lastIndexOf("mc-results-row", longAt), longAt);
 if (!longTag.includes("is-long")) fail("long text was not expandable");
