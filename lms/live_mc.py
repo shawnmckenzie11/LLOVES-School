@@ -642,9 +642,11 @@ def student_results_graph_payload(
         reveal: True when the teacher Show answer toggle is on.
 
     Returns:
-        ``kind`` plus ``choices`` of id, label, count, and pct. The
-        correct mark and numeric key are included only while revealed.
-        ``None`` when ``tally`` is not a dict.
+        ``kind``, ``response_count``, and ``choices`` of id, label,
+        count, and pct. ``response_count`` is how many answers the
+        class has, not who gave them. The correct mark and numeric key
+        are included only while revealed. ``None`` when ``tally`` is
+        not a dict.
     """
     if not isinstance(tally, dict):
         return None
@@ -670,6 +672,14 @@ def student_results_graph_payload(
         "kind": str(tally.get("kind") or "mc"),
         "choices": choices,
     }
+    answered = tally.get("response_count")
+    if answered in (None, ""):
+        answered = tally.get("responded")
+    try:
+        answered_n = int(answered) if answered not in (None, "") else total
+    except (TypeError, ValueError):
+        answered_n = total
+    out["response_count"] = answered_n
     if tally.get("other_count") not in (None, ""):
         out["other_count"] = int(tally.get("other_count") or 0)
     if reveal:

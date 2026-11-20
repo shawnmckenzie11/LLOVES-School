@@ -547,6 +547,29 @@ class SharePercentTests(unittest.TestCase):
         self.assertEqual([row["pct"] for row in student["choices"]], [17, 50, 17, 17])
         self.assertEqual([row["pct"] for row in teacher["choices"]], [17, 50, 17, 17])
 
+    def test_student_payload_keeps_the_answer_total(self) -> None:
+        """The class answer total stays on the student tally.
+
+        Waiting-room and live cards read ``response_count`` to know
+        answers arrived. Names, picks, and the answer fingerprint stay off.
+        """
+
+        from live_mc import student_results_graph_payload
+
+        raw = {
+            "kind": "numeric",
+            "response_count": 1,
+            "responded": 1,
+            "choices": [{"id": "7", "label": "7", "count": 1, "pct": 100}],
+            "other_count": 0,
+            "prompt_ref": "spark",
+            "response_seq": "abc",
+        }
+        student = student_results_graph_payload(raw, reveal=False)
+        self.assertEqual(student["response_count"], 1)
+        self.assertNotIn("prompt_ref", student)
+        self.assertNotIn("response_seq", student)
+
 
 if __name__ == "__main__":
     unittest.main()
