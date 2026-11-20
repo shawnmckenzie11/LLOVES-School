@@ -58,8 +58,9 @@ class McResultsGraphTests(unittest.TestCase):
         self.assertIn("padding: 6px 8px", css)
         self.assertIn("transition: width", css)
         self.assertIn("background: #e8eef4", css)
-        self.assertIn("background: #c9ebe4", css)
-        self.assertIn("background: #c8efd4", css)
+        self.assertIn("background: #9fd9cc", css)
+        self.assertIn("background: #86d39a", css)
+        self.assertIn("color: #166534", css)
         self.assertNotIn("text-overflow: ellipsis", css)
         self.assertNotIn("@media (max-width: 600px)", css)
         for name in ("staff-shell.css", "student-portal.css"):

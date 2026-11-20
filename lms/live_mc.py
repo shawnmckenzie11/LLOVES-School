@@ -236,7 +236,7 @@ def build_mc_tally(
     denom = responded if responded > 0 else 0
     choices_out: list[dict[str, Any]] = []
     for letter, label, count in zip(letters, labels, count_list):
-        pct = int(round(100.0 * count / denom)) if denom else 0
+        pct = share_percent(count, denom)
         choices_out.append(
             {
                 "id": letter,
@@ -567,7 +567,7 @@ def build_numeric_tally(
     for bar_id, bar in ordered:
         count = int(bar["count"])
         count_list.append(count)
-        pct = int(round(100.0 * count / denom)) if denom else 0
+        pct = share_percent(count, denom)
         choices_out.append(
             {
                 "id": bar_id,
@@ -584,7 +584,7 @@ def build_numeric_tally(
                 "id": "other",
                 "label": "Other",
                 "count": other_count,
-                "pct": int(round(100.0 * other_count / denom)) if denom else 0,
+                "pct": share_percent(other_count, denom),
                 "correct": False,
                 "other": True,
             }
@@ -605,6 +605,25 @@ def build_numeric_tally(
         "other_count": other_count,
         "response_seq": _fingerprint(count_list, responded + other_count),
     }
+
+
+
+def share_percent(count: int, total: int) -> int:
+    """Percent for one bar, rounded on its own.
+
+    Equal counts get the same percent. The bars are not nudged so
+    they add to 100.
+
+    Args:
+        count: Answers in this bar.
+        total: Answers across the bars being shown.
+
+    Returns:
+        An integer percent from 0 to 100. A total of zero is 0.
+    """
+    if int(total) <= 0:
+        return 0
+    return int(round((100.0 * int(count)) / int(total)))
 
 
 def student_results_graph_payload(
@@ -637,13 +656,16 @@ def student_results_graph_payload(
             "id": row.get("id"),
             "label": row.get("label"),
             "count": int(row.get("count") or 0),
-            "pct": int(row.get("pct") or 0),
+            "pct": 0,
         }
         if row.get("other") is True:
             choice["other"] = True
         if reveal and row.get("correct") is True:
             choice["correct"] = True
         choices.append(choice)
+    total = sum(int(choice["count"]) for choice in choices)
+    for choice in choices:
+        choice["pct"] = share_percent(int(choice["count"]), total)
     out: dict[str, Any] = {
         "kind": str(tally.get("kind") or "mc"),
         "choices": choices,
@@ -683,7 +705,7 @@ def teacher_live_bar_tally(tally: dict[str, Any] | None) -> dict[str, Any] | Non
             "id": row.get("id"),
             "label": row.get("label"),
             "count": count,
-            "pct": int(row.get("pct") or 0),
+            "pct": 0,
             "correct": bool(row.get("correct")),
         }
         if row.get("other") is True:
@@ -691,6 +713,9 @@ def teacher_live_bar_tally(tally: dict[str, Any] | None) -> dict[str, Any] | Non
         choices.append(choice)
     if not choices:
         return None
+    total = sum(int(choice["count"]) for choice in choices)
+    for choice in choices:
+        choice["pct"] = share_percent(int(choice["count"]), total)
     out: dict[str, Any] = {
         "kind": str(tally.get("kind") or "mc"),
         "choices": choices,

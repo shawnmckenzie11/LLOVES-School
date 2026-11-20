@@ -103,9 +103,9 @@ export function orderMcChoices(choices, order) {
  * @param {number} total
  * @returns {number}
  */
-function barPercent(row, count, total) {
-  const given = Number(row?.pct);
-  if (Number.isFinite(given)) return Math.max(0, Math.min(100, Math.round(given)));
+function barPercent(_row, count, total) {
+  // Each bar rounds on its own. A stored percent is ignored so two
+  // rows with the same count cannot read 16% and 17%.
   if (!total) return 0;
   return Math.round((100 * count) / total);
 }

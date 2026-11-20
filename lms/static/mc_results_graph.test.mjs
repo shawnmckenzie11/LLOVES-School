@@ -223,3 +223,21 @@ const keyOnly = planNumericResults(
 if (!keyOnly.rows.some((row) => row.correct && row.start <= 40 && row.end > 40)) {
   fail("unanswered key did not highlight its bin");
 }
+
+const shared = mcResultsGraphHtml(
+  {
+    kind: "mc",
+    choices: [
+      { id: "A", label: "north", count: 1, pct: 17, correct: false },
+      { id: "B", label: "128", count: 3, pct: 50, correct: true },
+      { id: "C", label: "4096", count: 1, pct: 17, correct: false },
+      { id: "D", label: "east", count: 1, pct: 16, correct: false },
+    ],
+  },
+  { showKey: true, markKey: true, controls: false }
+);
+const shownPercents = [...shared.matchAll(/ · (\d+)%/g)].map((match) => match[1]);
+if (shownPercents.join(",") !== "17,50,17,17") {
+  fail(`equal counts did not share a percent: ${shownPercents.join(",")}`);
+}
+

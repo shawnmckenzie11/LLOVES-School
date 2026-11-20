@@ -524,5 +524,29 @@ console.log(JSON.stringify({
         self.assertEqual(out["fetched"], 0)
 
 
+
+class SharePercentTests(unittest.TestCase):
+    """One count always rounds to one percent, on both payloads."""
+
+    def test_equal_counts_share_a_percent(self) -> None:
+        """1, 3, 1, 1 of 6 is 17, 50, 17, 17, not a last row nudged to 16."""
+
+        from live_mc import student_results_graph_payload, teacher_live_bar_tally
+
+        raw = {
+            "kind": "mc",
+            "choices": [
+                {"id": "A", "label": "north", "count": 1, "pct": 17},
+                {"id": "B", "label": "128", "count": 3, "pct": 50},
+                {"id": "C", "label": "4096", "count": 1, "pct": 17},
+                {"id": "D", "label": "east", "count": 1, "pct": 16},
+            ],
+        }
+        student = student_results_graph_payload(raw, reveal=False)
+        teacher = teacher_live_bar_tally(raw)
+        self.assertEqual([row["pct"] for row in student["choices"]], [17, 50, 17, 17])
+        self.assertEqual([row["pct"] for row in teacher["choices"]], [17, 50, 17, 17])
+
+
 if __name__ == "__main__":
     unittest.main()
