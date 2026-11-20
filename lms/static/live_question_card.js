@@ -30,12 +30,17 @@ export function escapeText(value) {
  */
 function studentFigureUrls(body) {
   const many = body && body.image_urls;
+  let urls = [];
   if (Array.isArray(many)) {
-    const urls = many.map((url) => String(url || "").trim()).filter(Boolean);
-    if (urls.length) return urls;
+    urls = many.map((url) => String(url || "").trim()).filter(Boolean);
   }
-  const one = String((body && body.image_url) || "").trim();
-  return one ? [one] : [];
+  if (!urls.length) {
+    const one = String((body && body.image_url) || "").trim();
+    if (one) urls = [one];
+  }
+  const html = String((body && (body.text_html || body.stem_html)) || "");
+  if (!html) return urls;
+  return urls.filter((url) => !html.includes(url));
 }
 
 /** Render graph images at full card width for lifecycle questions. */

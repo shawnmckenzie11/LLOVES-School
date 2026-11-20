@@ -211,8 +211,26 @@ def _payload_for_curriculum_item(
 
     choices = item.get("choices")
     if str(item.get("origin") or "") == "canvas_cartridge" and isinstance(choices, list):
+        stem_html = str(item.get("stem_html") or stem)
+        urls = item.get("image_urls")
+        if isinstance(urls, list) and urls:
+            try:
+                from bank_stem_figures import restore_inline_equation_images
+            except ImportError:
+                from lms.bank_stem_figures import restore_inline_equation_images
+
+            choice_html = "\n".join(
+                str(choice.get("html") or "") if isinstance(choice, dict) else str(choice or "")
+                for choice in choices
+            )
+            stem_html, _reason = restore_inline_equation_images(
+                stem_html,
+                [str(url) for url in urls if str(url).strip()],
+                choice_html=choice_html,
+                stem_text=stem,
+            )
         payload = {
-            "stem_html": str(item.get("stem_html") or stem),
+            "stem_html": stem_html,
             "text": stem,
             "points_possible": float(item.get("points_possible") or 1.0),
             "choices": choices,
