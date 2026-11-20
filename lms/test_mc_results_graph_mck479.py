@@ -48,14 +48,24 @@ class McResultsGraphTests(unittest.TestCase):
         self.assertNotIn("live-item-chart", chart)
         student = (LMS_DIR / "static" / "live_question_card.js").read_text(encoding="utf-8")
         self.assertIn("stripDuplicateOptionTable(", student)
-        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("body.staff-shell .mc-results-graph {", css)
-        self.assertIn("body.staff-shell.is-student-view .mc-results-graph {", css)
-        bars = css.split("body.staff-shell .mc-results-bars {")[1].split("}")[0]
-        self.assertIn("grid-template-columns:", bars)
-        row = css.split("body.staff-shell .mc-results-row {")[1].split("}")[0]
-        self.assertIn("grid-template-columns: subgrid", row)
-        self.assertNotIn("minmax(5rem, 0.8fr)", row)
+        css = (LMS_DIR / "static" / "mc_results_graph.css").read_text(encoding="utf-8")
+        self.assertIn(".mc-results-graph {", css)
+        self.assertIn("color: #12202e", css)
+        bars = css.split(".mc-results-bars,")[1].split("}")[0]
+        self.assertIn("flex-direction: column", bars)
+        self.assertNotIn("grid-template-columns:", bars)
+        self.assertIn(".mc-results-face {", css)
+        self.assertIn("padding: 6px 8px", css)
+        self.assertIn("transition: width", css)
+        self.assertIn("background: #e8eef4", css)
+        self.assertIn("background: #9fd9cc", css)
+        self.assertIn("background: #86d39a", css)
+        self.assertIn("color: #14532d", css)
+        self.assertNotIn("text-overflow: ellipsis", css)
+        self.assertNotIn("@media (max-width: 600px)", css)
+        for name in ("staff-shell.css", "student-portal.css"):
+            sheet = (LMS_DIR / "static" / name).read_text(encoding="utf-8")
+            self.assertIn('@import url("mc_results_graph.css");', sheet)
 
 
 if __name__ == "__main__":

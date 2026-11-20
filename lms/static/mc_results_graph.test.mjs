@@ -178,6 +178,40 @@ if (spreadPlan.rows.some((row, i) => i && row.start !== spreadPlan.rows[0].start
   fail("bin edges are not regular");
 }
 if (spreadPlan.rows.reduce((s, r) => s + r.count, 0) !== spread.length) fail("spread counts");
+const widthLabels = mcResultsGraphHtml(
+  {
+    kind: "mc",
+    choices: [
+      { id: "A", label: "128", count: 2, pct: 40, correct: false },
+      { id: "B", label: "4096", count: 1, pct: 20, correct: true },
+      {
+        id: "C",
+        label: "A harbour wind that keeps going past twenty four",
+        count: 2,
+        pct: 40,
+        correct: false,
+      },
+    ],
+  },
+  { showKey: false, markKey: true, controls: false }
+);
+if (!widthLabels.includes(">128<") || !widthLabels.includes(">4096<")) fail("short numbers were dropped");
+const fourAt = widthLabels.indexOf(">4096<");
+const fourTag = widthLabels.slice(widthLabels.lastIndexOf("mc-results-row", fourAt), fourAt);
+if (fourTag.includes("is-long")) fail("4-digit answer was marked for shortening");
+if (!fourTag.includes("is-correct")) fail("teacher mark stayed off when Show answer is off");
+const fourEnd = widthLabels.indexOf("mc-results-row", widthLabels.lastIndexOf("mc-results-row", fourAt) + 1);
+const fourRow = widthLabels.slice(widthLabels.lastIndexOf("mc-results-row", fourAt), fourEnd);
+if (!fourRow.includes('class="mc-results-score"') || !fourRow.includes(">Correct<")) {
+  fail("revealed row is missing the Correct tag");
+}
+if (!fourRow.includes('class="mc-results-track"><span class="mc-results-fill"')) {
+  fail("the answer is not painted on the bar");
+}
+if (widthLabels.split(">Correct<").length !== 2) fail("Correct tag rendered more than once");
+const longText = "A harbour wind that keeps going past twenty four";
+if (!widthLabels.includes(longText)) fail("long answer was cut out of the row");
+if (widthLabels.includes("is-long") || widthLabels.includes("ellipsis")) fail("answers are still shortened");
 const eight = Array.from({ length: 8 }, (_, i) => ({ id: String(i), label: String(i), count: 1 }));
 const nine = Array.from({ length: 9 }, (_, i) => ({ id: String(i), label: String(i), count: 1 }));
 if (planNumericResults({ choices: eight }).mode !== "bars") fail("eight values should stay bars");
@@ -189,3 +223,21 @@ const keyOnly = planNumericResults(
 if (!keyOnly.rows.some((row) => row.correct && row.start <= 40 && row.end > 40)) {
   fail("unanswered key did not highlight its bin");
 }
+
+const shared = mcResultsGraphHtml(
+  {
+    kind: "mc",
+    choices: [
+      { id: "A", label: "north", count: 1, pct: 17, correct: false },
+      { id: "B", label: "128", count: 3, pct: 50, correct: true },
+      { id: "C", label: "4096", count: 1, pct: 17, correct: false },
+      { id: "D", label: "east", count: 1, pct: 16, correct: false },
+    ],
+  },
+  { showKey: true, markKey: true, controls: false }
+);
+const shownPercents = [...shared.matchAll(/ · (\d+)%/g)].map((match) => match[1]);
+if (shownPercents.join(",") !== "17,50,17,17") {
+  fail(`equal counts did not share a percent: ${shownPercents.join(",")}`);
+}
+

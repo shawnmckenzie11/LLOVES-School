@@ -4739,6 +4739,23 @@ def register_live(app, school, shared):
             teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        if has_show_answer or has_results_order:
+            # One class-wide postcard. The answer is attached only when
+            # this write turns Show answer on. Order changes and Hide
+            # answer send the flag without it. No per-student push and
+            # no state_seq bump.
+            from live_news_wire import results_view_event
+
+            answer = (
+                school.results_view_answer(item)
+                if has_show_answer and bool(item.get("show_answer"))
+                else None
+            )
+            emit_session_news(
+                school,
+                session_id,
+                [results_view_event(item, answer=answer)],
+            )
         return jsonify(
             {
                 "ok": True,

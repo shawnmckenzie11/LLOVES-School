@@ -74,6 +74,7 @@ NEWS_TYPES = frozenset(
         "board_ink",
         "board_show",
         "surface_show",
+        "results_view",
         "google_slide",
         "busy",
         "ping",
@@ -103,6 +104,9 @@ _FIELDS: dict[str, frozenset[str]] = {
     "board_show": frozenset({"type", "board_key"}),
     # Question or whiteboard show/hide. No stem, no roster, no state_seq.
     "surface_show": frozenset({"type", "surface", "mode", "item_id"}),
+    # Bar order and Show answer. One class-wide postcard. The answer
+    # string is present only while reveal is on.
+    "results_view": frozenset({"type", "item_id", "order", "reveal", "answer"}),
     # Current slide only. No roster. image_url is empty until the page is shared.
     "google_slide": frozenset(
         {"type", "index", "shared", "page_count", "image_url", "rev"}
@@ -718,6 +722,18 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
             event["item_id"] = item[:80]
         else:
             event.pop("item_id", None)
+    if kind == "results_view":
+        item = str(event.get("item_id") or "").strip()
+        if not item:
+            return None
+        event["item_id"] = item[:80]
+        order = str(event.get("order") or "default").strip().lower()
+        event["order"] = "ranked" if order == "ranked" else "default"
+        event["reveal"] = 1 if _as_int(event.get("reveal")) else 0
+        if event["reveal"] and str(event.get("answer") or "").strip():
+            event["answer"] = _clip_text(event.get("answer"), 80)
+        else:
+            event.pop("answer", None)
     if kind == "google_slide":
         event["index"] = max(0, min(40, _as_int(event.get("index"))))
         event["page_count"] = max(0, min(40, _as_int(event.get("page_count"))))
@@ -1387,6 +1403,39 @@ def response_landed_events(
             }
         )
     return events
+
+
+def results_view_event(
+    item: dict[str, Any] | None,
+    *,
+    answer: str | None = None,
+) -> dict[str, Any]:
+    """One class-wide postcard for Show answer and bar order.
+
+    The body is the lifecycle id, the order mode, and the reveal flag.
+    ``answer`` is included only when Show answer is on. Hiding and
+    reordering omit it. There is no roster and no per-student id.
+
+    Args:
+        item: Lifecycle row after the settings write.
+        answer: Correct answer text. Ignored unless Show answer is on.
+
+    Returns:
+        A ``results_view`` postcard. The tape drops an answer that
+        arrives with reveal off.
+    """
+    body = item if isinstance(item, dict) else {}
+    reveal = 1 if body.get("show_answer") else 0
+    order = "ranked" if str(body.get("results_order") or "") == "ranked" else "default"
+    event: dict[str, Any] = {
+        "type": "results_view",
+        "item_id": str(int(body.get("id") or 0)),
+        "order": order,
+        "reveal": reveal,
+    }
+    if reveal and str(answer or "").strip():
+        event["answer"] = str(answer)
+    return event
 
 
 def emit_answer_landed(

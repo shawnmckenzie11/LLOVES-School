@@ -1347,8 +1347,9 @@ function lifecycleRowIsRank(row, prev) {
  * Class order itself stays on the ~1s hold in rankCollateHtml.
  * @param {Record<string, number>|null|undefined} counts
  * @param {Record<string, string>|null|undefined} [rankRevs]
+ * @param {Record<string, any>|null|undefined} [choiceTallies] Bar counts from the same light poll.
  */
-function adoptLifecycleResponseCounts(counts, rankRevs) {
+function adoptLifecycleResponseCounts(counts, rankRevs, choiceTallies) {
   if (!counts || typeof counts !== "object") return;
   const revs = rankRevs && typeof rankRevs === "object" ? rankRevs : {};
   let refreshGroups = false;
@@ -1392,17 +1393,87 @@ function adoptLifecycleResponseCounts(counts, rankRevs) {
       // Thin group_results paints in place. Do not refreshLifecycleResults on a light tick.
       continue;
     }
-    // Individual questions: light ticks carry only the count. Repaint the
-    // "answered N / M" line in place (MCK-84), like paintGroupResultsInPlace.
+    // Individual questions: the count and the bars share this light tick.
     if (!seen || previous !== n) paintLifecycleProgressInPlace(liveItemId);
   }
+  if (choiceTallies) adoptLifecycleChoiceTallies(choiceTallies);
   if (refreshGroups) void refreshLifecycleResults();
 }
 
 /**
+ * Fold one light-poll choice tally into the card cache and repaint bars.
+ *
+ * Same payload as the answered counter. Does not fetch ``/results``.
+ * @param {Record<string, any>|null|undefined} tallies
+ */
+function adoptLifecycleChoiceTallies(tallies) {
+  if (!tallies || typeof tallies !== "object") return;
+  for (const [id, tally] of Object.entries(tallies)) {
+    const liveItemId = Number(id);
+    if (!liveItemId || !tally || typeof tally !== "object") continue;
+    const prev = lifecycleResults.get(liveItemId) || {};
+    const choices = Array.isArray(tally.choices) ? tally.choices : [];
+    lifecycleResults.set(liveItemId, {
+      ...prev,
+      response_count: Number(tally.response_count ?? prev.response_count) || 0,
+      tally: {
+        ...(prev.tally && typeof prev.tally === "object" ? prev.tally : {}),
+        ...tally,
+        choices,
+      },
+    });
+    paintLifecycleBarsInPlace(liveItemId);
+  }
+}
+
+/**
+ * Replace or insert the bar graph on one individual card.
+ *
+ * The teacher highlight stays on. Close is not required.
+ * @param {number} liveItemId
+ */
+function paintLifecycleBarsInPlace(liveItemId) {
+  const host = $("live-question-list");
+  if (!host || !liveItemId) return;
+  const card = host.querySelector(
+    `.live-question-card[data-live-item-id="${liveItemId}"]`
+  );
+  if (!card) return;
+  const result = lifecycleResults.get(liveItemId) || {};
+  const tally = result.tally;
+  if (!tally || !Array.isArray(tally.choices) || !tally.choices.length) return;
+  const row = lastLiveItems.find((item) => Number(item?.id) === liveItemId) || {};
+  const itemKey = mcGraphItemKey(liveItemId, row);
+  const pref = mcGraphPref(itemKey);
+  const signature = [
+    pref.order,
+    pref.showKey ? "1" : "0",
+    tally.choices
+      .map((choice) => `${choice?.id}:${choice?.count}:${choice?.correct ? 1 : 0}`)
+      .join("|"),
+  ].join(";");
+  const existing = card.querySelector(".mc-results-graph");
+  if (existing && existing.getAttribute("data-mc-live") === signature) return;
+  const question = row.item && typeof row.item === "object" ? row.item : {};
+  const html = individualLifecycleResultsHtml(tally, itemKey, {
+    correctValue: question.correct_answer ?? question.key,
+    tolerance: question.tolerance,
+    toleranceKind: question.tolerance_kind,
+  });
+  if (!html) return;
+  if (existing) existing.outerHTML = html;
+  else {
+    const progress = card.querySelector(".live-question-progress");
+    if (progress) progress.insertAdjacentHTML("beforebegin", html);
+    else card.querySelector(".live-question-card-main")?.insertAdjacentHTML("beforeend", html);
+  }
+  const painted = card.querySelector(".mc-results-graph");
+  if (painted) painted.setAttribute("data-mc-live", signature);
+}
+
+/**
  * Patch one individual card's "N / M answered" line without remounting.
- * Light /state ticks only send ``lifecycle_response_counts``; the full card
- * paint runs on full ticks. Eligible stays from the last full results.
+ * Eligible stays from the last full results.
  * @param {number} liveItemId
  */
 function paintLifecycleProgressInPlace(liveItemId) {
@@ -6373,6 +6444,7 @@ function paintLiveQuestionCards() {
       const numericOpts = {
         order: graphPref.order,
         showKey: graphPref.showKey,
+        markKey: true,
         controls: true,
         itemKey: graphKey,
         correctValue: answerKey,
@@ -6385,6 +6457,7 @@ function paintLiveQuestionCards() {
             mcResultsGraphHtml(fallbackTally, {
               order: graphPref.order,
               showKey: graphPref.showKey,
+              markKey: true,
               controls: true,
               itemKey: graphKey,
             })
@@ -6667,6 +6740,7 @@ function individualLifecycleResultsHtml(tally, itemKey, numeric = {}) {
   const shared = {
     order: pref.order,
     showKey: pref.showKey,
+    markKey: true,
     controls: true,
     itemKey: String(itemKey || ""),
   };
@@ -8658,7 +8732,8 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
     adoptLifecycleResponseCounts(
       payload?.lifecycle_response_counts,
-      payload?.lifecycle_rank_revs
+      payload?.lifecycle_rank_revs,
+      payload?.lifecycle_choice_tallies
     );
     applyMcTally(payload?.mc_tally);
     if (!wantFull) adoptLightGroupResults(payload?.group_results);
@@ -8766,6 +8841,7 @@ function startStaffNewsWire(sessionId) {
       }
       if (event && event.type === "board_show") return;
       if (event && event.type === "surface_show") return;
+      if (event && event.type === "results_view") return;
       staffNewsFetch = true;
       const board = newsPaintsBoardInPlace(event);
       void pollLiveSessionAttendees({ fromNews: true, board: board });

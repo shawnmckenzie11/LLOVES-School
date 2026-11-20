@@ -236,7 +236,7 @@ def build_mc_tally(
     denom = responded if responded > 0 else 0
     choices_out: list[dict[str, Any]] = []
     for letter, label, count in zip(letters, labels, count_list):
-        pct = int(round(100.0 * count / denom)) if denom else 0
+        pct = share_percent(count, denom)
         choices_out.append(
             {
                 "id": letter,
@@ -567,7 +567,7 @@ def build_numeric_tally(
     for bar_id, bar in ordered:
         count = int(bar["count"])
         count_list.append(count)
-        pct = int(round(100.0 * count / denom)) if denom else 0
+        pct = share_percent(count, denom)
         choices_out.append(
             {
                 "id": bar_id,
@@ -584,7 +584,7 @@ def build_numeric_tally(
                 "id": "other",
                 "label": "Other",
                 "count": other_count,
-                "pct": int(round(100.0 * other_count / denom)) if denom else 0,
+                "pct": share_percent(other_count, denom),
                 "correct": False,
                 "other": True,
             }
@@ -605,6 +605,135 @@ def build_numeric_tally(
         "other_count": other_count,
         "response_seq": _fingerprint(count_list, responded + other_count),
     }
+
+
+
+def share_percent(count: int, total: int) -> int:
+    """Percent for one bar, rounded on its own.
+
+    Equal counts get the same percent. The bars are not nudged so
+    they add to 100.
+
+    Args:
+        count: Answers in this bar.
+        total: Answers across the bars being shown.
+
+    Returns:
+        An integer percent from 0 to 100. A total of zero is 0.
+    """
+    if int(total) <= 0:
+        return 0
+    return int(round((100.0 * int(count)) / int(total)))
+
+
+def student_results_graph_payload(
+    tally: dict[str, Any] | None,
+    *,
+    reveal: bool,
+) -> dict[str, Any] | None:
+    """Counts and percents for the student bar graph.
+
+    The student copy has no names, no per-student picks, and no answer
+    key unless ``reveal`` is true. Reveal does not rewrite stored
+    responses.
+
+    Args:
+        tally: Staff tally from ``build_live_tally``, or None.
+        reveal: True when the teacher Show answer toggle is on.
+
+    Returns:
+        ``kind``, ``response_count``, and ``choices`` of id, label,
+        count, and pct. ``response_count`` is how many answers the
+        class has, not who gave them. The correct mark and numeric key
+        are included only while revealed. ``None`` when ``tally`` is
+        not a dict.
+    """
+    if not isinstance(tally, dict):
+        return None
+    choices: list[dict[str, Any]] = []
+    for row in tally.get("choices") or []:
+        if not isinstance(row, dict):
+            continue
+        choice: dict[str, Any] = {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "count": int(row.get("count") or 0),
+            "pct": 0,
+        }
+        if row.get("other") is True:
+            choice["other"] = True
+        if reveal and row.get("correct") is True:
+            choice["correct"] = True
+        choices.append(choice)
+    total = sum(int(choice["count"]) for choice in choices)
+    for choice in choices:
+        choice["pct"] = share_percent(int(choice["count"]), total)
+    out: dict[str, Any] = {
+        "kind": str(tally.get("kind") or "mc"),
+        "choices": choices,
+    }
+    answered = tally.get("response_count")
+    if answered in (None, ""):
+        answered = tally.get("responded")
+    try:
+        answered_n = int(answered) if answered not in (None, "") else total
+    except (TypeError, ValueError):
+        answered_n = total
+    out["response_count"] = answered_n
+    if tally.get("other_count") not in (None, ""):
+        out["other_count"] = int(tally.get("other_count") or 0)
+    if reveal:
+        for key in ("correct_value", "tolerance", "tolerance_kind"):
+            if tally.get(key) not in (None, ""):
+                out[key] = tally.get(key)
+    return out
+
+
+def teacher_live_bar_tally(tally: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Choice counts for the teacher bar graph on a light poll.
+
+    The correct bar stays marked. Names and per-student rows are not
+    copied. This is the staff light-poll slice, not the student payload.
+
+    Args:
+        tally: Staff tally from ``build_live_tally``, or None.
+
+    Returns:
+        ``kind``, ``choices``, and ``response_count``, or None when
+        there is nothing to graph.
+    """
+    if not isinstance(tally, dict):
+        return None
+    choices: list[dict[str, Any]] = []
+    total = 0
+    for row in tally.get("choices") or []:
+        if not isinstance(row, dict):
+            continue
+        count = int(row.get("count") or 0)
+        total += count
+        choice: dict[str, Any] = {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "count": count,
+            "pct": 0,
+            "correct": bool(row.get("correct")),
+        }
+        if row.get("other") is True:
+            choice["other"] = True
+        choices.append(choice)
+    if not choices:
+        return None
+    total = sum(int(choice["count"]) for choice in choices)
+    for choice in choices:
+        choice["pct"] = share_percent(int(choice["count"]), total)
+    out: dict[str, Any] = {
+        "kind": str(tally.get("kind") or "mc"),
+        "choices": choices,
+        "response_count": int(tally.get("response_count") or total),
+    }
+    if tally.get("other_count") not in (None, ""):
+        out["other_count"] = int(tally.get("other_count") or 0)
+    return out
 
 
 def build_live_tally(

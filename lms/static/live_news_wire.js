@@ -122,6 +122,7 @@ const LIGHT_TYPES = new Set([
   "board_ink",
   "board_show",
   "surface_show",
+  "results_view",
   "google_slide",
 ]);
 
@@ -171,7 +172,8 @@ export function newsPaintsImmediately(event) {
     type === "board_ink" ||
     type === "board_show" ||
     type === "google_slide" ||
-    type === "surface_show"
+    type === "surface_show" ||
+    type === "results_view"
   ) {
     return true;
   }
@@ -317,6 +319,7 @@ export function connectLiveNewsWire(sessionId, handlers) {
       "board_ink",
       "board_show",
       "surface_show",
+      "results_view",
       "google_slide",
       "busy",
       "ping",
