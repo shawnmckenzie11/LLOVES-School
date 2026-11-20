@@ -6354,6 +6354,91 @@ function applyPushedQuestionCard(card) {
  * Does not fetch ``/state``. A later full snapshot drops the override.
  * @param {any} event
  */
+/**
+ * True when a revealed answer is this bar.
+ *
+ * Letters, labels, and nearby numeric values all count. A short answer
+ * is never treated as a different bar.
+ * @param {any} choice
+ * @param {string} answer
+ * @returns {boolean}
+ */
+function choiceMatchesRevealedAnswer(choice, answer) {
+  const wanted = String(answer || "").trim();
+  if (!wanted) return false;
+  const label = String(choice?.label ?? "").trim();
+  const id = String(choice?.id ?? "").trim();
+  if (label === wanted || id === wanted) return true;
+  if (label.toUpperCase() === wanted.toUpperCase() || id.toUpperCase() === wanted.toUpperCase()) {
+    return true;
+  }
+  const left = Number(wanted);
+  const right = Number(String(label).replace(/^≈/, ""));
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+  return Math.abs(left - right) <= Math.max(0.05, Math.abs(left) * 0.02);
+}
+
+/**
+ * Mark or clear the correct bar on a tally the phone already has.
+ *
+ * Does not fetch results. Hiding removes every key field.
+ * @param {any} results
+ * @param {boolean} reveal
+ * @param {string} answer
+ */
+function applyResultsViewToTally(results, reveal, answer) {
+  if (!results || typeof results !== "object") return;
+  const choices = Array.isArray(results.choices) ? results.choices : [];
+  if (!reveal) {
+    for (const choice of choices) {
+      if (choice && typeof choice === "object") delete choice.correct;
+    }
+    delete results.correct;
+    delete results.correct_answer;
+    delete results.correct_value;
+    delete results.correct_ids;
+    delete results.key;
+    delete results.answer_key;
+    delete results.tolerance;
+    delete results.tolerance_kind;
+    return;
+  }
+  // An order change while the answer is already showing does not repeat it.
+  if (!answer) return;
+  for (const choice of choices) {
+    if (!choice || typeof choice !== "object") continue;
+    choice.correct = choiceMatchesRevealedAnswer(choice, answer);
+  }
+  if (String(results.kind || "") === "numeric") results.correct_value = answer;
+}
+
+/**
+ * Apply one class-wide Show answer / order postcard in place.
+ *
+ * The event is the order mode and the reveal flag. The answer is used
+ * only when this postcard includes it. No ``/state`` refetch.
+ * @param {any} event
+ */
+function applyResultsView(event) {
+  if (!lastStudentPayload || !event) return;
+  const itemId = String(event.item_id || "");
+  if (!itemId) return;
+  const reveal = Number(event.reveal) === 1 || event.reveal === true;
+  const order = event.order === "ranked" ? "ranked" : "default";
+  const answer = reveal ? String(event.answer || "") : "";
+  for (const key of ["active_questions", "closed_results", "live_items"]) {
+    const rows = lastStudentPayload[key];
+    if (!Array.isArray(rows)) continue;
+    for (const item of rows) {
+      if (String(item?.id || "") !== itemId) continue;
+      item.show_answer = reveal;
+      item.results_order = order;
+      applyResultsViewToTally(item.results, reveal, answer);
+    }
+  }
+  paintLifecycleQuestionStack(lastStudentPayload);
+}
+
 function applySurfaceShow(event) {
   const surface = String(event?.surface || "");
   const mode = String(event?.mode || "none");
@@ -6428,6 +6513,10 @@ function ensureStudentNewsWire(sessionId) {
       }
       if (event && (event.type === "board_ink" || event.type === "board_show")) {
         if (boardFeature) kickStudentBoardDelta(true);
+        return;
+      }
+      if (event && event.type === "results_view") {
+        applyResultsView(event);
         return;
       }
       if (event && event.type === "surface_show") {

@@ -178,8 +178,12 @@ class StudentResultsGraphTests(unittest.TestCase):
         self.assertIn("show_answer", persist)
         self.assertIn("results_order", persist)
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
-        self.assertIn("body.student-portal .mc-results-graph {", css)
-        self.assertIn("body.student-portal .mc-results-row.is-correct .mc-results-fill {", css)
+        self.assertIn('@import url("mc_results_graph.css");', css)
+        self.assertNotIn("body.student-portal .mc-results-graph {", css)
+        shared = (LMS_DIR / "static" / "mc_results_graph.css").read_text(encoding="utf-8")
+        self.assertIn(".mc-results-row.is-correct .mc-results-fill {", shared)
+        staff_css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn('@import url("mc_results_graph.css");', staff_css)
 
     def test_tally_waits_for_submit_then_follows_show_answer(self) -> None:
         """Unpublished stays hidden. Counts move live. The key follows the toggle."""

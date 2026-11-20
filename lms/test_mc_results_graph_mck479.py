@@ -48,14 +48,17 @@ class McResultsGraphTests(unittest.TestCase):
         self.assertNotIn("live-item-chart", chart)
         student = (LMS_DIR / "static" / "live_question_card.js").read_text(encoding="utf-8")
         self.assertIn("stripDuplicateOptionTable(", student)
-        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("body.staff-shell .mc-results-graph {", css)
-        self.assertIn("body.staff-shell.is-student-view .mc-results-graph {", css)
-        bars = css.split("body.staff-shell .mc-results-bars {")[1].split("}")[0]
+        css = (LMS_DIR / "static" / "mc_results_graph.css").read_text(encoding="utf-8")
+        self.assertIn(".mc-results-graph {", css)
+        self.assertIn("color: #12202e", css)
+        bars = css.split(".mc-results-bars,")[1].split("}")[0]
         self.assertIn("grid-template-columns:", bars)
-        row = css.split("body.staff-shell .mc-results-row {")[1].split("}")[0]
+        row = css.split(".mc-results-row {")[1].split("}")[0]
         self.assertIn("grid-template-columns: subgrid", row)
         self.assertNotIn("minmax(5rem, 0.8fr)", row)
+        for name in ("staff-shell.css", "student-portal.css"):
+            sheet = (LMS_DIR / "static" / name).read_text(encoding="utf-8")
+            self.assertIn('@import url("mc_results_graph.css");', sheet)
 
 
 if __name__ == "__main__":

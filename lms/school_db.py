@@ -115,7 +115,14 @@ try:
         filter_by_type as filter_bank_by_type,
         type_counts as bank_type_counts,
     )
-    from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
+    from live_mc import (
+        build_live_tally,
+        build_mc_tally,
+        extract_choice_labels,
+        numeric_prompt_without_key,
+        student_results_graph_payload,
+        teacher_live_bar_tally,
+    )
     from rank_alias import RankAliases, rank_aliases
     from group_engagement import (
         MC_EARNED,
@@ -292,7 +299,14 @@ except ImportError:  # ``python3 lms/app.py`` package import
         filter_by_type as filter_bank_by_type,
         type_counts as bank_type_counts,
     )
-    from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
+    from lms.live_mc import (
+        build_live_tally,
+        build_mc_tally,
+        extract_choice_labels,
+        numeric_prompt_without_key,
+        student_results_graph_payload,
+        teacher_live_bar_tally,
+    )
     from lms.rank_alias import RankAliases, rank_aliases
     from lms.group_engagement import (
         MC_EARNED,
@@ -24565,6 +24579,37 @@ class SchoolDB(LovesDB):
             self._sync_whiteboard_collab(session_id, stored_publish)
         return self.get_live_session_item(session_id, int(item["id"]))
 
+    def results_view_answer(self, item: dict[str, Any]) -> str:
+        """The answer string a reveal postcard may carry once.
+
+        Multiple choice uses the keyed option's label so a phone can
+        mark that bar. Numeric uses the authored value. Empty when
+        there is no singular key.
+
+        Args:
+            item: Lifecycle row, with its nested catalogue item.
+
+        Returns:
+            The student-visible answer text, or ``""``.
+        """
+        prompt = self._prompt_for_live_item(item)
+        payload: dict[str, Any] = {}
+        if isinstance(prompt, dict) and isinstance(prompt.get("payload"), dict):
+            payload = prompt["payload"]
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        key = self._singular_question_key(payload) or self._singular_question_key(
+            question
+        )
+        if self._question_answer_kind(item) == "numeric":
+            return key
+        labels = extract_choice_labels(payload) or extract_choice_labels(question)
+        letter = key.strip().upper()
+        if len(letter) == 1 and letter in "ABCDEFGH" and labels:
+            index = "ABCDEFGH".index(letter)
+            if index < len(labels):
+                return labels[index]
+        return key
+
     def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
         """Return independently active question prompts in placement order."""
 
@@ -30079,7 +30124,7 @@ class SchoolDB(LovesDB):
             ``{live_session_items.id: response_count}`` for active/closed
             question rows on the teacher's current stage.
         """
-        counts, _revs = self._lifecycle_light_signals(session_id)
+        counts, _revs, _tallies = self._lifecycle_light_signals(session_id)
         return counts
 
     def lifecycle_rank_revisions(self, session_id: int) -> dict[int, str]:
@@ -30094,28 +30139,36 @@ class SchoolDB(LovesDB):
         Returns:
             ``{live_session_items.id: revision}`` for rank items on stage.
         """
-        _counts, revs = self._lifecycle_light_signals(session_id)
+        _counts, revs, _tallies = self._lifecycle_light_signals(session_id)
         return revs
 
     def _lifecycle_light_signals(
         self, session_id: int
-    ) -> tuple[dict[int, int], dict[int, str]]:
-        """Count answers and stamp rank items for one light staff poll.
+    ) -> tuple[dict[int, int], dict[int, str], dict[int, dict[str, Any]]]:
+        """Count answers, stamp rank items, and tally MC and numeric bars.
+
+        The choice tallies ride the same light poll as the response
+        counts so the teacher bars and the "N / M" line cannot disagree.
+        Close is not required. Each tally is counts and percents with the
+        correct bar marked, and it names nobody.
 
         Args:
             session_id: ``live_class_sessions.id``.
 
         Returns:
-            ``(counts, rank_revs)``. Rank revisions are empty when the item
-            is not rank. Failures inside one item skip that item.
+            ``(counts, rank_revs, choice_tallies)``. Rank revisions are
+            empty when the item is not rank. Choice tallies cover
+            individual MC and numeric rows. Failures inside one item
+            skip that item.
         """
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
-            return {}, {}
+            return {}, {}, {}
         stage = str(teacher.get("stage") or "").strip().lower()
         counts: dict[int, int] = {}
         revs: dict[int, str] = {}
+        tallies: dict[int, dict[str, Any]] = {}
         for item in self.list_live_session_items(session_id):
             if str(item.get("status") or "") not in {"active", "closed"}:
                 continue
@@ -30152,14 +30205,32 @@ class SchoolDB(LovesDB):
                 continue
             responses = self.list_live_prompt_responses(int(prompt["id"]))
             counts[item_id] = len(responses)
-            if self._question_answer_kind(item) == "rank":
+            kind = self._question_answer_kind(item)
+            if kind == "rank":
                 stamps = [
                     str(row.get("updated_at") or "")
                     for row in responses
                     if isinstance(row, dict)
                 ]
                 revs[item_id] = max(stamps) if stamps else ""
-        return counts, revs
+            elif (
+                str(item.get("response_mode") or "") == "individual"
+                and kind in {"mc", "numeric", "poll"}
+            ):
+                try:
+                    built = build_live_tally(
+                        prompt,
+                        responses=responses,
+                        present=0,
+                        teacher_state=teacher,
+                    )
+                    thin = teacher_live_bar_tally(built)
+                except (TypeError, ValueError):
+                    thin = None
+                if isinstance(thin, dict):
+                    thin["response_count"] = len(responses)
+                    tallies[item_id] = thin
+        return counts, revs, tallies
 
     def _group_rank_light_token(self, live_item_id: int) -> tuple[int, str]:
         """Return submitted-team count and a revision for one group rank item.
@@ -35184,7 +35255,7 @@ class SchoolDB(LovesDB):
                 out["tolerance"] = payload.get("tolerance")
             if payload.get("tolerance_kind") not in (None, ""):
                 out["tolerance_kind"] = payload.get("tolerance_kind")
-        return out
+        return student_results_graph_payload(out, reveal=shown)
 
     def _student_key_visible(
         self,
@@ -53382,16 +53453,18 @@ class SchoolDB(LovesDB):
             session_id,
             "lifecycle_response_counts",
             lambda: self._lifecycle_light_signals(session_id),
-            ({}, {}),
+            ({}, {}, {}),
         )
         if (
             isinstance(answer_signals, tuple)
-            and len(answer_signals) == 2
+            and len(answer_signals) >= 2
             and isinstance(answer_signals[0], dict)
             and isinstance(answer_signals[1], dict)
         ):
             payload["lifecycle_response_counts"] = answer_signals[0]
             payload["lifecycle_rank_revs"] = answer_signals[1]
+            if len(answer_signals) >= 3 and isinstance(answer_signals[2], dict):
+                payload["lifecycle_choice_tallies"] = answer_signals[2]
         if light:
             payload["group_results"] = live_state_field(
                 session_id,

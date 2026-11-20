@@ -607,6 +607,100 @@ def build_numeric_tally(
     }
 
 
+def student_results_graph_payload(
+    tally: dict[str, Any] | None,
+    *,
+    reveal: bool,
+) -> dict[str, Any] | None:
+    """Counts and percents for the student bar graph.
+
+    The student copy has no names, no per-student picks, and no answer
+    key unless ``reveal`` is true. Reveal does not rewrite stored
+    responses.
+
+    Args:
+        tally: Staff tally from ``build_live_tally``, or None.
+        reveal: True when the teacher Show answer toggle is on.
+
+    Returns:
+        ``kind`` plus ``choices`` of id, label, count, and pct. The
+        correct mark and numeric key are included only while revealed.
+        ``None`` when ``tally`` is not a dict.
+    """
+    if not isinstance(tally, dict):
+        return None
+    choices: list[dict[str, Any]] = []
+    for row in tally.get("choices") or []:
+        if not isinstance(row, dict):
+            continue
+        choice: dict[str, Any] = {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "count": int(row.get("count") or 0),
+            "pct": int(row.get("pct") or 0),
+        }
+        if row.get("other") is True:
+            choice["other"] = True
+        if reveal and row.get("correct") is True:
+            choice["correct"] = True
+        choices.append(choice)
+    out: dict[str, Any] = {
+        "kind": str(tally.get("kind") or "mc"),
+        "choices": choices,
+    }
+    if tally.get("other_count") not in (None, ""):
+        out["other_count"] = int(tally.get("other_count") or 0)
+    if reveal:
+        for key in ("correct_value", "tolerance", "tolerance_kind"):
+            if tally.get(key) not in (None, ""):
+                out[key] = tally.get(key)
+    return out
+
+
+def teacher_live_bar_tally(tally: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Choice counts for the teacher bar graph on a light poll.
+
+    The correct bar stays marked. Names and per-student rows are not
+    copied. This is the staff light-poll slice, not the student payload.
+
+    Args:
+        tally: Staff tally from ``build_live_tally``, or None.
+
+    Returns:
+        ``kind``, ``choices``, and ``response_count``, or None when
+        there is nothing to graph.
+    """
+    if not isinstance(tally, dict):
+        return None
+    choices: list[dict[str, Any]] = []
+    total = 0
+    for row in tally.get("choices") or []:
+        if not isinstance(row, dict):
+            continue
+        count = int(row.get("count") or 0)
+        total += count
+        choice: dict[str, Any] = {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "count": count,
+            "pct": int(row.get("pct") or 0),
+            "correct": bool(row.get("correct")),
+        }
+        if row.get("other") is True:
+            choice["other"] = True
+        choices.append(choice)
+    if not choices:
+        return None
+    out: dict[str, Any] = {
+        "kind": str(tally.get("kind") or "mc"),
+        "choices": choices,
+        "response_count": int(tally.get("response_count") or total),
+    }
+    if tally.get("other_count") not in (None, ""):
+        out["other_count"] = int(tally.get("other_count") or 0)
+    return out
+
+
 def build_live_tally(
     prompt: Any,
     *,

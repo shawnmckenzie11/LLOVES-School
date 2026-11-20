@@ -110,14 +110,85 @@ function barPercent(row, count, total) {
   return Math.round((100 * count) / total);
 }
 
+/** A label longer than this is shortened until the row is tapped. */
+export const RESULTS_LABEL_ELLIPSIS = 24;
+
 /**
- * Bar graph of answer counts. No names. The key highlight is off unless
- * ``showKey`` is true. Controls are the teacher toggles.
+ * One results row: name, bar, count, and the correct mark.
+ *
+ * Short answers stay on one line. Text longer than
+ * {@link RESULTS_LABEL_ELLIPSIS} is marked so a tap can show it all.
+ *
+ * @param {{letter?: string, label: string, pct: number, count: number, marked: boolean}} row
+ * @returns {string}
+ */
+function resultsRowHtml(row) {
+  const label = String(row.label ?? "");
+  const long = [...label].length > RESULTS_LABEL_ELLIPSIS;
+  const letter = row.letter
+    ? `<span class="mc-results-letter">${escapeGraphText(row.letter)}</span>`
+    : "";
+  const marked = row.marked ? " is-correct" : "";
+  const expandable = long ? " is-long" : "";
+  const open = long ? ' tabindex="0" role="button" aria-expanded="false"' : "";
+  return `<div class="mc-results-row${marked}${expandable}"${open}>
+        <span class="mc-results-name">${letter}<span class="mc-results-label">${escapeGraphText(label)}</span></span>
+        <span class="mc-results-track"><span class="mc-results-fill" style="width:${row.pct}%"></span></span>
+        <span class="mc-results-count">${row.count} · ${row.pct}%</span>
+        <span class="mc-results-key">${row.marked ? "Correct" : ""}</span>
+      </div>`;
+}
+
+/**
+ * Show the full answer when a shortened row is tapped or activated.
+ *
+ * Numbers and short answers are not expandable. Safe to call more than
+ * once; the listener is installed on the document once.
+ */
+export function installMcResultsLabelExpand() {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (!root || root.dataset.mcResultsExpand === "1") return;
+  root.dataset.mcResultsExpand = "1";
+  /**
+   * Toggle one long row between the ellipsis and the full answer.
+   * @param {Element} row
+   */
+  const toggle = (row) => {
+    const open = !row.classList.contains("is-expanded");
+    row.classList.toggle("is-expanded", open);
+    row.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("button, a")) return;
+    const row = target.closest(".mc-results-row.is-long");
+    if (!row) return;
+    toggle(row);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!target.classList.contains("is-long")) return;
+    event.preventDefault();
+    toggle(target);
+  });
+}
+
+installMcResultsLabelExpand();
+
+/**
+ * Bar graph of answer counts. No names. The key highlight follows
+ * ``markKey`` (the teacher always marks it; a phone follows Show answer).
+ * ``showKey`` is only the Show answer button. Controls are the teacher toggles.
  *
  * @param {any} tally Existing results tally (``choices`` with count and pct).
  * @param {{
  *   order?: "default"|"ranked",
  *   showKey?: boolean,
+ *   markKey?: boolean,
  *   controls?: boolean,
  *   itemKey?: string,
  * }} [opts]
@@ -128,6 +199,7 @@ export function mcResultsGraphHtml(tally, opts = {}) {
   if (!choices.length) return "";
   const order = opts.order === "ranked" ? "ranked" : "default";
   const showKey = Boolean(opts.showKey);
+  const markKey = opts.markKey == null ? showKey : Boolean(opts.markKey);
   const rows = orderMcChoices(choices, order);
   const total = rows.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
   const keyed = rows.some((row) => row?.correct === true);
@@ -155,16 +227,13 @@ export function mcResultsGraphHtml(tally, opts = {}) {
     .map((row) => {
       const count = Number(row.count) || 0;
       const pct = barPercent(row, count, total);
-      const letter = escapeGraphText(row.id || "");
-      const label = escapeGraphText(row.label ?? row.id ?? "");
-      const marked = showKey && row.correct === true;
-      return `<div class="mc-results-row${marked ? " is-correct" : ""}">
-        <span class="mc-results-letter">${letter}</span>
-        <span class="mc-results-label">${label}</span>
-        <span class="mc-results-track"><span class="mc-results-fill" style="width:${pct}%"></span></span>
-        <span class="mc-results-count">${count} · ${pct}%</span>
-        <span class="mc-results-key">${marked ? "Correct" : ""}</span>
-      </div>`;
+      return resultsRowHtml({
+        letter: String(row.id || ""),
+        label: String(row.label ?? row.id ?? ""),
+        pct,
+        count,
+        marked: markKey && row.correct === true,
+      });
     })
     .join("");
   return `<section class="mc-results-graph" data-mc-graph="${itemKey}" data-mc-order="${order}" data-mc-key="${
@@ -441,6 +510,7 @@ export function planNumericResults(tally, opts = {}) {
  * @param {{
  *   order?: "default"|"ranked",
  *   showKey?: boolean,
+ *   markKey?: boolean,
  *   controls?: boolean,
  *   itemKey?: string,
  *   correctValue?: unknown,
@@ -454,6 +524,7 @@ export function numericResultsGraphHtml(tally, opts = {}) {
   if (!plan.rows.length && !plan.other) return "";
   const order = opts.order === "ranked" ? "ranked" : "default";
   const showKey = Boolean(opts.showKey);
+  const markKey = opts.markKey == null ? showKey : Boolean(opts.markKey);
   const keyed = plan.rows.some((row) => row.correct === true) || Number.isFinite(Number(opts.correctValue));
   const itemKey = escapeGraphText(opts.itemKey || "");
   const total = plan.rows.reduce((sum, row) => sum + (Number(row.count) || 0), 0) + plan.other;
@@ -480,13 +551,12 @@ export function numericResultsGraphHtml(tally, opts = {}) {
     .map((row) => {
       const count = Number(row.count) || 0;
       const pct = total ? Math.round((100 * count) / total) : 0;
-      const marked = showKey && row.correct === true;
-      return `<div class="mc-results-row${marked ? " is-correct" : ""}">
-        <span class="mc-results-label">${escapeGraphText(row.label)}</span>
-        <span class="mc-results-track"><span class="mc-results-fill" style="width:${pct}%"></span></span>
-        <span class="mc-results-count">${count} · ${pct}%</span>
-        <span class="mc-results-key">${marked ? "Correct" : ""}</span>
-      </div>`;
+      return resultsRowHtml({
+        label: String(row.label ?? ""),
+        pct,
+        count,
+        marked: markKey && row.correct === true,
+      });
     })
     .join("");
   const other = plan.other
