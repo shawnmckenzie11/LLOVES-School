@@ -171,6 +171,32 @@ def _canonical_mode(raw: Any) -> str:
     return aliases.get(token, token.replace(" ", "_"))
 
 
+def _event_worth(row: Mapping[str, Any]) -> int:
+    """Points one event contributes. A missing value stays 1.
+
+    Whiteboard polls store ``worth`` on the offer and on the completion.
+    Text polls omit it, so they stay one point.
+
+    Args:
+        row: Engagement event, payload parsed or still JSON text.
+    """
+    payload = row.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
+    if not isinstance(payload, dict) or "worth" not in payload:
+        return 1
+    try:
+        value = float(payload.get("worth"))
+    except (TypeError, ValueError):
+        return 1
+    if value <= 0:
+        return 0
+    return int(value + 0.5)
+
+
 def _count_event(signal: str, row: Mapping[str, Any], tallies: dict[tuple[int | None, str], set[Any]]) -> None:
     """Accumulate one event into per-student distinct-item tallies."""
     kind = str(row.get("kind") or "")
@@ -195,6 +221,9 @@ def _count_event(signal: str, row: Mapping[str, Any], tallies: dict[tuple[int | 
         ops = int(payload.get("ops") or 1) if isinstance(payload, dict) else 1
         tallies.setdefault(key, set()).add(("board", ops))
         return
+    if signal == "individual_answer":
+        tallies.setdefault(key, set()).add(("ia", str(item), _event_worth(row)))
+        return
     tallies.setdefault(key, set()).add(str(item))
 
 
@@ -203,6 +232,15 @@ def _tally_count(signal: str, items: set[Any]) -> int:
         return sum(int(x[1]) for x in items if isinstance(x, tuple) and x[0] == "board")
     if signal == "group_draft":
         return len(items)
+    if signal == "individual_answer":
+        best: dict[str, int] = {}
+        for entry in items:
+            if isinstance(entry, tuple) and len(entry) == 3 and entry[0] == "ia":
+                best[str(entry[1])] = max(best.get(str(entry[1]), 0), int(entry[2]))
+            else:
+                token = str(entry)
+                best[token] = max(best.get(token, 0), 1)
+        return sum(best.values())
     return len(items)
 
 
@@ -244,13 +282,14 @@ def compute_rollup(
         Flat list of ``RollupRow`` for students and teams.
     """
     students = sorted({int(s) for s in student_ids})
-    offers_by_signal: dict[str, list[datetime]] = {s: [] for s in SIGNALS}
+    offers_by_signal: dict[str, list[tuple[datetime, int]]] = {s: [] for s in SIGNALS}
     for row in events:
         if str(row.get("kind") or "") != "item.offered":
             continue
         mode = _canonical_mode((row.get("payload") or {}).get("mode"))
+        worth = _event_worth(row)
         for sig in _MODE_OFFERS.get(mode, ()):
-            offers_by_signal.setdefault(sig, []).append(_parse_ts(str(row["ts"])))
+            offers_by_signal.setdefault(sig, []).append((_parse_ts(str(row["ts"])), worth))
 
     run_offered_any: dict[str, bool] = {sig: bool(offers_by_signal.get(sig)) for sig in ITEM_SIGNALS}
 
@@ -277,8 +316,8 @@ def compute_rollup(
         if not intervals:
             return 0
         return sum(
-            1
-            for moment in offers_by_signal.get(sig, [])
+            worth
+            for moment, worth in offers_by_signal.get(sig, [])
             if _present_at(intervals, moment)
         )
 
@@ -331,7 +370,7 @@ def compute_rollup(
             elif not run_offered_any.get(sig):
                 offered = None
             else:
-                offered = len(offers_by_signal.get(sig, []))
+                offered = sum(worth for _moment, worth in offers_by_signal.get(sig, []))
             rows.append(
                 RollupRow(
                     scope="group",

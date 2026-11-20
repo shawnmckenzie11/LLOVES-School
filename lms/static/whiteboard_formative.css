@@ -532,6 +532,29 @@
   width: 100%;
 }
 
+.wb-live-feedback .qboard-score {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.wb-live-feedback .qboard-score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.wb-live-feedback .qboard-score-row button {
+  min-width: 2rem;
+  min-height: 2rem;
+}
+
+.wb-live-feedback .qboard-score-value {
+  min-width: 3.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .wb-live-feedback .qboard-note-label,
 .wb-live-feedback .qboard-waits,
 body.staff-shell .wb-live-feedback .qboard-note-label,

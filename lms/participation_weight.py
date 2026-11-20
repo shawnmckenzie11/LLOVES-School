@@ -3,9 +3,10 @@
 Each counted question type (MC, numeric, text, rank, an individual drawing,
 and equivalents) counts as one opportunity when it collected at least one
 live-class student response from a real (non–Test Student) student; catch-up
-answers never add opportunities. A submitted individual drawing scores 1 with
-no correctness check, in live class and catch-up alike. Group team draws stay
-out of this fraction.
+answers never add opportunities. An individual whiteboard poll counts as the
+points set when the question was created. A submitted individual drawing
+scores 1 with no correctness check, in live class and catch-up alike. Group
+team draws stay out of this fraction.
 Lesson Slides and Attendance & Participation both import this module so
 numerators and denominators stay aligned.
 """
@@ -152,16 +153,55 @@ def item_counts_for_participation(prompt_kind: str, item_json: Any = None) -> bo
     return qtype in _COUNTED_JSON_TYPES
 
 
+def board_poll_worth(prompt_kind: str, item_json: Any = None) -> int | None:
+    """Points an individual whiteboard poll is worth, or None when it is not one.
+
+    Text-only polls return None so they keep a flat 1. A missing points
+    value is 1, the number Add New starts from. ``live_points`` set when
+    the question was created wins, then ``points`` and ``points_possible``.
+    A group board is not an individual poll.
+
+    Args:
+        prompt_kind: ``live_session_prompts.kind`` or the JSON type.
+        item_json: Question JSON, text, or a mapping.
+
+    Returns:
+        A whole-point value, or None.
+    """
+    payload = _parse_item_json(item_json)
+    answer_with = str(payload.get("answer_with") or "").strip().lower()
+    if answer_with not in {"board", "both"}:
+        return None
+    if not _is_poll_or_share(prompt_kind, payload):
+        return None
+    if _group_board(payload):
+        return None
+    raw = payload.get("live_points")
+    if raw in (None, ""):
+        raw = payload.get("points", payload.get("points_possible"))
+    if raw in (None, ""):
+        return 1
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 1
+    if value <= 0:
+        return 0
+    return int(value + 0.5)
+
+
 def item_participation_weight(
     prompt_kind: str,
     *,
     publish_mode: str = "individual",
     item_json: Any = None,
 ) -> int:
-    """Return 1 for counted question types, else 0.
+    """Return the points a counted question adds, else 0.
 
-    An individual drawing counts as 1. The weight does not compare the
-    drawing to a key. ``group_submit`` (a team drawing) stays 0.
+    Text, multiple choice, rank, and numeric questions stay 1. An
+    individual whiteboard poll uses the points set when it was created.
+    An individual drawing counts as 1 and is not compared to a key.
+    ``group_submit`` (a team drawing) stays 0.
     """
     payload = _parse_item_json(item_json)
     mode = str(publish_mode or "individual").strip().lower()
@@ -173,7 +213,10 @@ def item_participation_weight(
         return 0
     answer_with = str(payload.get("answer_with") or "").strip().lower()
     if answer_with in {"board", "both"} and _is_poll_or_share(prompt_kind, payload):
-        return 1 if mode == "individual" else 0
+        if mode != "individual":
+            return 0
+        worth = board_poll_worth(prompt_kind, payload)
+        return 1 if worth is None else worth
     return 1
 
 
@@ -260,14 +303,15 @@ def count_student_answered_opportunities(
             include_group=include_group,
         ):
             continue
-        if item_participation_weight(
+        weight = item_participation_weight(
             str(row.get("prompt_kind") or ""),
             publish_mode=str(row.get("publish_mode") or "individual"),
             item_json=row.get("item_json"),
-        ) <= 0:
+        )
+        if weight <= 0:
             continue
         seen.add(key)
-        total += 1
+        total += weight
     return total
 
 
