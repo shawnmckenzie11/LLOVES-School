@@ -1,7 +1,7 @@
 """Teacher-tour helpers for MCK-267.
 
-The live-class steps and the "Run a test live class" checklist item need to
-know whether a run was started as Test. That choice lands with MCK-269.
+The live-class spotlight needs to know whether a run was started as Test.
+That choice lands with MCK-269. An explicit Live run skips those steps.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ def tour_run_type(session: dict[str, Any] | None) -> str:
 
     TODO(MCK-269): Test or Live is chosen at the date step and stored on
     the live session. Until that field exists this returns ``""``. The
-    live-class spotlight still runs (it defaults to a Test class) and
-    "Run a test live class" does not tick, so a Live run is not counted.
+    live-class spotlight still runs. An explicit Live value skips those
+    steps.
 
     Args:
         session: Live-session row, or None when nothing is running.
