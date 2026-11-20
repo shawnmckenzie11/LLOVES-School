@@ -107,6 +107,17 @@ class LiveFixReportTokenTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+        self.seen_auth: dict[str, object] = {}
+
+        def _record_authorization() -> None:
+            """Remember the header after the report-token hook runs."""
+            from flask import g, request
+
+            self.seen_auth["path"] = request.path
+            self.seen_auth["authorization"] = request.environ.get("HTTP_AUTHORIZATION")
+            self.seen_auth["flag"] = getattr(g, "live_fix_report_token", None)
+
+        self.app.before_request(_record_authorization)
         self.school = self.app.config["SCHOOL_DB"]
         self.client = self.app.test_client()
         self.outsider = self.app.test_client()
@@ -340,6 +351,29 @@ class LiveFixReportTokenTests(unittest.TestCase):
         self.assertGreaterEqual(cmp.call_count, 2)
         self.assertEqual([line for line in lines if TOKEN in line], [])
         self.assertTrue(any("[redacted]" in line for line in lines))
+
+    def test_roster_lookup_failure_hides_the_report(self) -> None:
+        """A roster lookup error is a 500 and the body has no student name."""
+
+        def boom(*_args: object, **_kwargs: object) -> None:
+            """Fail the roster lookup."""
+            raise RuntimeError("roster lookup failed")
+
+        with patch("live_fix.roster_secrets", side_effect=boom):
+            response = self.outsider.get(self.latest, headers=self.auth)
+        self.assertEqual(response.status_code, 500)
+        body = response.get_data(as_text=True)
+        self.assertNotIn(STUDENT_NAME, body)
+        self.assertNotIn("Zorblax", body)
+        self.assertNotIn("Quuxley", body)
+
+    def test_non_report_request_keeps_authorization(self) -> None:
+        """A staff route that is not a report leaves the Authorization header in place."""
+        response = self.outsider.get("/api/staff/classes", headers=self.auth)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.seen_auth["path"], "/api/staff/classes")
+        self.assertEqual(self.seen_auth["authorization"], f"Bearer {TOKEN}")
+        self.assertIsNone(self.seen_auth["flag"])
 
     def test_sentry_before_send_drops_the_authorization_header(self) -> None:
         """The existing Sentry scrubber removes the report token's header."""

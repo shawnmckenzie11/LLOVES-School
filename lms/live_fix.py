@@ -247,6 +247,10 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
 
     Returns:
         Secrets of at least three characters, longest first.
+
+    Raises:
+        Exception: A roster or visit-token lookup failed. Callers must not
+            send free text when this list is incomplete.
     """
     found: list[str] = []
     code = str(session_row.get("session_code") or "").strip()
@@ -266,10 +270,7 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
     game = getattr(school, "game", None)
     conn = getattr(game, "conn", None)
     if conn is not None:
-        try:
-            columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(students)")]
-        except Exception:
-            columns = []
+        columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(students)")]
         wanted = [
             name
             for name in ("codename", "first_name", "last_name", "email", "student_raw")
@@ -279,10 +280,7 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
             sql = (
                 f"SELECT {', '.join(wanted)} FROM students WHERE class_id = ?"
             )
-            try:
-                rows = conn.execute(sql, (int(class_id),)).fetchall()
-            except Exception:
-                rows = []
+            rows = conn.execute(sql, (int(class_id),)).fetchall()
             for row in rows:
                 for value in row:
                     text = str(value or "").strip()
@@ -291,17 +289,14 @@ def roster_secrets(school: Any, class_id: int, session_row: dict[str, Any]) -> l
     session_id = session_row.get("id")
     conn = getattr(school, "conn", None)
     if session_id not in (None, "") and conn is not None:
-        try:
-            with school._lock:
-                token_rows = conn.execute(
-                    """
-                    SELECT visit_token FROM live_session_attendees
-                    WHERE live_session_id = ?
-                    """,
-                    (int(session_id),),
-                ).fetchall()
-        except Exception:
-            token_rows = []
+        with school._lock:
+            token_rows = conn.execute(
+                """
+                SELECT visit_token FROM live_session_attendees
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
         for row in token_rows:
             token = str(row["visit_token"] or "").strip()
             if len(token) >= 8:
@@ -1812,16 +1807,26 @@ def bearer_token_matches(header: str) -> bool:
         return False
 
 
+_REPORT_TOKEN_ENDPOINTS = frozenset(
+    {
+        "staff_live_fix_reports",
+        "staff_live_fix_report_latest",
+        "staff_live_fix_report",
+    }
+)
+
+
 def prepare_report_token_request() -> None:
     """Check the report bearer token, then drop Authorization.
 
-    Runs at the start of the request so later logs, the view, and the
-    Sentry request hook do not see the header. The raw token is not
-    stored. ``g.live_fix_report_token`` is set only for a match, and only
-    the three report GETs read that flag.
+    Only the three End Class report GETs are touched. Every other
+    request keeps its Authorization header, and the token flag is left
+    unset. The raw token is not stored.
     """
     from flask import g, request
 
+    if request.endpoint not in _REPORT_TOKEN_ENDPOINTS:
+        return
     raw = request.environ.pop("HTTP_AUTHORIZATION", None)
     header = raw if isinstance(raw, str) else ""
     g.live_fix_report_token = bearer_token_matches(header)
@@ -2029,43 +2034,42 @@ def report_token_secrets(school: Any, class_id: int) -> list[str]:
     Args:
         school: Open school database.
         class_id: Game-show ``classes.id``.
+
+    Raises:
+        Exception: A class, roster, or visit-token lookup failed. The
+            token response must not be sent from a partial list.
     """
     found: list[str] = []
     session_row: dict[str, Any] = {"session_code": "", "teacher_user_id": None}
     pin_rows: list[Any] = []
-    try:
-        with school._lock:
-            sessions = school.conn.execute(
+    with school._lock:
+        sessions = school.conn.execute(
+            """
+            SELECT id, session_code, teacher_user_id
+            FROM live_class_sessions
+            WHERE class_id = ?
+            ORDER BY id DESC
+            """,
+            (int(class_id),),
+        ).fetchall()
+        portals = school.conn.execute(
+            """
+            SELECT portal_join_code FROM catchup_links
+            WHERE class_id = ?
+            """,
+            (int(class_id),),
+        ).fetchall()
+        game = getattr(school, "game", None)
+        game_conn = getattr(game, "conn", None)
+        if game_conn is not None:
+            pin_rows = game_conn.execute(
                 """
-                SELECT id, session_code, teacher_user_id
-                FROM live_class_sessions
+                SELECT default_pin_ciphertext FROM students
                 WHERE class_id = ?
-                ORDER BY id DESC
+                  AND TRIM(COALESCE(default_pin_ciphertext, '')) <> ''
                 """,
                 (int(class_id),),
             ).fetchall()
-            portals = school.conn.execute(
-                """
-                SELECT portal_join_code FROM catchup_links
-                WHERE class_id = ?
-                """,
-                (int(class_id),),
-            ).fetchall()
-            game = getattr(school, "game", None)
-            game_conn = getattr(game, "conn", None)
-            if game_conn is not None:
-                pin_rows = game_conn.execute(
-                    """
-                    SELECT default_pin_ciphertext FROM students
-                    WHERE class_id = ?
-                      AND TRIM(COALESCE(default_pin_ciphertext, '')) <> ''
-                    """,
-                    (int(class_id),),
-                ).fetchall()
-    except Exception:
-        sessions = []
-        portals = []
-        pin_rows = []
     if sessions:
         session_row = dict(sessions[0])
         for row in sessions:
@@ -2076,10 +2080,7 @@ def report_token_secrets(school: Any, class_id: int) -> list[str]:
         code = str(row["portal_join_code"] or "").strip()
         if code:
             found.append(code)
-    try:
-        found.extend(roster_secrets(school, int(class_id), session_row))
-    except Exception:
-        pass
+    found.extend(roster_secrets(school, int(class_id), session_row))
     found.extend(_default_pin_secrets(pin_rows))
     return found
 
