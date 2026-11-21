@@ -717,6 +717,7 @@ CREATE TABLE IF NOT EXISTS live_session_items (
     show_live_results INTEGER NOT NULL DEFAULT 1,
     show_answer INTEGER NOT NULL DEFAULT 0,
     results_order TEXT NOT NULL DEFAULT 'default',
+    students_minimized INTEGER NOT NULL DEFAULT 0,
     published_at TEXT,
     closed_at TEXT,
     created_at TEXT NOT NULL,
@@ -5228,6 +5229,7 @@ class LovesDB:
                 show_live_results INTEGER NOT NULL DEFAULT 1,
                 show_answer INTEGER NOT NULL DEFAULT 0,
                 results_order TEXT NOT NULL DEFAULT 'default',
+                students_minimized INTEGER NOT NULL DEFAULT 0,
                 save_to_card INTEGER NOT NULL DEFAULT 0,
                 published_at TEXT,
                 closed_at TEXT,
@@ -5441,6 +5443,13 @@ class LovesDB:
                 """
                 ALTER TABLE live_session_items
                 ADD COLUMN results_order TEXT NOT NULL DEFAULT 'default'
+                """
+            )
+        if "students_minimized" not in item_cols:
+            self.conn.execute(
+                """
+                ALTER TABLE live_session_items
+                ADD COLUMN students_minimized INTEGER NOT NULL DEFAULT 0
                 """
             )
         override_cols = {
@@ -21851,6 +21860,7 @@ class SchoolDB(LovesDB):
         item.pop("item_json", None)
         item["show_live_results"] = bool(item.get("show_live_results"))
         item["show_answer"] = bool(item.get("show_answer"))
+        item["students_minimized"] = bool(item.get("students_minimized"))
         item["results_order"] = (
             "ranked"
             if str(item.get("results_order") or "").strip().lower() == "ranked"
@@ -24451,6 +24461,7 @@ class SchoolDB(LovesDB):
         group_rank_race: Any = None,
         show_answer: Any = None,
         results_order: Any = None,
+        students_minimized: Any = None,
     ) -> dict[str, Any]:
         """Update one item's teacher settings without publishing it.
 
@@ -24475,6 +24486,8 @@ class SchoolDB(LovesDB):
             show_answer: When set, students may see the correct bar.
             results_order: ``default`` (authored or number order) or
                 ``ranked`` (most picked).
+            students_minimized: When set, student screens collapse this
+                open question into a bar. One class flag. Responses stay.
 
         Raises:
             ValueError: When no setting is present or a value is invalid.
@@ -24487,6 +24500,7 @@ class SchoolDB(LovesDB):
             and group_rank_race is None
             and show_answer is None
             and results_order is None
+            and students_minimized is None
         ):
             raise ValueError(
                 "show_live_results, publish_mode, or response_mode is required"
@@ -24558,6 +24572,14 @@ class SchoolDB(LovesDB):
                 raise ValueError("results_order must be default or ranked")
             assignments.append("results_order = ?")
             params.append(token)
+        if students_minimized is not None:
+            # Class-wide display flag. The UPDATE does not read or write
+            # live_session_responses.
+            collapsed = self._coerce_settings_flag(
+                students_minimized, "students_minimized"
+            )
+            assignments.append("students_minimized = ?")
+            params.append(1 if collapsed else 0)
         assignments.append("item_json = ?")
         params.append(json.dumps(question))
         params.extend([_now(), int(item["id"])])
@@ -30919,6 +30941,7 @@ class SchoolDB(LovesDB):
                     "response_mode": item["response_mode"],
                     "show_live_results": bool(item["show_live_results"]),
                     "show_answer": bool(item.get("show_answer")),
+                    "students_minimized": bool(item.get("students_minimized")),
                     "results_order": (
                         "ranked"
                         if str(item.get("results_order") or "") == "ranked"

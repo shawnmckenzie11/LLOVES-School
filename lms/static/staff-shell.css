@@ -6570,6 +6570,24 @@ body.staff-shell .live-q-btn {
   line-height: 1.2;
   white-space: nowrap;
 }
+body.staff-shell .live-minimize-students {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.2rem 0.35rem;
+  color: #64748b;
+  background: transparent;
+  border-color: transparent;
+}
+body.staff-shell .live-minimize-students svg {
+  display: block;
+}
+body.staff-shell .live-minimize-students[aria-pressed="true"] {
+  color: #14532d;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
 body.staff-shell .live-relocate-dialog {
   position: fixed;
   inset: 0;

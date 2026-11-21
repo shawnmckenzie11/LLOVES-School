@@ -241,3 +241,32 @@ if (shownPercents.join(",") !== "17,50,17,17") {
   fail(`equal counts did not share a percent: ${shownPercents.join(",")}`);
 }
 
+const studentCheck = mcResultsGraphHtml(
+  {
+    choices: [
+      {
+        id: "A",
+        label: "A harbour wind that keeps going past twenty four",
+        count: 2,
+        correct: true,
+      },
+      { id: "B", label: "128", count: 1, correct: false },
+    ],
+  },
+  { showKey: true, controls: false, keyMark: "check" }
+);
+if (!studentCheck.includes('class="mc-results-keep">four<span class="mc-results-check"')) {
+  fail("checkmark is not inline after the last word");
+}
+if (!studentCheck.includes('aria-hidden="true">✓</span><span class="visually-hidden">Correct</span>')) {
+  fail("checkmark is missing its screen-reader label");
+}
+if (studentCheck.includes('mc-results-key">Correct')) fail("student row still has a Correct tag");
+const numericCheck = numericResultsGraphHtml(
+  { kind: "numeric", choices: [{ id: "8", label: "8", count: 1, correct: true }] },
+  { showKey: true, controls: false, keyMark: "check", correctValue: 8 }
+);
+if (!numericCheck.includes("mc-results-check") || numericCheck.includes('mc-results-key">Correct')) {
+  fail("numeric student row did not use the check");
+}
+

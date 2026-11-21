@@ -21,6 +21,7 @@ import {
   liveQuestionHeadHtml,
 } from "/static/live_question_card.js";
 import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_graph.js";
+import { cardOwnsLivePrompt } from "/static/live_prompt_once.js";
 import { paintEyesUp } from "/static/eyes_up.js";
 import {
   RECONNECT_PENDING_MS,
@@ -199,6 +200,8 @@ let holdJoinFeedback = false;
 const dismissedPromptIds = new Set();
 /** Question cards and surfaces minimized into the right-hand dock. */
 const dockedLiveCardKeys = new Set();
+/** Cards this phone reopened after the teacher's Minimize. Not stored. */
+const studentReopenedMinimized = new Set();
 /** sessionStorage prefix for minimized questions, one entry per student and run. */
 const DOCKED_QUESTION_STORE = "lloves.dockedQuestions";
 /** ``student:run`` scope restored this page load. Empty before that. */
@@ -3386,6 +3389,7 @@ function lifecycleResultsHtml(results, graph = {}) {
     order: graph.order === "ranked" ? "ranked" : "default",
     showKey: Boolean(graph.showKey),
     controls: false,
+    keyMark: "check",
   };
   if (graphOpts.showKey && String(results?.kind || "") === "numeric") {
     graphOpts.correctValue = results.correct_value;
@@ -4459,6 +4463,60 @@ function sameCatalogueQuestion(item, promptId, alias) {
   return Boolean(alias) && itemAlias === alias && !engineRideAlias(itemAlias);
 }
 
+/**
+ * Short type name for the minimized bar.
+ * @param {unknown} kind Question type token.
+ * @returns {string}
+ */
+function questionKindLabel(kind) {
+  const token = String(kind || "").toLowerCase();
+  if (token === "mc" || token === "multiple_choice") return "Multiple choice";
+  if (token === "numeric") return "Numeric";
+  if (token === "poll" || token === "share") return "Poll";
+  if (token === "rank") return "Rank";
+  if (token === "team_draw") return "Draw";
+  return "Question";
+}
+
+/**
+ * True on a phone, where the question stack is not a side panel.
+ * @returns {boolean}
+ */
+function phoneHasNoSidePanel() {
+  return window.matchMedia("(max-width: 719.98px)").matches;
+}
+
+/**
+ * One slim bar: question type and title. Tapping it reopens the card.
+ * @param {any} item Lifecycle question.
+ * @returns {string}
+ */
+function minimizedBarHtml(item) {
+  const content = item?.content || item?.prompt?.payload || {};
+  const kind = questionKindLabel(content.type || item?.prompt?.kind || "");
+  const title = String(content.text || content.prompt || content.question || "Question").trim() || "Question";
+  return `<button type="button" class="student-minimized-bar" data-restore-minimized="${escapeText(item?.id || "")}">
+    <span class="student-minimized-kind">${escapeText(kind)}</span>
+    <span class="student-minimized-title">${escapeText(title)}</span>
+  </button>`;
+}
+
+/**
+ * Park minimized questions in a bar. Phones pin it above the content.
+ * Wider screens put the same bar at the top of the side panel.
+ * @param {any[]} items Questions the teacher minimized.
+ */
+function paintStudentMinimizedBars(items) {
+  const host = document.getElementById("student-minimized-host");
+  if (!host) return;
+  const rows = Array.isArray(items) ? items : [];
+  host.hidden = rows.length === 0;
+  host.innerHTML = rows.map((item) => minimizedBarHtml(item)).join("");
+  const phone = phoneHasNoSidePanel();
+  const offset = !phone && rows.length ? `${host.offsetHeight + 8}px` : "0px";
+  document.documentElement.style.setProperty("--student-minimized-offset", offset);
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   hydrateUnsentDrafts();
@@ -4507,20 +4565,29 @@ function paintLifecycleQuestionStack(payload) {
   });
   restoreDockedQuestions(payload, all);
   const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
+  const openCards = [];
+  const minimizedCards = [];
+  for (const item of visible) {
+    const id = String(item?.id || "");
+    if (item?.students_minimized && id && !studentReopenedMinimized.has(id)) {
+      minimizedCards.push(item);
+    } else openCards.push(item);
+  }
   paintQuestionDock(all, payload);
+  paintStudentMinimizedBars(minimizedCards);
   const floatingCards = new Map();
   document.querySelectorAll(".student-live-card.is-floating").forEach((card) => {
     const key = card instanceof HTMLElement ? card.dataset.liveCardKey || "" : "";
     if (key) floatingCards.set(key, card);
   });
-  const visibleKeys = new Set(visible.map((item) => liveCardDockKey(item)));
+  const visibleKeys = new Set(openCards.map((item) => liveCardDockKey(item)));
   floatingCards.forEach((card, key) => {
     if (!visibleKeys.has(key) && !paneIsBeingGrabbed(card)) {
       card.remove();
       floatingCards.delete(key);
     }
   });
-  const stacked = visible.filter((item) => !floatingCards.has(liveCardDockKey(item)));
+  const stacked = openCards.filter((item) => !floatingCards.has(liveCardDockKey(item)));
   const renderLiveCard = (item) => {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
@@ -4650,7 +4717,7 @@ function paintLifecycleQuestionStack(payload) {
   mountStudentQuestionBoards();
   void renderLiveQuestionMath(liveQuestionStackBody);
   floatingCards.forEach((card) => void renderLiveQuestionMath(card));
-  visible.forEach((item, index) => {
+  openCards.forEach((item, index) => {
     const key = liveCardDockKey(item);
     const card =
       floatingCards.get(key) ||
@@ -4662,7 +4729,7 @@ function paintLifecycleQuestionStack(payload) {
       bindFloatingPane(card);
     }
   });
-  liveQuestionStack.hidden = visible.length === 0;
+  liveQuestionStack.hidden = openCards.length === 0;
   liveQuestionStack.dataset.hasLifecycle = all.length ? "1" : "0";
   const shownPromptId = Number(payload?.prompt?.id) || 0;
   const shownAlias = catalogueItemAlias({
@@ -4918,6 +4985,17 @@ function paintPrompt(payload) {
     return;
   }
   const prompt = payload.prompt;
+  if (cardOwnsLivePrompt(payload)) {
+    // The side-panel card is this question. The full-width "NUMERIC · slide"
+    // shell is a second copy, so it is not painted.
+    if (promptShell) {
+      promptShell.hidden = true;
+      promptShell.innerHTML = "";
+    }
+    if (questionFrame) questionFrame.hidden = true;
+    lastPromptId = Number(prompt?.id) || null;
+    return;
+  }
   const data = (prompt && prompt.payload) || {};
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
   const isSpark = isTeamsSparkPrompt(payload);
@@ -6413,10 +6491,11 @@ function applyResultsViewToTally(results, reveal, answer) {
 }
 
 /**
- * Apply one class-wide Show answer / order postcard in place.
+ * Apply one class-wide Show answer, order, or Minimize postcard in place.
  *
  * The event is the order mode and the reveal flag. The answer is used
- * only when this postcard includes it. No ``/state`` refetch.
+ * only when this postcard includes it. ``minimized`` is applied only when
+ * this postcard includes it. No ``/state`` refetch and no saved response.
  * @param {any} event
  */
 function applyResultsView(event) {
@@ -6426,6 +6505,9 @@ function applyResultsView(event) {
   const reveal = Number(event.reveal) === 1 || event.reveal === true;
   const order = event.order === "ranked" ? "ranked" : "default";
   const answer = reveal ? String(event.answer || "") : "";
+  const hasMinimized = Object.prototype.hasOwnProperty.call(event, "minimized");
+  const minimized = Number(event.minimized) === 1 || event.minimized === true;
+  if (hasMinimized) studentReopenedMinimized.delete(itemId);
   for (const key of ["active_questions", "closed_results", "live_items"]) {
     const rows = lastStudentPayload[key];
     if (!Array.isArray(rows)) continue;
@@ -6433,6 +6515,7 @@ function applyResultsView(event) {
       if (String(item?.id || "") !== itemId) continue;
       item.show_answer = reveal;
       item.results_order = order;
+      if (hasMinimized) item.students_minimized = minimized;
       applyResultsViewToTally(item.results, reveal, answer);
     }
   }
@@ -6868,6 +6951,10 @@ document.getElementById("live-response")?.addEventListener("keydown", (event) =>
   }
 });
 
+window.matchMedia("(max-width: 719.98px)").addEventListener("change", () => {
+  if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+});
+
 document.getElementById("live-response")?.addEventListener("click", (event) => {
   const dismissSurface = event.target.closest("[data-dismiss-surface]");
   if (dismissSurface instanceof HTMLButtonElement) {
@@ -7067,6 +7154,15 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
           }
         }
       }
+    }
+    return;
+  }
+  const restoreMinimized = event.target.closest("[data-restore-minimized]");
+  if (restoreMinimized instanceof HTMLElement) {
+    const id = String(restoreMinimized.getAttribute("data-restore-minimized") || "");
+    if (id) {
+      studentReopenedMinimized.add(id);
+      paintLifecycleQuestionStack(lastStudentPayload || {});
     }
     return;
   }

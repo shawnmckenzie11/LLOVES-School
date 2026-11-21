@@ -1294,6 +1294,67 @@ function liveItemIdFromGraphKey(itemKey) {
  * @param {{order: "default"|"ranked", showKey: boolean}} pref
  * @returns {Promise<void>}
  */
+/**
+ * Quiet icon for Minimize / Restore. The accessible name is the button label.
+ * @param {boolean} minimized
+ * @returns {string}
+ */
+function studentMinimizeIcon(minimized) {
+  const path = minimized
+    ? "M3 10.5 8 5.5 13 10.5"
+    : "M3 5.5 8 10.5 13 5.5";
+  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="${path}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+/**
+ * Icon button to the left of Close. The teacher's card stays open.
+ * @param {number} liveItemId
+ * @param {unknown} minimized Current class flag.
+ * @returns {string}
+ */
+function studentMinimizeButtonHtml(liveItemId, minimized) {
+  const on = Boolean(minimized);
+  const label = on ? "Restore for students" : "Minimize for students";
+  return `<button type="button" class="secondary live-q-btn live-minimize-students" data-minimize-live-item="${liveItemId}" aria-pressed="${on ? "true" : "false"}" aria-label="${label}">${studentMinimizeIcon(on)}</button>`;
+}
+
+/**
+ * Collapse or restore the open question on student screens.
+ *
+ * One class flag on the existing settings route. Saved responses are not sent.
+ * @param {number} liveItemId
+ * @param {boolean} minimized
+ * @returns {Promise<void>}
+ */
+async function setStudentsMinimized(liveItemId, minimized) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  const id = Number(liveItemId) || 0;
+  if (!sessionId || !id) return;
+  const flag = Boolean(minimized);
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
+  const previous = index >= 0 ? Boolean(lastLiveItems[index].students_minimized) : false;
+  if (index >= 0) {
+    lastLiveItems[index] = { ...lastLiveItems[index], students_minimized: flag };
+  }
+  paintLiveQuestionCards();
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${id}/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ students_minimized: flag }),
+      }
+    );
+    adoptLiveItem(result?.item);
+  } catch (err) {
+    if (index >= 0) {
+      lastLiveItems[index] = { ...lastLiveItems[index], students_minimized: previous };
+    }
+    paintLiveQuestionCards();
+    throw err;
+  }
+}
+
 async function persistMcGraphPref(liveItemId, pref) {
   const sessionId = liveSessionId || readLiveSessionId();
   const id = Number(liveItemId) || 0;
@@ -6566,7 +6627,7 @@ function paintLiveQuestionCards() {
             : "";
       const closeHtml =
         active && liveItemId && !groupChrome
-          ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
+          ? `${studentMinimizeButtonHtml(liveItemId, card.students_minimized)}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
           : "";
       const controlStrip = onStage
         ? liveQuestionControlStrip({
@@ -14375,6 +14436,7 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     return;
   }
   const publish = event.target.closest("button[data-publish-live-item]");
+  const minimizeStudents = event.target.closest("button[data-minimize-live-item]");
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");
   const questionSkip = event.target.closest("button[data-question-skip]");
@@ -14402,6 +14464,13 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     }
     if (publish instanceof HTMLButtonElement) {
       await publishLifecycleItem(Number(publish.dataset.publishLiveItem) || 0);
+      return;
+    }
+    if (minimizeStudents instanceof HTMLButtonElement) {
+      await setStudentsMinimized(
+        Number(minimizeStudents.dataset.minimizeLiveItem) || 0,
+        minimizeStudents.getAttribute("aria-pressed") !== "true"
+      );
       return;
     }
     if (close instanceof HTMLButtonElement) {

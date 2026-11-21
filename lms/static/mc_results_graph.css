@@ -130,6 +130,13 @@
   overflow: visible;
   overflow-wrap: break-word;
 }
+.mc-results-keep {
+  white-space: nowrap;
+}
+.mc-results-check {
+  color: #14532d;
+  font-weight: 800;
+}
 .mc-results-score {
   display: flex;
   flex: 0 0 auto;
