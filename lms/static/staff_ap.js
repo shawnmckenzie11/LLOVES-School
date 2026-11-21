@@ -1289,6 +1289,61 @@ function liveItemIdFromGraphKey(itemKey) {
 }
 
 /**
+ * Text button to the left of Close, in the same style as Close.
+ *
+ * The visible label is Minimize, or Restore while students have the
+ * question collapsed. The accessible name says who it is for. The
+ * teacher's own card stays open.
+ *
+ * @param {number} liveItemId
+ * @param {unknown} minimized Current class flag.
+ * @returns {string}
+ */
+function studentMinimizeButtonHtml(liveItemId, minimized) {
+  const on = Boolean(minimized);
+  const text = on ? "Restore" : "Minimize";
+  const label = on ? "Restore for students" : "Minimize for students";
+  return `<button type="button" class="secondary live-q-btn" data-minimize-live-item="${liveItemId}" aria-pressed="${on ? "true" : "false"}" aria-label="${label}">${text}</button>`;
+}
+
+/**
+ * Collapse or restore the open question on student screens.
+ *
+ * One class flag on the existing settings route. Saved responses are not sent.
+ * @param {number} liveItemId
+ * @param {boolean} minimized
+ * @returns {Promise<void>}
+ */
+async function setStudentsMinimized(liveItemId, minimized) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  const id = Number(liveItemId) || 0;
+  if (!sessionId || !id) return;
+  const flag = Boolean(minimized);
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
+  const previous = index >= 0 ? Boolean(lastLiveItems[index].students_minimized) : false;
+  if (index >= 0) {
+    lastLiveItems[index] = { ...lastLiveItems[index], students_minimized: flag };
+  }
+  paintLiveQuestionCards();
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${id}/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ students_minimized: flag }),
+      }
+    );
+    adoptLiveItem(result?.item);
+  } catch (err) {
+    if (index >= 0) {
+      lastLiveItems[index] = { ...lastLiveItems[index], students_minimized: previous };
+    }
+    paintLiveQuestionCards();
+    throw err;
+  }
+}
+
+/**
  * Store Show answer and bar order so student phones match this card.
  * @param {number} liveItemId
  * @param {{order: "default"|"ranked", showKey: boolean}} pref
@@ -6566,7 +6621,7 @@ function paintLiveQuestionCards() {
             : "";
       const closeHtml =
         active && liveItemId && !groupChrome
-          ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
+          ? `${studentMinimizeButtonHtml(liveItemId, card.students_minimized)}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
           : "";
       const controlStrip = onStage
         ? liveQuestionControlStrip({
@@ -14375,6 +14430,7 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     return;
   }
   const publish = event.target.closest("button[data-publish-live-item]");
+  const minimizeStudents = event.target.closest("button[data-minimize-live-item]");
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");
   const questionSkip = event.target.closest("button[data-question-skip]");
@@ -14402,6 +14458,13 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     }
     if (publish instanceof HTMLButtonElement) {
       await publishLifecycleItem(Number(publish.dataset.publishLiveItem) || 0);
+      return;
+    }
+    if (minimizeStudents instanceof HTMLButtonElement) {
+      await setStudentsMinimized(
+        Number(minimizeStudents.dataset.minimizeLiveItem) || 0,
+        minimizeStudents.getAttribute("aria-pressed") !== "true"
+      );
       return;
     }
     if (close instanceof HTMLButtonElement) {

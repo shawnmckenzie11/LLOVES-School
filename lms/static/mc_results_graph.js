@@ -111,10 +111,26 @@ function barPercent(_row, count, total) {
 }
 
 /**
- * One results row. The answer sits on the bar. The count stays at the
- * right. The Correct tag is present only while the answer is revealed.
+ * Inline check glued to the last word so a wrap cannot leave it alone.
  *
- * @param {{letter?: string, label: string, pct: number, count: number, marked: boolean}} row
+ * @param {string} label Answer text.
+ * @returns {string}
+ */
+function inlineCheckLabel(label) {
+  const mark =
+    `<span class="mc-results-check"><span aria-hidden="true">✓</span>` +
+    `<span class="visually-hidden">Correct</span></span>`;
+  const match = /^(.*?)(\S+)\s*$/s.exec(String(label));
+  if (!match || !match[2]) return `${escapeGraphText(label)}${mark}`;
+  return `${escapeGraphText(match[1])}<span class="mc-results-keep">${escapeGraphText(match[2])}${mark}</span>`;
+}
+
+/**
+ * One results row. The answer sits on the bar. The count stays at the
+ * right. A teacher row keeps the Correct tag. A student row puts a
+ * check on the answer text and leaves that tag empty.
+ *
+ * @param {{letter?: string, label: string, pct: number, count: number, marked: boolean, keyMark?: string}} row
  * @returns {string}
  */
 function resultsRowHtml(row) {
@@ -123,8 +139,11 @@ function resultsRowHtml(row) {
     ? `<span class="mc-results-letter">${escapeGraphText(row.letter)}</span>`
     : "";
   const marked = row.marked ? " is-correct" : "";
+  const check = Boolean(row.marked) && row.keyMark === "check";
+  const labelHtml = check ? inlineCheckLabel(label) : escapeGraphText(label);
+  const key = check || !row.marked ? "" : "Correct";
   return `<div class="mc-results-row${marked}">
-        <span class="mc-results-track"><span class="mc-results-fill" style="width:${row.pct}%"></span><span class="mc-results-face"><span class="mc-results-name">${letter}<span class="mc-results-label">${escapeGraphText(label)}</span></span><span class="mc-results-score"><span class="mc-results-count">${row.count} · ${row.pct}%</span><span class="mc-results-key">${row.marked ? "Correct" : ""}</span></span></span></span>
+        <span class="mc-results-track"><span class="mc-results-fill" style="width:${row.pct}%"></span><span class="mc-results-face"><span class="mc-results-name">${letter}<span class="mc-results-label">${labelHtml}</span></span><span class="mc-results-score"><span class="mc-results-count">${row.count} · ${row.pct}%</span><span class="mc-results-key">${key}</span></span></span></span>
       </div>`;
 }
 
@@ -141,6 +160,7 @@ function resultsRowHtml(row) {
  *   markKey?: boolean,
  *   controls?: boolean,
  *   itemKey?: string,
+ *   keyMark?: "tag"|"check",
  * }} [opts]
  * @returns {string} Empty when there is nothing to graph.
  */
@@ -151,6 +171,7 @@ export function mcResultsGraphHtml(tally, opts = {}) {
   const showKey = Boolean(opts.showKey);
   const markKey = opts.markKey == null ? showKey : Boolean(opts.markKey);
   const rows = orderMcChoices(choices, order);
+  const keyMark = opts.keyMark === "check" ? "check" : "tag";
   const total = rows.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
   const keyed = rows.some((row) => row?.correct === true);
   const itemKey = escapeGraphText(opts.itemKey || "");
@@ -183,6 +204,7 @@ export function mcResultsGraphHtml(tally, opts = {}) {
         pct,
         count,
         marked: markKey && row.correct === true,
+        keyMark,
       });
     })
     .join("");
@@ -466,12 +488,14 @@ export function planNumericResults(tally, opts = {}) {
  *   correctValue?: unknown,
  *   tolerance?: unknown,
  *   toleranceKind?: unknown,
+ *   keyMark?: "tag"|"check",
  * }} [opts]
  * @returns {string}
  */
 export function numericResultsGraphHtml(tally, opts = {}) {
   const plan = planNumericResults(tally, opts);
   if (!plan.rows.length && !plan.other) return "";
+  const keyMark = opts.keyMark === "check" ? "check" : "tag";
   const order = opts.order === "ranked" ? "ranked" : "default";
   const showKey = Boolean(opts.showKey);
   const markKey = opts.markKey == null ? showKey : Boolean(opts.markKey);
@@ -506,6 +530,7 @@ export function numericResultsGraphHtml(tally, opts = {}) {
         pct,
         count,
         marked: markKey && row.correct === true,
+        keyMark,
       });
     })
     .join("");

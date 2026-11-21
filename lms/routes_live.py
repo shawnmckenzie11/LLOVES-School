@@ -4704,6 +4704,7 @@ def register_live(app, school, shared):
         has_race = "group_rank_race" in body
         has_show_answer = "show_answer" in body
         has_results_order = "results_order" in body
+        has_minimized = "students_minimized" in body
         if not any(
             (
                 has_results,
@@ -4713,6 +4714,7 @@ def register_live(app, school, shared):
                 has_race,
                 has_show_answer,
                 has_results_order,
+                has_minimized,
             )
         ):
             return jsonify(
@@ -4735,15 +4737,18 @@ def register_live(app, school, shared):
                 group_rank_race=body.get("group_rank_race") if has_race else None,
                 show_answer=body.get("show_answer") if has_show_answer else None,
                 results_order=body.get("results_order") if has_results_order else None,
+                students_minimized=(
+                    body.get("students_minimized") if has_minimized else None
+                ),
             )
             teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        if has_show_answer or has_results_order:
+        if has_show_answer or has_results_order or has_minimized:
             # One class-wide postcard. The answer is attached only when
-            # this write turns Show answer on. Order changes and Hide
-            # answer send the flag without it. No per-student push and
-            # no state_seq bump.
+            # this write turns Show answer on. Order changes, Hide
+            # answer, and Minimize send their flag without it. No
+            # per-student push and no state_seq bump.
             from live_news_wire import results_view_event
 
             answer = (
@@ -4754,7 +4759,17 @@ def register_live(app, school, shared):
             emit_session_news(
                 school,
                 session_id,
-                [results_view_event(item, answer=answer)],
+                [
+                    results_view_event(
+                        item,
+                        answer=answer,
+                        minimized=(
+                            bool(item.get("students_minimized"))
+                            if has_minimized
+                            else None
+                        ),
+                    )
+                ],
             )
         return jsonify(
             {
