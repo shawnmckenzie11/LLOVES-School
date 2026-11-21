@@ -4483,6 +4483,7 @@ function questionKindLabel(kind) {
  * @returns {boolean}
  */
 function phoneHasNoSidePanel() {
+  if (typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(max-width: 719.98px)").matches;
 }
 
@@ -6951,7 +6952,11 @@ document.getElementById("live-response")?.addEventListener("keydown", (event) =>
   }
 });
 
-window.matchMedia("(max-width: 719.98px)").addEventListener("change", () => {
+const minimizedLayoutQuery =
+  typeof window.matchMedia === "function"
+    ? window.matchMedia("(max-width: 719.98px)")
+    : null;
+minimizedLayoutQuery?.addEventListener?.("change", () => {
   if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
 });
 
