@@ -45,8 +45,9 @@ function engineRideAlias(alias) {
 /**
  * True when a lifecycle card already shows this prompt.
  *
- * A shared prompt id matches. A shared catalogue id matches too, except
- * engine rides. An idle prompt does not.
+ * A shared prompt id matches. A shared catalogue id matches too. An
+ * engine ride keeps its shell even when the prompt id matches. An idle
+ * prompt does not.
  *
  * @param {any} payload Student state, including the legacy ``prompt``.
  * @returns {boolean}
@@ -57,6 +58,7 @@ export function cardOwnsLivePrompt(payload) {
   const promptId = Number(prompt.id) || 0;
   const body = prompt.payload && typeof prompt.payload === "object" ? prompt.payload : {};
   const alias = livePromptAlias(body.item_id || body.pack || body.id || "");
+  if (engineRideAlias(alias)) return false;
   const rows = []
     .concat(payload.active_questions || [])
     .concat(payload.closed_results || [])
@@ -64,11 +66,12 @@ export function cardOwnsLivePrompt(payload) {
     .concat(payload.live_items || []);
   return rows.some((item) => {
     if (!item || typeof item !== "object") return false;
-    if (promptId && Number(item.prompt?.id || 0) === promptId) return true;
     const content = item.content && typeof item.content === "object" ? item.content : {};
     const itemAlias = livePromptAlias(
       item.item_id || content.item_id || content.id || ""
     );
-    return Boolean(alias) && alias === itemAlias && !engineRideAlias(itemAlias);
+    if (engineRideAlias(itemAlias)) return false;
+    if (promptId && Number(item.prompt?.id || 0) === promptId) return true;
+    return Boolean(alias) && alias === itemAlias;
   });
 }

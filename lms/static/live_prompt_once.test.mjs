@@ -40,4 +40,22 @@ if (
   fail("an engine ride lost its prompt shell");
 }
 
+for (const ride of ["minds_on", "meet_a", "meet_team", "teams_spark", "team_challenge"]) {
+  if (
+    cardOwnsLivePrompt({
+      prompt: { id: 9, kind: "mc", payload: { item_id: ride, text: "Ride" } },
+      active_questions: [
+        {
+          id: 2,
+          item_id: ride,
+          prompt: { id: 9, kind: "mc", payload: { item_id: ride } },
+          content: { text: "Ride" },
+        },
+      ],
+    })
+  ) {
+    fail(`${ride} lost its shell because the prompt id matched before the ride check`);
+  }
+}
+
 console.log("ok");

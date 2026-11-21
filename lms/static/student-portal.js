@@ -4458,9 +4458,10 @@ function engineRideAlias(alias) {
  * @returns {boolean}
  */
 function sameCatalogueQuestion(item, promptId, alias) {
-  if (promptId && Number(item?.prompt?.id || item?.id) === promptId) return true;
   const itemAlias = catalogueItemAlias(item);
-  return Boolean(alias) && itemAlias === alias && !engineRideAlias(itemAlias);
+  if (engineRideAlias(itemAlias) || engineRideAlias(alias)) return false;
+  if (promptId && Number(item?.prompt?.id || item?.id) === promptId) return true;
+  return Boolean(alias) && itemAlias === alias;
 }
 
 /**
