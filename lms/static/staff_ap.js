@@ -1289,33 +1289,21 @@ function liveItemIdFromGraphKey(itemKey) {
 }
 
 /**
- * Store Show answer and bar order so student phones match this card.
- * @param {number} liveItemId
- * @param {{order: "default"|"ranked", showKey: boolean}} pref
- * @returns {Promise<void>}
- */
-/**
- * Quiet icon for Minimize / Restore. The accessible name is the button label.
- * @param {boolean} minimized
- * @returns {string}
- */
-function studentMinimizeIcon(minimized) {
-  const path = minimized
-    ? "M3 10.5 8 5.5 13 10.5"
-    : "M3 5.5 8 10.5 13 5.5";
-  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="${path}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-}
-
-/**
- * Icon button to the left of Close. The teacher's card stays open.
+ * Text button to the left of Close, in the same style as Close.
+ *
+ * The visible label is Minimize, or Restore while students have the
+ * question collapsed. The accessible name says who it is for. The
+ * teacher's own card stays open.
+ *
  * @param {number} liveItemId
  * @param {unknown} minimized Current class flag.
  * @returns {string}
  */
 function studentMinimizeButtonHtml(liveItemId, minimized) {
   const on = Boolean(minimized);
+  const text = on ? "Restore" : "Minimize";
   const label = on ? "Restore for students" : "Minimize for students";
-  return `<button type="button" class="secondary live-q-btn live-minimize-students" data-minimize-live-item="${liveItemId}" aria-pressed="${on ? "true" : "false"}" aria-label="${label}">${studentMinimizeIcon(on)}</button>`;
+  return `<button type="button" class="secondary live-q-btn" data-minimize-live-item="${liveItemId}" aria-pressed="${on ? "true" : "false"}" aria-label="${label}">${text}</button>`;
 }
 
 /**
@@ -1355,6 +1343,12 @@ async function setStudentsMinimized(liveItemId, minimized) {
   }
 }
 
+/**
+ * Store Show answer and bar order so student phones match this card.
+ * @param {number} liveItemId
+ * @param {{order: "default"|"ranked", showKey: boolean}} pref
+ * @returns {Promise<void>}
+ */
 async function persistMcGraphPref(liveItemId, pref) {
   const sessionId = liveSessionId || readLiveSessionId();
   const id = Number(liveItemId) || 0;

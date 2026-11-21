@@ -245,9 +245,13 @@ class ResultsTweakTests(unittest.TestCase):
         self.assertLess(paint.index("cardOwnsLivePrompt"), paint.index("renderPromptBody"))
         self.assertIn("promptShell.innerHTML = \"\"", paint)
         staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
-        self.assertIn('aria-label="${label}"', staff)
-        self.assertIn("Minimize for students", staff)
-        self.assertIn("Restore for students", staff)
+        button = staff.split("function studentMinimizeButtonHtml(")[1].split(
+            "async function setStudentsMinimized("
+        )[0]
+        self.assertIn('const text = on ? "Restore" : "Minimize"', button)
+        self.assertIn(">${text}</button>", button)
+        self.assertIn('const label = on ? "Restore for students" : "Minimize for students"', button)
+        self.assertNotIn("<svg", button)
         self.assertLess(
             staff.index("studentMinimizeButtonHtml"),
             staff.index('data-close-live-item="${liveItemId}"'),
