@@ -630,3 +630,26 @@ class LiveClassTests(unittest.TestCase):
         self.assertNotIn(("stu", self.class_id, "run-a", self.ids[0]), cache)
         self.assertNotIn(("run", self.class_id, "run-b"), cache)
         self.assertEqual(cache.get(("run", self.class_id + 1, "run-a")), 1)
+
+    def test_steady_poll_does_not_restamp_question_aliases(self) -> None:
+        """A second live card read does not aggregate ``live_session_items``."""
+        self.school.engagement_question_aliases(self.session_id)
+        self.school.student_live_engagement_fields(
+            self.class_id, self.session_id, self.ids[0]
+        )
+        seen: list[str] = []
+
+        def trace(sql: str) -> None:
+            text = str(sql)
+            if "live_session_items" in text and "COUNT" in text.upper():
+                seen.append(text)
+
+        self.school.conn.set_trace_callback(trace)
+        try:
+            self.school.engagement_question_aliases(self.session_id)
+            self.school.student_live_engagement_fields(
+                self.class_id, self.session_id, self.ids[0]
+            )
+        finally:
+            self.school.conn.set_trace_callback(None)
+        self.assertEqual(seen, [])

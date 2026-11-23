@@ -1028,6 +1028,9 @@ def wipe_removed_question(school: Any, class_id: int, item_id: str) -> None:
                 forget(int(class_id), rk)
         else:
             forget(int(class_id), "")
+    drop_aliases = getattr(school, "forget_question_alias_cache", None)
+    if callable(drop_aliases):
+        drop_aliases(None)
     for session_id in sorted(set(ended)):
         try:
             school._rollup_engagement_for_session(int(session_id))
