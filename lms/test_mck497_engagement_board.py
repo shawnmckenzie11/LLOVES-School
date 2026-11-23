@@ -562,7 +562,13 @@ class LiveClassTests(unittest.TestCase):
         tape = log_for(self.school.data_dir).since(self.session_id, 0)
         cards = [row for row in tape if row.get("type") == "board_show"]
         self.assertTrue(cards)
-        self.assertEqual(set(cards[-1].keys()) - {"id"}, {"type", "board_key"})
+        shown_keys = set(cards[-1].keys()) - {"id"}
+        self.assertTrue({"type", "board_key"} <= shown_keys <= {"type", "board_key", "board"})
+        self.assertNotIn("state_seq", cards[-1])
+        if isinstance(cards[-1].get("board"), dict):
+            shown_blob = json.dumps(cards[-1]["board"])
+            for banned in ("name", "codename", "email", "pin", "student_id"):
+                self.assertNotIn(banned, shown_blob)
         self.assertEqual(cards[-1]["board_key"], key)
         watcher = NewsAudience("student", student_id=self.ids[1])
         self.assertTrue(event_visible(cards[-1], watcher))

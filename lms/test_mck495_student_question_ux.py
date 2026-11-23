@@ -58,7 +58,7 @@ class StudentQuestionUxTests(unittest.TestCase):
         self.assertIn("data-q-label=", paint)
         self.assertIn('status === "closed"', paint)
         minimize = paint.split("const minimizeControl =")[1].split("return `<article")[0]
-        self.assertIn('aria-label="Minimize question"', minimize)
+        self.assertIn('aria-label="Minimize"', minimize)
         self.assertIn('status === "closed"', minimize)
         dock = portal.split("function paintQuestionDock(")[1].split(
             "function promptAsLifecycleItem("

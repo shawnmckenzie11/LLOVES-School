@@ -974,7 +974,10 @@ export function mountTeacherGrid(root, options = {}) {
         if (typeof options.onTileSync === "function") options.onTileSync(openTile);
       }
     }
-    projectedKey = String(payload.projected_board || "");
+    const showButton = part("show");
+    if (!(showButton instanceof HTMLButtonElement) || showButton.dataset.pending !== "1") {
+      projectedKey = String(payload.projected_board || "");
+    }
     const status = part("projected");
     if (status) {
       const projected = tiles.find(
@@ -1241,9 +1244,28 @@ export function mountTeacherGrid(root, options = {}) {
     if (erase instanceof HTMLElement) erase.click();
   });
   part("show")?.addEventListener("click", () => {
+    const button = part("show");
     const id = sessionId();
     const key = openKey;
-    if (!id || !key) return;
+    if (!id || !key || !(button instanceof HTMLButtonElement)) return;
+    if (button.dataset.pending === "1") return;
+    const previous = projectedKey;
+    projectedKey = previous === key ? "" : key;
+    paintShowButton();
+    button.dataset.pending = "1";
+    const error = part("show-error");
+    if (error instanceof HTMLElement) {
+      error.hidden = true;
+      error.textContent = "";
+    }
+    const showFailure = () => {
+      projectedKey = previous;
+      paintShowButton();
+      if (error instanceof HTMLElement) {
+        error.hidden = false;
+        error.textContent = "Couldn't update the board.";
+      }
+    };
     fetch(boardUrl(id, key, "/show"), {
       method: "POST",
       credentials: "same-origin",
@@ -1255,12 +1277,20 @@ export function mountTeacherGrid(root, options = {}) {
         } catch (_err) {
           data = null;
         }
-        if (!res.ok || !data) return;
+        if (!res.ok || !data) {
+          showFailure();
+          return;
+        }
         projectedKey = data.projected === false ? "" : key;
         paintShowButton();
         return pollTiles();
       })
-      .catch(() => {});
+      .catch(() => {
+        showFailure();
+      })
+      .finally(() => {
+        button.dataset.pending = "";
+      });
   });
 
   const ap = document.getElementById("ap-root");

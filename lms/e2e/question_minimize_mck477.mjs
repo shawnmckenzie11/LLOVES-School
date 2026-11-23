@@ -81,7 +81,7 @@ await closeDialogs(page);
 
 if (cfg.mode === "reload") {
   const card = page.locator(".student-live-card").first();
-  await card.locator('[aria-label="Minimize question"]').evaluate((button) => button.click());
+  await card.locator('[aria-label="Minimize"]').evaluate((button) => button.click());
   await page.locator(".student-question-dock-chip.is-question").first().waitFor({ timeout: 5000 });
   await page.reload({ waitUntil: "domcontentloaded" });
   await closeDialogs(page);
@@ -103,7 +103,7 @@ if (cfg.mode === "reload") {
 }
 
 if (cfg.mode === "second") {
-  await page.locator('[aria-label="Minimize question"]').first().evaluate((button) => button.click());
+  await page.locator('[aria-label="Minimize"]').first().evaluate((button) => button.click());
   await page.locator(".student-question-dock-chip.is-question").first().waitFor({ timeout: 5000 });
   const first = await dockState(page);
   await context.clearCookies();
@@ -135,7 +135,7 @@ if (cfg.mode === "second") {
 }
 
 if (cfg.mode === "quit-rerun") {
-  await page.locator('[aria-label="Minimize question"]').first().evaluate((button) => button.click());
+  await page.locator('[aria-label="Minimize"]').first().evaluate((button) => button.click());
   await page.locator(".student-question-dock-chip.is-question").first().waitFor({ timeout: 5000 });
   const parked = await dockState(page);
   await page.goto(`${cfg.base}/static/lloves.css`, { waitUntil: "domcontentloaded" });
@@ -175,7 +175,7 @@ for (let i = 0; i < opened; i += 1) {
   const card = page.locator(".student-live-card").first();
   const stem = (await card.locator("h2").innerText()).replace(/\s+/g, " ").trim();
   stems.push(stem.slice(0, 24));
-  await card.locator('[aria-label="Minimize question"]').evaluate((button) => button.click());
+  await card.locator('[aria-label="Minimize"]').evaluate((button) => button.click());
   await page.locator(".student-question-dock-chip.is-question").nth(i).waitFor({ timeout: 5000 });
 }
 const chips = await page.locator(".student-question-dock-chip.is-question").count();

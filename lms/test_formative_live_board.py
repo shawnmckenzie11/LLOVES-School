@@ -1373,7 +1373,13 @@ class FormativeLiveBoardTests(unittest.TestCase):
             if row.get("type") == "board_show"
         ]
         self.assertTrue(news)
-        self.assertEqual(set(news[-1]) - {"id"}, {"type", "board_key"})
+        shown_keys = set(news[-1]) - {"id"}
+        self.assertTrue({"type", "board_key"} <= shown_keys <= {"type", "board_key", "board"})
+        self.assertNotIn("state_seq", news[-1])
+        if isinstance(news[-1].get("board"), dict):
+            shown_blob = json.dumps(news[-1]["board"])
+            self.assertNotIn('"name"', shown_blob)
+            self.assertNotIn("student_id", shown_blob)
         self.assertEqual(news[-1].get("board_key"), "team:0")
         self.assertFalse(
             any(row.get("type") == "state_seq" for row in tape.since(self.session_id, cursor))

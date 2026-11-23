@@ -160,7 +160,9 @@ def _present_at(intervals: list[tuple[datetime, datetime | None]], moment: datet
 
 
 def _canonical_mode(raw: Any) -> str:
-    token = str(raw or "individual").strip().lower()
+    token = str(raw if raw is not None else "").strip().lower()
+    if not token:
+        token = "individual"
     token = token.replace("-", " ").replace("_", " ")
     token = " ".join(token.split())
     aliases = {

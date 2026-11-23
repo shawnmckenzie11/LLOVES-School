@@ -1785,7 +1785,10 @@ def question_dashboard(
     submitted = counts["Submitted"] + counts["Teacher wrote"]
     teacher = school.live_session_teacher_state_payload(int(session_id))
     projected = ""
-    if str(teacher.get("whiteboard_projected_run") or "") == run_key:
+    run = str(teacher.get("whiteboard_projected_run") or "").strip()
+    if not run:
+        run = school._projected_run_raw(int(session_id))
+    if run == run_key:
         projected = str(teacher.get("whiteboard_projected_board") or "")
     from board_poll_score import attach_participation
 

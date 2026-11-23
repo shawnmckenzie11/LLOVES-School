@@ -101,8 +101,9 @@ _FIELDS: dict[str, frozenset[str]] = {
     ),
     # Board key only. No points, no names. Members fetch since-seq deltas.
     "board_ink": frozenset({"type", "board_key"}),
-    # Shown-board key only. Empty means the projection stopped. No names.
-    "board_show": frozenset({"type", "board_key"}),
+    # Shown-board key, plus the name-free drawing when it fits.
+    # Empty key means the projection stopped.
+    "board_show": frozenset({"type", "board_key", "board"}),
     # Question or whiteboard show/hide. No stem, no roster, no state_seq.
     "surface_show": frozenset({"type", "surface", "mode", "item_id"}),
     # Bar order and Show answer. One class-wide postcard. The answer
@@ -544,7 +545,9 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 # Ordinary postcards stay under 500 bytes. A publish card may carry the
 # stem and choices the phone paints before it reloads ``/state``.
+# A shown board may carry the drawing so phones do not all reload.
 PROMPT_CARD_MAX_BYTES = 4096
+BOARD_SHOW_MAX_BYTES = 8192
 _CARD_TEXT_MAX = 600
 _CARD_LABEL_MAX = 160
 _CARD_OPTIONS_MAX = 8
@@ -599,6 +602,8 @@ def _postcard_limit(event: dict[str, Any]) -> int:
     """
     if event.get("type") == "prompt" and isinstance(event.get("card"), dict):
         return PROMPT_CARD_MAX_BYTES
+    if event.get("type") == "board_show" and isinstance(event.get("board"), dict):
+        return BOARD_SHOW_MAX_BYTES
     return 500
 
 
@@ -687,6 +692,52 @@ def _public_card(raw: Any) -> dict[str, Any] | None:
     return card
 
 
+def _public_shown_board(raw: Any) -> dict[str, Any] | None:
+    """Keep strokes and text from a shown-board postcard.
+
+    Name, email, pin, and roster id fields are dropped. A value that is
+    not a board dict is dropped with them.
+
+    Args:
+        raw: ``board`` field from a ``board_show`` event.
+
+    Returns:
+        A small board dict, or None when there is nothing safe to keep.
+    """
+    if not isinstance(raw, dict):
+        return None
+    view = raw.get("canvas_view") if isinstance(raw.get("canvas_view"), dict) else {}
+    strokes: list[dict[str, Any]] = []
+    for stroke in list(view.get("strokes") or [])[:60]:
+        if not isinstance(stroke, dict):
+            continue
+        points = stroke.get("points")
+        if not isinstance(points, list) or not points:
+            continue
+        strokes.append({"points": points[:400], "color": str(stroke.get("color") or "")[:20]})
+    texts: list[dict[str, Any]] = []
+    for label in list(view.get("texts") or [])[:30]:
+        if not isinstance(label, dict):
+            continue
+        words = str(label.get("text") or "")[:80]
+        if not words.strip():
+            continue
+        texts.append(
+            {
+                "x": label.get("x"),
+                "y": label.get("y"),
+                "text": words,
+                "color": str(label.get("color") or "")[:20],
+            }
+        )
+    return {
+        "board_key": str(raw.get("board_key") or "")[:80],
+        "poll": bool(raw.get("poll")),
+        "read_only": True,
+        "canvas_view": {"strokes": strokes, "texts": texts},
+    }
+
+
 def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Keep one postcard. Drop unknown types and fat keys.
 
@@ -716,6 +767,11 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         event["board_key"] = key
     if kind == "board_show":
         event["board_key"] = str(event.get("board_key") or "").strip()[:80]
+        board = _public_shown_board(event.get("board"))
+        if board is None:
+            event.pop("board", None)
+        else:
+            event["board"] = board
     if kind == "surface_show":
         surface = str(event.get("surface") or "").strip()
         if surface not in {"questions", "canvas"}:
@@ -833,6 +889,15 @@ class LiveNewsLog:
                             key: value
                             for key, value in event.items()
                             if key != "card"
+                        }
+                        payload = json.dumps(
+                            event, separators=(",", ":"), default=str
+                        )
+                    if event.get("type") == "board_show" and "board" in event:
+                        event = {
+                            key: value
+                            for key, value in event.items()
+                            if key != "board"
                         }
                         payload = json.dumps(
                             event, separators=(",", ":"), default=str

@@ -19,6 +19,10 @@ import {
   liveAnswerControlsHtml,
   liveChoiceLabels,
   liveQuestionHeadHtml,
+  mountQuestionLightbox,
+  newestOpenQuestionId,
+  questionCardLayout,
+  syncQuestionLightbox,
 } from "/static/live_question_card.js";
 import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_graph.js";
 import { compareQuestionPushOrder, questionPushLabel } from "/static/student_question_order.js";
@@ -1597,6 +1601,23 @@ function kickStudentBoardDelta(force) {
     studentBoardPoll.kick(Boolean(force));
   }
   kickQuestionBoardPolls(Boolean(force));
+}
+
+/**
+ * Read a shown board when the postcard could not carry the drawing.
+ *
+ * Each phone waits a different slice of one second, so thirty seats do
+ * not hit the board route in the same instant. This does not reload
+ * ``/state``.
+ */
+let boardShowTimer = 0;
+function scheduleBoardShowFetch() {
+  if (boardShowTimer) window.clearTimeout(boardShowTimer);
+  const wait = Math.floor(Math.random() * 1000);
+  boardShowTimer = window.setTimeout(() => {
+    boardShowTimer = 0;
+    kickStudentBoardDelta(true);
+  }, wait);
 }
 
 /**
@@ -4614,6 +4635,7 @@ function paintLifecycleQuestionStack(payload) {
     }
   });
   const stacked = openCards.filter((item) => !floatingCards.has(liveCardDockKey(item)));
+  const focusId = newestOpenQuestionId(stacked);
   const renderLiveCard = (item) => {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
@@ -4710,9 +4732,10 @@ function paintLifecycleQuestionStack(payload) {
       const qLabel = questionPushLabel(item, all);
       const minimizeControl =
         status === "closed"
-          ? `<button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize question">×</button>`
+          ? `<button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize">×</button>`
           : "";
-      return `<article class="student-live-card student-floating-pane is-${escapeText(shown)}" data-live-card-id="${Number(
+      const layout = questionCardLayout(item, focusId);
+      return `<article class="student-live-card student-floating-pane ${layout} is-${escapeText(shown)}" data-live-card-id="${Number(
         item.id
       )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(shown)}" data-live-card-key="${escapeText(dockKey)}" data-q-label="${escapeText(qLabel)}">
         <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
@@ -4733,6 +4756,8 @@ function paintLifecycleQuestionStack(payload) {
       </article>`;
   };
   liveQuestionStackBody.innerHTML = stacked.map(renderLiveCard).join("");
+  mountQuestionLightbox(document);
+  syncQuestionLightbox(liveQuestionStackBody);
   // MCK-184: a card the student lifted (phone resize pill, desktop drag)
   // used to keep its old DOM forever: a Take turns pick greyed the
   // buttons, the server took it, and that phone never showed it or any
@@ -6642,7 +6667,16 @@ function ensureStudentNewsWire(sessionId) {
         return;
       }
       if (event && (event.type === "board_ink" || event.type === "board_show")) {
-        if (event.type === "board_show") noteBoardShow(String(event.board_key || ""));
+        if (event.type === "board_show") {
+          noteBoardShow(String(event.board_key || ""));
+          if (Object.prototype.hasOwnProperty.call(event, "board")) {
+            syncPollFromPayload(document, { class_board: event.board });
+            syncClassBoard({ class_board: event.board });
+          } else if (event.board_key) {
+            scheduleBoardShowFetch();
+          }
+          return;
+        }
         if (boardFeature) kickStudentBoardDelta(true);
         return;
       }
