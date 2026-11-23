@@ -571,7 +571,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("/items/${liveItemId}/close", js)
         self.assertIn("/items/${liveItemId}/settings", js)
         self.assertIn("/items/${liveItemId}/end-voting", js)
-        self.assertIn("Show Live Results", js)
+        self.assertNotIn("Show Live Results", js)
+        self.assertNotIn("data-live-results-toggle", js)
         self.assertNotIn("Save to card", js)
         self.assertNotIn("data-save-to-card", js)
         self.assertNotIn("function setLifecycleSaveToCard(", js)
@@ -628,10 +629,12 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("lloves-scoreboard-", js)
 
     def test_prepublish_strip_groups_show_live_results(self) -> None:
-        """Inactive chrome shows grouped Show Live Results before Publish.
+        """The question footer is one row and has no visibility checkbox.
 
-        Visibility then Lifecycle. There is no persist checkbox. (Re)move
-        stays in the card head. Tablet CSS wraps that strip to two rows.
+        Graph toggles stay on the left when a graph is present. Responses
+        & points, Minimize, Close or Publish, and (Re)move sit on the
+        right. Students work stays above that row. Publish still sends
+        the chosen mode and does not send a results flag.
         """
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
@@ -639,18 +642,28 @@ class LiveShellTests(unittest.TestCase):
         strip = js.split("function liveQuestionControlStrip(")[1].split(
             "function paintLiveQuestionCards("
         )[0]
-        visibility_at = strip.index('data-live-q-group="visibility"')
-        lifecycle_at = strip.index('data-live-q-group="lifecycle"')
-        self.assertLess(visibility_at, lifecycle_at)
         self.assertNotIn("Save to card", strip)
         self.assertNotIn('data-live-q-group="persist"', strip)
-        self.assertLess(strip.index("Show Live Results"), lifecycle_at)
-        self.assertIn("B Visibility", strip)
-        self.assertIn("C Lifecycle", strip)
-        self.assertIn("data-live-results-toggle", strip)
+        self.assertNotIn('data-live-q-group="visibility"', strip)
+        self.assertNotIn('data-live-q-group="lifecycle"', strip)
+        self.assertNotIn("B Visibility", strip)
+        self.assertNotIn("C Lifecycle", strip)
+        self.assertNotIn("data-live-results-toggle", strip)
+        self.assertNotIn("Show Live Results", strip)
         self.assertNotIn("data-open-relocate-dialog", strip)
-        inactive = strip.split("lifecycleBody = parts.publishHtml")[0]
-        self.assertNotIn('status === "active"', inactive.split("let lifecycleBody")[-1])
+        self.assertIn('data-live-q-footer="1"', strip)
+        actions = strip.split("const actions = `")[1].split("`")[0]
+        self.assertEqual(
+            actions,
+            "${points}${reveal}${minimize}${closeOrPublish}${closedLabel}${relocate}",
+        )
+        self.assertLess(strip.index("const above = "), strip.index("live-q-footer"))
+        self.assertIn("margin-left: auto", css.split(".live-q-footer-actions {")[1].split("}")[0])
+        footer_css = css.split("body.staff-shell .live-q-footer {")[1].split("}")[0]
+        self.assertIn("display: flex;", footer_css)
+        self.assertIn("flex-wrap: nowrap;", footer_css)
+        self.assertIn("align-items: center;", footer_css)
+        self.assertIn("gap: 0.45rem;", footer_css)
         paint = js.split("function paintLiveQuestionCards(")[1].split(
             "function individualLifecycleResultsHtml("
         )[0]
@@ -658,26 +671,21 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("const persist = closed", strip)
         self.assertNotIn("const visibility = closed", strip)
         self.assertIn("liveQuestionControlStrip(", paint)
+        self.assertIn("splitMcResultsControls(resultHtml)", paint)
+        self.assertIn("relocateHtml: relocateButton", paint)
+        self.assertIn("graphControlsHtml:", paint)
         head = paint.split("live-question-card-head")[1].split(
             "live-question-card-actions"
         )[0]
-        self.assertIn("relocateButton", head)
-        actions = paint.split("live-question-card-actions")[1].split("</article>")[0]
-        self.assertIn("controlStrip", actions)
-        self.assertNotIn("relocateButton", actions)
+        self.assertNotIn("relocateButton", head)
+        card_actions = paint.split("live-question-card-actions")[1].split("</article>")[0]
+        self.assertIn("controlStrip", card_actions)
+        self.assertNotIn("relocateButton", card_actions)
         publish_fn = js.split("async function publishLifecycleItem(")[1].split(
             "async function closeLifecycleItem("
         )[0]
         self.assertIn("publish_mode: publishMode", publish_fn)
         self.assertNotIn("show_live_results", publish_fn)
-        tablet = css.split("@media (max-width: 1024px)")[1].split("@media")[0]
-        self.assertIn(".live-q-strip", tablet)
-        self.assertIn("grid-template-rows: auto auto", tablet)
-        self.assertIn('data-live-q-group="lifecycle"', tablet)
-        self.assertIn("grid-column: 1 / -1", tablet)
-        narrow = css.split("@media (max-width: 719px)")[1].split("@media")[0]
-        self.assertIn("grid-template-columns: minmax(0, 1fr)", narrow)
-        self.assertIn("grid-column: auto", narrow)
 
     def test_keyed_numeric_enables_select_correct(self) -> None:
         """Staff JS enables Select correct when a numeric card has a singular key."""
@@ -3182,7 +3190,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("ok", result.stdout)
 
     def test_mck112_one_control_on_every_question_card(self) -> None:
-        """MCK-112 S2: cards mount the shared control first in C Lifecycle."""
+        """MCK-112 S2: cards mount Students work above the footer row."""
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn('from "/static/group_setup.js"', js)
@@ -3198,8 +3206,10 @@ class LiveShellTests(unittest.TestCase):
         strip = js.split("function liveQuestionControlStrip(")[1].split(
             "function paintLiveQuestionCards("
         )[0]
-        self.assertIn("lifecycleBody = `${groupSetup}${lifecycleBody}`", strip)
+        self.assertIn("const above = `${groupSetup}${groupOpts}", strip)
+        self.assertLess(strip.index("groupSetup"), strip.index('data-live-q-footer="1"'))
         self.assertIn("parts.groupOptsHtml", strip)
+        self.assertNotIn("C Lifecycle", strip)
         chosen = js.split("function selectedPublishMode(")[1].split("\n}\n")[0]
         self.assertIn("input[data-group-setup=", chosen)
         self.assertNotIn("data-submission-value", js)

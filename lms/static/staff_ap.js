@@ -6203,69 +6203,94 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
 }
 
 /**
- * Render the per-question strip in Mobbin group order.
+ * Pull teacher graph toggles out of a results graph.
  *
- * Every question stays on the student card. B Visibility is Show Live
- * Results and stays visible on an
- * inactive card so the teacher can arm it before Publish. C Lifecycle is
- * Publish while inactive, then Reveal or Responses and points, then Close.
- * (Re)move stays in the card head. Tablet CSS wraps the strip to at most
- * two rows; under 720px the groups stack. Publish does not clear the boolean.
+ * The bars stay in the card body. Option order and Show answer move to
+ * the question footer so they share one row with the other actions.
+ *
+ * @param {string} html Graph or other card HTML.
+ * @returns {{graph: string, controls: string}}
+ */
+function splitMcResultsControls(html) {
+  const text = String(html || "");
+  const open = '<div class="mc-results-controls">';
+  const start = text.indexOf(open);
+  if (start < 0) return { graph: text, controls: "" };
+  let depth = 0;
+  let i = start;
+  while (i < text.length) {
+    const nextOpen = text.indexOf("<div", i);
+    const nextClose = text.indexOf("</div>", i);
+    if (nextClose < 0) break;
+    if (nextOpen >= 0 && nextOpen < nextClose) {
+      depth += 1;
+      i = nextOpen + 4;
+      continue;
+    }
+    depth -= 1;
+    const closeEnd = nextClose + "</div>".length;
+    if (depth === 0) {
+      return {
+        graph: `${text.slice(0, start)}${text.slice(closeEnd)}`,
+        controls: text.slice(start, closeEnd),
+      };
+    }
+    i = closeEnd;
+  }
+  return { graph: text, controls: "" };
+}
+
+/**
+ * One bottom row of actions on the teacher question card.
+ *
+ * Graph cards put Option order, Most picked, and Show answer on the
+ * left. Responses & points, Minimize while the question is open,
+ * Close (Publish before the question is open), and (Re)move sit on
+ * the right. Students work stays above that row. Live results stay
+ * on; the card has no visibility checkbox.
  *
  * @param {{
  *   liveItemId: number,
- *   card: any,
+ *   card?: any,
  *   status: string,
  *   groupSetupHtml?: string,
  *   groupOptsHtml?: string,
  *   publishHtml: string,
  *   revealHtml: string,
  *   pointsHtml: string,
+ *   minimizeHtml?: string,
  *   closeHtml: string,
  *   closedCopy: string,
+ *   relocateHtml?: string,
+ *   graphControlsHtml?: string,
  * }} parts
  * @returns {string} Strip HTML, or "" when the row has no lifecycle id.
  */
 function liveQuestionControlStrip(parts) {
   const liveItemId = Number(parts?.liveItemId) || 0;
   if (!liveItemId) return "";
-  const card = parts.card || {};
   const status = String(parts.status || "inactive").toLowerCase();
   const closed = status === "closed";
   const active = status === "active";
-  const visibility = `<div class="live-q-group" data-live-q-group="visibility" role="group" aria-label="B Visibility">
-        <span class="live-q-group-kicker">B Visibility</span>
-        <label class="live-result-toggle">
-          <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
-            card.show_live_results !== false ? "checked" : ""
-          }>
-          <span>Show Live Results</span>
-        </label>
-      </div>`;
-  let lifecycleBody = "";
-  if (active) {
-    lifecycleBody = parts.revealHtml
-      ? `${parts.revealHtml}${parts.closeHtml || ""}`
-      : `${parts.pointsHtml || ""}${parts.closeHtml || ""}`;
-  } else if (closed) {
-    lifecycleBody = `${parts.pointsHtml || ""}${parts.closedCopy || ""}`;
-  } else {
-    lifecycleBody = parts.publishHtml || "";
-  }
-  // MCK-112: "Students work" (or its live/closed chip, or the no-teams
-  // line) is the first thing in C Lifecycle, just left of Publish. The
-  // options row goes full width under it.
   const groupSetup = parts.groupSetupHtml || "";
-  if (lifecycleBody || groupSetup) lifecycleBody = `${groupSetup}${lifecycleBody}`;
-  const lifecycle = lifecycleBody
-    ? `<div class="live-q-group" data-live-q-group="lifecycle" role="group" aria-label="C Lifecycle">
-        <span class="live-q-group-kicker">C Lifecycle</span>
-        <div class="live-q-group-actions">${lifecycleBody}</div>
-        ${parts.groupOptsHtml || ""}
-      </div>`
-    : "";
-  if (!visibility && !lifecycle) return "";
-  return `<div class="live-q-strip" data-live-q-strip="1">${visibility}${lifecycle}</div>`;
+  const groupOpts = parts.groupOptsHtml || "";
+  const publishBlock = String(parts.publishHtml || "");
+  const confirming = !active && !closed && publishBlock.includes("data-group-confirm");
+  const graphControls = parts.graphControlsHtml || "";
+  const points = parts.pointsHtml || "";
+  const reveal = active ? parts.revealHtml || "" : "";
+  const minimize = active ? parts.minimizeHtml || "" : "";
+  const closeOrPublish = active ? parts.closeHtml || "" : closed || confirming ? "" : publishBlock;
+  const closedLabel = closed ? parts.closedCopy || "" : "";
+  const relocate = parts.relocateHtml || "";
+  const actions = `${points}${reveal}${minimize}${closeOrPublish}${closedLabel}${relocate}`;
+  const above = `${groupSetup}${groupOpts}${confirming ? publishBlock : ""}`;
+  const row =
+    graphControls || actions
+      ? `<div class="live-q-footer" data-live-q-footer="1">${graphControls}<div class="live-q-footer-actions">${actions}</div></div>`
+      : "";
+  if (!above && !row) return "";
+  return `<div class="live-q-strip" data-live-q-strip="1">${above}${row}</div>`;
 }
 
 /**
@@ -6619,10 +6644,16 @@ function paintLiveQuestionCards() {
           : active && card.response_mode === "group_consensus"
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
+      const minimizeHtml =
+        active && liveItemId && !groupChrome
+          ? studentMinimizeButtonHtml(liveItemId, card.students_minimized)
+          : "";
       const closeHtml =
         active && liveItemId && !groupChrome
-          ? `${studentMinimizeButtonHtml(liveItemId, card.students_minimized)}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
+          ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
           : "";
+      const resultGraph = splitMcResultsControls(resultHtml);
+      const extraGraphParts = splitMcResultsControls(extraGraph);
       const controlStrip = onStage
         ? liveQuestionControlStrip({
             liveItemId,
@@ -6633,7 +6664,10 @@ function paintLiveQuestionCards() {
             publishHtml: publish,
             revealHtml,
             pointsHtml: pointsButton,
+            minimizeHtml,
             closeHtml,
+            relocateHtml: relocateButton,
+            graphControlsHtml: resultGraph.controls || extraGraphParts.controls,
             closedCopy: `<span class="live-closed-copy">Final results</span>`,
           })
         : "";
@@ -6658,7 +6692,6 @@ function paintLiveQuestionCards() {
                   : ""
               }
             </div>
-            ${relocateButton}
           </div>
           ${questionImageHtml(
             {
@@ -6670,8 +6703,8 @@ function paintLiveQuestionCards() {
           <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${stemShown}</div>
           ${liveQuestionEquationHtml(item, card)}
           ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}
-          ${extraGraph}
-          ${resultHtml}
+          ${extraGraphParts.graph}
+          ${resultGraph.graph}
           ${progress}
         </div>
         <div class="live-question-card-actions">
@@ -7222,38 +7255,6 @@ async function closeLifecycleItem(liveItemId) {
     skipTeacherRaceRevealFor(liveItemId, result.results);
   }
   paintLiveQuestionCards();
-}
-
-/**
- * Persist one question's governed live-results setting.
- * @param {number} liveItemId
- * @param {boolean} visible
- */
-async function setLifecycleResultsVisible(liveItemId, visible) {
-  const sessionId = liveSessionId || readLiveSessionId();
-  const id = Number(liveItemId) || 0;
-  if (!sessionId || !id) return;
-  const flag = Boolean(visible);
-  teacherSettingHold.set(`${id}:show_live_results`, flag);
-  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
-  if (index >= 0) {
-    lastLiveItems[index] = { ...lastLiveItems[index], show_live_results: flag };
-  }
-  try {
-    const result = await api(
-      `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ show_live_results: flag }),
-      }
-    );
-    adoptLiveItem(result?.item);
-  } catch (err) {
-    teacherSettingHold.delete(`${id}:show_live_results`);
-    throw err;
-  } finally {
-    paintLiveQuestionCards();
-  }
 }
 
 /**
@@ -14470,21 +14471,6 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
       .then(() => paintLiveSlotPicks())
       .catch((err) => showError("#ap-overlay-error", err));
   });
-});
-
-$("live-question-list")?.addEventListener("change", async (event) => {
-  const resultToggle = event.target.closest("[data-live-results-toggle]");
-  if (resultToggle instanceof HTMLInputElement) {
-    try {
-      await setLifecycleResultsVisible(
-        Number(resultToggle.dataset.liveResultsToggle) || 0,
-        resultToggle.checked
-      );
-    } catch (err) {
-      showError("#ap-overlay-error", err);
-    }
-    return;
-  }
 });
 
 $("live-question-list")?.addEventListener("click", async (event) => {
