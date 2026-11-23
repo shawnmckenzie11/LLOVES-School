@@ -3886,61 +3886,6 @@ class LovesDB:
             "group_activity": started,
         }
 
-    def student_live_engagement_fields(
-        self, class_id: int, live_session_id: int, student_id: int
-    ) -> dict[str, Any]:
-        """Tier-1 engagement display and group-activity flag for the current run (MCK-215).
-
-        The fraction already includes whiteboard credit steps. Question
-        aliases and the rollup are reused from memory while the event log
-        and teams stay the same, so a steady poll does not add a
-        ``live_session_items`` query.
-        """
-        with self._lock:
-            row = self.conn.execute(
-                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
-                (int(live_session_id), int(class_id)),
-            ).fetchone()
-        if row is None or not str(row["run_key"] or ""):
-            return {"tier1": "0/0", "group_activity": False}
-        run_key = str(row["run_key"])
-        events = self.list_engagement_events(
-            int(class_id), live_session=int(live_session_id)
-        )
-        game = getattr(self, "game", None)
-        student_ids: list[int] = []
-        if game is not None:
-            with game._lock:
-                studs = game.conn.execute(
-                    "SELECT id FROM students WHERE class_id = ? ORDER BY id",
-                    (int(class_id),),
-                ).fetchall()
-            student_ids = [int(item[0]) for item in studs]
-        team_for = {
-            sid: self.student_team_id_for_class(int(class_id), sid) for sid in student_ids
-        }
-        aliases = self.engagement_question_aliases(int(live_session_id))
-        snap = self._cached_live_engagement_snapshot(
-            events,
-            class_id=int(class_id),
-            live_session=int(live_session_id),
-            run_key=run_key,
-            student_id=int(student_id),
-            team_for_student=team_for,
-            student_ids=student_ids,
-            question_aliases=aliases,
-        )
-        try:
-            from board_poll_score import live_card_bonus, shift_fraction
-        except ImportError:
-            from lms.board_poll_score import live_card_bonus, shift_fraction
-
-        snap["tier1"] = shift_fraction(
-            str(snap.get("tier1") or "0/0"),
-            live_card_bonus(self, int(live_session_id), int(student_id), events),
-        )
-        return snap
-
     def apply_student_live_engagement(
         self,
         payload: dict[str, Any],
