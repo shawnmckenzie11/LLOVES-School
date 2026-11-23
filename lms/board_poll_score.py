@@ -338,13 +338,325 @@ def adjust(
             ),
         )
         school.conn.commit()
-    return {
+    reply = {
         "ok": True,
         "student_id": int(student_id),
         "earned": _earned(stored_worth, completed, nxt),
         "possible": stored_worth,
         "delta": nxt,
     }
+    _emit_engagement_self(school, int(session_id), int(student_id))
+    return reply
+
+
+def _group_board_item(school: Any, prompt_id: int) -> dict[str, Any] | None:
+    """Lifecycle row when this prompt is a group whiteboard poll.
+
+    Args:
+        school: Open school database.
+        prompt_id: ``live_session_prompts.id``.
+
+    Returns:
+        The lifecycle row, or None when the prompt is not a group board.
+    """
+    with school._lock:
+        prompt = school.conn.execute(
+            "SELECT kind, payload FROM live_session_prompts WHERE id = ?",
+            (int(prompt_id),),
+        ).fetchone()
+        item = school.conn.execute(
+            """
+            SELECT id, item_id, placement_key, kind, item_json,
+                   publish_mode, response_mode, prompt_id, live_session_id
+            FROM live_session_items
+            WHERE prompt_id = ?
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (int(prompt_id),),
+        ).fetchone()
+    if prompt is None or item is None:
+        return None
+    row = dict(item)
+    mode = str(row.get("response_mode") or row.get("publish_mode") or "").strip().lower()
+    if mode != "group_shared":
+        return None
+    payload = _parse_json(prompt["payload"])
+    body = _parse_json(row.get("item_json"))
+    answer = str(body.get("answer_with") or payload.get("answer_with") or "").strip().lower()
+    if answer not in {"board", "both"}:
+        return None
+    row["item"] = body
+    return row
+
+
+def adjust_group(
+    school: Any,
+    session_id: int,
+    prompt_id: int,
+    student_id: int,
+    delta: int,
+) -> dict[str, Any]:
+    """Move one student's group whiteboard points by one step.
+
+    Earned points do not go below zero. ``possible`` stays the value
+    already stored, or 1 when this is the first row. The write is the
+    existing ``group_engagement`` table. It does not touch
+    ``board_poll_credit``.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        prompt_id: ``live_session_prompts.id``.
+        student_id: Roster id.
+        delta: ``1`` or ``-1``.
+
+    Returns:
+        ``earned``, ``possible``, and the step that was stored.
+
+    Raises:
+        ValueError: The step is not 1 or -1, or this is not a group board.
+        KeyError: The prompt is not on this session, or the run is missing.
+    """
+    step = int(delta)
+    if step not in {-1, 1}:
+        raise ValueError("delta must be 1 or -1")
+    item = _group_board_item(school, int(prompt_id))
+    if item is None:
+        raise ValueError("This question does not use a group whiteboard.")
+    if _session_of_item(school, int(item["id"])) != int(session_id):
+        raise KeyError("prompt is not on this session")
+    run_key = _run_key(school, int(session_id))
+    if not run_key:
+        raise KeyError("live session has no run")
+    qkey = question_key_for(item)
+    if not qkey:
+        raise ValueError("This question does not use a group whiteboard.")
+    _ensure_group_item(school, int(session_id), run_key, qkey, item)
+    now = _stamp()
+    with school._lock:
+        prior = school.conn.execute(
+            """
+            SELECT earned, possible FROM group_engagement
+            WHERE class_id = (
+                SELECT class_id FROM live_class_sessions WHERE id = ?
+            ) AND run_key = ? AND question_key = ? AND student_id = ?
+            """,
+            (int(session_id), run_key, qkey, int(student_id)),
+        ).fetchone()
+        class_row = school.conn.execute(
+            "SELECT class_id FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if class_row is None:
+            raise KeyError("live session has no run")
+        class_id = int(class_row["class_id"])
+        if prior is None:
+            possible = 1
+            earned = max(0, step)
+            school.conn.execute(
+                """
+                INSERT INTO group_engagement (
+                    class_id, run_key, question_key, student_id,
+                    earned, possible, source, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'live', ?)
+                """,
+                (class_id, run_key, qkey, int(student_id), earned, possible, now),
+            )
+        else:
+            possible = int(prior["possible"] if prior["possible"] not in (None, "") else 1)
+            earned = max(0, int(prior["earned"] or 0) + step)
+            school.conn.execute(
+                """
+                UPDATE group_engagement
+                SET earned = ?, recorded_at = ?
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (earned, now, class_id, run_key, qkey, int(student_id)),
+            )
+        school.conn.commit()
+    forget = getattr(school, "forget_board_group_cache", None)
+    if callable(forget):
+        session = school.get_live_session(int(session_id)) or {}
+        class_id = session.get("class_id")
+        if class_id not in (None, ""):
+            forget(int(class_id), run_key)
+    _emit_engagement_self(school, int(session_id), int(student_id))
+    return {
+        "ok": True,
+        "student_id": int(student_id),
+        "earned": earned,
+        "possible": possible,
+        "delta": step,
+    }
+
+
+def credit_group_whiteboard(
+    school: Any,
+    session_id: int,
+    item: dict[str, Any],
+    student_ids: list[int],
+) -> list[int]:
+    """Record 1/1 group engagement for each present contributor.
+
+    A second call for the same student does not add a point, so a retry
+    stays 1/1. Students who are not in ``student_ids`` (absent roster,
+    or teammates who never drew) get no row. This does not write
+    ``board_poll_credit``.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        item: Lifecycle row for the group whiteboard poll.
+        student_ids: Roster ids who contributed and are still present.
+
+    Returns:
+        Roster ids that received a new row on this call.
+    """
+    mode = str(item.get("response_mode") or item.get("publish_mode") or "").strip().lower()
+    if mode != "group_shared":
+        return []
+    run_key = _run_key(school, int(session_id))
+    if not run_key:
+        return []
+    qkey = question_key_for(item)
+    if not qkey:
+        return []
+    _ensure_group_item(school, int(session_id), run_key, qkey, item)
+    now = _stamp()
+    inserted: list[int] = []
+    with school._lock:
+        class_row = school.conn.execute(
+            "SELECT class_id FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if class_row is None:
+            return []
+        class_id = int(class_row["class_id"])
+        for sid in sorted({int(raw) for raw in student_ids}):
+            cursor = school.conn.execute(
+                """
+                INSERT INTO group_engagement (
+                    class_id, run_key, question_key, student_id,
+                    earned, possible, source, recorded_at
+                ) VALUES (?, ?, ?, ?, 1, 1, 'live', ?)
+                ON CONFLICT(class_id, run_key, question_key, student_id) DO NOTHING
+                """,
+                (class_id, run_key, qkey, sid, now),
+            )
+            if int(cursor.rowcount or 0) > 0:
+                inserted.append(sid)
+        school.conn.commit()
+    forget = getattr(school, "forget_board_group_cache", None)
+    if callable(forget):
+        forget(class_id, run_key)
+    for sid in inserted:
+        _emit_engagement_self(school, int(session_id), sid)
+    return inserted
+
+
+def _ensure_group_item(
+    school: Any,
+    session_id: int,
+    run_key: str,
+    question_key: str,
+    item: dict[str, Any],
+) -> None:
+    """Store the question copy used by group engagement. No roster fields.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        run_key: Live run uuid.
+        question_key: ``item:`` participation key.
+        item: Lifecycle row.
+    """
+    teacher = school.live_session_teacher_state_payload(int(session_id)) or {}
+    module = str(teacher.get("live_module") or "")
+    slot = str(teacher.get("live_slot") or "")
+    body = item.get("item") if isinstance(item.get("item"), dict) else _parse_json(item.get("item_json"))
+    kept = {
+        key: value
+        for key, value in body.items()
+        if str(key).lower() not in {"pin", "email", "name", "codename", "first_name", "last_name"}
+    }
+    now = _stamp()
+    with school._lock:
+        class_row = school.conn.execute(
+            "SELECT class_id FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if class_row is None:
+            return
+        school.conn.execute(
+            """
+            INSERT INTO group_engagement_items (
+                class_id, run_key, question_key, live_module, live_slot,
+                item_json, prompt_kind, offered_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'board', ?)
+            ON CONFLICT(class_id, run_key, question_key) DO UPDATE SET
+                live_module = excluded.live_module,
+                live_slot = excluded.live_slot,
+                prompt_kind = 'board'
+            """,
+            (
+                int(class_row["class_id"]),
+                run_key,
+                question_key,
+                module,
+                slot,
+                json.dumps(kept, sort_keys=True),
+                now,
+            ),
+        )
+        school.conn.commit()
+
+
+def _emit_engagement_self(school: Any, session_id: int, student_id: int) -> None:
+    """Tell this student their own totals. Other phones do not receive it.
+
+    The postcard is the two fractions already on that student's card.
+    It has no name, email, or PIN, and it does not bump ``state_seq``.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        student_id: Roster id whose card changed.
+    """
+    bump = getattr(school, "bump_live_card_cache", None)
+    if callable(bump):
+        bump()
+    try:
+        from live_news_wire import emit_session_news
+    except ImportError:
+        from lms.live_news_wire import emit_session_news
+
+    session = school.get_live_session(int(session_id)) or {}
+    class_id = session.get("class_id")
+    if class_id in (None, ""):
+        return
+    try:
+        fields = school.student_live_engagement_fields(
+            int(class_id), int(session_id), int(student_id)
+        )
+        group = school.student_group_engagement_display(
+            int(class_id), int(session_id), int(student_id)
+        )
+    except Exception:
+        logger.exception("engagement self read failed")
+        return
+    emit_session_news(
+        school,
+        int(session_id),
+        [
+            {
+                "type": "engagement_self",
+                "student_id": int(student_id),
+                "engagement": str(fields.get("tier1") or "0/0"),
+                "group_engagement": str(group or "0/0"),
+            }
+        ],
+    )
 
 
 def _session_of_item(school: Any, item_id: int) -> int:
@@ -438,7 +750,13 @@ def attach_participation(
         ]
 
 
-def live_card_bonus(school: Any, session_id: int, student_id: int, events: list[dict[str, Any]]) -> int:
+def live_card_bonus(
+    school: Any,
+    session_id: int,
+    student_id: int,
+    events: list[dict[str, Any]],
+    run_key: str | None = None,
+) -> int:
     """Points to add on the live card beyond the event rollup.
 
     A logged completion already includes the question's points. This
@@ -450,8 +768,11 @@ def live_card_bonus(school: Any, session_id: int, student_id: int, events: list[
         session_id: ``live_class_sessions.id``.
         student_id: Roster id.
         events: Engagement events for this run.
+        run_key: Live run uuid already loaded by the caller. Empty
+            skips the session read.
     """
-    run_key = _run_key(school, int(session_id))
+    if run_key is None:
+        run_key = _run_key(school, int(session_id))
     if not run_key:
         return 0
     with school._lock:
@@ -712,6 +1033,16 @@ def wipe_removed_question(school: Any, class_id: int, item_id: str) -> None:
                 (int(class_id), *keys),
             )
         school.conn.commit()
+    forget = getattr(school, "forget_board_group_cache", None)
+    if callable(forget):
+        if run_keys:
+            for rk in sorted(run_keys):
+                forget(int(class_id), rk)
+        else:
+            forget(int(class_id), "")
+    drop_aliases = getattr(school, "forget_question_alias_cache", None)
+    if callable(drop_aliases):
+        drop_aliases(None)
     for session_id in sorted(set(ended)):
         try:
             school._rollup_engagement_for_session(int(session_id))

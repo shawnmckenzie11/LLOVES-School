@@ -24,6 +24,7 @@ import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_
 import { compareQuestionPushOrder, questionPushLabel } from "/static/student_question_order.js";
 import { cardOwnsLivePrompt } from "/static/live_prompt_once.js";
 import { paintEyesUp } from "/static/eyes_up.js";
+import { noteBoardShow, syncPollFromPayload } from "/static/poll_board_show.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -1334,10 +1335,19 @@ function viewerBoardKey(data) {
  * @returns {"show-class" | "show-own" | "keep-class" | "clear-class" | "own"}
  */
 function syncClassBoard(data) {
+  syncPollFromPayload(document, data);
   if (!data || !Object.prototype.hasOwnProperty.call(data, "class_board")) {
     return classBoardHeld ? "keep-class" : "own";
   }
   const board = data.class_board;
+  if (board && board.poll === true) {
+    if (classBoardHeld) {
+      classBoardHeld = false;
+      document.getElementById("canvas-pane")?.classList.remove("is-class-board");
+      return "clear-class";
+    }
+    return "own";
+  }
   if (board && typeof board === "object" && board.canvas_view) {
     const legend = studentShownMembers(Array.isArray(board.legend) ? board.legend : []);
     if (typeof bindStudentCanvas.applyFormativePatch === "function") {
@@ -6615,7 +6625,24 @@ function ensureStudentNewsWire(sessionId) {
         });
         return;
       }
+      if (event && event.type === "engagement_self") {
+        const meId = Number(lastStudentPayload?.me?.id) || 0;
+        if (Number(event.student_id) !== meId) return;
+        const fraction = (value) => /^\d+\/\d+$/.test(String(value || ""));
+        if (fraction(event.engagement) && meEngagementEl) {
+          meEngagementEl.textContent = String(event.engagement);
+          if (lastStudentPayload?.me) lastStudentPayload.me.engagement = String(event.engagement);
+        }
+        if (fraction(event.group_engagement) && meGroupEngagementEl) {
+          meGroupEngagementEl.textContent = String(event.group_engagement);
+          if (lastStudentPayload?.me) {
+            lastStudentPayload.me.group_engagement = String(event.group_engagement);
+          }
+        }
+        return;
+      }
       if (event && (event.type === "board_ink" || event.type === "board_show")) {
+        if (event.type === "board_show") noteBoardShow(String(event.board_key || ""));
         if (boardFeature) kickStudentBoardDelta(true);
         return;
       }

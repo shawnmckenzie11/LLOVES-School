@@ -26,7 +26,9 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -5209,6 +5211,165 @@ def shoot_mck496(base: str, state_path: Path, out_dir: Path, path: Path) -> list
         browser.close()
     return [dest]
 
+def shoot_mck497(out_dir: Path) -> list[Path]:
+    """Centered read-only Show on Board overlay for one whiteboard poll.
+
+    Uses a synthetic roster and a line on the board. The shot is the
+    student overlay only. It does not print a visit token or an email.
+
+    Args:
+        out_dir: Directory for the PNG.
+
+    Returns:
+        The PNG path.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    sys.path.insert(0, str(ROOT))
+    os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
+    os.environ.pop("GOOGLE_CLIENT_ID", None)
+    import logging
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    logging.getLogger("auth").setLevel(logging.ERROR)
+    logging.getLogger("email_service").setLevel(logging.ERROR)
+    from app import create_app  # noqa: E402
+
+    tmp = tempfile.TemporaryDirectory()
+    root = Path(tmp.name)
+    app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+    school = app.config["SCHOOL_DB"]
+    staff = app.test_client()
+    school.activate_from_semester_json()
+    email = "fixture-staff" + "@" + "example.com"
+    teacher = school.register_staff(email)
+    offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCR3U")
+    staff.get("/auth/google?portal=staff")
+    staff.get(f"/auth/google/callback?email={email}&name=T")
+    code = school.get_user_by_email(email)["verification_code"]
+    staff.post("/verify-email", data={"code": code})
+    created = staff.post(
+        "/api/staff/classes",
+        json={
+            "offering_id": int(offering["id"]),
+            "days": "M/W/F",
+            "time": "2:00pm",
+            "codenames": ["P1"],
+        },
+    )
+    class_id = int(created.get_json()["class"]["id"])
+    live = school.start_live_class_session(class_id, int(teacher["id"]), is_test=True)
+    session_id = int(live["id"])
+    staff.post(
+        f"/api/live-sessions/{session_id}/teacher-state",
+        json={"live_module": "M1", "live_slot": "C2", "stage": "round"},
+    )
+    school.game.begin_game(class_id)
+    student = school.game.find_student_by_codename(class_id, "P1")
+    if student is None:
+        raise SystemExit("synthetic roster missing")
+    student_id = int(student["id"])
+    school.join_live_class_session(session_id, student_id, codename="P1")
+    posted = staff.post(
+        f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+        json={
+            "type": "poll",
+            "text": "Sketch",
+            "page_number": 1,
+            "stage": "round",
+            "answer_with": "board",
+            "live_points": 1,
+            "save_to_bank": False,
+        },
+    )
+    if posted.status_code >= 400:
+        raise SystemExit("could not add the whiteboard poll")
+    school.ensure_live_session_items(session_id)
+    item = None
+    for row in school.list_live_session_items(session_id):
+        body = row.get("item") if isinstance(row.get("item"), dict) else {}
+        if str(body.get("text") or "") == "Sketch":
+            item = row
+            break
+    if item is None:
+        raise SystemExit("whiteboard poll missing")
+    school.publish_live_session_item(session_id, int(item["id"]), publish_mode="individual")
+    fresh = None
+    for row in school.list_live_session_items(session_id):
+        body = row.get("item") if isinstance(row.get("item"), dict) else {}
+        if str(body.get("text") or "") == "Sketch":
+            fresh = row
+            break
+    if fresh is None or fresh.get("prompt_id") in (None, ""):
+        raise SystemExit("whiteboard poll was not published")
+    prompt_id = int(fresh["prompt_id"])
+    school.append_question_board_ops(
+        session_id,
+        prompt_id,
+        student_id,
+        [
+            {"type": "stroke_add", "id": "line", "points": [[0.15, 0.7], [0.5, 0.25], [0.82, 0.62]]},
+            {"type": "stroke_end", "id": "line"},
+        ],
+    )
+    key = f"solo:{student_id}"
+    shown = staff.post(
+        f"/api/live-sessions/{session_id}/questions/{prompt_id}/boards/{key}/show"
+    )
+    if shown.status_code != 200 or not (shown.get_json() or {}).get("projected"):
+        raise SystemExit("Show on Board did not project")
+    token_row = school.conn.execute(
+        """
+        SELECT visit_token FROM live_session_attendees
+        WHERE live_session_id = ? AND student_id = ?
+        """,
+        (session_id, student_id),
+    ).fetchone()
+    token = str(token_row["visit_token"] if token_row else "")
+    if not token:
+        raise SystemExit("student seat missing")
+    port = 8797
+    origin = f"http://127.0.0.1:{port}"
+    assert_loopback(origin)
+
+    def run_server() -> None:
+        app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+    threading.Thread(target=run_server, daemon=True).start()
+    deadline = time.time() + 20
+    up = False
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(origin + "/health", timeout=0.4) as response:
+                up = response.status == 200
+                if up:
+                    break
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.15)
+    if not up:
+        raise SystemExit("local LMS did not start")
+    dest = out_dir / "mck497-show-on-board.png"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    from playwright.sync_api import sync_playwright  # noqa: E402
+
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        try:
+            page.goto(f"{origin}/student/s/{token}", wait_until="domcontentloaded", timeout=30000)
+            _mck215_reach_live_home(page)
+            page.locator("#poll-board-overlay:not([hidden])").wait_for(state="visible", timeout=20000)
+            _mck215_dismiss_catchup_pin(page)
+            page.locator("#poll-board-overlay:not([hidden]) .poll-board-frame").wait_for(
+                state="visible", timeout=10000
+            )
+            box = page.locator("#poll-board-overlay .poll-board-frame").bounding_box()
+            if not box:
+                raise SystemExit("projected board frame missing")
+            page.screenshot(path=str(dest), full_page=False)
+        finally:
+            browser.close()
+    return [dest]
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
@@ -5251,6 +5412,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck280",
             "mck291",
             "mck293",
+            "mck497",
             "mck494",
             "mck495",
             "mck496",
@@ -5279,7 +5441,7 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        student_only = args.scenario in {"mck222", "mck495"}
+        student_only = args.scenario in {"mck222", "mck495", "mck497"}
         needs_login = (
             not student_only
             and (args.seed or not state.exists() or state.stat().st_size == 0)
@@ -5357,6 +5519,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck293(args.base, state, out, path))
         if args.scenario == "mck495":
             written.extend(shoot_mck495(args.base, out, path))
+        if args.scenario == "mck497":
+            written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
             written.extend(shoot_mck494(args.base, state, out, path))
         if args.scenario == "mck496":
@@ -5378,7 +5542,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497."
             )
         for item in written:
             print(item)
