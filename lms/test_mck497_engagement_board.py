@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
-from board_poll_score import adjust_group, credit_group_whiteboard  # noqa: E402
+from board_poll_score import adjust_group, credit_group_whiteboard, wipe_removed_question  # noqa: E402
 from engagement_rollup import compute_rollup  # noqa: E402
 from live_news_wire import NewsAudience, event_visible, log_for, reset_logs  # noqa: E402
 
@@ -587,3 +587,31 @@ class LiveClassTests(unittest.TestCase):
         self.assertNotIn("void tick()", handler)
         self.assertNotIn("scheduleNewsState()", handler)
 
+
+    def test_remove_drops_the_cached_group_fraction(self) -> None:
+        """Removing the question clears the live card cache, not only the rows."""
+        self._arm_group()
+        item = self._add("Cached board", answer_with="board", points=4)
+        published = self._publish(item, "group_shared")
+        prompt_id = int(published["prompt_id"])
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[3], _stroke("away")
+        )
+        self.school.mark_live_session_attendee_left(self.session_id, student_id=self.ids[3])
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("a")
+        )
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[1], _stroke("b")
+        )
+        self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "")
+        self.assertEqual(self._group(self.ids[0]), "1/1")
+        run_key = str(self.school.get_live_session(self.session_id)["run_key"])
+        cache = self.school._board_group_cache
+        self.assertIn(("run", self.class_id, run_key), cache)
+        self.assertIn(("stu", self.class_id, run_key, self.ids[0]), cache)
+        wipe_removed_question(self.school, self.class_id, str(published["item_id"]))
+        cache = getattr(self.school, "_board_group_cache", {})
+        self.assertNotIn(("run", self.class_id, run_key), cache)
+        self.assertNotIn(("stu", self.class_id, run_key, self.ids[0]), cache)
+        self.assertEqual(self._group(self.ids[0]), "0/0")

@@ -3575,34 +3575,37 @@ class LovesDB:
         return earned, possible
 
     def forget_board_group_cache(self, class_id: int, run_key: str) -> None:
-        """Drop cached whiteboard group points after a submit or a teacher step.
+        """Drop cached whiteboard group points after a score write or a removal.
 
-        The live card reads this cache on every student poll. A write has
-        to clear it or the phone keeps the previous fraction.
+        The live card reads this cache on every student poll. A submit, a
+        teacher step, or removing the question has to clear it or the
+        phone keeps the previous fraction. The caller may already hold
+        ``self._lock``; it is re-entrant.
 
         Args:
             class_id: Game-show ``classes.id``.
             run_key: Live run uuid.
         """
-        cache = getattr(self, "_board_group_cache", None)
-        if not cache:
-            return
-        key = str(run_key or "").strip()
-        cid = int(class_id)
-        cache.pop(("run", cid, key), None)
-        stale = [
-            item
-            for item in list(cache)
-            if (
-                isinstance(item, tuple)
-                and len(item) == 4
-                and item[0] == "stu"
-                and item[1] == cid
-                and item[2] == key
-            )
-        ]
-        for item in stale:
-            cache.pop(item, None)
+        with self._lock:
+            cache = getattr(self, "_board_group_cache", None)
+            if not cache:
+                return
+            key = str(run_key or "").strip()
+            cid = int(class_id)
+            cache.pop(("run", cid, key), None)
+            stale = [
+                item
+                for item in list(cache)
+                if (
+                    isinstance(item, tuple)
+                    and len(item) == 4
+                    and item[0] == "stu"
+                    and item[1] == cid
+                    and item[2] == key
+                )
+            ]
+            for item in stale:
+                cache.pop(item, None)
 
     def student_group_engagement_display(
         self, class_id: int, live_session_id: int, student_id: int
