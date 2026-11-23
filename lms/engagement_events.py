@@ -571,6 +571,35 @@ class _Store:
                 continue
         return out
 
+    def event_stamp(self, class_id: int, run_key: str) -> tuple[int, int]:
+        """Count events on this run and the newest event id.
+
+        The live card cache compares this pair instead of loading every
+        event on each phone poll. A new answer changes the count or the id.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Live run uuid.
+
+        Returns:
+            ``(count, max_id)``. Both are 0 when the run has no events.
+        """
+        rows = self._fetch(
+            "SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id "
+            "FROM engagement_events WHERE class_id = ? AND run_key = ?",
+            (int(class_id), str(run_key or "")),
+        )
+        if not rows:
+            return 0, 0
+        row = rows[0]
+        try:
+            count = int(row["n"] or 0)
+            newest = int(row["max_id"] or 0)
+        except (KeyError, TypeError, IndexError):
+            count = int(row[0] or 0)
+            newest = int(row[1] or 0)
+        return count, newest
+
     def list_for_class(
         self,
         class_id: int,
