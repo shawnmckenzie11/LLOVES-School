@@ -4713,6 +4713,100 @@ def shoot_mck291(base: str, state_path: Path, out_dir: Path, path: Path) -> list
     return written
 
 
+def shoot_mck494(base: str, state_path: Path, out_dir: Path, db: Path) -> list[Path]:
+    """MCK-494: Overview tab and the Run Live Class Begin Module dialog.
+
+    Uses the seeded demo class. Refuses the shot when Overview already
+    contains a roster PIN cell. The dialog is opened with the Start
+    control after the prompt endpoint names the next module.
+
+    Args:
+        base: Loopback origin.
+        state_path: Staff storageState.
+        out_dir: Directory for PNG files.
+        db: LMS sqlite path, used to find the demo class.
+
+    Returns:
+        PNG paths written.
+    """
+    from playwright.sync_api import sync_playwright
+
+    class_id = shawn_class_id(db)
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(
+            storage_state=str(state_path),
+            viewport={"width": 1280, "height": 900},
+        )
+        page = context.new_page()
+        page.goto(
+            f"{origin}/staff/class/{class_id}?tab=ap",
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+        page.locator("#begin-mod-current-table").wait_for(state="visible", timeout=20000)
+        page.locator("nav.ap-subtabs").wait_for(state="visible", timeout=10000)
+        if page.locator(".ap-roster-pin").count():
+            context.close()
+            browser.close()
+            raise SystemExit("Refusing screenshot: Overview includes roster PIN cells")
+        if page.locator("#begin-mod-past").count():
+            context.close()
+            browser.close()
+            raise SystemExit("Refusing screenshot: Past modules table is still on the page")
+        overview = out_dir / "mck-494-ap-overview-1280.png"
+        page.screenshot(path=str(overview), full_page=True)
+        written.append(overview)
+
+        started = page.request.post(f"{origin}/staff/class/{class_id}/run-live")
+        page.goto(started.url, wait_until="domcontentloaded", timeout=60000)
+        page.locator("#set-class-start").wait_for(state="visible", timeout=20000)
+        module = page.evaluate(
+            """async (classId) => {
+              const modules = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"];
+              for (const mod of modules) {
+                const res = await fetch(
+                  `/api/classes/${classId}/live-session/begin-module-prompt?module=${mod}&slot=C1&is_test=0`,
+                  { credentials: "same-origin", headers: { Accept: "application/json" } }
+                );
+                const body = await res.json();
+                if (body && body.prompt && body.prompt.title) return mod;
+              }
+              return "";
+            }""",
+            class_id,
+        )
+        if not module:
+            context.close()
+            browser.close()
+            raise SystemExit("Seeded class did not offer Begin Module for M1–M8")
+        page.locator("#live-module-select").select_option(str(module))
+        page.locator("#set-class-start").click()
+        override = page.locator("#set-class-override-dialog")
+        try:
+            override.wait_for(state="visible", timeout=4000)
+            page.locator("#set-class-override-continue").click()
+        except Exception:
+            pass
+        finish = page.locator("#finish-module-dialog")
+        try:
+            finish.wait_for(state="visible", timeout=4000)
+            page.locator('#finish-module-dialog button[value="start"]').click()
+        except Exception:
+            pass
+        dialog_box = page.locator("#begin-live-module-dialog")
+        dialog_box.wait_for(state="visible", timeout=15000)
+        dialog = out_dir / "mck-494-begin-module-prompt-1280.png"
+        dialog_box.screenshot(path=str(dialog))
+        written.append(dialog)
+        context.close()
+        browser.close()
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -4754,6 +4848,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck280",
             "mck291",
             "mck293",
+            "mck494",
         ),
         default="",
         help=(
@@ -4853,6 +4948,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck291(args.base, state, out, path))
         if args.scenario == "mck293":
             written.extend(shoot_mck293(args.base, state, out, path))
+        if args.scenario == "mck494":
+            written.extend(shoot_mck494(args.base, state, out, path))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -4870,7 +4967,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494."
             )
         for item in written:
             print(item)

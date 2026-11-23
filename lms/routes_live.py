@@ -6440,10 +6440,43 @@ def register_live(app, school, shared):
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
+    @bp.route("/api/classes/<int:class_id>/live-session/begin-module-prompt")
+    @login_required
+    def api_live_begin_module_prompt(class_id: int):
+        """Whether Start should offer Begin Module for the chosen module.
+
+        The body is empty. Query ``module`` and ``slot`` are the Set
+        Class choice. ``is_test=1`` and an Open Office slot return no
+        prompt. The JSON has no roster fields.
+        """
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        is_test = str(request.args.get("is_test") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        prompt = school.live_start_module_prompt(
+            class_id,
+            str(request.args.get("module") or ""),
+            is_test=is_test,
+            is_office=False,
+            live_slot=str(request.args.get("slot") or ""),
+        )
+        response = jsonify({"ok": True, "prompt": prompt})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @bp.route("/api/classes/<int:class_id>/live-session/start", methods=["POST"])
     @login_required
     def api_start_live_session(class_id: int):
-        """Mint (or reuse) an active live join session without wiping setup game."""
+        """Mint (or reuse) an active live join session without wiping setup game.
+
+        ``begin_module: true`` commits ``begin_new_module`` before the
+        session row when the Begin Module prompt still applies. Test
+        and Open Office ignore that flag.
+        """
         denied = _require_class_staff(class_id)
         if denied:
             return denied
@@ -6451,13 +6484,31 @@ def register_live(app, school, shared):
         assert user is not None
         try:
             body = request.get_json(silent=True) or {}
-            session_row = _start_live_and_wake(
-                school,
-                class_id,
-                int(user["id"]),
-                live_module=body.get("live_module"),
-                live_slot=body.get("live_slot"),
-            )
+            if body.get("begin_module"):
+                from begin_module import BeginModuleRejected
+                from live_begin_prompt import confirm_begin_then_start
+
+                try:
+                    session_row = confirm_begin_then_start(
+                        school,
+                        class_id,
+                        int(user["id"]),
+                        live_module=body.get("live_module"),
+                        live_slot=body.get("live_slot"),
+                        is_test=bool(body.get("is_test")),
+                        is_office=bool(body.get("is_office")),
+                        start=_start_live_and_wake,
+                    )
+                except BeginModuleRejected as exc:
+                    return jsonify({"ok": False, "error": str(exc)}), int(exc.status)
+            else:
+                session_row = _start_live_and_wake(
+                    school,
+                    class_id,
+                    int(user["id"]),
+                    live_module=body.get("live_module"),
+                    live_slot=body.get("live_slot"),
+                )
             return jsonify(
                 {
                     "ok": True,

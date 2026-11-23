@@ -2472,18 +2472,18 @@ def register_teacher(app, school, shared):
                     "staff_course",
                     class_id=class_id,
                     tab="ap",
-                    view=request.args.get("view") or "attendance",
+                    view=request.args.get("view") or "overview",
                 )
             )
         # Historical aliases for the tracker / A&P surface.
         if tab in {"track", "attendance-participation", "attendance", "participation"}:
             view = "participation" if tab == "participation" else (
-                "attendance" if tab == "attendance" else (request.args.get("view") or "attendance")
+                "attendance" if tab == "attendance" else (request.args.get("view") or "overview")
             )
             return redirect(
                 url_for("staff_course", class_id=class_id, tab="ap", view=view)
             )
-        ap_view = (request.args.get("view") or "attendance").strip().lower()
+        ap_view = (request.args.get("view") or "overview").strip().lower()
         if ap_view == "mood":
             return redirect(
                 url_for(
@@ -2493,8 +2493,19 @@ def register_teacher(app, school, shared):
                     view="attendance",
                 )
             )
-        if ap_view not in {"attendance", "participation", "feedback", "engagement", "roster"}:
+        if request.args.get("take") == "1" and ap_view == "overview":
             ap_view = "attendance"
+        if request.args.get("participate") == "1" and ap_view == "overview":
+            ap_view = "participation"
+        if ap_view not in {
+            "overview",
+            "attendance",
+            "participation",
+            "feedback",
+            "engagement",
+            "roster",
+        }:
+            ap_view = "overview"
         portfolio_view = (request.args.get("view") or "build").strip().lower()
         if portfolio_view not in {"build", "marking"}:
             portfolio_view = "build"
@@ -2570,7 +2581,7 @@ def register_teacher(app, school, shared):
         )
         feedback_grid = (
             school.feedback_grid_for_class(class_id, include_test_students=show_tests)
-            if tab == "ap" and ap_view == "feedback"
+            if tab == "ap"
             else {"columns": [], "students": [], "totals": {}, "grand_total": 0}
         )
         roster_pin_rows = (
@@ -2690,6 +2701,35 @@ def register_teacher(app, school, shared):
             and school.teacher_owns_class(int(user["id"]), class_id)
         ):
             resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @bp.route("/api/staff/class/<int:class_id>/roster-pins")
+    @staff_required
+    def staff_roster_pins(class_id: int):
+        """Roster & PINs markup, fetched when that tab is opened.
+
+        The Attendance & Participation page does not embed this HTML
+        until the tab is the one being shown. Owner check matches the
+        course page. PIN cells stay masked. The response is not stored.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            abort(403)
+        show_tests = _include_test_students()
+        html = render_template(
+            "staff/_ap_roster.html",
+            cls=school.game.get_class(class_id),
+            roster_pin_rows=school.roster_pin_rows(
+                class_id, include_test_students=show_tests
+            ),
+            require_catchup_pin_change=school.require_catchup_pin_change(class_id),
+        )
+        resp = make_response(html)
+        resp.headers["Cache-Control"] = "no-store"
         return resp
 
     @bp.route("/staff/class/<int:class_id>/module-pack", methods=["POST"])

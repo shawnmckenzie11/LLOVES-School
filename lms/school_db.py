@@ -44119,6 +44119,118 @@ class SchoolDB(LovesDB):
             planned=int(board["planned"]),
         )
 
+    def live_start_module_prompt(
+        self,
+        class_id: int,
+        target_module: str,
+        *,
+        is_test: bool = False,
+        is_office: bool = False,
+        live_slot: str = "",
+    ) -> dict[str, str] | None:
+        """Offer Begin Module when Set Class starts the next planned module.
+
+        Uses ``begin_module_board`` and ``_begin_module_meetings``. A
+        target has no saved runs when meetings has no list for it.
+        Test classes, Open Office, jump-ahead modules, and a section
+        that cannot begin return None.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            target_module: Module the teacher chose.
+            is_test: True for a test live class.
+            is_office: True for Open Office.
+            live_slot: Slot token. ``O1`` is Open Office.
+
+        Returns:
+            Dialog copy, or None when Run Live Class should just start.
+        """
+        from begin_module import (
+            REASON_LIVE,
+            live_start_dialog_copy,
+            live_start_should_prompt,
+            normalize_module,
+        )
+        from participation_weight import module_number
+
+        try:
+            from set_class import is_open_office_slot
+        except ImportError:
+            from lms.set_class import is_open_office_slot
+
+        if is_test or is_office or is_open_office_slot(live_slot):
+            return None
+        cid = int(class_id)
+        board = self.begin_module_board(cid)
+        active = self.get_active_live_session_for_class(cid)
+        if active is not None and int(active.get("is_test") or 0):
+            return None
+        shell = False
+        if active is not None:
+            state = self.live_session_teacher_state_payload(int(active["id"])) or {}
+            shell = not bool(state.get("class_set"))
+        blocked_only_by_setup_shell = (
+            not bool(board["can_begin"])
+            and str(board.get("disabled_reason") or "") == REASON_LIVE
+            and shell
+            and int(board.get("held") or 0) > 0
+            and bool(board.get("next_module"))
+        )
+        target = normalize_module(target_module)
+        meetings = self._begin_module_meetings(cid)
+        if not live_start_should_prompt(
+            can_begin=bool(board["can_begin"]),
+            next_module=str(board.get("next_module") or ""),
+            target_module=target,
+            target_has_meetings=bool(meetings.get(target)),
+            is_test=False,
+            is_office=False,
+            blocked_only_by_setup_shell=blocked_only_by_setup_shell,
+        ):
+            return None
+        number = module_number(target)
+        section = self._section_code_for_class(cid)
+        return live_start_dialog_copy(number, section)
+
+    def release_unset_live_shell(self, class_id: int) -> bool:
+        """Quit an unconfirmed Set Class session so a module wrap can commit.
+
+        Quit saves nothing. A session with ``class_set`` stays active.
+        ``begin_new_module`` rejects while any live class is active.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            True when a shell was quit and no active session remains.
+
+        Raises:
+            BeginModuleRejected: Quit did not clear the active session.
+        """
+        from begin_module import BeginModuleRejected
+
+        cid = int(class_id)
+        active = self.get_active_live_session_for_class(cid)
+        if active is None:
+            return False
+        state = self.live_session_teacher_state_payload(int(active["id"])) or {}
+        if state.get("class_set"):
+            return False
+        run_key = str(active.get("run_key") or "").strip() or None
+        result = self.finish_live_class(
+            cid,
+            celebrate=False,
+            persist=False,
+            run_key=run_key,
+        )
+        if isinstance(result, dict) and (
+            result.get("finish_busy") or result.get("in_progress")
+        ):
+            raise BeginModuleRejected("End the live class first.")
+        if self.get_active_live_session_for_class(cid) is not None:
+            raise BeginModuleRejected("End the live class first.")
+        return True
+
     def _begin_module_result(
         self,
         from_module: str,

@@ -9368,8 +9368,11 @@ body.staff-shell .ap-tab-head {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin: 0.75rem 0 1rem;
+  margin: 0 0 0.65rem;
   border-bottom: 1px solid #cbd5e1;
+}
+body.staff-shell #ap-root .ap-panel[hidden] {
+  display: none !important;
 }
 body.staff-shell .ap-tab-head .ap-subtabs {
   margin: 0;
@@ -10051,8 +10054,17 @@ body.staff-shell .begin-mod-table {
 body.staff-shell .begin-mod-table th,
 body.staff-shell .begin-mod-table td {
   text-align: left;
-  padding: 0.45rem 0.6rem;
+  /* About 30% shorter than the previous 0.45rem rows at 1rem. */
+  padding: 0.28rem 0.55rem;
+  font-size: 0.9rem;
+  line-height: 1.25;
   border-bottom: 1px solid #e2e8f0;
+}
+body.staff-shell .begin-mod-table th {
+  padding-top: 0.18rem;
+  padding-bottom: 0.18rem;
+  font-size: 0.78rem;
+  line-height: 1.15;
 }
 body.staff-shell .begin-mod-past-head {
   display: flex;

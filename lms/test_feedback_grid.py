@@ -162,7 +162,8 @@ class FeedbackGridTests(unittest.TestCase):
         self.assertIn(">After<", html)
         self.assertIn(">Score<", html)
         self.assertIn(">Comment<", html)
-        hint = html.split('class="hint">', 1)[1].split("</p>", 1)[0]
+        feedback = html.split('id="feedback-root"', 1)[1]
+        hint = feedback.split('class="hint">', 1)[1].split("</p>", 1)[0]
         self.assertNotIn("icon", hint.lower())
         self.assertIn("−1", hint)
         self.assertNotIn("end-live-options", html)
