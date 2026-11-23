@@ -4807,6 +4807,149 @@ def shoot_mck494(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
     return written
 
 
+def prepare_mck496_teacher(path: Path, origin: str) -> dict[str, int | str]:
+    """Publish one multiple-choice question and return the teacher URL.
+
+    The card is active and graph-bearing so the footer can show the order
+    toggle, Show answer, Responses & points, Minimize, Close, and (Re)move.
+    The stem names no student.
+
+    Args:
+        path: Sqlite path the dev server uses.
+        origin: Loopback LMS origin.
+
+    Returns:
+        ``live_item_id`` and ``teacher_url``.
+    """
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        stage="round",
+        live_module="M1",
+        live_slot="C1",
+        page_id="round_1",
+        class_set=True,
+    )
+    placement = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C1",
+        question_type="mc",
+        text="Which representation is linear?",
+        page_number=4,
+        stage="round",
+        options=["A curve", "A straight line", "A circle", "A point"],
+        correct_index=1,
+    )
+    items = school.ensure_live_session_items(session_id)
+    row = next(item for item in items if item["item_id"] == placement["item_id"])
+    live_item_id = int(row["id"])
+    school.publish_live_session_item(session_id, live_item_id, publish_mode="individual")
+    base = assert_loopback(origin if "://" in origin else f"http://{origin}").rstrip("/")
+    return {
+        "live_item_id": live_item_id,
+        "teacher_url": f"{base}/staff/class/{class_id}?tab=live&live_session_id={session_id}",
+    }
+
+
+def shoot_mck496(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-496: one teacher question card with a single footer button row.
+
+    The shot is the card only, at a desktop width. It refuses a card that
+    still has a visibility checkbox, wraps the footer, or clips a button.
+
+    Args:
+        base: Loopback LMS origin.
+        state_path: Staff Playwright storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+
+    Returns:
+        The PNG path.
+    """
+    from playwright.sync_api import sync_playwright
+
+    meta = prepare_mck496_teacher(path, base)
+    item_id = int(meta["live_item_id"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / "mck496-question-footer-1280.png"
+    card_sel = f'.live-question-card[data-live-item-id="{item_id}"]'
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(
+            storage_state=str(state_path), viewport={"width": 1280, "height": 900}
+        )
+        page = context.new_page()
+        page.goto(str(meta["teacher_url"]), wait_until="domcontentloaded", timeout=60000)
+        page.locator("body.staff-shell").wait_for(state="attached", timeout=30000)
+        questions = page.locator('.live-content-tab[data-tab="questions"]')
+        if questions.count():
+            questions.click(timeout=10000)
+        card = page.locator(card_sel)
+        for _ in range(8):
+            if card.count() and card.is_visible():
+                break
+            nxt = page.locator("#live-stage-next")
+            if nxt.count() == 0 or nxt.is_disabled():
+                break
+            nxt.click()
+            page.wait_for_timeout(400)
+        card.wait_for(state="visible", timeout=20000)
+        card.locator("[data-live-q-footer]").wait_for(state="visible", timeout=15000)
+        card.locator('[data-live-q-footer] button[data-mc-order="default"]').wait_for(
+            state="visible", timeout=15000
+        )
+        if card.locator(".mc-results-graph .mc-results-controls").count():
+            raise SystemExit("graph toggles are still inside the results graph")
+        if page.locator("[data-live-results-toggle]").count():
+            raise SystemExit("visibility checkbox is still on the question card")
+        layout = card.locator("[data-live-q-footer]").evaluate(
+            """(footer) => {
+              const buttons = [...footer.querySelectorAll("button")];
+              const boxes = buttons.map((button) => {
+                const box = button.getBoundingClientRect();
+                return { text: (button.textContent || "").trim(), top: box.top, left: box.left, right: box.right, bottom: box.bottom, width: box.width, height: box.height };
+              });
+              const footerBox = footer.getBoundingClientRect();
+              const tops = boxes.map((box) => box.top);
+              return {
+                labels: boxes.map((box) => box.text),
+                topDelta: tops.length ? Math.max(...tops) - Math.min(...tops) : 0,
+                overflow: footer.scrollWidth - footer.clientWidth,
+                clipped: boxes.some((box) => box.right > footerBox.right + 1 || box.left < footerBox.left - 1 || box.bottom > footerBox.bottom + 1 || box.width < 8),
+              };
+            }"""
+        )
+        expected = [
+            "Option order",
+            "Most picked",
+            "Show answer",
+            "Responses & points",
+            "Minimize",
+            "Close",
+            "(Re)move",
+        ]
+        if layout["labels"] != expected:
+            raise SystemExit(f"footer buttons {layout['labels']}")
+        if layout["topDelta"] > 2 or layout["overflow"] > 1 or layout["clipped"]:
+            raise SystemExit(
+                f"footer wrapped or clipped delta={layout['topDelta']} overflow={layout['overflow']} clipped={layout['clipped']}"
+            )
+        _mck281_blank_identity(page)
+        page.wait_for_timeout(200)
+        card.screenshot(path=str(dest))
+        context.close()
+        browser.close()
+    return [dest]
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -4849,6 +4992,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck291",
             "mck293",
             "mck494",
+            "mck496",
         ),
         default="",
         help=(
@@ -4861,7 +5005,8 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-281 Take turns rank, MCK-289 catch-up column, "
             "MCK-290 ended class on Lesson Slides, "
             "MCK-280 whiteboard fixes, MCK-291 Set Class calendar, "
-            "or MCK-293 group rank check and group engagement points."
+            "MCK-293 group rank check and group engagement points, "
+            "or MCK-496 teacher question footer."
         ),
     )
     args = parser.parse_args(argv)
@@ -4950,6 +5095,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck293(args.base, state, out, path))
         if args.scenario == "mck494":
             written.extend(shoot_mck494(args.base, state, out, path))
+        if args.scenario == "mck496":
+            written.extend(shoot_mck496(args.base, state, out, path))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -4967,7 +5114,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck496."
             )
         for item in written:
             print(item)

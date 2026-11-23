@@ -3715,55 +3715,57 @@ body.staff-shell .live-question-card-actions {
   display: block;
 }
 body.staff-shell .live-q-strip {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-  gap: 0.45rem 0.65rem;
+  display: flex;
+  flex-direction: column;
   align-items: stretch;
-}
-body.staff-shell .live-q-group {
-  display: flex;
-  flex-flow: row wrap;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.35rem 0.5rem;
+  gap: 0.45rem;
   min-width: 0;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
 }
-body.staff-shell .live-q-group-kicker {
-  color: #64748b;
-  font-size: 0.65rem;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-body.staff-shell .live-q-group-actions {
+/* MCK-496: one action row. Graph toggles sit left; the rest sit right. */
+body.staff-shell .live-q-footer {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.45rem;
+  min-width: 0;
 }
-/* Tablet: Visibility on row 1, Lifecycle on row 2 (≤2 wrap rows). */
-@media (max-width: 1024px) {
-  body.staff-shell .live-q-strip {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto auto;
-  }
-  body.staff-shell .live-q-group[data-live-q-group="lifecycle"] {
-    grid-column: 1 / -1;
-  }
+body.staff-shell .live-q-footer-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  min-width: 0;
 }
-/* Under 720px the groups stack, still left-aligned. */
-@media (max-width: 719px) {
-  body.staff-shell .live-q-strip {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
-  }
-  body.staff-shell .live-q-group[data-live-q-group="lifecycle"] {
-    grid-column: auto;
-  }
+body.staff-shell .live-q-footer .mc-results-controls {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  margin: 0;
+}
+body.staff-shell .live-q-footer .mc-results-controls button,
+body.staff-shell .live-q-footer .live-q-btn,
+body.staff-shell .live-q-footer .live-publish-split {
+  flex: 0 0 auto;
+}
+body.staff-shell .live-q-footer .mc-results-controls button {
+  font-size: 0.78rem;
+  line-height: 1.2;
+  min-height: 2rem;
+  padding: 0.25rem 0.55rem;
+}
+body.staff-shell .live-q-footer .live-publish-split,
+body.staff-shell .live-q-footer .live-publish-split.has-modes {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  gap: 0;
+}
+body.staff-shell .live-q-footer .live-closed-copy {
+  margin: 0;
+  white-space: nowrap;
+}
+body.staff-shell .live-q-footer .live-question-relocate-btn {
+  margin-left: 0;
 }
 body.staff-shell .live-question-card-actions .live-student-view-field {
   flex-direction: column;
@@ -3804,13 +3806,6 @@ body.staff-shell .live-publish-split {
 }
 body.staff-shell .live-publish-split.has-modes {
   grid-template-columns: minmax(0, 1fr) minmax(9rem, auto);
-}
-body.staff-shell .live-result-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.82rem;
-  font-weight: 650;
 }
 body.staff-shell .live-question-progress,
 body.staff-shell .live-closed-copy {
