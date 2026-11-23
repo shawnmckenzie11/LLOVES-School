@@ -791,7 +791,7 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
    at the live area and let the card scroll itself. */
 @media (max-width: 47.99rem) {
   body.student-home .live-question-stack-body > .student-live-card.student-floating-pane {
-    max-height: none;
+    max-height: 100%;
   }
 }
 
