@@ -490,6 +490,13 @@ const ctx = {
     const bits = tally.choices.map((row) => `${row.label}:${row.count}${row.correct ? "*" : ""}`).join(",");
     return `<section class="mc-results-graph">${bits}</section>`;
   },
+  tallyHasResponses: (tally) => {
+    if (!tally || typeof tally !== "object") return false;
+    const choices = Array.isArray(tally.choices) ? tally.choices : [];
+    const fromChoices = choices.reduce((sum, row) => sum + (Number(row && row.count) || 0), 0);
+    return fromChoices + (Number(tally.other) || 0) + (Number(tally.response_count) || 0) > 0;
+  },
+  noResponsesYetHtml: () => '<p class="live-question-empty">No responses yet</p>',
   refreshLifecycleResults: async () => { fetched += 1; },
 };
 vm.createContext(ctx);
