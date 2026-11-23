@@ -248,6 +248,45 @@ def public_board_payload(value: Any) -> Any:
 _NAME_KEYS = frozenset({"name", "codename"})
 
 
+def projection_canvas(view: Any) -> dict[str, list[dict[str, Any]]]:
+    """Strokes and text for a read-only projection. No owners or names.
+
+    Args:
+        view: Folded ``canvas_view`` for one board.
+
+    Returns:
+        ``strokes`` of points and colour, and ``texts`` of position,
+        words, and colour. Student ids are not copied.
+    """
+    src = view if isinstance(view, dict) else {}
+    strokes: list[dict[str, Any]] = []
+    for stroke in src.get("strokes") or []:
+        if not isinstance(stroke, dict):
+            continue
+        points = stroke.get("points")
+        if not isinstance(points, list) or not points:
+            continue
+        strokes.append(
+            {"points": points, "color": str(stroke.get("color") or "")}
+        )
+    texts: list[dict[str, Any]] = []
+    for label in src.get("texts") or []:
+        if not isinstance(label, dict):
+            continue
+        words = str(label.get("text") or "")
+        if not words.strip():
+            continue
+        texts.append(
+            {
+                "x": label.get("x"),
+                "y": label.get("y"),
+                "text": words,
+                "color": str(label.get("color") or ""),
+            }
+        )
+    return {"strokes": strokes, "texts": texts}
+
+
 def strip_shown_board_names(value: Any) -> Any:
     """Drop display names from a board painted on a student screen.
 

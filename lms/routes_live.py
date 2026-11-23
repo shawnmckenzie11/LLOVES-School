@@ -5608,7 +5608,7 @@ def register_live(app, school, shared):
     @feature_required_any("whiteboard", "whiteboard_submit")
     def api_question_board_participation(session_id: int, prompt_id: int):
         """Raise or lower one student's participation on this whiteboard poll."""
-        from board_poll_score import adjust
+        from board_poll_score import adjust, adjust_group
 
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
@@ -5620,7 +5620,15 @@ def register_live(app, school, shared):
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "student_id and delta required"}), 400
         try:
-            return jsonify(adjust(school, int(session_id), int(prompt_id), student_id, delta))
+            try:
+                reply = adjust(school, int(session_id), int(prompt_id), student_id, delta)
+            except ValueError as exc:
+                if "does not use a whiteboard poll" not in str(exc):
+                    raise
+                reply = adjust_group(
+                    school, int(session_id), int(prompt_id), student_id, delta
+                )
+            return jsonify(reply)
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
         except ValueError as exc:
@@ -5746,7 +5754,9 @@ def register_live(app, school, shared):
             run_key = question_run_key(base, int(prompt_id))
             teacher = school.live_session_teacher_state_payload(int(session_id))
             current = str(teacher.get("whiteboard_projected_board") or "")
-            current_run = str(teacher.get("whiteboard_projected_run") or "")
+            current_run = str(teacher.get("whiteboard_projected_run") or "").strip()
+            if not current_run:
+                current_run = school._projected_run_raw(int(session_id))
             showing = current == str(board_key) and current_run == run_key
             school._set_projected_whiteboard(
                 int(session_id),

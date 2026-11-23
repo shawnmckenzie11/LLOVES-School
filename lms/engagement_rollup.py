@@ -2,8 +2,10 @@
 
 At End Live Class the server aggregates one run's events into append-only
 ``engagement_rollup`` rows. Counts are keyed by *signal* (evidence type).
-Offered denominators count ``item.offered`` only while the student was
-present; when a signal's item type never appeared, ``offered`` is NULL (N/A).
+Offered denominators count a non-deleted ``item.offered`` while the student
+was present, and also when that student answered it even if it was
+published before they joined. When a signal's item type never appeared,
+``offered`` is NULL (N/A). Nothing here rewrites stored event rows.
 
 Group-linked signals also store each member's share of the team total and
 their ratio versus an even split across present teammates.
@@ -14,7 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Collection, Iterable, Mapping, Sequence
 
 from zoneinfo import ZoneInfo
 
@@ -171,6 +173,77 @@ def _canonical_mode(raw: Any) -> str:
     return aliases.get(token, token.replace(" ", "_"))
 
 
+# Answer kinds that prove the student took a question, keyed by signal.
+_ANSWER_KINDS: dict[str, frozenset[str]] = {
+    "individual_answer": frozenset({"answer.submit", "answer.change"}),
+    "group_vote": frozenset({"group.vote"}),
+    "group_draft": frozenset({"group.draft_edit"}),
+    "group_submit": frozenset({"group.submit", "group.finalize"}),
+}
+
+
+def _payload_dict(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the event payload as a dict. Bad JSON is empty.
+
+    Args:
+        row: Engagement event, payload parsed or still JSON text.
+    """
+    payload = row.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _ref_keys(row: Mapping[str, Any]) -> set[str]:
+    """Ids that name the question on one event.
+
+    A publish stores the lifecycle id. An answer stores the prompt id.
+    Either may also carry the other id on the payload. A deleted or
+    removed flag contributes nothing, so the offer is not a live question.
+
+    Args:
+        row: Engagement event.
+    """
+    payload = _payload_dict(row)
+    if payload.get("deleted") or payload.get("removed"):
+        return set()
+    keys: set[str] = set()
+    ref = str(row.get("item_ref") or "").strip()
+    if ref:
+        keys.add(ref)
+    for field in ("prompt_id", "item_id"):
+        raw = payload.get(field)
+        if raw not in (None, ""):
+            text = str(raw).strip()
+            if text:
+                keys.add(text)
+    return keys
+
+
+def _expand_keys(
+    keys: set[str], aliases: Mapping[str, Collection[str]] | None
+) -> set[str]:
+    """Add every alias of these question ids. Does not write storage.
+
+    Args:
+        keys: Ids already on the event.
+        aliases: Map from any id of a live question to its other ids.
+            ``None`` leaves the keys unchanged.
+    """
+    if not aliases:
+        return set(keys)
+    out = set(keys)
+    for key in list(keys):
+        for item in aliases.get(key) or ():
+            text = str(item or "").strip()
+            if text:
+                out.add(text)
+    return out
+
+
 def _event_worth(row: Mapping[str, Any]) -> int:
     """Points one event contributes. A missing value stays 1.
 
@@ -267,6 +340,7 @@ def compute_rollup(
     run_key: str,
     team_for_student: Mapping[int, int | None],
     student_ids: Iterable[int],
+    question_aliases: Mapping[str, Collection[str]] | None = None,
 ) -> list[RollupRow]:
     """Build student and group rollup rows for one run.
 
@@ -277,21 +351,54 @@ def compute_rollup(
         run_key: Live run uuid.
         team_for_student: Roster student id → team id (or None).
         student_ids: Every student to emit a student-scope row for.
+        question_aliases: Live questions only. Each id maps to every id of
+            that question (lifecycle id and prompt id), so an answer stored
+            under the prompt id still matches an offer stored under the
+            lifecycle id. ``None`` matches ids that are already equal.
+            This does not rewrite event rows. A payload flagged ``deleted``
+            or ``removed`` is not an offer.
 
     Returns:
         Flat list of ``RollupRow`` for students and teams.
     """
     students = sorted({int(s) for s in student_ids})
-    offers_by_signal: dict[str, list[tuple[datetime, int]]] = {s: [] for s in SIGNALS}
+
+    def _keys(row: Mapping[str, Any]) -> set[str]:
+        """Question ids for one event, expanded through the live alias map."""
+        return _expand_keys(_ref_keys(row), question_aliases)
+
+    offers_by_signal: dict[str, list[tuple[datetime, int, set[str]]]] = {
+        s: [] for s in SIGNALS
+    }
     for row in events:
         if str(row.get("kind") or "") != "item.offered":
             continue
-        mode = _canonical_mode((row.get("payload") or {}).get("mode"))
+        keys = _keys(row)
+        if not keys:
+            continue
+        mode = _canonical_mode(_payload_dict(row).get("mode"))
         worth = _event_worth(row)
         for sig in _MODE_OFFERS.get(mode, ()):
-            offers_by_signal.setdefault(sig, []).append((_parse_ts(str(row["ts"])), worth))
+            offers_by_signal.setdefault(sig, []).append(
+                (_parse_ts(str(row["ts"])), worth, keys)
+            )
 
-    run_offered_any: dict[str, bool] = {sig: bool(offers_by_signal.get(sig)) for sig in ITEM_SIGNALS}
+    run_offered_any: dict[str, bool] = {
+        sig: bool(offers_by_signal.get(sig)) for sig in ITEM_SIGNALS
+    }
+    answered: dict[tuple[int, str], set[str]] = {}
+    for row in events:
+        kind = str(row.get("kind") or "")
+        stu = row.get("student_id")
+        if stu in (None, ""):
+            continue
+        keys = _keys(row)
+        if not keys:
+            continue
+        sid = int(stu)
+        for sig, kinds in _ANSWER_KINDS.items():
+            if kind in kinds:
+                answered.setdefault((sid, sig), set()).update(keys)
 
     tallies: dict[tuple[int | None, str], set[Any]] = {}
     for row in events:
@@ -308,18 +415,27 @@ def compute_rollup(
     }
 
     def offered_for_student(sig: str, sid: int) -> int | None:
+        """Points offered to one student for one signal.
+
+        A non-deleted offer counts when the student was present, and also
+        when they answered it after joining late. Unanswered questions
+        published before they joined stay out of the denominator.
+
+        Args:
+            sig: Evidence signal such as ``individual_answer``.
+            sid: Roster id.
+        """
         if sig not in ITEM_SIGNALS:
             return None
         if not run_offered_any.get(sig):
             return None
         intervals = presence.get(sid) or []
-        if not intervals:
-            return 0
-        return sum(
-            worth
-            for moment, worth in offers_by_signal.get(sig, [])
-            if _present_at(intervals, moment)
-        )
+        hits = answered.get((sid, sig), set())
+        total = 0
+        for moment, worth, keys in offers_by_signal.get(sig, []):
+            if _present_at(intervals, moment) or keys & hits:
+                total += worth
+        return total
 
     rows: list[RollupRow] = []
     team_members: dict[int, list[int]] = {}
@@ -370,7 +486,9 @@ def compute_rollup(
             elif not run_offered_any.get(sig):
                 offered = None
             else:
-                offered = sum(worth for _moment, worth in offers_by_signal.get(sig, []))
+                offered = sum(
+                    worth for _moment, worth, _keys in offers_by_signal.get(sig, [])
+                )
             rows.append(
                 RollupRow(
                     scope="group",

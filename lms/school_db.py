@@ -3244,6 +3244,43 @@ class LovesDB:
                     student["group_engagement"] = text
         return summary
 
+    def engagement_question_aliases(self, session_id: int) -> dict[str, set[str]]:
+        """Map every id of a live question to the other ids of that question.
+
+        Publish logs the lifecycle id. An answer logs the prompt id. The
+        live card and the end-of-class rollup both pass this map so a late
+        joiner's answer still finds the offer. Removed questions are absent,
+        so their offers do not count. This reads rows. It does not update them.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Id text to the set of ids for that same question.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, prompt_id, item_id, placement_key
+                FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
+        aliases: dict[str, set[str]] = {}
+        for row in rows:
+            ids: set[str] = set()
+            for field in ("id", "prompt_id", "item_id", "placement_key"):
+                raw = row[field]
+                if raw in (None, ""):
+                    continue
+                text = str(raw).strip()
+                if text:
+                    ids.add(text)
+            for token in ids:
+                aliases.setdefault(token, set()).update(ids)
+        return aliases
+
     def _rollup_engagement_for_session(self, session_id: int) -> int:
         """Aggregate engagement events for one ended run into ``engagement_rollup``.
 
@@ -3290,6 +3327,7 @@ class LovesDB:
             run_key=run_key,
             team_for_student=team_for,
             student_ids=student_ids,
+            question_aliases=self.engagement_question_aliases(int(session_id)),
         )
         rolled_at = now_iso()
         payload = [
@@ -3439,6 +3477,55 @@ class LovesDB:
                 break
         return earned, possible
 
+    def _stored_group_engagement_unlocked(
+        self, class_id: int, run_key: str, student_id: int
+    ) -> tuple[int, int]:
+        """Points already stored for this student on this live run.
+
+        Group whiteboard submits and teacher steps write
+        ``group_engagement`` with ``prompt_kind`` ``board`` while the
+        class is still active. Rank and multiple-choice rows are left
+        out here because ``_live_group_engagement_totals`` already
+        counts those sends. Caller holds ``self._lock``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Live run uuid.
+            student_id: Roster id.
+
+        Returns:
+            ``(earned, possible)`` after display normalization.
+        """
+        key = str(run_key or "").strip()
+        if not key:
+            return 0, 0
+        rows = self.conn.execute(
+            """
+            SELECT g.earned, g.possible, COALESCE(i.prompt_kind, '') AS prompt_kind
+            FROM group_engagement g
+            LEFT JOIN group_engagement_items i
+                ON i.class_id = g.class_id AND i.run_key = g.run_key
+               AND i.question_key = g.question_key
+            WHERE g.class_id = ? AND g.run_key = ? AND g.student_id = ?
+            """,
+            (int(class_id), key, int(student_id)),
+        ).fetchall()
+        earned = 0
+        possible = 0
+        for row in rows:
+            # Rank and multiple choice are already in the live total.
+            # Only whiteboard rows written during the session are added here.
+            if str(row["prompt_kind"] or "") != "board":
+                continue
+            shown_earned, shown_possible = display_points(
+                int(row["earned"] or 0),
+                int(row["possible"] or 0),
+                str(row["prompt_kind"] or ""),
+            )
+            earned += shown_earned
+            possible += shown_possible
+        return earned, possible
+
     def student_group_engagement_display(
         self, class_id: int, live_session_id: int, student_id: int
     ) -> str:
@@ -3467,7 +3554,12 @@ class LovesDB:
                 earned, possible = self._live_group_engagement_totals(
                     int(live_session_id), int(student_id)
                 )
-                return format_fraction(earned, possible)
+                stored_earned, stored_possible = self._stored_group_engagement_unlocked(
+                    int(class_id), str(row["run_key"] or ""), int(student_id)
+                )
+                return format_fraction(
+                    earned + stored_earned, possible + stored_possible
+                )
         run_key = str(row["run_key"] or "") if row is not None else ""
         if not run_key:
             return "0/0"
@@ -3511,6 +3603,7 @@ class LovesDB:
             student_id=int(student_id),
             team_for_student=team_for,
             student_ids=student_ids,
+            question_aliases=self.engagement_question_aliases(int(live_session_id)),
         )
         try:
             from board_poll_score import live_card_bonus, shift_fraction
@@ -39982,6 +40075,33 @@ class SchoolDB(LovesDB):
             body["feedback_view"] = view
         return public_board_payload(body)
 
+    def _projected_run_raw(self, session_id: int) -> str:
+        """Question-board run stored beside the projected board key.
+
+        The public teacher blob keeps the board key and leaves this run
+        key off the poll. The projection reader still needs it so a
+        whiteboard poll is not treated as the class gallery.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The stored run key, or empty when nothing is projected.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        raw = row["teacher_state_json"] if row is not None else ""
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            return ""
+        return str(payload.get("whiteboard_projected_run") or "").strip()[:80]
+
     def whiteboard_class_board(
         self,
         session_id: int,
@@ -40011,6 +40131,7 @@ class SchoolDB(LovesDB):
         from board_ops import feedback_released, fold_one_board
         from formative_live_board import (
             legend_entries,
+            projection_canvas,
             public_board_payload,
             strip_shown_board_names,
         )
@@ -40022,6 +40143,8 @@ class SchoolDB(LovesDB):
         if not key:
             return None
         projected_run = str(teacher.get("whiteboard_projected_run") or "").strip()
+        if not projected_run and key:
+            projected_run = self._projected_run_raw(int(session_id))
         if projected_run:
             try:
                 from question_board import parse_board_run_key
@@ -40038,48 +40161,15 @@ class SchoolDB(LovesDB):
                 except Exception:
                     return None
                 view = fold_one_board(rows, include_feedback=True)
-                # MCK-280: the teacher panel keeps names. This payload is
-                # the student projection, so names are stripped and the
-                # colour chips stay.
-                name = ""
-                legend: list[dict[str, str]] = []
-                try:
-                    from question_board import (
-                        _cards_for_question,
-                        _question_item,
-                        question_board_legend,
-                    )
-                except ImportError:
-                    from lms.question_board import (
-                        _cards_for_question,
-                        _question_item,
-                        question_board_legend,
-                    )
-                try:
-                    _prompt, item = _question_item(
-                        self, int(session_id), int(parsed_run.n or 0)
-                    )
-                    card = next(
-                        (
-                            row
-                            for row in _cards_for_question(self, int(session_id), item)
-                            if str(row.get("board_key") or "") == key
-                        ),
-                        None,
-                    )
-                    if card is not None:
-                        name = str(card.get("name") or "")
-                        legend = question_board_legend(self, int(session_id), card)
-                except Exception:
-                    name = ""
-                    legend = []
+                # Poll projection is the drawing only. Names, legend chips,
+                # and roster ids stay off the student payload.
                 return strip_shown_board_names(
                     public_board_payload(
                         {
                             "board_key": key,
-                            "name": name,
-                            "legend": legend,
-                            "canvas_view": view,
+                            "poll": True,
+                            "read_only": True,
+                            "canvas_view": projection_canvas(view),
                         }
                     )
                 )

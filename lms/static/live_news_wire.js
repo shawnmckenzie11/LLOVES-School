@@ -124,6 +124,7 @@ const LIGHT_TYPES = new Set([
   "surface_show",
   "results_view",
   "google_slide",
+  "engagement_self",
 ]);
 
 /**
@@ -173,7 +174,8 @@ export function newsPaintsImmediately(event) {
     type === "board_show" ||
     type === "google_slide" ||
     type === "surface_show" ||
-    type === "results_view"
+    type === "results_view" ||
+    type === "engagement_self"
   ) {
     return true;
   }
@@ -321,6 +323,7 @@ export function connectLiveNewsWire(sessionId, handlers) {
       "surface_show",
       "results_view",
       "google_slide",
+      "engagement_self",
       "busy",
       "ping",
     ];

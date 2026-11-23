@@ -51,8 +51,25 @@ def live_engagement_snapshot(
     student_id: int,
     team_for_student: Mapping[int, int | None],
     student_ids: Sequence[int],
+    question_aliases: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Student-facing engagement fields for one active live run."""
+    """Student-facing engagement fields for one active live run.
+
+    The denominator is ``compute_rollup``'s ``offered_for_student`` rule:
+    a non-deleted question the student answered counts even when it was
+    published before they joined. ``question_aliases`` is the same map the
+    end-of-class rollup passes, so the live card and the saved rollup match.
+
+    Args:
+        events: Engagement log rows for this run.
+        class_id: Game-show class id.
+        live_session: ``live_class_sessions.id``.
+        run_key: Live run uuid.
+        student_id: Roster id whose card this is.
+        team_for_student: Roster id to team id.
+        student_ids: Roster ids to roll up.
+        question_aliases: Live question ids. ``None`` keeps every offer.
+    """
     rows = compute_rollup(
         events,
         class_id=int(class_id),
@@ -60,6 +77,7 @@ def live_engagement_snapshot(
         run_key=str(run_key),
         team_for_student=team_for_student,
         student_ids=student_ids,
+        question_aliases=question_aliases,
     )
     return {
         "tier1": tier1_engagement_display(rows, int(student_id)),

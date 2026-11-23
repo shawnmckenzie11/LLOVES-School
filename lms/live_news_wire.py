@@ -76,6 +76,7 @@ NEWS_TYPES = frozenset(
         "surface_show",
         "results_view",
         "google_slide",
+        "engagement_self",
         "busy",
         "ping",
     }
@@ -113,10 +114,15 @@ _FIELDS: dict[str, frozenset[str]] = {
     "google_slide": frozenset(
         {"type", "index", "shared", "page_count", "image_url", "rev"}
     ),
+    # One student's own fractions. No name, email, or PIN.
+    "engagement_self": frozenset(
+        {"type", "student_id", "engagement", "group_engagement"}
+    ),
     "busy": frozenset({"type", "retry"}),
     "ping": frozenset({"type"}),
 }
 
+_FRACTION = re.compile(r"^[0-9]+/[0-9]+$")
 _SLIDE_IMAGE_URL = re.compile(
     r"^/api/classes/\d+/live-question-images/[a-f0-9]{64}\.png$"
 )
@@ -747,6 +753,16 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         event["image_url"] = url if _SLIDE_IMAGE_URL.fullmatch(url) else ""
         if not event["shared"]:
             event["image_url"] = ""
+    if kind == "engagement_self":
+        sid = _as_int(event.get("student_id"), 0)
+        if sid <= 0:
+            return None
+        event["student_id"] = sid
+        for field in ("engagement", "group_engagement"):
+            text = str(event.get(field) or "")
+            if not _FRACTION.fullmatch(text):
+                return None
+            event[field] = text
     if kind == "prompt":
         card = _public_card(event.get("card"))
         if card is None:
@@ -1766,6 +1782,14 @@ def event_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
         # Question and whiteboard show/hide. Students paint the frame.
         # Staff already painted from the write response.
         return audience.role == "student"
+    if kind == "engagement_self":
+        # Only the student whose points moved. Staff and every other
+        # phone stay on the slow poll. The body is two fractions.
+        if audience.role != "student":
+            return False
+        return _as_int(event.get("student_id"), -1) == _as_int(
+            audience.student_id, -2
+        )
     if audience.role == "staff":
         return True
     if kind == "flag_work":

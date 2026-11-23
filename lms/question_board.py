@@ -1475,6 +1475,15 @@ def submit_live_board(
             # on success. Every error, including a 503 from the ink snapshot,
             # rolls back the school transaction this call opened.
             _abort_write(school, started)
+    if group and landed:
+        present = _present_roster_ids(school, int(session_id))
+        drew = contributor_ids(gate_rows)
+        awarded = [sid for sid in drew if sid in present]
+        if typed.strip() and int(student_id) in present and int(student_id) not in awarded:
+            awarded.append(int(student_id))
+        from board_poll_score import credit_group_whiteboard
+
+        credit_group_whiteboard(school, int(session_id), item, awarded)
     updated = bool(prior and str(prior["submitted_at"] or "").strip())
     return {
         "ok": True,

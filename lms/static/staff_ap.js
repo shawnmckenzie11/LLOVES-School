@@ -8895,6 +8895,7 @@ function startStaffNewsWire(sessionId) {
         return;
       }
       if (event && event.type === "board_show") return;
+      if (event && event.type === "engagement_self") return;
       if (event && event.type === "surface_show") return;
       if (event && event.type === "results_view") return;
       staffNewsFetch = true;
