@@ -645,7 +645,7 @@ class BeginModuleBrowserTests(Base):
             "port": self.server.server_port,
             "chrome": _chrome(),
             "cookies": cookies,
-            "path": f"/staff/class/{self.class_id}?tab=ap&view=attendance",
+            "path": f"/staff/class/{self.class_id}?tab=ap&view=overview",
             "title": "Start Module 2?",
             "confirm": "Start Module 2",
             "lines": [

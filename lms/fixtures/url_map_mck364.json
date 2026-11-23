@@ -497,6 +497,15 @@
       "serve_live_question_image"
     ],
     [
+      "/api/classes/<int:class_id>/live-session/begin-module-prompt",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_live_begin_module_prompt"
+    ],
+    [
       "/api/classes/<int:class_id>/live-session/kind",
       [
         "OPTIONS",
@@ -1626,6 +1635,15 @@
         "PATCH"
       ],
       "staff_question_overlay_patch"
+    ],
+    [
+      "/api/staff/class/<int:class_id>/roster-pins",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_roster_pins"
     ],
     [
       "/api/staff/classes",
