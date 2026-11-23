@@ -2929,6 +2929,8 @@ class LovesDB:
             )
             if kind == "item.offered" and sid is not None:
                 self.forget_question_alias_cache(sid)
+            else:
+                self.bump_live_card_cache()
             return True
         except Exception:  # noqa: BLE001 - the student action already succeeded
             logger.exception("engagement event %s not stored", kind)
@@ -3312,6 +3314,7 @@ class LovesDB:
         Args:
             session_id: ``live_class_sessions.id``. ``None`` drops every session.
         """
+        self.bump_live_card_cache()
         cache = getattr(self, "_question_alias_cache", None)
         if not cache:
             return
@@ -3618,6 +3621,7 @@ class LovesDB:
             class_id: Game-show ``classes.id``.
             run_key: Live run uuid. Empty clears every cached run for the class.
         """
+        self.bump_live_card_cache()
         with self._lock:
             cache = getattr(self, "_board_group_cache", None)
             if not cache:
@@ -3648,6 +3652,143 @@ class LovesDB:
             for item in stale:
                 cache.pop(item, None)
 
+    def bump_live_card_cache(self) -> None:
+        """Forget the shared live-card bundle.
+
+        A score step, a new engagement row, or a removed question calls
+        this so the next poll rereads. The bump is a counter in this
+        process. It does not write SQLite.
+        """
+        self._live_card_gen = int(getattr(self, "_live_card_gen", 0)) + 1
+
+    def _live_student_card(
+        self, class_id: int, live_session_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """Individual fraction, group fraction, and team-score flag.
+
+        One session read and one team-membership load serve the roster
+        until a score write bumps the counter or 30 seconds pass. A
+        steady ``/state`` poll then skips those reads. Teams are stored
+        as sorted ``(student, team)`` pairs inside the rollup cache, so
+        two students swapping teams cannot reuse each other's result.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            live_session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+
+        Returns:
+            ``tier1``, ``group_engagement``, and ``group_activity``.
+        """
+        cid = int(class_id)
+        sid_session = int(live_session_id)
+        who = int(student_id)
+        gen = int(getattr(self, "_live_card_gen", 0))
+        now = time.monotonic()
+        game = getattr(self, "game", None)
+        by_student: dict[Any, Any] = {}
+        if game is not None:
+            by_student = (game.team_membership_index(cid).get("by_student") or {})
+        team_sig = tuple(
+            sorted(
+                (int(sid), int(team or 0))
+                for sid, team in by_student.items()
+            )
+        )
+        bundles = getattr(self, "_live_card_bundles", None)
+        if bundles is None:
+            bundles = {}
+            self._live_card_bundles = bundles
+        slot = bundles.get(sid_session)
+        if (
+            slot is not None
+            and slot[0] == gen
+            and slot[1] == cid
+            and slot[2] == team_sig
+            and now - slot[3] < 30.0
+        ):
+            found = slot[4].get(who)
+            if found is not None:
+                return found
+        try:
+            from board_poll_score import live_card_bonus, shift_fraction
+        except ImportError:
+            from lms.board_poll_score import live_card_bonus, shift_fraction
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT run_key, status FROM live_class_sessions
+                WHERE id = ? AND class_id = ?
+                """,
+                (sid_session, cid),
+            ).fetchone()
+        empty = {"tier1": "0/0", "group_engagement": "0/0", "group_activity": False}
+        if row is None or not str(row["run_key"] or ""):
+            return empty
+        run_key = str(row["run_key"])
+        active = str(row["status"] or "") == "active"
+        events = self.list_engagement_events(cid, live_session=sid_session, run_key=run_key)
+        student_ids: list[int] = []
+        team_for: dict[int, int | None] = {}
+        if game is not None:
+            with game._lock:
+                studs = game.conn.execute(
+                    "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                    (cid,),
+                ).fetchall()
+            student_ids = [int(item[0]) for item in studs]
+            for sid in student_ids:
+                raw = by_student.get(sid)
+                try:
+                    team_for[sid] = int(raw) if raw else None
+                except (TypeError, ValueError):
+                    team_for[sid] = None
+        if who not in student_ids:
+            student_ids.append(who)
+            team_for.setdefault(who, None)
+        aliases = self.engagement_question_aliases(sid_session)
+        rollup_rows = compute_rollup(
+            events,
+            class_id=cid,
+            live_session=sid_session,
+            run_key=run_key,
+            team_for_student=team_for,
+            student_ids=student_ids,
+            question_aliases=aliases,
+        )
+        started = group_question_started(events)
+        if active:
+            with self._lock:
+                live_map = self._live_group_engagement_map(sid_session)
+                stored_map = {
+                    sid: self._stored_group_engagement_unlocked(cid, run_key, sid)
+                    for sid in student_ids
+                }
+            saved: dict[int, str] = {}
+        else:
+            live_map = {}
+            stored_map = {}
+            saved = self.group_engagement_fractions(cid, run_key=run_key)
+        cards: dict[int, dict[str, Any]] = {}
+        for sid in student_ids:
+            tier = shift_fraction(
+                tier1_engagement_display(rollup_rows, sid),
+                live_card_bonus(self, sid_session, sid, events, run_key=run_key),
+            )
+            if active:
+                earned, possible = live_map.get(sid, (0, 0))
+                stored_earned, stored_possible = stored_map.get(sid, (0, 0))
+                group = format_fraction(earned + stored_earned, possible + stored_possible)
+            else:
+                group = saved.get(sid) or "0/0"
+            cards[sid] = {
+                "tier1": tier,
+                "group_engagement": group,
+                "group_activity": started,
+            }
+        bundles[sid_session] = (gen, cid, team_sig, time.monotonic(), cards)
+        return cards.get(who, empty)
+
     def student_group_engagement_display(
         self, class_id: int, live_session_id: int, student_id: int
     ) -> str:
@@ -3657,41 +3798,31 @@ class LovesDB:
         correct rank with no check is 2/1. Every other rank completion
         is 1/1. A group multiple-choice send is 1/1. After End, saved
         rows are shown. A doubled rank still stored as possible 2
-        displays as 2/1, 1/1, or 0/1 and is not rewritten. Whiteboard
-        points already stored for this run are added from memory after
-        the first read.
+        displays as 2/1, 1/1, or 0/1 and is not rewritten. A quiet poll
+        reuses the bundle ``_live_student_card`` already built.
 
         Args:
             class_id: Game-show ``classes.id``.
             live_session_id: ``live_class_sessions.id``.
             student_id: Roster id.
         """
-        with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT run_key, status FROM live_class_sessions
-                WHERE id = ? AND class_id = ?
-                """,
-                (int(live_session_id), int(class_id)),
-            ).fetchone()
-            if row is not None and str(row["status"] or "") == "active":
-                earned, possible = self._live_group_engagement_totals(
-                    int(live_session_id), int(student_id)
-                )
-                stored_earned, stored_possible = self._stored_group_engagement_unlocked(
-                    int(class_id), str(row["run_key"] or ""), int(student_id)
-                )
-                return format_fraction(
-                    earned + stored_earned, possible + stored_possible
-                )
-        run_key = str(row["run_key"] or "") if row is not None else ""
-        if not run_key:
-            return "0/0"
-        saved = self.group_engagement_fractions(
-            int(class_id), run_key=run_key
-        ).get(int(student_id))
-        return saved or "0/0"
+        card = self._live_student_card(int(class_id), int(live_session_id), int(student_id))
+        return str(card.get("group_engagement") or "0/0")
 
+    def student_live_engagement_fields(
+        self, class_id: int, live_session_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """Tier-1 engagement display and group-activity flag for the current run (MCK-215).
+
+        The fraction already includes whiteboard credit steps. Question
+        aliases stay in memory, and one card bundle serves the roster
+        until a score write.
+        """
+        card = self._live_student_card(int(class_id), int(live_session_id), int(student_id))
+        return {
+            "tier1": str(card.get("tier1") or "0/0"),
+            "group_activity": bool(card.get("group_activity")),
+        }
 
     def _cached_live_engagement_snapshot(
         self,

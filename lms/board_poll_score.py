@@ -623,6 +623,9 @@ def _emit_engagement_self(school: Any, session_id: int, student_id: int) -> None
         session_id: ``live_class_sessions.id``.
         student_id: Roster id whose card changed.
     """
+    bump = getattr(school, "bump_live_card_cache", None)
+    if callable(bump):
+        bump()
     try:
         from live_news_wire import emit_session_news
     except ImportError:
@@ -747,7 +750,13 @@ def attach_participation(
         ]
 
 
-def live_card_bonus(school: Any, session_id: int, student_id: int, events: list[dict[str, Any]]) -> int:
+def live_card_bonus(
+    school: Any,
+    session_id: int,
+    student_id: int,
+    events: list[dict[str, Any]],
+    run_key: str | None = None,
+) -> int:
     """Points to add on the live card beyond the event rollup.
 
     A logged completion already includes the question's points. This
@@ -759,8 +768,11 @@ def live_card_bonus(school: Any, session_id: int, student_id: int, events: list[
         session_id: ``live_class_sessions.id``.
         student_id: Roster id.
         events: Engagement events for this run.
+        run_key: Live run uuid already loaded by the caller. Empty
+            skips the session read.
     """
-    run_key = _run_key(school, int(session_id))
+    if run_key is None:
+        run_key = _run_key(school, int(session_id))
     if not run_key:
         return 0
     with school._lock:
