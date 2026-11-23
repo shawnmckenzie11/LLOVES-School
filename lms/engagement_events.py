@@ -242,6 +242,9 @@ class _Store:
                 row.get("payload") or "{}",
             ),
         )
+        hook = getattr(self, "on_append", None)
+        if callable(hook):
+            hook()
 
     def has_event(self, run_key: str, student_id: int, item_ref: Any, kinds: tuple[str, ...]) -> bool:
         """True when this run already has one of ``kinds`` for the student and item."""

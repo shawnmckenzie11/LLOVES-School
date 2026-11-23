@@ -2761,6 +2761,7 @@ class LovesDB:
 
         events = SqliteEngagementEvents(self.conn, self._lock)
         events.ensure_schema()
+        events.on_append = self.bump_live_card_cache
         self.engagement = events
 
     def _student_question_ink_locked(self, run_key: str, board_key: str, owner: str) -> bool:
@@ -2849,6 +2850,7 @@ class LovesDB:
 
         events = PostgresEngagementEvents(presence)
         events.ensure_schema()
+        events.on_append = self.bump_live_card_cache
         self.engagement = events
 
     _artifact_move_throttle = MoveThrottle()
@@ -48783,6 +48785,7 @@ class SchoolDB(LovesDB):
         )
         if self.presence is not None:
             self.presence.mark_session_ended(int(session_id), ended_value)
+        self.bump_live_card_cache()
         return self.get_live_session(session_id)
 
     def end_live_class_session(
@@ -50319,6 +50322,7 @@ class SchoolDB(LovesDB):
                 (now, session_id),
             )
             self.conn.commit()
+        self.bump_live_card_cache()
         try:
             from live_fix import record_end_report
         except ImportError:
