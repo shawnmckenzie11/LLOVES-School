@@ -67,6 +67,24 @@ class ShardPlanTests(unittest.TestCase):
         self.assertGreater(min(weights), 0)
         self.assertLessEqual(max(weights) / min(weights), 1.15)
 
+    def test_suite_secret_matches_the_first_setdefault(self) -> None:
+        """Shards use the key alphabetical discover sets first."""
+        text = (REPO / "lms" / "test_mck365_deployed_schema.py").read_text(encoding="utf-8")
+        self.assertIn(self.mod._SUITE_FLASK_SECRET, text)
+        previous = os.environ.get("FLASK_SECRET_KEY")
+        os.environ.pop("FLASK_SECRET_KEY", None)
+        try:
+            self.mod.pin_suite_secret()
+            self.assertEqual(os.environ.get("FLASK_SECRET_KEY"), self.mod._SUITE_FLASK_SECRET)
+            os.environ["FLASK_SECRET_KEY"] = "kept"
+            self.mod.pin_suite_secret()
+            self.assertEqual(os.environ.get("FLASK_SECRET_KEY"), "kept")
+        finally:
+            if previous is None:
+                os.environ.pop("FLASK_SECRET_KEY", None)
+            else:
+                os.environ["FLASK_SECRET_KEY"] = previous
+
     def test_sqlite_urls_are_refused(self) -> None:
         """LIVE_DATABASE_URL and DATABASE_URL must not reach the shard runner."""
         previous = {key: os.environ.get(key) for key in ("LIVE_DATABASE_URL", "DATABASE_URL")}

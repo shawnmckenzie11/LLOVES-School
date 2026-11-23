@@ -37,6 +37,11 @@ SOFT_SHARD_SECONDS = 8 * 60
 _TOOL_BOOST = 200_000
 _DURATIONS_PATH = Path(__file__).resolve().parent / "lms_shard_durations.json"
 _DURATIONS: dict[str, float] | None = None
+# Alphabetical discover imports test_mck365_deployed_schema.py before the
+# other modules that setdefault FLASK_SECRET_KEY. Tests later in the suite
+# expect that key. A shard that does not import the file would otherwise
+# keep a different key, and the Sentry teacher hash would be scrubbed.
+_SUITE_FLASK_SECRET = "deployed-schema-rehearsal"
 
 
 def suite_modules() -> list[str]:
@@ -180,6 +185,15 @@ def check_plan(shards: int = SHARDS) -> None:
         raise SystemExit("suite exclusion drifted from test_fanout_guard.py")
 
 
+def pin_suite_secret() -> None:
+    """Give every shard the Flask secret the full discover settles on.
+
+    Does nothing when ``FLASK_SECRET_KEY`` is already set, so a caller can
+    still pin its own value.
+    """
+    os.environ.setdefault("FLASK_SECRET_KEY", _SUITE_FLASK_SECRET)
+
+
 def assert_sqlite_heartbeat_env() -> None:
     """Refuse ``LIVE_DATABASE_URL`` and ``DATABASE_URL``.
 
@@ -268,6 +282,7 @@ def run_shard(shard: int, shards: int, timings_path: Path) -> int:
     if shard < 1 or shard > shards:
         raise SystemExit(f"shard {shard} is outside 1..{shards}")
     assert_sqlite_heartbeat_env()
+    pin_suite_secret()
     check_plan(shards)
     sys.path.insert(0, str(LMS))
     modules = assign_shards(shards=shards)[shard - 1]
