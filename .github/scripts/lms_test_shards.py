@@ -5,9 +5,14 @@
 runs it. ``test_boot_schema_race.py`` and ``test_mck365_*`` are always in
 the plan, and CI fails the aggregate when an ``lms/`` change did not run them.
 
-Weights are file size, with a fixed boost for modules that launch Chrome or
-LibreOffice. Shards are a longest-processing-time split so one large module
-does not share a shard with the next-largest one.
+Weights come from ``lms_shard_durations.json`` when that module has been
+timed on CI. A module that is not in the file uses its byte size, with a
+boost when it launches Chrome or LibreOffice. Shards are a
+longest-processing-time split.
+
+A shard that converts slides starts the LibreOffice install in the
+background and runs the other modules while it downloads. The install used
+to add about five minutes in front of those tests when apt was slow.
 
 The aggregate prints the ten slowest modules. A module over 90 seconds or a
 shard over 8 minutes is a warning, not a failure.
@@ -17,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 import unittest
@@ -29,6 +35,8 @@ EXCLUDED = frozenset({"test_fanout_guard.py"})
 SOFT_MODULE_SECONDS = 90
 SOFT_SHARD_SECONDS = 8 * 60
 _TOOL_BOOST = 200_000
+_DURATIONS_PATH = Path(__file__).resolve().parent / "lms_shard_durations.json"
+_DURATIONS: dict[str, float] | None = None
 
 
 def suite_modules() -> list[str]:
@@ -54,20 +62,50 @@ def mandatory_modules(names: list[str] | None = None) -> list[str]:
     ]
 
 
+def _durations() -> dict[str, float]:
+    """Return measured module seconds, or an empty map when none are recorded."""
+    global _DURATIONS
+    if _DURATIONS is None:
+        if _DURATIONS_PATH.is_file():
+            raw = json.loads(_DURATIONS_PATH.read_text(encoding="utf-8"))
+            _DURATIONS = {str(name): float(seconds) for name, seconds in raw.items()}
+        else:
+            _DURATIONS = {}
+    return _DURATIONS
+
+
 def module_weight(path: Path) -> int:
     """Return a packing weight for one test module.
+
+    A measured duration wins. Otherwise the weight is the byte size, plus a
+    boost when the file launches Chrome or LibreOffice.
 
     Args:
         path: ``lms/test_*.py`` file.
 
     Returns:
-        Byte size, plus a boost when the file launches Chrome or LibreOffice.
+        An integer weight. Larger means slower.
     """
+    measured = _durations().get(path.name)
+    if measured is not None and measured > 0:
+        return int(round(measured * 1000))
     text = path.read_text(encoding="utf-8", errors="ignore")
     weight = path.stat().st_size
     if "LLOVES_E2E_CHROME" in text or "playwright" in text or "soffice" in text:
         weight += _TOOL_BOOST
     return weight
+
+
+def needs_soffice(name: str) -> bool:
+    """Return True when ``name`` mentions a LibreOffice binary.
+
+    Args:
+        name: Module file name under ``lms/``.
+
+    Returns:
+        Whether the install should finish before this module runs.
+    """
+    return "soffice" in (LMS / name).read_text(encoding="utf-8", errors="ignore")
 
 
 def assign_shards(names: list[str] | None = None, shards: int = SHARDS) -> list[list[str]]:
@@ -173,6 +211,49 @@ def _write_timings(path: Path, payload: dict) -> None:
     tmp.replace(path)
 
 
+def _start_libreoffice() -> tuple[subprocess.Popen[bytes], object] | None:
+    """Start the LibreOffice install and return the process and its log.
+
+    The install script bounds apt itself. A missing binary does not fail
+    the suite; slide tests skip.
+
+    Returns:
+        The process and the open log file, or None when the script is absent.
+    """
+    script = REPO / ".github" / "scripts" / "install_libreoffice.sh"
+    if not script.is_file():
+        return None
+    log_path = Path("/tmp/lloves-libreoffice-install.log")
+    handle = log_path.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        ["bash", str(script)],
+        cwd=REPO,
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+    )
+    return proc, handle
+
+
+def _wait_libreoffice(started: tuple[subprocess.Popen[bytes], object] | None) -> None:
+    """Wait for the background LibreOffice install.
+
+    Args:
+        started: Process and log handle from ``_start_libreoffice``.
+    """
+    if started is None:
+        return
+    proc, handle = started
+    try:
+        code = proc.wait(timeout=12 * 60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        print("::warning::LibreOffice install exceeded 12 minutes; slide tests may skip", flush=True)
+        code = 1
+    handle.close()
+    if code != 0:
+        print("::warning::LibreOffice install failed; slide tests may skip", flush=True)
+
+
 def run_shard(shard: int, shards: int, timings_path: Path) -> int:
     """Run one shard in-process and write per-module timings.
 
@@ -190,42 +271,19 @@ def run_shard(shard: int, shards: int, timings_path: Path) -> int:
     check_plan(shards)
     sys.path.insert(0, str(LMS))
     modules = assign_shards(shards=shards)[shard - 1]
+    early = [name for name in modules if not needs_soffice(name)]
+    late = [name for name in modules if needs_soffice(name)]
+    libreoffice = _start_libreoffice() if late else None
     loader = unittest.TestLoader()
     runner = unittest.TextTestRunner(verbosity=2)
     rows: list[dict] = []
     failed = False
     wall_start = time.perf_counter()
-    for name in modules:
-        started = time.perf_counter()
-        tests = 0
-        module_failed = False
-        try:
-            suite = loader.loadTestsFromName(name[:-3])
-            tests = suite.countTestCases()
-            result = runner.run(suite)
-            module_failed = not result.wasSuccessful()
-        except Exception as exc:  # noqa: BLE001 — one bad import must not hide the rest
-            module_failed = True
-            print(f"FAIL load {name}: {exc.__class__.__name__}: {exc}", file=sys.stderr)
-        elapsed = time.perf_counter() - started
-        rows.append(
-            {
-                "module": name,
-                "tests": tests,
-                "seconds": round(elapsed, 3),
-                "failed": module_failed,
-            }
-        )
-        failed = failed or module_failed
-        _write_timings(
-            timings_path,
-            _payload(shard, shards, rows, time.perf_counter() - wall_start, failed),
-        )
-        if elapsed >= SOFT_MODULE_SECONDS:
-            print(
-                f"::warning::{name} took {elapsed:.0f}s, over the {SOFT_MODULE_SECONDS}s soft budget",
-                flush=True,
-            )
+    for name in early:
+        failed = _run_module(name, loader, runner, rows, shard, shards, timings_path, wall_start, failed)
+    _wait_libreoffice(libreoffice)
+    for name in late:
+        failed = _run_module(name, loader, runner, rows, shard, shards, timings_path, wall_start, failed)
     wall = time.perf_counter() - wall_start
     payload = _payload(shard, shards, rows, wall, failed)
     _write_timings(timings_path, payload)
@@ -240,6 +298,66 @@ def run_shard(shard: int, shards: int, timings_path: Path) -> int:
         flush=True,
     )
     return 1 if failed else 0
+
+
+def _run_module(
+    name: str,
+    loader: unittest.TestLoader,
+    runner: unittest.TextTestRunner,
+    rows: list[dict],
+    shard: int,
+    shards: int,
+    timings_path: Path,
+    wall_start: float,
+    failed: bool,
+) -> bool:
+    """Run one module, record its time, and return whether the shard has failed.
+
+    Args:
+        name: Module file name.
+        loader: Shared unittest loader.
+        runner: Shared unittest runner.
+        rows: Timing rows updated in place.
+        shard: 1-based shard index.
+        shards: Shard count.
+        timings_path: JSON file rewritten after this module.
+        wall_start: ``perf_counter`` value from the start of the shard.
+        failed: Whether an earlier module failed.
+
+    Returns:
+        True when this module or an earlier one failed.
+    """
+    started = time.perf_counter()
+    tests = 0
+    module_failed = False
+    try:
+        suite = loader.loadTestsFromName(name[:-3])
+        tests = suite.countTestCases()
+        result = runner.run(suite)
+        module_failed = not result.wasSuccessful()
+    except Exception as exc:  # noqa: BLE001 — one bad import must not hide the rest
+        module_failed = True
+        print(f"FAIL load {name}: {exc.__class__.__name__}: {exc}", file=sys.stderr)
+    elapsed = time.perf_counter() - started
+    rows.append(
+        {
+            "module": name,
+            "tests": tests,
+            "seconds": round(elapsed, 3),
+            "failed": module_failed,
+        }
+    )
+    failed = failed or module_failed
+    _write_timings(
+        timings_path,
+        _payload(shard, shards, rows, time.perf_counter() - wall_start, failed),
+    )
+    if elapsed >= SOFT_MODULE_SECONDS:
+        print(
+            f"::warning::{name} took {elapsed:.0f}s, over the {SOFT_MODULE_SECONDS}s soft budget",
+            flush=True,
+        )
+    return failed
 
 
 def _payload(shard: int, shards: int, rows: list[dict], wall: float, failed: bool) -> dict:

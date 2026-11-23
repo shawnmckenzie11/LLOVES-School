@@ -134,12 +134,6 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r lms/requirements.txt
 
-      - name: Install LibreOffice
-        if: steps.plan.outputs.soffice == 'true'
-        timeout-minutes: 12
-        continue-on-error: true
-        run: bash .github/scripts/install_libreoffice.sh
-
       - name: Allow the slide sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
@@ -147,6 +141,8 @@ jobs:
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
           LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
+        # LibreOffice, when this shard needs it, installs in the background
+        # while the other modules run. A failed install does not fail the job.
         timeout-minutes: 20
         run: timeout -s ABRT 18m python -X faulthandler .github/scripts/lms_test_shards.py run --shard ${{ matrix.shard }} --shards 4 --timings shard-timings.json
 
