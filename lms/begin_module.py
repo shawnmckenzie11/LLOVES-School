@@ -346,3 +346,81 @@ def percent_text(percent: Any) -> str:
     if percent is None:
         return "—"
     return f"{int(percent)}%"
+
+
+def live_start_dialog_copy(module_number: int, section: str) -> dict[str, str]:
+    """In-page Run Live Class copy for beginning the next module.
+
+    The section name is the offering label (``MCR3U``, ``MCR3U-2``).
+    This is not the Attendance & Participation confirm dialog.
+
+    Args:
+        module_number: Module the teacher is about to run.
+        section: Section display name.
+
+    Returns:
+        Title, body, and the two button labels. No roster data.
+    """
+    number = int(module_number)
+    name = str(section or "").strip() or "this class"
+    return {
+        "title": f"Begin Module {number} for {name}?",
+        "body": (
+            f"No Module {number} classes are saved for {name} yet. "
+            "Beginning a new module wraps up the current module in "
+            "Attendance & Participation for this class only. "
+            "This can't be undone."
+        ),
+        "confirm": f"Begin Module {number}",
+        "skip": "Not yet, just run class",
+    }
+
+
+def live_start_should_prompt(
+    *,
+    can_begin: bool,
+    next_module: str,
+    target_module: str,
+    target_has_meetings: bool,
+    is_test: bool,
+    is_office: bool,
+    blocked_only_by_setup_shell: bool = False,
+) -> bool:
+    """Whether Run Live Class should offer Begin Module.
+
+    ``can_begin`` is ``begin_module_board()["can_begin"]``: the open
+    module has saved classes, no live class is running, and it is not
+    the last module. Set Class mints a session before the teacher
+    clicks Start. That unconfirmed shell is the only active row, so
+    ``can_begin`` is false only because of it. A class that is already
+    running (``class_set``) does not prompt.
+
+    The target must be the next planned module, and
+    ``_begin_module_meetings`` must have no rows for it. Test live
+    classes and Open Office never prompt.
+
+    Args:
+        can_begin: ``begin_module_board()["can_begin"]``.
+        next_module: The section's next planned module.
+        target_module: Module chosen in Set Class.
+        target_has_meetings: True when meetings has that module.
+        is_test: Test live class.
+        is_office: Open Office run.
+        blocked_only_by_setup_shell: ``can_begin`` is false only because
+            an unconfirmed Set Class session is active, and the open
+            module still has saved classes and a next module.
+
+    Returns:
+        True when the in-page prompt should open.
+    """
+    if is_test or is_office:
+        return False
+    if not can_begin and not blocked_only_by_setup_shell:
+        return False
+    target = normalize_module(target_module)
+    nxt = normalize_module(next_module)
+    if not target or target != nxt:
+        return False
+    if target_has_meetings:
+        return False
+    return True

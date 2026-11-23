@@ -489,6 +489,17 @@
           </div>
         </form>
       </dialog>
+      {# copy: Wonder — Begin Module prompt. Text is filled when Start asks. #}
+      <dialog id="begin-live-module-dialog" class="begin-mod-dialog" aria-labelledby="begin-live-module-title">
+        <form method="dialog">
+          <h2 id="begin-live-module-title"></h2>
+          <p id="begin-live-module-body"></p>
+          <div class="begin-mod-actions">
+            <button type="submit" class="btn secondary" id="begin-live-module-skip" value="skip" autofocus>Not yet, just run class</button>
+            <button type="submit" class="btn begin-mod-confirm" id="begin-live-module-confirm" value="begin">Begin Module</button>
+          </div>
+        </form>
+      </dialog>
       <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel is-current" data-step="validate">
         <h2 class="live-pane-title">Set Class</h2>
         {% set packs = live_packs if live_packs is defined else {} %}
@@ -1121,6 +1132,27 @@
     <script type="module" src="/static/staff_lesson_slides.js"></script>
     {% elif tab == 'ap' %}
     <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="0" data-participate="0" data-live-session-id="">
+      <div class="ap-tab-head">
+      <nav class="ap-subtabs" aria-label="Attendance and Participation">
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='overview') }}"
+           data-ap-tab="overview"
+           class="{{ 'on' if ap_view == 'overview' else '' }}">Overview</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
+           data-ap-tab="attendance"
+           class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
+           data-ap-tab="participation"
+           class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='feedback') }}"
+           data-ap-tab="feedback"
+           class="{{ 'on' if ap_view == 'feedback' else '' }}">Feedback</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='roster') }}"
+           data-ap-tab="roster"
+           class="{{ 'on' if ap_view == 'roster' else '' }}">Roster &amp; PINs</a>
+      </nav>
+      {% include "staff/_show_test_students.html" %}
+      </div>
+      <section class="ap-panel" id="ap-panel-overview" data-ap-panel="overview"{% if ap_view != 'overview' %} hidden{% endif %}>
       {% if module_wrap %}
       <section class="begin-mod" id="begin-mod" data-current="{{ module_wrap.current_module }}">
         <div class="begin-mod-head">
@@ -1155,43 +1187,6 @@
             </tbody>
           </table>
         </div>
-        <section class="begin-mod-past-block" id="begin-mod-past"{% if not module_wrap.past %} hidden{% endif %}>
-          <div class="begin-mod-past-head">
-            <h3>Past modules</h3>
-            <select id="begin-mod-past-select" aria-label="Past modules">
-              {% for past in module_wrap.past %}
-              <option value="{{ past.module }}">{{ past.label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          {% for past in module_wrap.past %}
-          <div class="begin-mod-past-panel" data-past-module="{{ past.module }}"{% if not loop.first %} hidden{% endif %}>
-            <p class="begin-mod-wrapped">{{ past.wrapped }}</p>
-            <div class="sheet-wrap begin-mod-wrap">
-              <table class="begin-mod-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Attended</th>
-                    <th>Participation</th>
-                    <th>%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in past.students %}
-                  <tr>
-                    <td>{{ row.name }}</td>
-                    <td>{{ row.attended_text }}</td>
-                    <td>{{ row.participation_text }}</td>
-                    <td>{{ row.percent_text }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          {% endfor %}
-        </section>
         <p class="begin-mod-toast" id="begin-mod-toast" role="status"{% if not module_toast %} hidden{% endif %}>{{ module_toast }}</p>
         {% if module_wrap.can_begin %}
         <dialog class="begin-mod-dialog" id="begin-mod-dialog" aria-labelledby="begin-mod-title">
@@ -1210,35 +1205,13 @@
       </section>
       <script src="/static/staff_begin_module.js"></script>
       {% endif %}
-      <div class="ap-tab-head">
-      <nav class="ap-subtabs" aria-label="Attendance and Participation">
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
-           class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
-           class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='feedback') }}"
-           class="{{ 'on' if ap_view == 'feedback' else '' }}">Feedback</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='roster') }}"
-           class="{{ 'on' if ap_view == 'roster' else '' }}">Roster &amp; PINs</a>
-      </nav>
-      {% include "staff/_show_test_students.html" %}
-      </div>
-
-      {% if ap_view == 'attendance' %}
       <section id="live-fix-history" class="live-fix-history" data-class-id="{{ cls.id }}" hidden>
         <h2>Class reports</h2>
         <ul id="live-fix-history-list"></ul>
       </section>
-      <dialog id="live-fix-report" class="live-fix-report" aria-labelledby="live-fix-report-title">
-        <h2 id="live-fix-report-title">End Class report</h2>
-        <div id="live-fix-report-body"></div>
-        <div class="live-fix-report-actions">
-          <button type="button" id="live-fix-report-copy">Copy report</button>
-          <p id="live-fix-report-copy-status" class="live-fix-status" role="status"></p>
-          <button type="button" id="live-fix-report-close">Close</button>
-        </div>
-      </dialog>
-      <script src="/static/live_fix.js"></script>
+      </section>
+
+      <section class="ap-panel" id="ap-panel-attendance" data-ap-panel="attendance"{% if ap_view != 'attendance' %} hidden{% endif %}>
       <div id="attendance-root" data-class-id="{{ cls.id }}">
         <div class="topbar">
           <div class="row-actions ap-toolbar">
@@ -1283,7 +1256,8 @@
       </div>
       <script type="module" src="/static/staff_attendance.js"></script>
       <script type="module" src="/static/staff_attendance_take.js"></script>
-      {% elif ap_view == 'feedback' %}
+      </section>
+      <section class="ap-panel" id="ap-panel-feedback" data-ap-panel="feedback"{% if ap_view != 'feedback' %} hidden{% endif %}>
       <div id="feedback-root" data-class-id="{{ cls.id }}">
         <div class="topbar">
           <div class="row-actions ap-toolbar">
@@ -1383,7 +1357,8 @@
         </dialog>
       </div>
       <script type="module" src="/static/staff_feedback.js"></script>
-      {% elif ap_view == 'engagement' %}
+      </section>
+      <section class="ap-panel" id="ap-panel-engagement" data-ap-panel="engagement"{% if ap_view != 'engagement' %} hidden{% endif %}>
       <div id="engagement-summary-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-engagement-bar">
           <label class="field ap-engagement-run">
@@ -1402,53 +1377,14 @@
         <p class="hint" id="engagement-summary-empty">{{ engagement_summary_empty_copy.text }}</p>
       </div>
       <script type="module" src="/static/staff_engagement_summary.js"></script>
-      {% elif ap_view == 'roster' %}
-      {% set alert_rows = roster_pin_rows | selectattr('alert') | list %}
-      {% set default_rows = roster_pin_rows | selectattr('can_show') | list %}
-      <div id="roster-root" class="ap-roster" data-class-id="{{ cls.id }}">
-        <p class="hint">Catch-up PINs are course-wide, and Show or Print slip works only while a student still has the default PIN.</p>
-        {% if alert_rows %}
-        <p class="ap-roster-note no-print" role="status">{{ alert_rows|length }} student{% if alert_rows|length != 1 %}s{% endif %} had many wrong PIN tries (15 min). Students are not locked out.</p>
-        {% endif %}
-        <div class="ap-roster-settings no-print">
-          <label class="switch"><input type="checkbox" id="require-catchup-pin-change" {% if require_catchup_pin_change %}checked{% endif %}> Require students to change default PINs</label>
-          <button type="button" class="btn secondary" id="print-all-default-slips"{% if not default_rows %} disabled{% endif %}>Print all default slips</button>
-        </div>
-        <table class="ap-roster-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>PIN status</th>
-              <th>PIN</th>
-              <th class="num">Wrong tries (15 min)</th>
-              <th class="actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in roster_pin_rows %}
-            <tr>
-              <td>{{ row.name }}{% if row.is_test %} <span class="ap-roster-tag">Test</span>{% endif %}</td>
-              <td data-pin-status>{{ row.status_label }}</td>
-              <td class="ap-roster-pin" data-sid="{{ row.student_id }}">••••</td>
-              <td class="num">{% if row.wrong_tries %}{{ row.wrong_tries }}{% else %}–{% endif %}</td>
-              <td class="actions">
-                {% if row.can_show %}
-                <button type="button" class="ap-roster-text ap-roster-show" data-sid="{{ row.student_id }}">Show</button>
-                <button type="button" class="ap-roster-text ap-roster-print" data-sid="{{ row.student_id }}">Print slip</button>
-                {% endif %}
-                <button type="button" class="ap-roster-text ap-roster-edit" data-sid="{{ row.student_id }}">Set new PIN</button>
-                <span class="ap-roster-editor" hidden>
-                  <input size="4" maxlength="4" inputmode="numeric" data-pin="{{ row.student_id }}" aria-label="New PIN for {{ row.name }}" autocomplete="off">
-                  <button type="button" class="btn secondary pin-set" data-sid="{{ row.student_id }}">Save</button>
-                </span>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <script type="module" src="/static/staff_roster.js"></script>
-      {% elif ap_view == 'participation' %}
+      </section>
+      <section class="ap-panel" id="ap-panel-roster" data-ap-panel="roster"{% if ap_view == 'roster' %} data-loaded="1"{% else %} hidden{% endif %}>
+      {% if ap_view == 'roster' %}
+      {% include "staff/_ap_roster.html" %}
+      <script type="module" src="/static/staff_roster.js" data-roster-pins="1"></script>
+      {% endif %}
+      </section>
+      <section class="ap-panel" id="ap-panel-participation" data-ap-panel="participation"{% if ap_view != 'participation' %} hidden{% endif %}>
       <div id="grades-root"
            class="ap-mod-page"
            data-class-id="{{ cls.id }}"
@@ -1507,7 +1443,18 @@
         </form>
       </dialog>
       <script type="module" src="/static/staff_grades.js"></script>
-      {% endif %}
+      </section>
+      <dialog id="live-fix-report" class="live-fix-report" aria-labelledby="live-fix-report-title">
+        <h2 id="live-fix-report-title">End Class report</h2>
+        <div id="live-fix-report-body"></div>
+        <div class="live-fix-report-actions">
+          <button type="button" id="live-fix-report-copy">Copy report</button>
+          <p id="live-fix-report-copy-status" class="live-fix-status" role="status"></p>
+          <button type="button" id="live-fix-report-close">Close</button>
+        </div>
+      </dialog>
+      <script src="/static/live_fix.js"></script>
+      <script src="/static/staff_ap_tabs.js"></script>
     </div>
     {% elif tab == 'gradebook' %}
     <div id="gradebook-root" data-class-id="{{ cls.id }}">

@@ -1,0 +1,44 @@
+{% set alert_rows = roster_pin_rows | selectattr('alert') | list %}
+{% set default_rows = roster_pin_rows | selectattr('can_show') | list %}
+<div id="roster-root" class="ap-roster" data-class-id="{{ cls.id }}">
+  <p class="hint">Catch-up PINs are course-wide, and Show or Print slip works only while a student still has the default PIN.</p>
+  {% if alert_rows %}
+  <p class="ap-roster-note no-print" role="status">{{ alert_rows|length }} student{% if alert_rows|length != 1 %}s{% endif %} had many wrong PIN tries (15 min). Students are not locked out.</p>
+  {% endif %}
+  <div class="ap-roster-settings no-print">
+    <label class="switch"><input type="checkbox" id="require-catchup-pin-change" {% if require_catchup_pin_change %}checked{% endif %}> Require students to change default PINs</label>
+    <button type="button" class="btn secondary" id="print-all-default-slips"{% if not default_rows %} disabled{% endif %}>Print all default slips</button>
+  </div>
+  <table class="ap-roster-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>PIN status</th>
+        <th>PIN</th>
+        <th class="num">Wrong tries (15 min)</th>
+        <th class="actions">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in roster_pin_rows %}
+      <tr>
+        <td>{{ row.name }}{% if row.is_test %} <span class="ap-roster-tag">Test</span>{% endif %}</td>
+        <td data-pin-status>{{ row.status_label }}</td>
+        <td class="ap-roster-pin" data-sid="{{ row.student_id }}">••••</td>
+        <td class="num">{% if row.wrong_tries %}{{ row.wrong_tries }}{% else %}–{% endif %}</td>
+        <td class="actions">
+          {% if row.can_show %}
+          <button type="button" class="ap-roster-text ap-roster-show" data-sid="{{ row.student_id }}">Show</button>
+          <button type="button" class="ap-roster-text ap-roster-print" data-sid="{{ row.student_id }}">Print slip</button>
+          {% endif %}
+          <button type="button" class="ap-roster-text ap-roster-edit" data-sid="{{ row.student_id }}">Set new PIN</button>
+          <span class="ap-roster-editor" hidden>
+            <input size="4" maxlength="4" inputmode="numeric" data-pin="{{ row.student_id }}" aria-label="New PIN for {{ row.name }}" autocomplete="off">
+            <button type="button" class="btn secondary pin-set" data-sid="{{ row.student_id }}">Save</button>
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

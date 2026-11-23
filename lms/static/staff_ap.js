@@ -10205,7 +10205,90 @@ async function continueRunLiveAfterPrompt(iso, opts = {}) {
       { method: "POST", body: JSON.stringify({ sort: "az" }) }
     );
   }
+  if (setClassKind !== "office") {
+    let beginChoice;
+    try {
+      beginChoice = await maybeBeginNewModule();
+    } catch (err) {
+      closeReservedLiveWindow(opts.reservedWin);
+      throw err;
+    }
+    if (beginChoice === "cancel") {
+      closeReservedLiveWindow(opts.reservedWin);
+      return;
+    }
+  }
   await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+}
+
+/**
+ * Offer Begin Module when this real class is the next planned module
+ * and that module has no saved runs. Test and Open Office skip it.
+ * Confirm wraps up before the live session is minted.
+ * @returns {Promise<"begin"|"skip"|"cancel">}
+ */
+async function maybeBeginNewModule() {
+  if (selectedRunKind() === "test" || setClassKind === "office") return "skip";
+  const module = $("live-module-select")?.value || teacherState.live_module || "M1";
+  const slot = $("live-class-select")?.value || teacherState.live_slot || "C1";
+  const payload = await api(
+    `/api/classes/${classId}/live-session/begin-module-prompt?module=${encodeURIComponent(module)}&slot=${encodeURIComponent(slot)}&is_test=0`
+  );
+  const prompt = payload?.prompt;
+  if (!prompt || !prompt.title) return "skip";
+  const choice = await openBeginLiveModuleDialog(prompt);
+  if (choice !== "begin") return choice;
+  const res = await api(`/api/classes/${classId}/live-session/start`, {
+    method: "POST",
+    body: JSON.stringify({
+      live_module: module,
+      live_slot: slot,
+      begin_module: true,
+      is_test: false,
+      is_office: false,
+    }),
+  });
+  liveSessionId = Number(res.live_session_id || res.live_session?.id || 0);
+  noteLiveRunKey(res.live_session?.run_key);
+  if (root && liveSessionId) root.dataset.liveSessionId = String(liveSessionId);
+  const mintedCode = joinCodeFromPayload(res);
+  if (mintedCode) paintJoinBillboard(mintedCode);
+  if (liveSessionId) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "live");
+    url.searchParams.set("live_session_id", String(liveSessionId));
+    window.history.replaceState({}, "", url.toString());
+  }
+  return "begin";
+}
+
+/**
+ * In-page Begin Module dialog. Escape stays on Set Class.
+ * @param {{title?: string, body?: string, confirm?: string, skip?: string}} prompt
+ * @returns {Promise<"begin"|"skip"|"cancel">}
+ */
+function openBeginLiveModuleDialog(prompt) {
+  const dialog = $("begin-live-module-dialog");
+  const title = $("begin-live-module-title");
+  const body = $("begin-live-module-body");
+  const confirmButton = $("begin-live-module-confirm");
+  const skipButton = $("begin-live-module-skip");
+  if (!(dialog instanceof HTMLDialogElement)) return Promise.resolve("skip");
+  if (title) title.textContent = String(prompt.title || "");
+  if (body) body.textContent = String(prompt.body || "");
+  if (confirmButton) confirmButton.textContent = String(prompt.confirm || "Begin Module");
+  if (skipButton) skipButton.textContent = String(prompt.skip || "Not yet, just run class");
+  dialog.returnValue = "";
+  return new Promise((resolve) => {
+    const onClose = () => {
+      dialog.removeEventListener("close", onClose);
+      const value = String(dialog.returnValue || "");
+      if (value === "begin" || value === "skip") resolve(value);
+      else resolve("cancel");
+    };
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+  });
 }
 
 async function unfinishedModuleChoice() {
