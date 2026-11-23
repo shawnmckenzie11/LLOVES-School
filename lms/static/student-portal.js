@@ -21,6 +21,7 @@ import {
   liveQuestionHeadHtml,
 } from "/static/live_question_card.js";
 import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_graph.js";
+import { compareQuestionPushOrder, questionPushLabel } from "/static/student_question_order.js";
 import { cardOwnsLivePrompt } from "/static/live_prompt_once.js";
 import { paintEyesUp } from "/static/eyes_up.js";
 import { noteBoardShow, syncPollFromPayload } from "/static/poll_board_show.js";
@@ -3812,30 +3813,35 @@ function paintQuestionDock(items, payload) {
   const proj = studentProjection(payload);
   const surfaces = [];
   if (proj.media && dockedLiveCardKeys.has("surface:media")) {
-    surfaces.push({ key: "surface:media", kind: "media", label: "Media", feedback: "" });
+    surfaces.push({ key: "surface:media", kind: "media", label: "Media", qLabel: "", feedback: "" });
   }
   if (proj.canvas && dockedLiveCardKeys.has("surface:canvas")) {
-    surfaces.push({ key: "surface:canvas", kind: "whiteboard", label: "Whiteboard", feedback: "" });
+    surfaces.push({ key: "surface:canvas", kind: "whiteboard", label: "Whiteboard", qLabel: "", feedback: "" });
   }
   if (proj.slides && dockedLiveCardKeys.has("surface:slides")) {
-    surfaces.push({ key: "surface:slides", kind: "slides", label: "Slides", feedback: "" });
+    surfaces.push({ key: "surface:slides", kind: "slides", label: "Slides", qLabel: "", feedback: "" });
   }
-  for (const item of Array.isArray(items) ? items : []) {
+  const session = Array.isArray(items) ? items : [];
+  const dockedQuestions = session
+    .filter((item) => dockedLiveCardKeys.has(liveCardDockKey(item)))
+    .slice()
+    .sort(compareQuestionPushOrder);
+  for (const item of dockedQuestions) {
     const key = liveCardDockKey(item);
-    if (!dockedLiveCardKeys.has(key)) continue;
     const content = item?.content || item?.prompt?.payload || {};
     const stem = String(content.text || content.prompt || "Question").trim();
     surfaces.push({
       key,
       kind: "question",
       label: stem.slice(0, 42) || "Question",
+      qLabel: questionPushLabel(item, session),
       feedback: String(item?.board_feedback || ""),
     });
   }
   const chips = surfaces.map(
-    (row) => `<div class="student-question-dock-chip is-${row.kind}" data-dock-key="${escapeText(row.key)}">
+    (row) => `<div class="student-question-dock-chip is-${row.kind}" data-dock-key="${escapeText(row.key)}" data-q-label="${escapeText(row.qLabel || "")}">
         <span class="student-question-dock-copy">
-          <span class="student-question-dock-kind">${escapeText(row.kind === "question" ? "Question" : row.label)}</span>
+          <span class="student-question-dock-kind">${escapeText(row.kind === "question" ? row.qLabel || "Question" : row.label)}</span>
           ${row.kind === "question" ? `<span class="student-question-dock-label">${escapeText(row.label)}</span>` : ""}
           ${row.feedback ? `<p class="qboard-feedback-line">${escapeText(row.feedback)}</p>` : ""}
         </span>
@@ -4499,31 +4505,39 @@ function phoneHasNoSidePanel() {
 }
 
 /**
- * One slim bar: question type and title. Tapping it reopens the card.
+ * One slim bar: push-order label, question type, and title.
+ * Tapping it reopens the card.
  * @param {any} item Lifecycle question.
+ * @param {string} qLabel Q1, Q2, … from session push order.
  * @returns {string}
  */
-function minimizedBarHtml(item) {
+function minimizedBarHtml(item, qLabel) {
   const content = item?.content || item?.prompt?.payload || {};
   const kind = questionKindLabel(content.type || item?.prompt?.kind || "");
+  const mark = qLabel ? `${qLabel} · ${kind}` : kind;
   const title = String(content.text || content.prompt || content.question || "Question").trim() || "Question";
-  return `<button type="button" class="student-minimized-bar" data-restore-minimized="${escapeText(item?.id || "")}">
-    <span class="student-minimized-kind">${escapeText(kind)}</span>
+  return `<button type="button" class="student-minimized-bar" data-restore-minimized="${escapeText(item?.id || "")}" data-q-label="${escapeText(qLabel || "")}">
+    <span class="student-minimized-kind">${escapeText(mark)}</span>
     <span class="student-minimized-title">${escapeText(title)}</span>
   </button>`;
 }
 
 /**
- * Park minimized questions in a bar. Phones pin it above the content.
+ * Park minimized questions in a bar, top to bottom in push order.
+ * Phones pin it above the content.
  * Wider screens put the same bar at the top of the side panel.
  * @param {any[]} items Questions the teacher minimized.
+ * @param {any[]} [sessionItems] Every pushed question, used for Q numbers.
  */
-function paintStudentMinimizedBars(items) {
+function paintStudentMinimizedBars(items, sessionItems) {
   const host = document.getElementById("student-minimized-host");
   if (!host) return;
-  const rows = Array.isArray(items) ? items : [];
+  const session = Array.isArray(sessionItems) ? sessionItems : items;
+  const rows = (Array.isArray(items) ? items : []).slice().sort(compareQuestionPushOrder);
   host.hidden = rows.length === 0;
-  host.innerHTML = rows.map((item) => minimizedBarHtml(item)).join("");
+  host.innerHTML = rows
+    .map((item) => minimizedBarHtml(item, questionPushLabel(item, session)))
+    .join("");
   const phone = phoneHasNoSidePanel();
   const offset = !phone && rows.length ? `${host.offsetHeight + 8}px` : "0px";
   document.documentElement.style.setProperty("--student-minimized-offset", offset);
@@ -4574,7 +4588,7 @@ function paintLifecycleQuestionStack(payload) {
       seenQuestionAliases.add(alias);
     }
     return true;
-  });
+  }).sort(compareQuestionPushOrder);
   restoreDockedQuestions(payload, all);
   const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
   const openCards = [];
@@ -4586,7 +4600,7 @@ function paintLifecycleQuestionStack(payload) {
     } else openCards.push(item);
   }
   paintQuestionDock(all, payload);
-  paintStudentMinimizedBars(minimizedCards);
+  paintStudentMinimizedBars(minimizedCards, all);
   const floatingCards = new Map();
   document.querySelectorAll(".student-live-card.is-floating").forEach((card) => {
     const key = card instanceof HTMLElement ? card.dataset.liveCardKey || "" : "";
@@ -4693,14 +4707,19 @@ function paintLifecycleQuestionStack(payload) {
       const badge = studentLiveCardBadge(item);
       const shown =
         badge === "Saved" ? "saved" : badge === "Results" ? "closed" : status;
+      const qLabel = questionPushLabel(item, all);
+      const minimizeControl =
+        status === "closed"
+          ? `<button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize question">×</button>`
+          : "";
       return `<article class="student-live-card student-floating-pane is-${escapeText(shown)}" data-live-card-id="${Number(
         item.id
-      )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(shown)}" data-live-card-key="${escapeText(dockKey)}">
+      )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(shown)}" data-live-card-key="${escapeText(dockKey)}" data-q-label="${escapeText(qLabel)}">
         <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
-          <span>Question</span>
+          <span class="student-live-qnum">${escapeText(qLabel)}</span>
           <span class="student-live-card-status">${badge}</span>
           <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
-          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize question">×</button>
+          ${minimizeControl}
         </div>
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
@@ -7202,9 +7221,12 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
   const dismissCard = event.target.closest("[data-dismiss-live-card]");
   if (dismissCard instanceof HTMLButtonElement) {
     event.stopPropagation();
-    minimizeLiveQuestion(dismissCard.dataset.dismissLiveCard || "");
     const floating = dismissCard.closest(".student-live-card");
-    if (floating instanceof HTMLElement && floating.classList.contains("is-floating")) {
+    if (!(floating instanceof HTMLElement) || floating.dataset.liveCardStatus !== "closed") {
+      return;
+    }
+    minimizeLiveQuestion(dismissCard.dataset.dismissLiveCard || "");
+    if (floating.classList.contains("is-floating")) {
       floating.remove();
     }
     paintLifecycleQuestionStack(lastStudentPayload || {});

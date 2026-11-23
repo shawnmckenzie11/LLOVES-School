@@ -4809,6 +4809,266 @@ def shoot_mck494(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
     return written
 
 
+def _mask_demo_identity(page: object) -> None:
+    """Replace on-screen demo names before a shot. Does not print them."""
+
+    page.evaluate(  # type: ignore[attr-defined]
+        """() => {
+          const name = document.getElementById("me-name");
+          if (name) name.textContent = "Student";
+          document.querySelectorAll(".sb-espn-name").forEach((el) => {
+            el.textContent = "Team";
+          });
+          const people = document.querySelector(".me-team-people");
+          if (people) people.textContent = "";
+          const welcome = document.getElementById("game-show-welcome");
+          if (welcome) welcome.textContent = "";
+        }"""
+    )
+
+
+def _refuse_private_text(page: object, secrets: list[str]) -> None:
+    """Stop if the visible page contains an email or a known code.
+
+    Args:
+        page: Playwright page.
+        secrets: Codes that must not be visible. They are not included in the error.
+    """
+
+    text = page.locator("body").inner_text()  # type: ignore[attr-defined]
+    if "@" in text:
+        raise SystemExit("Refusing screenshot: page text contains an email")
+    for secret in secrets:
+        token = str(secret or "").strip()
+        if token and token in text:
+            raise SystemExit("Refusing screenshot: page text contains a code")
+
+
+def shoot_mck495(base: str, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-495: full-width Q1 card, push-order dock, and blue/green bars.
+
+    Uses the seeded demo class. The shots mask the on-screen name and
+    refuse to save if an email or a known code is visible.
+
+    Args:
+        base: Loopback origin.
+        out_dir: Directory for PNG files.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths written.
+    """
+
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        live_module="M1",
+        live_slot="C2",
+        stage="round",
+        page_number=4,
+        page_id="round_1",
+    )
+    specs = (
+        {
+            "text": "Which expression equals 2 + 2?",
+            "options": ["3", "4", "5", "6"],
+            "correct_index": 1,
+            "stamp": "2026-11-23T15:01:00",
+            "close": False,
+            "answer": False,
+            "show_answer": False,
+        },
+        {
+            "text": "Which shape has four equal sides?",
+            "options": ["circle", "square", "triangle", "hexagon"],
+            "correct_index": 1,
+            "stamp": "2026-11-23T15:02:00",
+            "close": True,
+            "answer": True,
+            "show_answer": True,
+        },
+        {
+            "text": "Which value is greater than 10?",
+            "options": ["4", "7", "12", "9"],
+            "correct_index": 2,
+            "stamp": "2026-11-23T15:03:00",
+            "close": True,
+            "answer": False,
+            "show_answer": False,
+        },
+    )
+    tokens: list[str] = []
+    for spec in specs:
+        placed = school.add_staff_question_to_class_playlist(
+            class_id,
+            "M1",
+            "C2",
+            page_number=4,
+            stage="round",
+            question_type="mc",
+            text=str(spec["text"]),
+            options=list(spec["options"]),
+            correct_index=int(spec["correct_index"]),
+        )
+        tokens.append(str(placed.get("item_id") or ""))
+    school.ensure_live_session_items(session_id)
+    listed = list(school.list_live_session_items(session_id))
+    rows = []
+    for token in tokens:
+        rows.append(
+            next(item for item in listed if str(item.get("item_id") or "") == token)
+        )
+    student = school.game.find_student_by_codename(class_id, "Maple")
+    if student is None:
+        raise SystemExit("Demo student missing. Run with --seed first.")
+    student_id = int(student["id"])
+    for spec, row in zip(specs, rows):
+        published = school.publish_live_session_item(
+            session_id, int(row["id"]), publish_mode="individual"
+        )
+        with school._lock:
+            school.conn.execute(
+                "UPDATE live_session_items SET published_at = ? WHERE id = ?",
+                (str(spec["stamp"]), int(row["id"])),
+            )
+            school.conn.commit()
+        if spec["answer"]:
+            prompt = school._prompt_for_live_item(published)
+            if prompt is None:
+                raise SystemExit("Published question has no prompt")
+            school.submit_live_prompt_response(
+                int(prompt["id"]), student_id, {"choice": "B"}
+            )
+            # A second roster answer makes the default blue fill visible.
+            with school.game._lock:
+                other = school.game.conn.execute(
+                    "SELECT id FROM students WHERE class_id = ? AND id != ? ORDER BY id LIMIT 1",
+                    (class_id, student_id),
+                ).fetchone()
+            if other is not None:
+                school.submit_live_prompt_response(
+                    int(prompt["id"]), int(other["id"]), {"choice": "A"}
+                )
+        if spec["close"]:
+            school.close_live_session_item(session_id, int(row["id"]))
+        if spec["show_answer"]:
+            school.update_live_session_item_settings(
+                session_id, int(row["id"]), show_answer=True
+            )
+    school.join_live_class_session(session_id, student_id, codename="Maple")
+    attendees = school.list_live_session_attendees(session_id)
+    visit = str(
+        next(row["visit_token"] for row in attendees if row.get("codename") == "Maple")
+    )
+    payload = school.student_live_items_payload(session_id, student_id)
+    active_n = len(payload.get("active_questions") or [])
+    closed_n = len(payload.get("closed_results") or [])
+    if active_n < 1 or closed_n < 2:
+        raise SystemExit(f"expected open and closed questions, got {active_n} and {closed_n}")
+    url = f"{origin}/student/s/{visit}"
+    secrets = [
+        str(live.get("session_code") or ""),
+        visit,
+        "1234",
+        "9999",
+    ]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            context = browser.new_context(viewport={"width": 1280, "height": 1000})
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded")
+            _mck215_reach_live_home(page)
+            _mck215_dismiss_catchup_pin(page)
+            page.locator('.student-live-card[data-q-label="Q1"]').wait_for(
+                state="visible", timeout=20000
+            )
+            graph = page.locator('.student-live-card[data-q-label="Q2"] .mc-results-graph')
+            graph.wait_for(state="visible", timeout=20000)
+            bars = graph.locator(".mc-results-row").evaluate_all(
+                """els => els.map((el) => ({
+                  correct: el.classList.contains("is-correct"),
+                  fill: getComputedStyle(el.querySelector(".mc-results-fill")).backgroundColor
+                }))"""
+            )
+            blue = "rgb(147, 197, 253)"
+            green = "rgb(134, 211, 154)"
+            correct = [row for row in bars if row.get("correct")]
+            plain = [row for row in bars if not row.get("correct")]
+            if len(correct) != 1 or correct[0].get("fill") != green:
+                raise SystemExit("correct bar is not green")
+            if not plain or any(row.get("fill") != blue for row in plain):
+                raise SystemExit("default bars are not blue")
+            graph_path = out_dir / "mck495-bar-graph-blue-correct-green.png"
+            graph.screenshot(path=str(graph_path))
+            written.append(graph_path)
+            buttons = page.locator('[aria-label="Minimize question"]')
+            count = buttons.count()
+            if count < 2:
+                raise SystemExit("closed questions are missing a minimize control")
+            for _ in range(count):
+                page.locator('[aria-label="Minimize question"]').last.click()
+                page.locator(".student-question-dock-chip.is-question").first.wait_for(
+                    state="visible", timeout=5000
+                )
+            labels = page.locator(".student-question-dock-chip.is-question").evaluate_all(
+                "els => els.map((el) => el.getAttribute('data-q-label'))"
+            )
+            if labels != ["Q2", "Q3"]:
+                raise SystemExit("right panel is not in push order")
+            metrics = page.evaluate(
+                """() => {
+                  const card = document.querySelector(".student-live-card");
+                  const main = document.getElementById("live-response");
+                  if (!card || !main) return null;
+                  const cardBox = card.getBoundingClientRect();
+                  const mainBox = main.getBoundingClientRect();
+                  return {
+                    card: Math.round(cardBox.width),
+                    main: Math.round(mainBox.width),
+                    q: card.getAttribute("data-q-label"),
+                    minimize: card.querySelector('[aria-label="Minimize question"]') ? 1 : 0,
+                    open: document.querySelectorAll(".student-live-card").length
+                  };
+                }"""
+            )
+            if not metrics or metrics.get("q") != "Q1" or metrics.get("minimize") or metrics.get("open") != 1:
+                raise SystemExit("open card is not a single full Q1 without minimize")
+            if int(metrics["card"]) < int(metrics["main"]) * 0.75:
+                raise SystemExit(
+                    f"question card is not full width ({metrics['card']} of {metrics['main']})"
+                )
+            _mask_demo_identity(page)
+            _refuse_private_text(page, secrets)
+            card_path = out_dir / "mck495-full-width-q1-push-order.png"
+            page.screenshot(path=str(card_path), full_page=False)
+            written.append(card_path)
+            context.close()
+            browser.close()
+    except SystemExit:
+        raise
+    except Exception as err:
+        message = str(err)
+        for secret in secrets:
+            token = str(secret or "")
+            if token:
+                message = message.replace(token, "[redacted]")
+        raise SystemExit(message) from None
+    return written
+
+
 def prepare_mck496_teacher(path: Path, origin: str) -> dict[str, int | str]:
     """Publish one multiple-choice question and return the teacher URL.
 
@@ -5154,6 +5414,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck293",
             "mck497",
             "mck494",
+            "mck495",
             "mck496",
         ),
         default="",
@@ -5168,6 +5429,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-290 ended class on Lesson Slides, "
             "MCK-280 whiteboard fixes, MCK-291 Set Class calendar, "
             "MCK-293 group rank check and group engagement points, "
+            "MCK-495 student question width, Q labels, and bar colours, "
             "or MCK-496 teacher question footer."
         ),
     )
@@ -5179,7 +5441,7 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        student_only = args.scenario in {"mck222", "mck497"}
+        student_only = args.scenario in {"mck222", "mck495", "mck497"}
         needs_login = (
             not student_only
             and (args.seed or not state.exists() or state.stat().st_size == 0)
@@ -5255,6 +5517,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck291(args.base, state, out, path))
         if args.scenario == "mck293":
             written.extend(shoot_mck293(args.base, state, out, path))
+        if args.scenario == "mck495":
+            written.extend(shoot_mck495(args.base, out, path))
         if args.scenario == "mck497":
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
@@ -5278,7 +5542,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck496|mck497."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497."
             )
         for item in written:
             print(item)
