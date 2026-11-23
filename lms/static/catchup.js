@@ -11,6 +11,8 @@ import {
   lifecycleAnswerKind,
   liveAnswerControlsHtml,
   liveQuestionHeadHtml,
+  mountQuestionLightbox,
+  syncQuestionLightbox,
 } from "/static/live_question_card.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { canvasToPngDataUrl, catchupDrawControlsHtml } from "/static/team_draw.js";
@@ -201,6 +203,8 @@ function mountCatchup() {
   }
   const questions = Array.isArray(data.questions) ? data.questions : [];
   root.innerHTML = questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
+  mountQuestionLightbox(document);
+  syncQuestionLightbox(root);
   const parts = window.location.pathname.split("/").filter(Boolean);
   const token = parts.length ? parts[parts.length - 1] : "";
   mountCatchupQuestionBoards(token);

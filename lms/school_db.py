@@ -2028,7 +2028,8 @@ def _board_offer_worth(item: Any) -> int | None:
 
 def _ev_item(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
     ref = (r or {}).get("id") if isinstance(r, dict) else None
-    payload: dict[str, Any] = {"mode": str(a.get("publish_mode") or "")[:20]}
+    mode = str(a.get("publish_mode") or "").strip() or "individual"
+    payload: dict[str, Any] = {"mode": mode[:20]}
     worth = _board_offer_worth(r)
     if worth is not None:
         payload["worth"] = int(worth)
@@ -2056,7 +2057,10 @@ def _ev_prompt_points(db: Any, a: dict[str, Any], r: Any) -> list[dict[str, Any]
 def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
     if isinstance(r, dict) and r.get("idempotent_replay"):
         return None
-    if a.get("student_id") in (None, ""):
+    sid = a.get("student_id")
+    if sid in (None, ""):
+        sid = db.roster_id_for_participant(str(a.get("participant_uuid") or ""))
+    if sid in (None, ""):
         return None
     with db._lock:
         row = db.conn.execute(
@@ -2071,13 +2075,13 @@ def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
         ).fetchone()
     store = getattr(db, "engagement", None)
     seen = bool(store is not None and run is not None and store.has_event(
-        str(run["run_key"] or ""), int(a["student_id"]), a["prompt_id"],
+        str(run["run_key"] or ""), int(sid), a["prompt_id"],
         ("answer.submit", "answer.change"),
     ))
     event: dict[str, Any] = {
         "kind": "answer.change" if seen else "answer.submit",
         "session_id": row["live_session_id"],
-        "student_id": a["student_id"],
+        "student_id": int(sid),
         "item_ref": a["prompt_id"],
     }
     try:
@@ -33273,6 +33277,37 @@ class SchoolDB(LovesDB):
             (body, now, pid or None, student_id, int(row_id)),
         )
 
+    def roster_id_for_participant(self, participant_uuid: str) -> int | None:
+        """Roster id for a joined person, or None for a guest.
+
+        A submit sometimes arrives with only the person key. Engagement
+        credit needs the roster id. A guest has no roster row, so this
+        returns None and the caller records the answer without a credit.
+
+        Args:
+            participant_uuid: ``live_session_attendees.participant_uuid``.
+
+        Returns:
+            ``students.id``, or None when the person is not on the roster.
+        """
+        token = str(participant_uuid or "").strip()
+        if not token:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT student_id FROM live_session_attendees
+                WHERE participant_uuid = ? AND student_id IS NOT NULL
+                """,
+                (token,),
+            ).fetchone()
+        if row is None or row["student_id"] in (None, ""):
+            return None
+        try:
+            return int(row["student_id"])
+        except (TypeError, ValueError):
+            return None
+
     @emits("answer.submit", _ev_answer)
     def submit_live_prompt_response(
         self,
@@ -33308,6 +33343,8 @@ class SchoolDB(LovesDB):
         """
         pid = (participant_uuid or "").strip()
         sid = int(student_id) if student_id not in (None, "") else None
+        if sid is None and pid:
+            sid = self.roster_id_for_participant(pid)
         if not pid and sid is None:
             raise ValueError("participant_uuid or student_id is required")
         with self._lock:
@@ -40096,6 +40133,64 @@ class SchoolDB(LovesDB):
 
         emit_board_ink(self, int(session_id), str(board_key))
 
+    def _shown_board_card(self, session_id: int) -> dict[str, Any] | None:
+        """Name-free drawing for a ``board_show`` postcard.
+
+        Strokes and text only. A drawing that would make the postcard
+        large is omitted so the key still goes out and each phone fetches
+        the board on its own short delay.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            A small board dict, or None when nothing is projected or the
+            drawing does not fit in the push.
+        """
+        try:
+            board = self.whiteboard_class_board(int(session_id))
+        except Exception:
+            logger.warning("board_show postcard omitted the drawing")
+            return None
+        if not isinstance(board, dict):
+            return None
+        view = board.get("canvas_view") if isinstance(board.get("canvas_view"), dict) else {}
+        strokes: list[dict[str, Any]] = []
+        for stroke in list(view.get("strokes") or [])[:60]:
+            if not isinstance(stroke, dict):
+                continue
+            points = stroke.get("points")
+            if not isinstance(points, list) or not points:
+                continue
+            strokes.append(
+                {"points": points[:400], "color": str(stroke.get("color") or "")[:20]}
+            )
+        texts: list[dict[str, Any]] = []
+        for label in list(view.get("texts") or [])[:30]:
+            if not isinstance(label, dict):
+                continue
+            words = str(label.get("text") or "")[:80]
+            if not words.strip():
+                continue
+            texts.append(
+                {
+                    "x": label.get("x"),
+                    "y": label.get("y"),
+                    "text": words,
+                    "color": str(label.get("color") or "")[:20],
+                }
+            )
+        card = {
+            "board_key": str(board.get("board_key") or "")[:80],
+            "poll": bool(board.get("poll")),
+            "read_only": True,
+            "canvas_view": {"strokes": strokes, "texts": texts},
+        }
+        raw = json.dumps(card, separators=(",", ":"), default=str)
+        if len(raw) > 7500:
+            return None
+        return card
+
     def _set_projected_whiteboard(
         self, session_id: int, board_key: str, *, run_key: str | None = None
     ) -> None:
@@ -40103,9 +40198,10 @@ class SchoolDB(LovesDB):
 
         Show and stop-showing write ``whiteboard_projected_board`` on the
         existing teacher blob and leave ``state_seq`` where it is. A
-        ``board_show`` postcard names the board key and nothing else.
-        Devices that are showing a board fetch that board. Other class
-        state stays on the slow poll.
+        ``board_show`` postcard carries the name-free drawing when it
+        fits, so phones paint it without each reloading ``/state``. A
+        drawing that does not fit keeps the key only. Other class state
+        stays on the slow poll.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -40143,11 +40239,12 @@ class SchoolDB(LovesDB):
         else:
             payload.pop("whiteboard_projected_run", None)
         self._write_teacher_state(int(session_id), payload)
-        emit_session_news(
-            self,
-            int(session_id),
-            [{"type": "board_show", "board_key": text[:80]}],
-        )
+        event: dict[str, Any] = {"type": "board_show", "board_key": text[:80]}
+        if text:
+            card = self._shown_board_card(int(session_id))
+            if card is not None:
+                event["board"] = card
+        emit_session_news(self, int(session_id), [event])
 
     def clear_whiteboard_board(
         self, session_id: int, board_key: str, *, run_key: str | None = None
@@ -42208,7 +42305,8 @@ class SchoolDB(LovesDB):
                 FROM live_session_items i
                 LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
                 WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
-                  AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+                  AND COALESCE(NULLIF(TRIM(i.publish_mode), ''), 'individual') = 'individual'
+                  AND COALESCE(NULLIF(TRIM(i.response_mode), ''), 'individual') = 'individual'
                   AND EXISTS (
                     SELECT 1 FROM live_session_responses r
                     WHERE r.prompt_id = i.prompt_id AND r.student_id IS NOT NULL
@@ -42227,7 +42325,8 @@ class SchoolDB(LovesDB):
                 FROM live_session_responses r
                 INNER JOIN live_session_items i ON i.prompt_id = r.prompt_id
                 WHERE i.live_session_id = ? AND r.student_id IS NOT NULL
-                  AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+                  AND COALESCE(NULLIF(TRIM(i.publish_mode), ''), 'individual') = 'individual'
+                  AND COALESCE(NULLIF(TRIM(i.response_mode), ''), 'individual') = 'individual'
                 """,
                 (class_id, run_key, module, sid),
             )
@@ -42259,7 +42358,8 @@ class SchoolDB(LovesDB):
             FROM live_session_items i
             LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
             WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
-              AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+              AND COALESCE(NULLIF(TRIM(i.publish_mode), ''), 'individual') = 'individual'
+              AND COALESCE(NULLIF(TRIM(i.response_mode), ''), 'individual') = 'individual'
 
             """,
             (class_id, run_key, module, slot, now, sid),
@@ -42275,7 +42375,8 @@ class SchoolDB(LovesDB):
             FROM live_session_responses r
             INNER JOIN live_session_items i ON i.prompt_id = r.prompt_id
             WHERE i.live_session_id = ? AND r.student_id IS NOT NULL
-              AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+              AND COALESCE(NULLIF(TRIM(i.publish_mode), ''), 'individual') = 'individual'
+              AND COALESCE(NULLIF(TRIM(i.response_mode), ''), 'individual') = 'individual'
             """,
             (class_id, run_key, module, sid),
         )

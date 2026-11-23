@@ -25,9 +25,11 @@ import {
 import {
   mcGraphSlot,
   mcResultsGraphHtml,
+  noResponsesYetHtml,
   numericResultsGraphHtml,
   stripDuplicateOptionTable,
   tallyFromChoiceLabels,
+  tallyHasResponses,
 } from "/static/mc_results_graph.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import { bankLiveStart } from "/static/live_start.js";
@@ -1496,6 +1498,12 @@ function paintLifecycleBarsInPlace(liveItemId) {
   if (!card) return;
   const result = lifecycleResults.get(liveItemId) || {};
   const tally = result.tally;
+  if (!tallyHasResponses(tally)) {
+    if (card.querySelector(".live-question-empty")) return;
+    const graph = card.querySelector(".mc-results-graph");
+    if (graph) graph.outerHTML = noResponsesYetHtml();
+    return;
+  }
   if (!tally || !Array.isArray(tally.choices) || !tally.choices.length) return;
   const row = lastLiveItems.find((item) => Number(item?.id) === liveItemId) || {};
   const itemKey = mcGraphItemKey(liveItemId, row);
@@ -6279,8 +6287,8 @@ function liveQuestionControlStrip(parts) {
   const graphControls = parts.graphControlsHtml || "";
   const points = parts.pointsHtml || "";
   const reveal = active ? parts.revealHtml || "" : "";
-  const minimize = active ? parts.minimizeHtml || "" : "";
-  const closeOrPublish = active ? parts.closeHtml || "" : closed || confirming ? "" : publishBlock;
+  const minimize = closed ? parts.minimizeHtml || "" : "";
+  const closeOrPublish = active ? parts.closeHtml || "" : confirming ? "" : closed ? "" : publishBlock;
   const closedLabel = closed ? parts.closedCopy || "" : "";
   const relocate = parts.relocateHtml || "";
   const actions = `${points}${reveal}${minimize}${closeOrPublish}${closedLabel}${relocate}`;
@@ -6480,7 +6488,10 @@ function paintLiveQuestionCards() {
                 },
                 liveItemId
               )
-            : individualLifecycleResultsHtml(result?.tally, mcGraphItemKey(liveItemId, card), {
+            : individualLifecycleResultsHtml(
+                tallyHasResponses(result?.tally) ? result.tally : null,
+                mcGraphItemKey(liveItemId, card),
+                {
                 correctValue: answerKey,
                 tolerance: item.tolerance ?? card.tolerance,
                 toleranceKind: item.tolerance_kind ?? card.tolerance_kind,
@@ -6499,10 +6510,13 @@ function paintLiveQuestionCards() {
       );
       const graphKey = mcGraphItemKey(liveItemId, card);
       const graphPref = mcGraphPref(graphKey);
+      const cardPrompt = Number(card.prompt_id || card.prompt?.id) || 0;
+      const tallyPrompt = Number(tally?.prompt_id) || 0;
+      const samePrompt = !cardPrompt || (tallyPrompt > 0 && tallyPrompt === cardPrompt);
+      const sameCard = Boolean(tallyRef && cardRef && tallyRef === cardRef && samePrompt);
       const matchedTally =
-        tallyRef &&
-        cardRef &&
-        tallyRef === cardRef &&
+        sameCard &&
+        tallyHasResponses(tally) &&
         Array.isArray(tally?.choices) &&
         tally.choices.length &&
         String(tally?.kind || "") !== "numeric" &&
@@ -6515,10 +6529,7 @@ function paintLiveQuestionCards() {
         !mcCard &&
         String(item.type || card.type || "").toLowerCase() === "numeric";
       const numericTally =
-        tallyRef &&
-        cardRef &&
-        tallyRef === cardRef &&
-        String(tally?.kind || "") === "numeric"
+        sameCard && tallyHasResponses(tally) && String(tally?.kind || "") === "numeric"
           ? tally
           : null;
       const numericOpts = {
@@ -6531,7 +6542,7 @@ function paintLiveQuestionCards() {
         tolerance: item.tolerance ?? card.tolerance,
         toleranceKind: item.tolerance_kind ?? card.tolerance_kind,
       };
-      const extraGraph = mcCard
+      let extraGraph = mcCard
         ? mcGraphSlot(
             resultHtml,
             mcResultsGraphHtml(fallbackTally, {
@@ -6543,8 +6554,19 @@ function paintLiveQuestionCards() {
             })
           )
         : numericCard
-          ? mcGraphSlot(resultHtml, numericResultsGraphHtml(numericTally, numericOpts))
+          ? mcGraphSlot(
+              resultHtml,
+              tallyHasResponses(numericTally)
+                ? numericResultsGraphHtml(numericTally, numericOpts)
+                : ""
+            )
           : "";
+      const hasGraph =
+        String(resultHtml).includes("mc-results-graph") ||
+        String(extraGraph).includes("mc-results-graph");
+      if (!hasGraph && !groupChrome && (mcCard || numericCard) && (active || closed)) {
+        extraGraph = noResponsesYetHtml();
+      }
       const answered = Number(
         result?.response_count ??
           result?.tally?.responded ??
@@ -6645,7 +6667,7 @@ function paintLiveQuestionCards() {
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
       const minimizeHtml =
-        active && liveItemId && !groupChrome
+        closed && liveItemId && !groupChrome
           ? studentMinimizeButtonHtml(liveItemId, card.students_minimized)
           : "";
       const closeHtml =

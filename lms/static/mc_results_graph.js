@@ -254,6 +254,7 @@ export function tallyFromChoiceLabels(options, result, correctLetter) {
     }
   }
   const total = counts.reduce((sum, count) => sum + count, 0);
+  if (!total) return null;
   const key = String(correctLetter || "").trim().toUpperCase();
   return {
     kind: "mc",
@@ -265,6 +266,29 @@ export function tallyFromChoiceLabels(options, result, correctLetter) {
       correct: Boolean(key) && key === ("ABCDEFGH"[index] || ""),
     })),
   };
+}
+
+/**
+ * True when a tally has at least one stored answer.
+ *
+ * A list of options with every count at zero is not a result. The card
+ * says "No responses yet" instead of painting 0% bars.
+ * @param {any} tally
+ * @returns {boolean}
+ */
+export function tallyHasResponses(tally) {
+  if (!tally || typeof tally !== "object") return false;
+  const choices = Array.isArray(tally.choices) ? tally.choices : [];
+  const fromChoices = choices.reduce((sum, row) => sum + (Number(row?.count) || 0), 0);
+  return fromChoices + (Number(tally.other) || 0) + (Number(tally.response_count) || 0) > 0;
+}
+
+/**
+ * Empty teacher result. No bars.
+ * @returns {string}
+ */
+export function noResponsesYetHtml() {
+  return `<p class="live-question-empty">No responses yet</p>`;
 }
 
 /** At most this many distinct numbers stay as one bar each. More become bins. */

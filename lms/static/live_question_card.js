@@ -24,33 +24,114 @@ export function escapeText(value) {
 }
 
 /**
- * Figure URLs for one student or catch-up card, in bank order.
- * @param {any} body
- * @returns {string[]}
+ * Badge under a question image.
+ *
+ * Phones and other touch screens say tap. A fine pointer says click.
+ * @param {boolean} finePointer True for a desktop hover pointer.
+ * @returns {string}
  */
-function studentFigureUrls(body) {
-  const many = body && body.image_urls;
-  if (Array.isArray(many)) {
-    const urls = many.map((url) => String(url || "").trim()).filter(Boolean);
-    if (urls.length) return urls;
-  }
-  const one = String((body && body.image_url) || "").trim();
-  return one ? [one] : [];
+export function zoomBadgeLabel(finePointer) {
+  return finePointer ? "Click to enlarge" : "Tap to enlarge";
 }
 
-/** Render graph images at full card width for lifecycle questions. */
-export function questionImageHtmlStudent(imageUrl) {
-  const urls = Array.isArray(imageUrl)
-    ? imageUrl.map((url) => String(url || "").trim()).filter(Boolean)
-    : String(imageUrl || "").trim()
-      ? [String(imageUrl).trim()]
+/**
+ * Layout class for one stacked question.
+ *
+ * The newest unanswered question stays open so Submit fits. An answered
+ * or closed question collapses. Any other open question shares the stack.
+ * @param {any} item Lifecycle row.
+ * @param {number} focusId Newest unanswered live item id, or 0.
+ * @returns {"is-compact"|"is-open-focus"|"is-open-extra"}
+ */
+export function questionCardLayout(item, focusId) {
+  const status = String(item?.status || "active");
+  if (status === "closed" || item?.my_response) return "is-compact";
+  if (Number(item?.id) === Number(focusId)) return "is-open-focus";
+  return "is-open-extra";
+}
+
+/**
+ * Newest unanswered question in push order.
+ *
+ * Items are already sorted oldest to newest. Closed and answered rows
+ * are skipped, so the last remaining id is the one that keeps Submit.
+ * @param {any[]} items Visible stacked questions.
+ * @returns {number}
+ */
+export function newestOpenQuestionId(items) {
+  let id = 0;
+  for (const item of items || []) {
+    const status = String(item?.status || "active");
+    if (status === "closed" || item?.my_response) continue;
+    const next = Number(item?.id) || 0;
+    if (next) id = next;
+  }
+  return id;
+}
+
+/**
+ * One student figure: url, alt, and optional pixel size.
+ * @param {any} body Question payload.
+ * @returns {{url: string, alt: string, width: number, height: number}[]}
+ */
+function studentFigures(body) {
+  const source = body && typeof body === "object" ? body : {};
+  const listed = Array.isArray(source.image_urls) ? source.image_urls : [];
+  const raw = listed.length
+    ? listed
+    : String(source.image_url || "").trim()
+      ? [source.image_url]
       : [];
-  return urls
-    .map(
-      (url) =>
-        `<img class="live-question-image is-full" src="${escapeText(url)}" alt="Question graph" loading="lazy">`
-    )
+  const alts = Array.isArray(source.image_alts) ? source.image_alts : [];
+  const singleAlt = String(source.image_alt || source.alt || "").trim();
+  return raw
+    .map((item, index) => {
+      const record = item && typeof item === "object" ? item : { url: item };
+      const url = String(record.url || record.src || "").trim();
+      const fallback = `Question image ${index + 1}`;
+      const alt = String(
+        record.alt || alts[index] || (raw.length === 1 ? singleAlt : "") || fallback
+      ).trim();
+      return {
+        url,
+        alt: alt || fallback,
+        width: Number(record.width) || 0,
+        height: Number(record.height) || 0,
+      };
+    })
+    .filter((figure) => figure.url);
+}
+
+/**
+ * Student question images, capped in CSS and opened in one lightbox.
+ *
+ * Each image is a button. The badge says tap or click. Width and height
+ * hold the box so Submit does not jump when the file arrives.
+ * @param {any} imageUrl URL, URL list, or figure records.
+ * @returns {string}
+ */
+export function questionImageHtmlStudent(imageUrl) {
+  const figures = studentFigures(
+    Array.isArray(imageUrl) || typeof imageUrl === "string"
+      ? { image_urls: Array.isArray(imageUrl) ? imageUrl : [imageUrl] }
+      : imageUrl
+  );
+  if (!figures.length) return "";
+  const total = figures.length;
+  const buttons = figures
+    .map((figure, index) => {
+      const width = figure.width > 0 ? figure.width : 4;
+      const height = figure.height > 0 ? figure.height : 3;
+      return `<button type="button" class="live-q-image-btn" data-live-q-image="${index}" aria-label="Enlarge image ${
+        index + 1
+      } of ${total}"><img class="live-question-image is-full" src="${escapeText(
+        figure.url
+      )}" alt="${escapeText(figure.alt)}" width="${width}" height="${height}" loading="lazy"><span class="live-q-zoom-badge">${zoomBadgeLabel(
+        false
+      )}</span></button>`;
+    })
     .join("");
+  return `<div class="live-q-figures">${buttons}</div>`;
 }
 
 /**
@@ -158,7 +239,7 @@ export function liveQuestionHeadHtml(content, fallbackKind, formatQuestionHtml) 
             String(body.type || fallbackKind || "Question").toUpperCase()
           )}</span>
         </div>
-        ${questionImageHtmlStudent(studentFigureUrls(body))}
+        ${questionImageHtmlStudent(body)}
         <h2>${lifecyclePromptHtml({
           ...body,
           text: body.title || body.text,
@@ -224,4 +305,204 @@ export function liveAnswerControlsHtml(kind, content, action, current, submitLab
     </label>
     <button type="button" class="prompt-submit" data-live-submit="${action}">${submitLabel}</button>
   </div>`;
+}
+
+const LIGHTBOX_ID = "live-q-lightbox";
+
+/**
+ * Rewrite every badge for the pointer this screen actually has.
+ * @param {ParentNode} root
+ * @param {boolean} finePointer
+ */
+export function applyZoomBadges(root, finePointer) {
+  const label = zoomBadgeLabel(finePointer);
+  root.querySelectorAll(".live-q-zoom-badge").forEach((node) => {
+    node.textContent = label;
+  });
+}
+
+/**
+ * True when this screen has a mouse or trackpad, not a touch-only phone.
+ * @returns {boolean}
+ */
+function finePointerNow() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+/**
+ * Build the one page-level image dialog, if it is not already there.
+ *
+ * The dialog sits on document.body, outside the question stack, so a
+ * stacked card cannot clip it. Close, Fit, and the arrows are real buttons.
+ * @param {Document} doc
+ * @returns {HTMLDialogElement | null}
+ */
+function ensureQuestionLightbox(doc) {
+  const found = doc.getElementById(LIGHTBOX_ID);
+  if (found instanceof HTMLDialogElement) return found;
+  if (!doc.body) return null;
+  const dialog = doc.createElement("dialog");
+  dialog.id = LIGHTBOX_ID;
+  dialog.className = "live-q-lightbox";
+  dialog.setAttribute("aria-label", "Question image, enlarged");
+  dialog.innerHTML = `<div class="live-q-lightbox-bar">
+      <button type="button" data-live-q-zoom>Fit</button>
+      <button type="button" data-live-q-prev hidden>Prev</button>
+      <span data-live-q-count></span>
+      <button type="button" data-live-q-next hidden>Next</button>
+      <button type="button" class="live-q-lightbox-close" data-live-q-close>Close</button>
+    </div>
+    <div class="live-q-lightbox-stage"><img alt=""></div>`;
+  doc.body.appendChild(dialog);
+  return dialog;
+}
+
+/**
+ * Open, zoom, and page one question's images in the shared dialog.
+ *
+ * Fit and 2x share one toggle. A desktop click or double-click flips it.
+ * A phone double-tap flips it and leaves pinch-zoom to the browser.
+ * The dialog closes when that question leaves the open stack.
+ * @param {Document} doc
+ */
+export function mountQuestionLightbox(doc) {
+  const root = doc || (typeof document !== "undefined" ? document : null);
+  if (!root || root.documentElement?.dataset.liveQLightbox === "1") return;
+  const dialog = ensureQuestionLightbox(root);
+  if (!dialog) return;
+  root.documentElement.dataset.liveQLightbox = "1";
+  const image = dialog.querySelector("img");
+  const stage = dialog.querySelector(".live-q-lightbox-stage");
+  const zoom = dialog.querySelector("[data-live-q-zoom]");
+  const prev = dialog.querySelector("[data-live-q-prev]");
+  const next = dialog.querySelector("[data-live-q-next]");
+  const close = dialog.querySelector("[data-live-q-close]");
+  const count = dialog.querySelector("[data-live-q-count]");
+  /** @type {{src: string, alt: string}[]} */
+  let figures = [];
+  let index = 0;
+  /** @type {HTMLElement | null} */
+  let opener = null;
+  let lastTap = 0;
+
+  /**
+   * Paint the current figure and the Fit / 2x label.
+   */
+  function paint() {
+    const figure = figures[index];
+    if (!(image instanceof HTMLImageElement) || !figure) return;
+    image.src = figure.src;
+    image.alt = figure.alt;
+    const doubled = dialog.classList.contains("is-2x");
+    if (zoom instanceof HTMLButtonElement) {
+      zoom.textContent = doubled ? "2x" : "Fit";
+      zoom.setAttribute("aria-pressed", doubled ? "true" : "false");
+    }
+    const many = figures.length > 1;
+    if (prev instanceof HTMLButtonElement) prev.hidden = !many;
+    if (next instanceof HTMLButtonElement) next.hidden = !many;
+    if (count) count.textContent = many ? `${index + 1} / ${figures.length}` : "";
+  }
+
+  /**
+   * Flip between fit and twice the fitted size.
+   */
+  function toggleZoom() {
+    dialog.classList.toggle("is-2x");
+    if (stage instanceof HTMLElement) stage.scrollTop = 0;
+    paint();
+  }
+
+  /**
+   * Show one index, wrapping inside this question only.
+   * @param {number} step
+   */
+  function move(step) {
+    if (figures.length < 2) return;
+    index = (index + step + figures.length) % figures.length;
+    paint();
+  }
+
+  dialog.addEventListener("close", () => {
+    root.documentElement.classList.remove("live-q-lightbox-open");
+    dialog.classList.remove("is-2x");
+    if (opener) opener.focus();
+    opener = null;
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      move(1);
+    }
+  });
+  zoom?.addEventListener("click", () => toggleZoom());
+  prev?.addEventListener("click", () => move(-1));
+  next?.addEventListener("click", () => move(1));
+  close?.addEventListener("click", () => dialog.close());
+  image?.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    toggleZoom();
+  });
+  stage?.addEventListener("pointerup", (event) => {
+    if (!(event instanceof PointerEvent) || event.pointerType === "mouse") return;
+    const now = Date.now();
+    if (now - lastTap < 350) toggleZoom();
+    lastTap = now;
+  });
+
+  root.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest(".live-q-image-btn");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const card = button.closest(".student-live-card, .live-question-card");
+    const buttons = [
+      ...(card ? card.querySelectorAll(".live-q-image-btn") : [button]),
+    ];
+    figures = buttons
+      .map((node) => {
+        const img = node.querySelector("img");
+        return {
+          src: img instanceof HTMLImageElement ? img.src : "",
+          alt: img instanceof HTMLImageElement ? img.alt : "Question image 1",
+        };
+      })
+      .filter((figure) => figure.src);
+    if (!figures.length || !(image instanceof HTMLImageElement)) return;
+    index = Math.max(0, buttons.indexOf(button));
+    opener = button;
+    dialog.classList.remove("is-2x");
+    dialog.dataset.cardId = card instanceof HTMLElement ? card.dataset.liveCardId || "" : "";
+    paint();
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    root.documentElement.classList.add("live-q-lightbox-open");
+    if (close instanceof HTMLButtonElement) close.focus();
+  });
+}
+
+/**
+ * Close the lightbox when its question is closed, minimized, or gone.
+ *
+ * An answered card may still enlarge a thumbnail. A closed card, a card
+ * the teacher minimized off the stack, or the end of class closes it.
+ * @param {ParentNode} root Stack that was just painted.
+ */
+export function syncQuestionLightbox(root) {
+  const doc = root.ownerDocument || (typeof document !== "undefined" ? document : null);
+  if (!doc) return;
+  applyZoomBadges(root, finePointerNow());
+  const dialog = doc.getElementById(LIGHTBOX_ID);
+  if (!(dialog instanceof HTMLDialogElement) || !dialog.open) return;
+  const id = dialog.dataset.cardId || "";
+  const card = id ? root.querySelector(`[data-live-card-id="${CSS.escape(id)}"]`) : null;
+  if (!(card instanceof HTMLElement) || card.dataset.liveCardStatus === "closed") {
+    dialog.close();
+  }
 }

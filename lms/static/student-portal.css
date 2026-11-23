@@ -728,13 +728,16 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 }
 
 .live-question-stack {
-  display: block;
+  display: flex;
+  flex-direction: column;
   position: absolute;
   top: 0.7rem;
   left: 0.7rem;
   right: 0.7rem;
+  bottom: 0.7rem;
   width: auto;
   z-index: 8;
+  overflow: hidden;
   pointer-events: none;
 }
 
@@ -748,9 +751,13 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 }
 
 .live-question-stack-body {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   position: relative;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .student-live-card {
@@ -768,8 +775,8 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   /* Fills the stretched stack. This card is position: relative, so a
      second left/right pair would shift it instead of widening it. */
   width: auto;
-  max-height: min(88dvh, 52rem);
-  overflow: auto;
+  max-height: none;
+  overflow: hidden;
 }
 
 .student-live-card .student-pane-bar {
@@ -783,16 +790,8 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
    clips (overflow: hidden) and cannot be scrolled, so cap the docked card
    at the live area and let the card scroll itself. */
 @media (max-width: 47.99rem) {
-  body.student-home .live-question-stack {
-    bottom: 0.7rem;
-  }
-
-  body.student-home .live-question-stack-body {
-    height: 100%;
-  }
-
   body.student-home .live-question-stack-body > .student-live-card.student-floating-pane {
-    max-height: 100%;
+    max-height: none;
   }
 }
 
@@ -2648,15 +2647,212 @@ body.student-home.is-game-show-welcome .prompt-ack {
   }
 }
 
+.live-q-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0 1rem 0.75rem;
+  min-height: 0;
+}
+.live-q-image-btn {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
 .live-question-image.is-full {
   display: block;
-  width: 100%;
+  width: auto;
   max-width: 100%;
   height: auto;
-  margin: 0 0 0.75rem;
+  margin: 0;
+  object-fit: contain;
+  aspect-ratio: 4 / 3;
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 8px;
   background: #fff;
+}
+.live-q-zoom-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  min-height: 28px;
+  padding: 0 0.45rem;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 28px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .live-q-zoom-badge {
+    opacity: 0;
+  }
+  .live-q-image-btn:hover .live-q-zoom-badge,
+  .live-q-image-btn:focus-visible .live-q-zoom-badge,
+  .live-q-image-btn:focus .live-q-zoom-badge {
+    opacity: 1;
+  }
+}
+@media (min-width: 720px) {
+  .live-question-image.is-full {
+    width: clamp(240px, 30vw, 420px);
+    height: auto;
+    max-height: 38dvh;
+  }
+}
+@media (max-width: 719.98px) {
+  .live-question-image.is-full {
+    width: auto;
+    max-width: 100%;
+    min-width: 160px;
+    max-height: 28dvh;
+  }
+}
+.live-question-stack-body > .student-live-card.student-floating-pane {
+  position: relative;
+  min-height: 0;
+  max-height: none;
+}
+.live-question-stack-body > .student-live-card.is-open-focus,
+.live-question-stack-body > .student-live-card.is-open-extra {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+.live-question-stack-body > .student-live-card.is-compact {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+.student-live-card.is-open-focus > .student-live-card-head,
+.student-live-card.is-open-extra > .student-live-card-head,
+.student-live-card.is-open-focus > h2,
+.student-live-card.is-open-extra > h2,
+.student-live-card.is-open-focus > .student-pane-bar,
+.student-live-card.is-open-extra > .student-pane-bar {
+  flex: 0 0 auto;
+}
+.student-live-card.is-open-focus > .live-q-figures,
+.student-live-card.is-open-extra > .live-q-figures {
+  display: flex;
+  align-items: flex-start;
+  flex: 1 1 0;
+  max-height: 40%;
+  min-height: 0;
+  overflow: hidden;
+}
+.student-live-card.is-open-focus .live-q-image-btn,
+.student-live-card.is-open-extra .live-q-image-btn {
+  max-height: 100%;
+  min-height: 0;
+}
+.student-live-card.is-open-focus .live-question-image.is-full,
+.student-live-card.is-open-extra .live-question-image.is-full {
+  width: auto;
+  max-width: min(100%, 30vw);
+  height: 100%;
+  max-height: 38dvh;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+}
+.student-live-card.is-open-focus > .student-live-answer-controls,
+.student-live-card.is-open-extra > .student-live-answer-controls {
+  flex: 0 0 auto;
+  margin-top: auto;
+  overflow: visible;
+}
+@media (max-width: 719.98px) {
+  .student-live-card.is-open-focus > .live-q-figures,
+  .student-live-card.is-open-extra > .live-q-figures {
+    max-height: 28dvh;
+  }
+  .student-live-card.is-open-focus .live-question-image.is-full,
+  .student-live-card.is-open-extra .live-question-image.is-full {
+    max-width: 100%;
+    max-height: 28dvh;
+  }
+}
+.student-live-card.is-compact h2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.student-live-card.is-compact .live-question-image.is-full {
+  width: auto;
+  min-width: 0;
+  height: 96px;
+  max-height: 96px;
+}
+.live-q-lightbox {
+  width: min(92vw, 1100px);
+  max-width: 92vw;
+  max-height: 86dvh;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+}
+.live-q-lightbox::backdrop {
+  background: rgba(8, 15, 25, 0.92);
+}
+.live-q-lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+.live-q-lightbox-bar button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #122033;
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+.live-q-lightbox-close {
+  margin-left: auto;
+}
+.live-q-lightbox-stage {
+  max-height: 86dvh;
+  overflow: auto;
+  touch-action: pinch-zoom;
+}
+.live-q-lightbox-stage img {
+  display: block;
+  width: 100%;
+  max-width: 92vw;
+  max-height: 86dvh;
+  margin: 0 auto;
+  object-fit: contain;
+  background: #ffffff;
+}
+.live-q-lightbox.is-2x .live-q-lightbox-stage img {
+  width: 200%;
+  max-width: none;
+  max-height: none;
+}
+html.live-q-lightbox-open,
+html.live-q-lightbox-open body {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-q-lightbox,
+  .live-q-lightbox * {
+    transition: none;
+    animation: none;
+  }
 }
 .live-question-card h2 sup,
 .prompt-choice sup {

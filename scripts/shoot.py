@@ -5014,12 +5014,12 @@ def shoot_mck495(base: str, out_dir: Path, path: Path) -> list[Path]:
             graph_path = out_dir / "mck495-bar-graph-blue-correct-green.png"
             graph.screenshot(path=str(graph_path))
             written.append(graph_path)
-            buttons = page.locator('[aria-label="Minimize question"]')
+            buttons = page.locator('[aria-label="Minimize"]')
             count = buttons.count()
             if count < 2:
                 raise SystemExit("closed questions are missing a minimize control")
             for _ in range(count):
-                page.locator('[aria-label="Minimize question"]').last.click()
+                page.locator('[aria-label="Minimize"]').last.click()
                 page.locator(".student-question-dock-chip.is-question").first.wait_for(
                     state="visible", timeout=5000
                 )
@@ -5039,7 +5039,7 @@ def shoot_mck495(base: str, out_dir: Path, path: Path) -> list[Path]:
                     card: Math.round(cardBox.width),
                     main: Math.round(mainBox.width),
                     q: card.getAttribute("data-q-label"),
-                    minimize: card.querySelector('[aria-label="Minimize question"]') ? 1 : 0,
+                    minimize: card.querySelector('[aria-label="Minimize"]') ? 1 : 0,
                     open: document.querySelectorAll(".student-live-card").length
                   };
                 }"""
@@ -5371,6 +5371,237 @@ def shoot_mck497(out_dir: Path) -> list[Path]:
             browser.close()
     return [dest]
 
+def _mck499_png(path: Path) -> None:
+    """Write a nameless solid PNG the question card can load.
+
+    Args:
+        path: Destination under the LMS static folder. The caller deletes it.
+    """
+
+    import struct
+    import zlib
+
+    width, height = 960, 720
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        """One PNG chunk with its length and checksum."""
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    row = b"\x00" + bytes([36, 99, 168]) * width
+    raw = row * height
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+def shoot_mck499(base: str, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-499: one open question with Submit in view and a capped image.
+
+    Desktop is 1280 by 800. Phone is 375 by 667. The shots are the card
+    only, after the on-screen name is masked. The sample image is deleted
+    when the shots finish.
+
+    Args:
+        base: Loopback origin.
+        out_dir: Directory for PNG files.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths written.
+    """
+
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    sample = LMS_DIR / "static" / "mck499-sample.png"
+    _mck499_png(sample)
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        sample.unlink(missing_ok=True)
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    written: list[Path] = []
+    held_secrets: list[str] = []
+    try:
+        _mck208_end_active_live(school, class_id)
+        live = school.start_live_class_session(class_id, int(teacher["id"]))
+        session_id = int(live["id"])
+        school.set_live_session_teacher_state(
+            session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="round",
+            page_number=4,
+            page_id="round_1",
+        )
+        placed = school.add_staff_question_to_class_playlist(
+            class_id,
+            "M1",
+            "C2",
+            page_number=4,
+            stage="round",
+            question_type="mc",
+            text="Which value is greater?",
+            options=["2", "9", "4", "1"],
+            correct_index=1,
+        )
+        school.ensure_live_session_items(session_id)
+        row = next(
+            item
+            for item in school.list_live_session_items(session_id)
+            if str(item.get("item_id") or "") == str(placed.get("item_id") or "")
+        )
+        published = school.publish_live_session_item(
+            session_id, int(row["id"]), publish_mode="individual"
+        )
+        prompt = school._prompt_for_live_item(published)
+        if prompt is None:
+            raise SystemExit("Published question has no prompt")
+        payload = dict(prompt.get("payload") or {})
+        payload["image_url"] = "/static/mck499-sample.png"
+        payload["image_alt"] = "Question image 1"
+        payload["image_as_board_background"] = False
+        with school._lock:
+            school.conn.execute(
+                "UPDATE live_session_prompts SET payload = ? WHERE id = ?",
+                (json.dumps(payload), int(prompt["id"])),
+            )
+            school.conn.commit()
+        student = school.game.find_student_by_codename(class_id, "Maple")
+        if student is None:
+            raise SystemExit("Demo student missing. Run with --seed first.")
+        student_id = int(student["id"])
+        school.join_live_class_session(session_id, student_id, codename="Maple")
+        attendees = school.list_live_session_attendees(session_id)
+        visit = str(
+            next(item["visit_token"] for item in attendees if item.get("codename") == "Maple")
+        )
+        url = f"{origin}/student/s/{visit}"
+        secrets = [str(live.get("session_code") or ""), visit, "1234", "9999"]
+        held_secrets = secrets
+        out_dir.mkdir(parents=True, exist_ok=True)
+        views = (
+            {
+                "name": "mck499-desktop-submit-in-view.png",
+                "viewport": {"width": 1280, "height": 800},
+                "mobile": False,
+                "badge": "Click to enlarge",
+                "max_image": 1280 * 0.30 + 2,
+                "phone": False,
+            },
+            {
+                "name": "mck499-phone-submit-in-view.png",
+                "viewport": {"width": 375, "height": 667},
+                "mobile": True,
+                "badge": "Tap to enlarge",
+                "max_image": 667 * 0.28 + 2,
+                "phone": True,
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            for view in views:
+                context = browser.new_context(
+                    viewport=view["viewport"],
+                    is_mobile=bool(view["mobile"]),
+                    has_touch=bool(view["mobile"]),
+                    device_scale_factor=1,
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded")
+                _mck215_reach_live_home(page)
+                _mck215_dismiss_catchup_pin(page)
+                card = page.locator(".student-live-card.is-open-focus")
+                card.wait_for(state="visible", timeout=20000)
+                image = card.locator(".live-question-image.is-full")
+                image.wait_for(state="visible", timeout=20000)
+                submit = card.locator("[data-live-submit]")
+                submit.wait_for(state="visible", timeout=20000)
+                if not view["phone"]:
+                    image.hover()
+                metrics = page.evaluate(
+                    """() => {
+                      const card = document.querySelector(".student-live-card.is-open-focus");
+                      const image = card && card.querySelector(".live-question-image.is-full");
+                      const submit = card && card.querySelector("[data-live-submit]");
+                      const badge = card && card.querySelector(".live-q-zoom-badge");
+                      if (!card || !image || !submit || !badge) return null;
+                      const imageBox = image.getBoundingClientRect();
+                      const submitBox = submit.getBoundingClientRect();
+                      const choices = card.querySelectorAll(".prompt-choice");
+                      const last = choices.length ? choices[choices.length - 1].getBoundingClientRect() : submitBox;
+                      return {
+                        imageWidth: imageBox.width,
+                        imageHeight: imageBox.height,
+                        submitTop: submitBox.top,
+                        submitBottom: submitBox.bottom,
+                        choiceBottom: last.bottom,
+                        height: window.innerHeight,
+                        scroll: window.scrollY,
+                        badge: badge.textContent,
+                        badgeOpacity: getComputedStyle(badge).opacity
+                      };
+                    }"""
+                )
+                if not metrics:
+                    raise SystemExit("question card is missing the image or Submit")
+                if metrics["scroll"] != 0 or metrics["submitBottom"] > metrics["height"] + 1:
+                    raise SystemExit("Submit is not in view without scrolling")
+                if metrics["submitTop"] < 0:
+                    raise SystemExit("Submit is above the viewport")
+                if metrics["choiceBottom"] > metrics["submitTop"] + 1:
+                    raise SystemExit("a choice is hidden behind Submit")
+                if view["phone"]:
+                    if metrics["imageHeight"] > view["max_image"]:
+                        raise SystemExit("phone image is taller than 28dvh")
+                elif metrics["imageWidth"] > view["max_image"]:
+                    raise SystemExit("desktop image is wider than 30vw")
+                if str(metrics["badge"] or "").strip() != view["badge"]:
+                    raise SystemExit("zoom badge copy does not match the pointer")
+                if float(metrics["badgeOpacity"]) < 0.9:
+                    raise SystemExit("zoom badge is not visible")
+                _mask_demo_identity(page)
+                _refuse_private_text(page, secrets)
+                box = card.bounding_box()
+                if not box:
+                    raise SystemExit("question card has no box")
+                dest = out_dir / str(view["name"])
+                page.screenshot(
+                    path=str(dest),
+                    clip={
+                        "x": max(0, box["x"]),
+                        "y": max(0, box["y"]),
+                        "width": min(box["width"], view["viewport"]["width"] - max(0, box["x"])),
+                        "height": min(box["height"], view["viewport"]["height"] - max(0, box["y"])),
+                    },
+                )
+                written.append(dest)
+                context.close()
+            browser.close()
+    except SystemExit:
+        raise
+    except Exception as err:
+        message = str(err)
+        for secret in held_secrets:
+            token = str(secret or "")
+            if token:
+                message = message.replace(token, "[redacted]")
+        raise SystemExit(message) from None
+    finally:
+        sample.unlink(missing_ok=True)
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -5416,6 +5647,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck494",
             "mck495",
             "mck496",
+            "mck499",
         ),
         default="",
         help=(
@@ -5430,7 +5662,8 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-280 whiteboard fixes, MCK-291 Set Class calendar, "
             "MCK-293 group rank check and group engagement points, "
             "MCK-495 student question width, Q labels, and bar colours, "
-            "or MCK-496 teacher question footer."
+            "MCK-496 teacher question footer, "
+            "or MCK-499 student question fit and image size."
         ),
     )
     args = parser.parse_args(argv)
@@ -5441,7 +5674,7 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        student_only = args.scenario in {"mck222", "mck495", "mck497"}
+        student_only = args.scenario in {"mck222", "mck495", "mck497", "mck499"}
         needs_login = (
             not student_only
             and (args.seed or not state.exists() or state.stat().st_size == 0)
@@ -5519,6 +5752,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck293(args.base, state, out, path))
         if args.scenario == "mck495":
             written.extend(shoot_mck495(args.base, out, path))
+        if args.scenario == "mck499":
+            written.extend(shoot_mck499(args.base, out, path))
         if args.scenario == "mck497":
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
@@ -5542,7 +5777,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499."
             )
         for item in written:
             print(item)

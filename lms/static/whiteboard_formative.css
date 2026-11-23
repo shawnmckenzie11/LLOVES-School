@@ -336,6 +336,12 @@
   color: #fff;
 }
 
+.qboard-show-error {
+  margin: 0.35rem 0 0;
+  color: #fecaca;
+  font-size: 0.75rem;
+}
+
 /* MCK-277: an unscoped #canvas-zone position/height beat .is-parked
    and kept the hidden board in the grid, squeezing the visible pane. */
 #canvas-zone:not(.is-parked) {

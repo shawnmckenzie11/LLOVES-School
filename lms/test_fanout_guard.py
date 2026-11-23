@@ -721,6 +721,17 @@ class FanoutGuardTests(unittest.TestCase):
         self.assertIn("board_show", wire)
         self.assertIn("return;", wire)
         self.assertNotIn("void tick()", wire)
+        self.assertNotIn("scheduleNewsState()", wire)
+        self.assertIn("syncPollFromPayload", wire)
+        shown_keys = set(cards[-1].keys()) - {"id"}
+        self.assertTrue({"type", "board_key"} <= shown_keys <= {"type", "board_key", "board"})
+        self.assertNotIn("state_seq", cards[-1])
+        if isinstance(cards[-1].get("board"), dict):
+            shown_blob = json.dumps(cards[-1]["board"])
+            self.assertNotIn('"name"', shown_blob)
+            self.assertNotIn("student_id", shown_blob)
+            for label in teacher_names:
+                self.assertNotIn(label, shown_blob)
 
     def test_student_actions_do_not_fan_out(self) -> None:
         """Each student action, then one answer of every live question type."""

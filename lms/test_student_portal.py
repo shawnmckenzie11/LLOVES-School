@@ -1446,7 +1446,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("dockedLiveCardKeys", js)
         self.assertNotIn("dismissedLiveCardKeys", js)
         self.assertIn("function minimizeLiveQuestion(", js)
-        self.assertIn('aria-label="Minimize question"', js)
+        self.assertIn('aria-label="Minimize"', js)
         self.assertNotIn('aria-label="Dismiss question"', js)
         self.assertNotIn("Pop question back out", js)
         self.assertIn("student-question-dock", js)

@@ -603,7 +603,8 @@ function teacherGalleryHtml() {
             </label>
             <p class="qboard-note hint" data-wb-part="note-status" hidden></p>
             <div class="qboard-waits" data-wb-part="waits"></div>
-            <button type="button" data-wb-part="show" class="wb-live-show">Show on board</button>
+            <button type="button" data-wb-part="show" class="wb-live-show" aria-pressed="false">Show on board</button>
+            <p class="qboard-show-error" data-wb-part="show-error" role="alert" hidden></p>
           </div>
         </div>
       </aside>
