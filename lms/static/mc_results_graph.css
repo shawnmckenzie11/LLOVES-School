@@ -1,6 +1,7 @@
 /* One bar graph for the teacher card and the student phone.
    The answer sits on the bar. Ink #12202e clears 4.5:1 on the empty
-   track (#e8eef4), the fill (#9fd9cc), and the correct fill (#86d39a). */
+   track (#e8eef4), the default fill (#93c5fd), and the correct fill (#86d39a).
+   The Correct tag and the student check stay #14532d. */
 
 .mc-results-graph {
   margin: 0.75rem 0 0;
@@ -84,7 +85,7 @@
   width: 0;
   height: auto;
   border-radius: 6px 0 0 6px;
-  background: #9fd9cc;
+  background: #93c5fd;
   transform-origin: left center;
   transition: width 0.35s ease;
   animation: mc-results-grow 0.35s ease;

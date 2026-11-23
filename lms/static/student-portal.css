@@ -729,10 +729,11 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 
 .live-question-stack {
   display: block;
-  width: min(22rem, calc(100% - 1.4rem));
   position: absolute;
   top: 0.7rem;
+  left: 0.7rem;
   right: 0.7rem;
+  width: auto;
   z-index: 8;
   pointer-events: none;
 }
@@ -764,7 +765,9 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 }
 
 .student-live-card.student-floating-pane {
-  width: min(22rem, calc(100% - 1.4rem));
+  /* Fills the stretched stack. This card is position: relative, so a
+     second left/right pair would shift it instead of widening it. */
+  width: auto;
   max-height: min(88dvh, 52rem);
   overflow: auto;
 }
@@ -1038,6 +1041,16 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 
 .student-live-card.is-closed .student-live-card-status {
   color: #f5c518;
+}
+
+/* MCK-495: a student cannot minimize a question until the teacher closes it. */
+.student-live-card:not(.is-closed) .student-live-dismiss {
+  display: none;
+}
+
+.student-live-qnum {
+  flex: 0 0 auto;
+  letter-spacing: 0.06em;
 }
 
 .student-live-dismiss,
