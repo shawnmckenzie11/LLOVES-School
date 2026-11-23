@@ -3584,7 +3584,7 @@ class LovesDB:
 
         Args:
             class_id: Game-show ``classes.id``.
-            run_key: Live run uuid.
+            run_key: Live run uuid. Empty clears every cached run for the class.
         """
         with self._lock:
             cache = getattr(self, "_board_group_cache", None)
@@ -3592,6 +3592,15 @@ class LovesDB:
                 return
             key = str(run_key or "").strip()
             cid = int(class_id)
+            if not key:
+                stale = [
+                    item
+                    for item in list(cache)
+                    if isinstance(item, tuple) and len(item) >= 2 and item[1] == cid
+                ]
+                for item in stale:
+                    cache.pop(item, None)
+                return
             cache.pop(("run", cid, key), None)
             stale = [
                 item
@@ -3688,15 +3697,12 @@ class LovesDB:
                 last = int(events[-1].get("id") or 0)
             except (TypeError, ValueError):
                 last = len(events)
-        team_sig = sum(
-            (int(sid) * 131 + int(team_for_student.get(sid) or 0))
-            for sid in student_ids
+        team_sig = tuple(
+            (int(sid), int(team_for_student.get(sid) or 0))
+            for sid in sorted(student_ids)
         )
         cache_key = (str(run_key), len(events), last, team_sig, len(question_aliases))
-        cache = getattr(self, "_live_rollup_cache", None)
-        if cache is None:
-            cache = {}
-            self._live_rollup_cache = cache
+        cache = getattr(self, "_live_rollup_cache", None) or {}
         rows = cache.get(cache_key)
         if rows is None:
             rows = compute_rollup(
@@ -3708,8 +3714,7 @@ class LovesDB:
                 student_ids=student_ids,
                 question_aliases=question_aliases,
             )
-            cache.clear()
-            cache[cache_key] = rows
+            self._live_rollup_cache = {cache_key: rows}
         started = group_question_started(events)
         return {
             "tier1": tier1_engagement_display(rows, int(student_id)),

@@ -615,3 +615,18 @@ class LiveClassTests(unittest.TestCase):
         self.assertNotIn(("run", self.class_id, run_key), cache)
         self.assertNotIn(("stu", self.class_id, run_key, self.ids[0]), cache)
         self.assertEqual(self._group(self.ids[0]), "0/0")
+
+    def test_wipe_without_a_run_clears_every_cached_run_for_the_class(self) -> None:
+        """A removal that names no run still drops this class's cached fractions."""
+        self.school._board_group_cache = {
+            ("run", self.class_id, "run-a"): 1,
+            ("stu", self.class_id, "run-a", self.ids[0]): (1, 1),
+            ("run", self.class_id, "run-b"): 1,
+            ("run", self.class_id + 1, "run-a"): 1,
+        }
+        wipe_removed_question(self.school, self.class_id, "missing-item")
+        cache = self.school._board_group_cache
+        self.assertNotIn(("run", self.class_id, "run-a"), cache)
+        self.assertNotIn(("stu", self.class_id, "run-a", self.ids[0]), cache)
+        self.assertNotIn(("run", self.class_id, "run-b"), cache)
+        self.assertEqual(cache.get(("run", self.class_id + 1, "run-a")), 1)

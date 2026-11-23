@@ -1023,8 +1023,11 @@ def wipe_removed_question(school: Any, class_id: int, item_id: str) -> None:
         school.conn.commit()
     forget = getattr(school, "forget_board_group_cache", None)
     if callable(forget):
-        for rk in sorted(run_keys):
-            forget(int(class_id), rk)
+        if run_keys:
+            for rk in sorted(run_keys):
+                forget(int(class_id), rk)
+        else:
+            forget(int(class_id), "")
     for session_id in sorted(set(ended)):
         try:
             school._rollup_engagement_for_session(int(session_id))
