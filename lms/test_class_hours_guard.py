@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -25,6 +27,21 @@ class ClassHoursGuardTests(unittest.TestCase):
         self.assertEqual(guard.main(["--at", "2026-10-14T14:40"]), 1)
         self.assertEqual(guard.main(["--at", "2026-10-14T15:30"]), 0)
         self.assertEqual(guard.main(["--at", "2026-10-14T14:40", "--override"]), 0)
+
+    def test_plain_hold_is_one_line(self) -> None:
+        """The early deploy check prints one sentence and no annotation."""
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = guard.main(["--at", "2026-10-14T14:40", "--plain"])
+        text = buf.getvalue().strip("\n")
+        self.assertEqual(code, 1)
+        self.assertNotIn("\n", text)
+        self.assertNotIn("::", text)
+        self.assertIn("Deploy held:", text)
+        clear = io.StringIO()
+        with redirect_stdout(clear):
+            self.assertEqual(guard.main(["--at", "2026-10-14T15:30", "--plain"]), 0)
+        self.assertNotIn("::", clear.getvalue())
 
     def test_thursday_holiday_and_weekend_are_clear(self) -> None:
         self.assertEqual(guard.main(["--at", "2026-10-15T14:30"]), 0)  # Thu, M/W/F only

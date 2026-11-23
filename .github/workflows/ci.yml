@@ -4,6 +4,11 @@ name: CI
 # reopened). A push runs only for main. Title and body edits do not run
 # this workflow. production is tested by deploy.yml.
 # One run per ref: a newer push cancels the in-progress run for that ref.
+#
+# The LMS suite is four shards. The job named "LMS test suite" is the
+# aggregate: it is green only when all four shards are green. That is the
+# check name branch protection requires. test_fanout_guard.py is not in
+# the shards; the fan-out guard job runs it.
 on:
   push:
     branches: [main]
@@ -20,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       heavy: ${{ steps.gate.outputs.heavy }}
+      lms: ${{ steps.gate.outputs.lms }}
     steps:
       - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
@@ -28,6 +34,7 @@ jobs:
 
       # Copy-only pull requests set heavy=false. Push to main, a failed
       # diff, and any path outside the safe globs set heavy=true.
+      # lms=true when any path is under lms/, and on push or a failed diff.
       # Globs: .github/scripts/ci_path_class.py
       - id: gate
         env:
@@ -38,19 +45,23 @@ jobs:
           set -euo pipefail
           if [ "${EVENT_NAME}" != "pull_request" ] || [ ! -f .github/scripts/ci_path_class.py ]; then
             echo "heavy=true" >> "$GITHUB_OUTPUT"
+            echo "lms=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 .github/scripts/ci_path_class.py || echo "heavy=true" >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/ci_path_class.py || {
+            echo "heavy=true" >> "$GITHUB_OUTPUT"
+            echo "lms=true" >> "$GITHUB_OUTPUT"
+          }
 
-  test:
-    name: LMS test suite
+  test-shard:
+    name: LMS tests shard ${{ matrix.shard }} of 4
     runs-on: ubuntu-latest
-    # A healthy run is about 30 minutes (tests ~26, setup ~2). The install
-    # step is capped at 12 minutes and the test step at 30, so 60 covers
-    # both with headroom and still stops a stuck job well short of the
-    # 6-hour default (MCK-470).
-    timeout-minutes: 60
-    # Keep this Postgres block identical to the test job in deploy.yml.
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # Keep this Postgres block identical to the shard job in deploy.yml.
     # N=28 dials LIVE_PRESENCE_TEST_URL (not LIVE_DATABASE_URL). Do not
     # export LIVE_DATABASE_URL or DATABASE_URL: those attach Postgres to
     # every create_app() and move the sqlite heartbeat bars off sqlite.
@@ -71,35 +82,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
+      - name: Plan shard
+        id: plan
+        run: python3 .github/scripts/lms_test_shards.py plan --shard ${{ matrix.shard }} --shards 4
+
       - name: Install dependencies
         run: python -m pip install -r lms/requirements.txt
-
-      # MCK-470: a DNS failure must not hang or fail this job. The script
-      # skips when soffice is already installed, leaves Azure for
-      # archive.ubuntu.com and then mirror.arizona.edu, and bounds every
-      # apt call. The step cap is 12 minutes; the script's own cap is 10.
-      # A failed install does not fail the job. Slide tests skip when
-      # soffice or the metric fonts are missing.
-      - name: Install LibreOffice
-        timeout-minutes: 12
-        continue-on-error: true
-        run: bash .github/scripts/install_libreoffice.sh
 
       # Slide conversion uses unshare --map-root-user. Ubuntu 24.04 denies
       # that write to uid_map until this restriction is off.
       - name: Allow the slide sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      - uses: actions/setup-node@v4
+        if: steps.plan.outputs.chrome == 'true'
+        with:
+          node-version: "20"
+
       - name: Install Chrome for slide e2e
+        if: steps.plan.outputs.chrome == 'true'
         run: |
           set -euo pipefail
           wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
@@ -110,13 +116,43 @@ jobs:
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
           LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
-          LLOVES_E2E_CHROME: /usr/bin/google-chrome
-        # MCK-52: a hang aborts with every thread's stack in the log instead of
-        # sitting in_progress for hours. The suite now runs past 25 minutes
-        # (it was killed mid-test on main and on this branch). 29m still
-        # dumps stacks inside the 30 minute step cap.
-        timeout-minutes: 30
-        run: timeout -s ABRT 29m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
+        # LibreOffice, when this shard needs it, installs in the background
+        # while the other modules run. A failed install does not fail the job.
+        timeout-minutes: 20
+        run: timeout -s ABRT 18m python -X faulthandler .github/scripts/lms_test_shards.py run --shard ${{ matrix.shard }} --shards 4 --timings shard-timings.json
+
+      - name: Upload shard timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lms-shard-timings-${{ matrix.shard }}
+          path: shard-timings.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  test:
+    name: LMS test suite
+    needs: [classify, test-shard]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download shard timings
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lms-shard-timings-*
+          path: timings
+
+      - name: Aggregate shards
+        env:
+          SHARD_RESULT: ${{ needs.test-shard.result }}
+          LMS_TOUCHED: ${{ needs.classify.outputs.lms }}
+          TIMINGS_DIR: timings
+        run: python3 .github/scripts/lms_test_shards.py aggregate
 
   fanout-guard:
     name: fan-out guard
@@ -170,6 +206,8 @@ jobs:
     name: slide forward load
     needs: classify
     # Same gate as fan-out guard. Main and any non-copy diff run this load.
+    # No retry. state_p95_ms stays under 800 ms. A 599 retry belongs only
+    # on the deploy 30-seat load smoke.
     if: "${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.outputs.heavy != 'false') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15

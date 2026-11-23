@@ -2,21 +2,26 @@ name: Deploy LLOVES LMS
 
 # A push to main does not deploy. Merge to main, then fast-forward production to ship.
 #
-# Push to production runs the LMS test suite, then the 30-seat load smoke.
-# Deploy to Fly is the one production-environment approval: Shawn clicks
-# once, and that same job runs the SHA guard and flyctl deploy. The
-# required reviewer is a repo setting (shawnmckenzie11), not this file.
+# Push to production runs the class-hours guard first. If a class is live,
+# the run stops there. Otherwise four test shards and the 30-seat load
+# smoke start together. Each shard has its own runner and Postgres. When
+# this exact SHA already has a full green ci.yml run (all four shards, the
+# LMS test suite aggregate, fan-out guard, 30-seat load budget, and slide
+# forward load, none of them skipped), the shards are not run again.
+# The smoke still runs. Deploy to Fly is the one production-environment
+# approval: Shawn clicks once, and that same job runs the SHA guard, the
+# class-hours guard again, and flyctl deploy.
 #
-# workflow_dispatch runs the same three jobs (test, load-smoke, deploy).
-# Only refs/heads/production gets past test. A red test or a red load
-# smoke skips deploy, so flyctl does not run. The load smoke runs on the
-# CI runner against 127.0.0.1. It never calls flyctl and never receives
-# FLY_API_TOKEN.
+# workflow_dispatch runs the same jobs. Only refs/heads/production gets
+# past the smoke to Deploy to Fly. A red suite or a red smoke skips
+# deploy, so flyctl does not run. The smoke runs on the CI runner against
+# 127.0.0.1. It never calls flyctl and never receives FLY_API_TOKEN.
 # Feature branches never run this workflow; they test via ci.yml.
 #
 # Concurrency (MCK-126):
-#   test   group deploy-lloves-lms-test-<ref>, cancel-in-progress true.
-#          A newer run on the same ref cancels an older run still testing.
+#   test   group deploy-lloves-lms-test-<ref>-<shard>, cancel-in-progress true.
+#          A newer run on the same ref cancels the older shard still testing.
+#          Shards do not share a group, so they do not cancel each other.
 #   smoke  group deploy-lloves-lms-smoke-<ref>, cancel-in-progress true.
 #          MCK-44. Local 30-seat gunicorn (two classes). A newer run
 #          cancels an older smoke. Nothing here touches Fly.
@@ -24,7 +29,6 @@ name: Deploy LLOVES LMS
 #          The only production-environment approval, so FLY_API_TOKEN is
 #          read here. One click, then flyctl. Never cancelled by a newer
 #          run; a newer deploy waits as pending (one pending slot).
-# The test group is separate so a deploy wait cannot cancel a newer test.
 # The SHA guard refuses flyctl unless GITHUB_SHA is still origin/production.
 # Re-running Deploy to Fly asks for the production review again.
 #
@@ -50,30 +54,57 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: LMS test suite
+  class-hours:
+    name: Class hours
+    if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
-    # A healthy run is about 30 minutes. The install step is capped at 12
-    # minutes and the test step at 30, so 60 covers both with headroom
-    # (MCK-470). Same cap as the test job in ci.yml.
-    timeout-minutes: 60
-    # pull-requests/actions: read for the What's new preview (MCK-182).
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail before any shard or smoke when a class is live. One plain line.
+      # The Deploy to Fly job checks again after the approval wait.
+      - name: Refuse deploy during class hours
+        env:
+          OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.override_class_hours && '1' || '' }}
+        run: python3 .github/scripts/class_hours_guard.py --plain ${OVERRIDE:+--override}
+
+  reuse:
+    name: Reuse green main CI
+    needs: class-hours
+    if: always() && !cancelled() && needs.class-hours.result != 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.reuse.outputs.skip }}
     permissions:
       contents: read
-      pull-requests: read
       actions: read
-    # A newer run on the same ref supersedes this one while it tests.
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/reuse_green_ci.py
+
+  test-shard:
+    name: LMS tests shard ${{ matrix.shard }} of 4
+    needs: [class-hours, reuse]
+    if: always() && !cancelled() && needs.class-hours.result != 'failure' && needs.reuse.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     concurrency:
-      group: deploy-lloves-lms-test-${{ github.ref }}
+      group: deploy-lloves-lms-test-${{ github.ref }}-${{ matrix.shard }}
       cancel-in-progress: true
-    # Same Postgres the feature-branch suite uses (ci.yml). The N=28
-    # Artifact load test dials LIVE_PRESENCE_TEST_URL, defaulting to
-    # postgresql://lloves:lloves@127.0.0.1:5432/lloves_live, and fails
-    # the job when CI is set and that server is down.
+    # Same Postgres the feature-branch shards use (ci.yml). The N=28
+    # Artifact load test dials LIVE_PRESENCE_TEST_URL and fails the job
+    # when CI is set and that server is down.
     # Do not export LIVE_DATABASE_URL or DATABASE_URL on this job.
-    # Those attach Postgres to every create_app() that does not pass
-    # live_database_url="", which would move the sqlite heartbeat bars
-    # (#115–#117) off sqlite.
     services:
       postgres:
         image: postgres:16
@@ -96,6 +127,47 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Plan shard
+        id: plan
+        run: python3 .github/scripts/lms_test_shards.py plan --shard ${{ matrix.shard }} --shards 4
+
+      - name: Install dependencies
+        run: python -m pip install -r lms/requirements.txt
+
+      - name: Allow the slide sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Run tests
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+          LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
+        # LibreOffice, when this shard needs it, installs in the background
+        # while the other modules run. A failed install does not fail the job.
+        timeout-minutes: 20
+        run: timeout -s ABRT 18m python -X faulthandler .github/scripts/lms_test_shards.py run --shard ${{ matrix.shard }} --shards 4 --timings shard-timings.json
+
+      - name: Upload shard timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lms-shard-timings-${{ matrix.shard }}
+          path: shard-timings.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  test:
+    name: LMS test suite
+    needs: [class-hours, reuse, test-shard]
+    if: always() && !cancelled() && needs.class-hours.result != 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
       # MCK-182: show this deploy's What's new lines on the run summary, so
       # they can be read before the production approval. Never fails the job.
       - name: Preview What's new
@@ -104,43 +176,30 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/whats_new.py build --out "${RUNNER_TEMP}/releases.preview.json"
 
-      - name: Install dependencies
-        run: python -m pip install -r lms/requirements.txt
-
-      # MCK-470: a DNS failure must not hang or fail this job. The script
-      # skips when soffice is already installed, leaves Azure for
-      # archive.ubuntu.com and then mirror.arizona.edu, and bounds every
-      # apt call. The step cap is 12 minutes; the script's own cap is 10.
-      # Same step as ci.yml. Slide tests skip when soffice or the metric
-      # fonts are missing.
-      - name: Install LibreOffice
-        timeout-minutes: 12
+      - name: Download shard timings
+        if: needs.test-shard.result != 'skipped'
         continue-on-error: true
-        run: bash .github/scripts/install_libreoffice.sh
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lms-shard-timings-*
+          path: timings
 
-      # Slide conversion uses unshare --map-root-user. Ubuntu 24.04 denies
-      # that write to uid_map until this restriction is off.
-      - name: Allow the slide sandbox
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-
-      - name: Run tests
+      - name: Aggregate shards
         env:
-          ALLOW_DEV_VERIFICATION_CODE: "1"
-          LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
-        # MCK-52: a hang aborts with every thread's stack in the log instead of
-        # sitting in_progress for hours. The suite now runs past 25 minutes.
-        # 29m still dumps stacks inside the 30 minute step cap.
-        timeout-minutes: 30
-        run: timeout -s ABRT 29m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
+          SHARD_RESULT: ${{ needs.test-shard.result }}
+          REUSE_SKIP: ${{ needs.reuse.outputs.skip }}
+          LMS_TOUCHED: "true"
+          TIMINGS_DIR: timings
+        run: python3 .github/scripts/lms_test_shards.py aggregate
 
   load-smoke:
     name: 30-seat load smoke
-    needs: test
-    # A red test skips this job. production only, same as deploy. The
-    # gunicorn process is on this runner. It does not deploy.
+    needs: class-hours
+    # Parallel with the shards. production only. The gunicorn process is
+    # on this runner. It does not deploy. A red class-hours check skips it.
     if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     concurrency:
@@ -173,25 +232,65 @@ jobs:
         run: python -m pip install -r lms/requirements.txt psutil
 
       - name: 30-seat two-class smoke
-        timeout-minutes: 8
+        timeout-minutes: 12
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
+          PGPASSWORD: lloves
         # 15 students × 2 classes = 30 seats on one local gunicorn.
         # --gate requires 0 errors, HTTP p95 < 400 ms, 0 worker restarts.
         # 400 ms (not 250) leaves margin for shared runners.
+        # One retry, and only when every 5xx is a client-timeout 599.
+        # A 500-504, a latency miss, or a database error fails immediately.
         run: |
           set -euo pipefail
-          python3 scripts/load_class.py \
-            --minutes 1 \
-            --classes 2 \
-            --students 15 \
-            --items 2 \
-            --round-minutes 10 \
-            --gate \
-            --max-p95-ms 400 \
-            --min-classes 2 \
-            --presence-url "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live" \
-            --out "${RUNNER_TEMP}/load-smoke"
+          drop_load_dbs() {
+            local db
+            for db in $(psql -h 127.0.0.1 -U lloves -d lloves_live -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'load\_%'"); do
+              psql -h 127.0.0.1 -U lloves -d lloves_live -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)"
+            done
+          }
+          smoke() {
+            python3 scripts/load_class.py \
+              --minutes 1 \
+              --classes 2 \
+              --students 15 \
+              --items 2 \
+              --round-minutes 10 \
+              --gate \
+              --max-p95-ms 400 \
+              --min-classes 2 \
+              --presence-url "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live" \
+              --out "$1"
+          }
+          out="${RUNNER_TEMP}/load-smoke"
+          set +e
+          smoke "$out"
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$code" -ne 1 ]; then
+            echo "load-smoke: exit ${code}; database or setup errors are not retried"
+            exit "$code"
+          fi
+          retry=false
+          if [ -f "$out/retry.json" ]; then
+            retry=$(python3 -c 'import json,sys; print("true" if json.load(open(sys.argv[1])).get("retry") is True else "false")' "$out/retry.json")
+          fi
+          if [ "$retry" != "true" ]; then
+            echo "load-smoke: not retrying"
+            exit "$code"
+          fi
+          echo "load-smoke: all failures were client-timeout 599s; dropping load_% databases and retrying once"
+          drop_load_dbs
+          set +e
+          smoke "${RUNNER_TEMP}/load-smoke-retry"
+          code=$?
+          set -e
+          rm -rf "$out"
+          mv "${RUNNER_TEMP}/load-smoke-retry" "$out"
+          exit "$code"
 
       - name: Drop load smoke databases
         # load_class.py drops its db on exit; this catches a killed run.
@@ -214,11 +313,13 @@ jobs:
 
   deploy:
     name: Deploy to Fly
-    needs: load-smoke
+    needs: [test, load-smoke]
     # workflow_dispatch can target any ref. Only production may request a
-    # production review. A red test or a red load smoke skips this job, so
+    # production review. A red suite or a red load smoke skips this job, so
     # approval cannot ship a failed build.
-    if: github.ref == 'refs/heads/production'
+    # always(): a skipped shard must not skip this job (actions/runner#491).
+    # The suite aggregate is green on the reuse path while the shard job is skipped.
+    if: always() && !cancelled() && github.ref == 'refs/heads/production' && needs.test.result == 'success' && needs.load-smoke.result == 'success'
     runs-on: ubuntu-latest
     # pull-requests/actions: read so What's new can read merged PRs and
     # past Deploy runs (MCK-182). Nothing here writes to the repo.

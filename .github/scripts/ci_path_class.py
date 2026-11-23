@@ -144,23 +144,34 @@ def changed_paths(base: str, head: str) -> list[str]:
     return paths
 
 
-def write_github_output(heavy: bool) -> None:
-    """Append ``heavy=true|false`` to ``GITHUB_OUTPUT`` when that file exists."""
-    value = "true" if heavy else "false"
+def lms_touched(event_name: str, paths: list[str] | None) -> bool:
+    """Return True when ``test_boot_schema_race`` and ``test_mck365_*`` must run.
+
+    Any path under ``lms/`` counts, including copy-only CSS. A push, an
+    empty diff, and a missing file list count too, so a failed classification
+    cannot drop the schema tests.
+    """
+    if event_name != "pull_request" or paths is None or not paths:
+        return True
+    return any(path == "lms" or path.startswith("lms/") for path in paths)
+
+
+def write_github_output(heavy: bool, lms: bool) -> None:
+    """Append ``heavy`` and ``lms`` flags to ``GITHUB_OUTPUT`` when that file exists."""
+    lines = f"heavy={'true' if heavy else 'false'}\nlms={'true' if lms else 'false'}\n"
     dest = os.environ.get("GITHUB_OUTPUT", "")
-    line = f"heavy={value}\n"
     if dest:
         with open(dest, "a", encoding="utf-8") as handle:
-            handle.write(line)
+            handle.write(lines)
     else:
-        sys.stdout.write(line)
+        sys.stdout.write(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Classify the current event and record the heavy-job flag.
+    """Classify the current event and record the heavy and lms flags.
 
     ``--self-test`` checks the globs and does not read the repository.
-    Any failure while listing a pull-request diff records heavy=true.
+    Any failure while listing a pull-request diff records heavy=true and lms=true.
     """
     args = list(sys.argv[1:] if argv is None else argv)
     if args == ["--self-test"]:
@@ -169,9 +180,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args:
         print(f"unexpected args: {args}", file=sys.stderr)
-        write_github_output(True)
+        write_github_output(True, True)
         return 0
     event = os.environ.get("EVENT_NAME", "")
+    heavy = True
+    lms = True
     try:
         paths: list[str] | None
         if event != "pull_request":
@@ -183,11 +196,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise RuntimeError("pull_request diff is missing BASE_SHA or HEAD_SHA")
             paths = changed_paths(base, head)
         heavy = heavy_for_event(event, paths)
+        lms = lms_touched(event, paths)
     except Exception as exc:
         print(f"classification failed ({exc}); running the load jobs", file=sys.stderr)
         heavy = True
-    write_github_output(heavy)
-    print(f"heavy={str(heavy).lower()}")
+        lms = True
+    write_github_output(heavy, lms)
+    print(f"heavy={str(heavy).lower()} lms={str(lms).lower()}")
     return 0
 
 
@@ -297,6 +312,18 @@ def _self_test() -> None:
         raise SystemExit("missing diff must be heavy")
     if heavy_for_event("pull_request", ["lms/static/lloves.css"]):
         raise SystemExit("css pull request must be copy-only")
+    if not lms_touched("pull_request", ["lms/static/lloves.css"]):
+        raise SystemExit("lms css must keep the schema tests")
+    if not lms_touched("pull_request", ["lms/school_db.py"]):
+        raise SystemExit("lms python must keep the schema tests")
+    if lms_touched("pull_request", ["README.md"]):
+        raise SystemExit("a readme-only pull request does not touch lms/")
+    if not lms_touched("push", ["README.md"]):
+        raise SystemExit("push must keep the schema tests")
+    if not lms_touched("pull_request", None):
+        raise SystemExit("missing diff must keep the schema tests")
+    if not lms_touched("pull_request", []):
+        raise SystemExit("empty diff must keep the schema tests")
     if not glob_match("lms/static/student-live-session.js", "lms/**/*session*"):
         raise SystemExit("session glob missed student-live-session.js")
     if glob_match("lms/templates/staff/_whats_new.html", "lms/**/*news*"):
