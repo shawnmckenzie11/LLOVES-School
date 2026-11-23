@@ -317,7 +317,9 @@ jobs:
     # workflow_dispatch can target any ref. Only production may request a
     # production review. A red suite or a red load smoke skips this job, so
     # approval cannot ship a failed build.
-    if: github.ref == 'refs/heads/production'
+    # always(): a skipped shard must not skip this job (actions/runner#491).
+    # The suite aggregate is green on the reuse path while the shard job is skipped.
+    if: always() && !cancelled() && github.ref == 'refs/heads/production' && needs.test.result == 'success' && needs.load-smoke.result == 'success'
     runs-on: ubuntu-latest
     # pull-requests/actions: read so What's new can read merged PRs and
     # past Deploy runs (MCK-182). Nothing here writes to the repo.

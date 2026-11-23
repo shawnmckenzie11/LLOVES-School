@@ -305,6 +305,47 @@ class WorkflowRailTests(unittest.TestCase):
         drop = smoke[smoke.index("name: Drop load smoke databases"):]
         self.assertIn("if: always()", drop[:200])
 
+    def test_deploy_runs_only_when_every_need_succeeded(self) -> None:
+        """A skipped shard must not skip Deploy, and a failed need must.
+
+        ``if: github.ref == ...`` is rewritten to ``success() && ...``.
+        ``success()`` is false when any needed job was skipped, so the reuse
+        path (shard skipped, aggregate green) never reaches approval
+        (actions/runner#491).
+        """
+        deploy = self.deploy[self.deploy.index("  deploy:\n"):]
+        needs_line = next(line for line in deploy.splitlines() if line.strip().startswith("needs:"))
+        inside = needs_line.split("[", 1)[1].split("]", 1)[0]
+        needs = [part.strip() for part in inside.split(",") if part.strip()]
+        self.assertEqual(needs, ["test", "load-smoke"])
+        condition = next(line.strip() for line in deploy.splitlines() if line.strip().startswith("if:"))
+        self.assertIn("always()", condition)
+        self.assertIn("!cancelled()", condition)
+        self.assertNotIn("success()", condition)
+        self.assertIn("github.ref == 'refs/heads/production'", condition)
+        for job in needs:
+            self.assertIn(f"needs.{job}.result == 'success'", condition)
+
+        def would_run(ref: str, results: dict[str, str], cancelled: bool) -> bool:
+            """The deploy condition, with each need named explicitly."""
+            if cancelled or ref != "refs/heads/production":
+                return False
+            return all(results.get(job) == "success" for job in needs)
+
+        green = {"test": "success", "load-smoke": "success"}
+        self.assertTrue(would_run("refs/heads/production", green, False))
+        self.assertFalse(would_run("refs/heads/main", green, False))
+        self.assertFalse(would_run("refs/heads/production", green, True))
+        for bad in ("failure", "cancelled", "skipped"):
+            self.assertFalse(
+                would_run("refs/heads/production", {"test": bad, "load-smoke": "success"}, False),
+                bad,
+            )
+            self.assertFalse(
+                would_run("refs/heads/production", {"test": "success", "load-smoke": bad}, False),
+                bad,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
