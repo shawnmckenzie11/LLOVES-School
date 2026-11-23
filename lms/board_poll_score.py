@@ -475,6 +475,12 @@ def adjust_group(
                 (earned, now, class_id, run_key, qkey, int(student_id)),
             )
         school.conn.commit()
+    forget = getattr(school, "forget_board_group_cache", None)
+    if callable(forget):
+        session = school.get_live_session(int(session_id)) or {}
+        class_id = session.get("class_id")
+        if class_id not in (None, ""):
+            forget(int(class_id), run_key)
     _emit_engagement_self(school, int(session_id), int(student_id))
     return {
         "ok": True,
@@ -541,6 +547,9 @@ def credit_group_whiteboard(
             if int(cursor.rowcount or 0) > 0:
                 inserted.append(sid)
         school.conn.commit()
+    forget = getattr(school, "forget_board_group_cache", None)
+    if callable(forget):
+        forget(class_id, run_key)
     for sid in inserted:
         _emit_engagement_self(school, int(session_id), sid)
     return inserted

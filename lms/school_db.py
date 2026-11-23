@@ -49,7 +49,7 @@ from engagement_events import (  # noqa: E402
     first_name_only,
     now_iso,
 )
-from engagement_live import live_engagement_snapshot  # noqa: E402
+from engagement_live import group_question_started, tier1_engagement_display  # noqa: E402
 from engagement_rollup import compute_rollup, rollup_row_to_store  # noqa: E402
 from serve_capacity import poll_budget_expired  # noqa: E402
 from serve_capacity import (  # noqa: E402
@@ -3258,14 +3258,37 @@ class LovesDB:
         Returns:
             Id text to the set of ids for that same question.
         """
+        sid = int(session_id)
+        cache = getattr(self, "_question_alias_cache", None)
+        if cache is None:
+            cache = {}
+            self._question_alias_cache = cache
         with self._lock:
+            stamp_row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n,
+                       COALESCE(MAX(id), 0) AS max_id,
+                       COALESCE(MAX(updated_at), '') AS touched
+                FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (sid,),
+            ).fetchone()
+            stamp = (
+                int(stamp_row["n"] or 0) if stamp_row else 0,
+                int(stamp_row["max_id"] or 0) if stamp_row else 0,
+                str(stamp_row["touched"] or "") if stamp_row else "",
+            )
+            hit = cache.get(sid)
+            if hit is not None and hit[0] == stamp:
+                return hit[1]
             rows = self.conn.execute(
                 """
                 SELECT id, prompt_id, item_id, placement_key
                 FROM live_session_items
                 WHERE live_session_id = ?
                 """,
-                (int(session_id),),
+                (sid,),
             ).fetchall()
         aliases: dict[str, set[str]] = {}
         for row in rows:
@@ -3279,6 +3302,7 @@ class LovesDB:
                     ids.add(text)
             for token in ids:
                 aliases.setdefault(token, set()).update(ids)
+        cache[sid] = (stamp, aliases)
         return aliases
 
     def _rollup_engagement_for_session(self, session_id: int) -> int:
@@ -3499,14 +3523,37 @@ class LovesDB:
         key = str(run_key or "").strip()
         if not key:
             return 0, 0
+        cache = getattr(self, "_board_group_cache", None)
+        if cache is None:
+            cache = {}
+            self._board_group_cache = cache
+        run_mark = ("run", int(class_id), key)
+        board_rows = cache.get(run_mark)
+        if board_rows is None:
+            counted = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM group_engagement_items
+                WHERE class_id = ? AND run_key = ? AND prompt_kind = 'board'
+                """,
+                (int(class_id), key),
+            ).fetchone()
+            board_rows = int(counted["n"] or 0) if counted else 0
+            cache[run_mark] = board_rows
+        if board_rows == 0:
+            return 0, 0
+        student_mark = ("stu", int(class_id), key, int(student_id))
+        cached_points = cache.get(student_mark)
+        if cached_points is not None:
+            return cached_points
         rows = self.conn.execute(
             """
             SELECT g.earned, g.possible, COALESCE(i.prompt_kind, '') AS prompt_kind
             FROM group_engagement g
-            LEFT JOIN group_engagement_items i
+            INNER JOIN group_engagement_items i
                 ON i.class_id = g.class_id AND i.run_key = g.run_key
                AND i.question_key = g.question_key
             WHERE g.class_id = ? AND g.run_key = ? AND g.student_id = ?
+              AND i.prompt_kind = 'board'
             """,
             (int(class_id), key, int(student_id)),
         ).fetchall()
@@ -3524,7 +3571,38 @@ class LovesDB:
             )
             earned += shown_earned
             possible += shown_possible
+        cache[student_mark] = (earned, possible)
         return earned, possible
+
+    def forget_board_group_cache(self, class_id: int, run_key: str) -> None:
+        """Drop cached whiteboard group points after a submit or a teacher step.
+
+        The live card reads this cache on every student poll. A write has
+        to clear it or the phone keeps the previous fraction.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Live run uuid.
+        """
+        cache = getattr(self, "_board_group_cache", None)
+        if not cache:
+            return
+        key = str(run_key or "").strip()
+        cid = int(class_id)
+        cache.pop(("run", cid, key), None)
+        stale = [
+            item
+            for item in list(cache)
+            if (
+                isinstance(item, tuple)
+                and len(item) == 4
+                and item[0] == "stu"
+                and item[1] == cid
+                and item[2] == key
+            )
+        ]
+        for item in stale:
+            cache.pop(item, None)
 
     def student_group_engagement_display(
         self, class_id: int, live_session_id: int, student_id: int
@@ -3568,6 +3646,73 @@ class LovesDB:
         ).get(int(student_id))
         return saved or "0/0"
 
+
+    def _cached_live_engagement_snapshot(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        class_id: int,
+        live_session: int,
+        run_key: str,
+        student_id: int,
+        team_for_student: dict[int, int | None],
+        student_ids: list[int],
+        question_aliases: dict[str, set[str]],
+    ) -> dict[str, Any]:
+        """Reuse one rollup while the event log and teams stay the same.
+
+        Thirty phones poll ``/state`` together. The rollup walks every
+        event, so the first phone in a quiet moment builds it and the
+        rest read that result. A new event, a team change, or a new
+        question id starts a fresh rollup. Nothing is written.
+
+        Args:
+            events: Engagement rows for this run.
+            class_id: Game-show ``classes.id``.
+            live_session: ``live_class_sessions.id``.
+            run_key: Live run uuid.
+            student_id: Roster id whose card this is.
+            team_for_student: Roster id to team id.
+            student_ids: Roster ids included in the rollup.
+            question_aliases: Live question id map.
+
+        Returns:
+            ``tier1`` and ``group_activity`` for ``student_id``.
+        """
+        last = 0
+        if events:
+            try:
+                last = int(events[-1].get("id") or 0)
+            except (TypeError, ValueError):
+                last = len(events)
+        team_sig = sum(
+            (int(sid) * 131 + int(team_for_student.get(sid) or 0))
+            for sid in student_ids
+        )
+        cache_key = (str(run_key), len(events), last, team_sig, len(question_aliases))
+        cache = getattr(self, "_live_rollup_cache", None)
+        if cache is None:
+            cache = {}
+            self._live_rollup_cache = cache
+        rows = cache.get(cache_key)
+        if rows is None:
+            rows = compute_rollup(
+                events,
+                class_id=int(class_id),
+                live_session=int(live_session),
+                run_key=str(run_key),
+                team_for_student=team_for_student,
+                student_ids=student_ids,
+                question_aliases=question_aliases,
+            )
+            cache.clear()
+            cache[cache_key] = rows
+        started = group_question_started(events)
+        return {
+            "tier1": tier1_engagement_display(rows, int(student_id)),
+            "group_activity": started,
+        }
+
     def student_live_engagement_fields(
         self, class_id: int, live_session_id: int, student_id: int
     ) -> dict[str, Any]:
@@ -3595,7 +3740,8 @@ class LovesDB:
         team_for = {
             sid: self.student_team_id_for_class(int(class_id), sid) for sid in student_ids
         }
-        snap = live_engagement_snapshot(
+        aliases = self.engagement_question_aliases(int(live_session_id))
+        snap = self._cached_live_engagement_snapshot(
             events,
             class_id=int(class_id),
             live_session=int(live_session_id),
@@ -3603,7 +3749,7 @@ class LovesDB:
             student_id=int(student_id),
             team_for_student=team_for,
             student_ids=student_ids,
-            question_aliases=self.engagement_question_aliases(int(live_session_id)),
+            question_aliases=aliases,
         )
         try:
             from board_poll_score import live_card_bonus, shift_fraction
