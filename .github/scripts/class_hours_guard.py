@@ -14,6 +14,7 @@ before each start until ``POST_MINUTES`` after each end, America/Toronto.
 
 Exit 0 = clear to deploy, 1 = inside a class window (or bad data).
 ``--override`` always exits 0 and prints what it overrode.
+``--plain`` prints one plain-English line and no GitHub ``::error`` annotation.
 ``--at 2026-10-14T14:40`` checks a given local time (tests / dry runs).
 """
 
@@ -143,6 +144,11 @@ def active_window(now: datetime, schedule: dict, semester: dict) -> dict | None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--override", action="store_true")
+    ap.add_argument(
+        "--plain",
+        action="store_true",
+        help="One plain-English line, with no GitHub annotation command.",
+    )
     ap.add_argument("--at", help="Local time in the schedule's tz, ISO (default: now)")
     ap.add_argument("--schedule", type=Path, default=SCHEDULE)
     ap.add_argument("--semester", type=Path, default=SEMESTER)
@@ -157,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.override:
             print(f"Schedule data unreadable ({exc}); override set, deploying.")
             return 0
+        if args.plain:
+            print(f"Deploy held: the class schedule cannot be read ({exc}). Deploy refused.")
+            return 1
         print(f"::error title=Class-hours guard::Cannot read the class schedule {args.schedule}: {exc}. Deploy refused (fail closed); fix the file or use override_class_hours=true.")
         return 1
     stamp = now.strftime("%a %Y-%m-%d %H:%M ET")
@@ -165,8 +174,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     span = f"{win['blocked_from']:%H:%M}-{win['blocked_until']:%H:%M} ET"
     if args.override:
-        print(f"::warning title=Class-hours override::Deploying during {win['label']} ({span}) at {stamp}.")
+        if args.plain:
+            print(f"Override: deploying during {win['label']} ({span}) at {stamp}.")
+        else:
+            print(f"::warning title=Class-hours override::Deploying during {win['label']} ({span}) at {stamp}.")
         return 0
+    if args.plain:
+        print(
+            f"Deploy held: {win['label']} is live ({span}), and it is {stamp}. "
+            "A deploy replaces the only Fly machine. "
+            f"Run again after {win['blocked_until']:%H:%M} ET, or start the workflow with override_class_hours."
+        )
+        return 1
     print(
         f"::error title=Deploy blocked during class::{win['label']} is live ({span}); it is {stamp}. "
         "A deploy replaces the only Fly machine. Run Deploy LLOVES LMS again after "

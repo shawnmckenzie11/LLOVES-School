@@ -113,11 +113,12 @@ git fetch origin && git push origin origin/main:production
 
 Then approve the **Deploy LLOVES LMS** run on GitHub Actions.
 
-A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through three jobs:
+A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`):
 
-1. **LMS test suite** (group `deploy-lloves-lms-test-<ref>`, cancel-in-progress).
-2. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress). Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 400 ms (margin for shared runners), and 0 worker restarts. The per-run presence db is created after the loopback check and always dropped. Results stay as the `load-smoke` artifact. A failure skips deploy, so `flyctl` does not run. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
-3. **Deploy to Fly**: one `production` environment approval, then `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled). Shawn clicks once. That job reads `FLY_API_TOKEN`, refuses a stale SHA, and deploys.
+1. **Class hours** first. One plain-English line, and the run stops when a class is live. The same guard runs again inside Deploy to Fly, after the approval wait.
+2. **LMS test suite**: four shards (group `deploy-lloves-lms-test-<ref>-<shard>`, cancel-in-progress per shard). The aggregate check is still named **LMS test suite** and is green only when all four shards are green. If this exact SHA already has a full green `ci.yml` run (shards, fan-out guard, 30-seat load budget, and slide forward load all succeeded, none skipped), the shards are not run again.
+3. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress), in parallel with the shards, on its own runner and Postgres. Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 400 ms (margin for shared runners), and 0 worker restarts. One automatic retry, and only when every 5xx is a client-timeout 599. A 500-504 or a database error fails immediately. `load_%` databases are dropped between attempts. The per-run presence db is created after the loopback check and always dropped. Results stay as the `load-smoke` artifact. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
+4. **Deploy to Fly**: one `production` environment approval, then `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled). Shawn clicks once. That job reads `FLY_API_TOKEN`, refuses a stale SHA, refuses a live class again, and deploys. A red suite or a red smoke skips it.
 
 **What this means for Shawn:**
 - **One click.** The production environment gate is on Deploy to Fly. Approving it starts that job.

@@ -151,6 +151,111 @@ def smoke_gate_errors(
     return errors
 
 
+_SUMMARY_LINE_KEYS = (
+    "state_p95_ms",
+    "http_p95_ms",
+    "state_shed",
+    "errors_5xx",
+    "slide_reload_peak",
+)
+
+
+def format_load_summary_line(summary: dict[str, Any] | None) -> str:
+    """One line of load metrics for the CI log.
+
+    Missing metrics are ``n/a``. The line has no names, emails, or codes.
+
+    Args:
+        summary: ``summarize`` output, or None when the run stopped early.
+
+    Returns:
+        A single line beginning with ``load-summary``.
+    """
+    data = summary or {}
+
+    def field(key: str) -> str:
+        if key not in data or data[key] is None:
+            return "n/a"
+        return str(data[key])
+
+    parts = " ".join(f"{key}={field(key)}" for key in _SUMMARY_LINE_KEYS)
+    return f"load-summary {parts}"
+
+
+def _error_status_counts(summary: dict[str, Any]) -> dict[int, int]:
+    """Count recorded statuses at or above 500, keyed by status code.
+
+    Args:
+        summary: ``summarize`` output. Per-kind ``status`` maps hold the counts.
+
+    Returns:
+        Status code to request count. Empty when the summary has no 5xx rows.
+    """
+    counts: dict[int, int] = {}
+    kinds = summary.get("kinds") or {}
+    if not isinstance(kinds, dict):
+        return counts
+    for row in kinds.values():
+        if not isinstance(row, dict):
+            continue
+        status = row.get("status") or {}
+        if not isinstance(status, dict):
+            continue
+        for code, count in status.items():
+            try:
+                icode = int(code)
+                inum = int(count)
+            except (TypeError, ValueError):
+                continue
+            if icode >= 500 and inum > 0:
+                counts[icode] = counts.get(icode, 0) + inum
+    return counts
+
+
+def client_timeout_retry(summary: dict[str, Any] | None, failures: list[str]) -> dict[str, Any]:
+    """Decide whether a smoke gate failure may be run once more.
+
+    The only retryable failure is a gate that names ``errors_5xx`` and
+    nothing else, where every recorded status at or above 500 is the
+    client-timeout code 599. A 500-504, any other 5xx, a latency miss, a
+    worker or class miss, a database setup error (no summary), or a passed
+    gate is not retryable. Slide-forward failures must not be passed here.
+
+    Args:
+        summary: ``summarize`` output including per-kind status counts.
+        failures: Lines from ``smoke_gate_errors``.
+
+    Returns:
+        ``retry`` and a one-line ``reason`` with no names or secrets.
+    """
+    if not summary or not failures:
+        return {"retry": False, "reason": "gate passed or summary missing"}
+    others = [item for item in failures if not str(item).startswith("errors_5xx=")]
+    if others:
+        return {"retry": False, "reason": "gate failed for more than client timeouts"}
+    try:
+        errors_5xx = int(summary.get("errors_5xx") or 0)
+    except (TypeError, ValueError):
+        return {"retry": False, "reason": "errors_5xx is not a count"}
+    counts = _error_status_counts(summary)
+    if errors_5xx < 1 or not counts or sum(counts.values()) != errors_5xx:
+        return {"retry": False, "reason": "5xx statuses are missing or do not match errors_5xx"}
+    if set(counts) != {599}:
+        codes = ",".join(str(code) for code in sorted(counts))
+        return {"retry": False, "reason": f"status {codes} is not a client timeout"}
+    return {"retry": True, "reason": f"{errors_5xx} client-timeout 599s and no other gate failure"}
+
+
+def _write_retry_file(out: Path, decision: dict[str, Any]) -> None:
+    """Write ``retry.json`` next to the smoke summary.
+
+    Args:
+        out: Run directory.
+        decision: ``client_timeout_retry`` output.
+    """
+    (out / "retry.json").write_text(json.dumps(decision) + "\n", encoding="utf-8")
+
+
 # --------------------------------------------------------------------------- setup
 def seed(
     data: Path,
@@ -2611,6 +2716,7 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
         )
     print(json.dumps({k: v for k, v in summary.items() if k not in ("kinds", "rss")}, indent=2))
     print("results:", out)
+    print(format_load_summary_line(summary), flush=True)
     if not args.gate:
         return 0
     if args.slide_forward:
@@ -2641,7 +2747,10 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
         min_workers=serve_capacity.WORKERS,
         min_classes=args.min_classes,
     )
+    decision = client_timeout_retry(summary, failures)
+    _write_retry_file(out, decision)
     if failures:
+        print(f"retry: {decision['reason']}", flush=True)
         for line in failures:
             print("gate:", line, file=sys.stderr)
         return 1
