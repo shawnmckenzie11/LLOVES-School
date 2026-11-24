@@ -80,9 +80,12 @@ try {
     try {
       await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
       const topInView = await inViewport(page, "#landing-request-access");
-      const inlineInView = await inViewport(page, "#landing-request-access-inline");
-      if (!topInView && !inlineInView) {
+      if (!topInView) {
         throw new Error(`${label} landing CTA is below the fold`);
+      }
+      const landingText = await page.locator("body").innerText();
+      if (/new to alc\?/i.test(landingText) || /this class has ended/i.test(landingText)) {
+        throw new Error(`${label} landing still shows a retired line`);
       }
       const landingShot = path.join(outDir, `p0-6-landing-${label}.png`);
       await page.screenshot({ path: landingShot });
@@ -91,7 +94,7 @@ try {
       if (viewport.mobile && !landingFits) {
         throw new Error(`${label} landing scrolls sideways`);
       }
-      const clickId = topInView ? "#landing-request-access" : "#landing-request-access-inline";
+      const clickId = "#landing-request-access";
       await page.click(clickId);
       await page.waitForURL("**/request-access");
       const landingH1 = (await page.locator("h1").innerText()).trim();

@@ -24,10 +24,12 @@ import {
 } from "/static/common.js";
 import {
   mcGraphSlot,
+  mcResultsBarsMatch,
   mcResultsGraphHtml,
   noResponsesYetHtml,
   numericResultsGraphHtml,
   stripDuplicateOptionTable,
+  syncMcResultsBars,
   tallyFromChoiceLabels,
   tallyHasResponses,
 } from "/static/mc_results_graph.js";
@@ -1516,9 +1518,30 @@ function liveQuestionCardForItem(liveItemId) {
 }
 
 /**
+ * Options for the in-place bar update on one teacher card.
+ *
+ * @param {number} liveItemId
+ * @returns {{order: "default"|"ranked", showKey: boolean, markKey: boolean, controls: boolean, itemKey: string}}
+ */
+function mcLiveBarOpts(liveItemId) {
+  const row = lastLiveItems.find((item) => Number(item?.id) === liveItemId) || {};
+  const itemKey = mcGraphItemKey(liveItemId, row);
+  const pref = mcGraphPref(itemKey);
+  return {
+    order: pref.order,
+    showKey: pref.showKey,
+    markKey: true,
+    controls: true,
+    itemKey,
+  };
+}
+
+/**
  * Replace or insert the bar graph on one individual card.
  *
- * The teacher highlight stays on. Close is not required.
+ * A poll that only changes counts updates those bars from their current
+ * width. The table is rebuilt when the choice list or the order toggle
+ * changed. The teacher highlight stays on. Close is not required.
  * @param {number} liveItemId
  */
 function paintLifecycleBarsInPlace(liveItemId) {
@@ -1535,19 +1558,22 @@ function paintLifecycleBarsInPlace(liveItemId) {
   }
   if (!tally || !Array.isArray(tally.choices) || !tally.choices.length) return;
   const row = lastLiveItems.find((item) => Number(item?.id) === liveItemId) || {};
-  const itemKey = mcGraphItemKey(liveItemId, row);
-  const pref = mcGraphPref(itemKey);
+  const opts = mcLiveBarOpts(liveItemId);
   const signature = [
-    pref.order,
-    pref.showKey ? "1" : "0",
+    opts.order,
+    opts.showKey ? "1" : "0",
     tally.choices
       .map((choice) => `${choice?.id}:${choice?.count}:${choice?.correct ? 1 : 0}`)
       .join("|"),
   ].join(";");
   const existing = card.querySelector(".mc-results-graph");
   if (existing && existing.getAttribute("data-mc-live") === signature) return;
+  if (existing instanceof HTMLElement && syncMcResultsBars(existing, tally, opts).matched) {
+    existing.setAttribute("data-mc-live", signature);
+    return;
+  }
   const question = row.item && typeof row.item === "object" ? row.item : {};
-  const html = individualLifecycleResultsHtml(tally, itemKey, {
+  const html = individualLifecycleResultsHtml(tally, opts.itemKey, {
     correctValue: question.correct_answer ?? question.key,
     tolerance: question.tolerance,
     toleranceKind: question.tolerance_kind,
@@ -6873,11 +6899,112 @@ function restoreGroupConfirmFocus(focused) {
 }
 
 /**
+ * Hidden holder so a question-list paint can keep a graph and a gallery
+ * connected to the document.
+ *
+ * A canvas that leaves the document blinks when it is put back. The park
+ * stays in the page, hidden, for that one paint.
+ * @returns {HTMLElement|null}
+ */
+function liveSurfacePark() {
+  if (typeof document === "undefined" || !document.body) return null;
+  const existing = document.getElementById("lloves-live-park");
+  if (existing instanceof HTMLElement) return existing;
+  const park = document.createElement("div");
+  park.id = "lloves-live-park";
+  park.hidden = true;
+  park.setAttribute("aria-hidden", "true");
+  document.body.appendChild(park);
+  return park;
+}
+
+/**
+ * Move results graphs and whiteboard galleries off cards this paint will
+ * replace. A card with an open publish confirm is left alone.
+ *
+ * @param {HTMLElement} host
+ * @param {Map<string, Element>} pinnedCards Live item id to the card that stays.
+ * @returns {{graphs: Map<string, Element>, boards: Map<string, Element>}}
+ */
+function parkLiveSurfaces(host, pinnedCards) {
+  /** @type {Map<string, Element>} */
+  const graphs = new Map();
+  /** @type {Map<string, Element>} */
+  const boards = new Map();
+  const park = liveSurfacePark();
+  if (!park) return { graphs, boards };
+  for (const card of host.querySelectorAll(".live-question-card")) {
+    const id = card.getAttribute("data-live-item-id") || "";
+    if (id && pinnedCards.has(id)) continue;
+    const graph = card.querySelector(".mc-results-graph");
+    if (id && graph) {
+      park.appendChild(graph);
+      graphs.set(id, graph);
+    }
+    const dash = card.querySelector("[data-qboard-dash]");
+    const live = dash?.querySelector(".wb-live");
+    const prompt = dash?.getAttribute("data-qboard-dash") || "";
+    if (prompt && live) {
+      park.appendChild(live);
+      boards.set(prompt, live);
+    }
+  }
+  return { graphs, boards };
+}
+
+/**
+ * Put parked graphs and galleries back on the cards this paint just built.
+ *
+ * A graph is kept only when it still lists the same choices. Its widths
+ * are then updated in place. A gallery is the same section the poll
+ * already mounted, so its thumbnails are not remounted.
+ *
+ * @param {HTMLElement} host
+ * @param {{graphs: Map<string, Element>, boards: Map<string, Element>}} parked
+ */
+function restoreParkedLiveSurfaces(host, parked) {
+  for (const card of host.querySelectorAll(".live-question-card")) {
+    const id = card.getAttribute("data-live-item-id") || "";
+    const graph = parked.graphs.get(id);
+    if (graph) {
+      parked.graphs.delete(id);
+      const liveItemId = Number(id) || 0;
+      const tally = lifecycleResults.get(liveItemId)?.tally;
+      const fresh = card.querySelector(".mc-results-graph");
+      const opts = mcLiveBarOpts(liveItemId);
+      if (fresh && tally && mcResultsBarsMatch(graph, tally, opts)) {
+        fresh.replaceWith(graph);
+        paintLifecycleBarsInPlace(liveItemId);
+      } else {
+        graph.remove();
+      }
+    }
+    const dash = card.querySelector("[data-qboard-dash]");
+    const prompt = dash?.getAttribute("data-qboard-dash") || "";
+    const live = prompt ? parked.boards.get(prompt) : null;
+    if (!live) continue;
+    parked.boards.delete(prompt);
+    if (!dash) {
+      live.remove();
+      continue;
+    }
+    const freshLive = dash.querySelector(".wb-live");
+    if (freshLive && freshLive !== live) freshLive.replaceWith(live);
+    else if (!freshLive) dash.appendChild(live);
+  }
+  for (const graph of parked.graphs.values()) graph.remove();
+  for (const live of parked.boards.values()) live.remove();
+  parked.graphs.clear();
+  parked.boards.clear();
+}
+
+/**
  * MCK-112 S1: write the question list without repainting a card whose
  * in-place "Show teams and publish" confirm is open. Live repaints (every
  * student join/answer) used to replace that card, which dropped focus to
  * the page body and broke Esc-to-cancel. The open card stays the same DOM
- * node; every other card is replaced around it.
+ * node; every other card is replaced around it. Result graphs and
+ * whiteboard galleries move onto the new cards instead of being rebuilt.
  * @param {HTMLElement} host
  * @param {string} html
  */
@@ -6895,8 +7022,10 @@ function writeQuestionCardsKeepingConfirms(host, html) {
       pinned.set(id, card);
     }
   }
+  const parked = parkLiveSurfaces(host, pinned);
   if (!pinned.size) {
     host.innerHTML = html;
+    restoreParkedLiveSurfaces(host, parked);
     restoreGroupConfirmFocus(focused);
     return;
   }
@@ -6913,6 +7042,7 @@ function writeQuestionCardsKeepingConfirms(host, html) {
   }
   if (!pinned.size) {
     host.innerHTML = html;
+    restoreParkedLiveSurfaces(host, parked);
     restoreGroupConfirmFocus(focused);
     return;
   }
@@ -6927,6 +7057,7 @@ function writeQuestionCardsKeepingConfirms(host, html) {
     if (node !== at) host.insertBefore(node, at);
     prev = node;
   }
+  restoreParkedLiveSurfaces(host, parked);
   restoreGroupConfirmFocus(focused);
 }
 

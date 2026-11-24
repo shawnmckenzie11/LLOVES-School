@@ -246,6 +246,7 @@ def default_teacher_state() -> dict[str, Any]:
         "question_views": default_question_views(),
         "whiteboard_projected_student_id": None,
         "whiteboard_projected_board": None,
+        "whiteboard_projected_all": False,
     }
 
 
@@ -868,6 +869,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     projected_board = str(stored.get("whiteboard_projected_board") or "").strip()
     if projected_board.startswith(("team:", "solo:")):
         base["whiteboard_projected_board"] = projected_board[:80]
+    base["whiteboard_projected_all"] = bool(stored.get("whiteboard_projected_all"))
     if not base["groups_configured"]:
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base["run_as_group"] else "individual"

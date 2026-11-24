@@ -5869,6 +5869,29 @@ def register_live(app, school, shared):
             }
         )
 
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/show-all",
+        methods=["POST"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_question_boards_show_all(session_id: int, prompt_id: int):
+        """Project every board for this question, or stop that grid."""
+        from question_board import QuestionBoardError, question_run_key
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            base, _gen = school._live_board_base_run_key(int(session_id))
+            run_key = question_run_key(base, int(prompt_id))
+            reply = school.show_all_whiteboards(int(session_id), run_key=run_key)
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
     @bp.route("/api/student/question-board/<int:prompt_id>", methods=["GET"])
     @student_required
     @feature_required_any("whiteboard", "whiteboard_submit")
@@ -6100,6 +6123,27 @@ def register_live(app, school, shared):
             return denied
         try:
             reply = school.show_whiteboard_board(session_id, board_key)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/whiteboard-gallery/show-all",
+        methods=["POST"],
+    )
+    @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_whiteboard_gallery_show_all(session_id: int):
+        """Project every live whiteboard, or stop that grid."""
+        from question_board import QuestionBoardError
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            reply = school.show_all_whiteboards(int(session_id))
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify(reply)

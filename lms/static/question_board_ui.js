@@ -641,6 +641,7 @@ function teacherGalleryHtml() {
             <option value="5">5</option>
           </select>
         </label>
+        <button type="button" data-wb-part="show-all" class="wb-live-show" aria-pressed="false">Show All on Board</button>
         <span class="wb-live-pill">Live</span>
       </div>
     </header>
@@ -1008,6 +1009,13 @@ function paintTeacherDash(slot, sessionId) {
       const base = `/api/live-sessions/${id}/questions/${promptId}/boards/${encodeURIComponent(key)}`;
       if (suffix === "/feedback") return `${base}/ink`;
       return `${base}${suffix || ""}`;
+    },
+    /**
+     * @param {string} id
+     * @returns {string}
+     */
+    showAllUrl(id) {
+      return `/api/live-sessions/${id}/questions/${promptId}/boards/show-all`;
     },
   });
   galleries.set(promptId, {

@@ -10,6 +10,7 @@ import {
   createPresenceQueue,
   normalizeBoardPoint,
   textFontCss,
+  textSizePx,
 } from "./live_whiteboard.js";
 import {
   applyCanvasBoardBackground,
@@ -111,10 +112,10 @@ function tileName(tile) {
 /**
  * Empty ink bag for one board key.
  *
- * @returns {{strokes: Record<string, any>, texts: Record<string, any>}}
+ * @returns {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>, pendingSnapshot: boolean}}
  */
 function emptyInk() {
-  return { strokes: {}, texts: {} };
+  return { strokes: {}, texts: {}, equations: {}, pendingSnapshot: false };
 }
 
 /**
@@ -358,31 +359,124 @@ export function foldGalleryInk(state, delta, fallbackColor) {
   const bag = state && typeof state === "object" ? state : emptyInk();
   if (!bag.strokes || typeof bag.strokes !== "object") bag.strokes = {};
   if (!bag.texts || typeof bag.texts !== "object") bag.texts = {};
+  if (!bag.equations || typeof bag.equations !== "object") bag.equations = {};
   foldDelta(bag, delta, fallbackColor || STUDENT_INK);
   return bag;
 }
 
-function foldDelta(state, delta, fallbackColor) {
-  if (!delta || typeof delta !== "object") return;
-  if (delta.snapshot) {
-    state.strokes = {};
-    state.texts = {};
-    const view = delta.canvas_view || {};
-    for (const stroke of view.strokes || []) {
-      if (!stroke?.id) continue;
-      state.strokes[String(stroke.id)] = stroke;
-    }
-    for (const label of view.texts || []) {
-      if (!label?.id) continue;
-      state.texts[String(label.id)] = label;
-    }
+/**
+ * Replace one bag with a folded canvas view.
+ *
+ * A missing equations list clears equations, the same way an empty
+ * stroke list clears ink.
+ *
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>, pendingSnapshot?: boolean}} state
+ * @param {any} view
+ */
+function loadCanvasView(state, view) {
+  const picture = view && typeof view === "object" ? view : {};
+  state.strokes = {};
+  state.texts = {};
+  state.equations = {};
+  state.pendingSnapshot = false;
+  for (const stroke of picture.strokes || []) {
+    if (!stroke?.id) continue;
+    state.strokes[String(stroke.id)] = stroke;
+  }
+  for (const label of picture.texts || []) {
+    if (!label?.id) continue;
+    state.texts[String(label.id)] = label;
+  }
+  for (const eq of picture.equations || []) {
+    if (!eq?.id || !String(eq.latex || "").trim()) continue;
+    state.equations[String(eq.id)] = eq;
+  }
+}
+
+/**
+ * Drop one writer's strokes, labels, and equations.
+ *
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>}} state
+ * @param {unknown} owner
+ */
+function dropOwnerInk(state, owner) {
+  const who = String(owner || "").trim();
+  if (!who) return;
+  for (const [id, stroke] of Object.entries(state.strokes || {})) {
+    if (String(stroke?.owner || "") === who) delete state.strokes[id];
+  }
+  for (const [id, label] of Object.entries(state.texts || {})) {
+    if (String(label?.owner || "") === who) delete state.texts[id];
+  }
+  for (const [id, eq] of Object.entries(state.equations || {})) {
+    if (String(eq?.owner || "") === who) delete state.equations[id];
+  }
+}
+
+/**
+ * Insert, replace, or delete one equation. Empty latex deletes it.
+ *
+ * @param {{equations: Record<string, any>}} state
+ * @param {any} op
+ * @param {string} fallbackColor
+ */
+function applyEquation(state, op, fallbackColor) {
+  const id = String(op?.id || "");
+  if (!id) return;
+  const latex = String(op.latex || "").trim();
+  if (!latex) {
+    delete state.equations[id];
     return;
   }
+  state.equations[id] = {
+    id,
+    owner: op.owner,
+    x: Number(op.x),
+    y: Number(op.y),
+    latex,
+    color: String(op.color || fallbackColor),
+  };
+}
+
+/**
+ * Fold one gallery delta into a tile bag.
+ *
+ * A snapshot replaces strokes, texts, and equations. ``board_wipe``
+ * drops that owner. ``equation_upsert`` with empty latex deletes the
+ * equation. ``board_unwipe`` has no archive on the public op: a
+ * ``canvas_view`` on the same delta is applied, otherwise
+ * ``pendingSnapshot`` asks the next poll for a full fold.
+ *
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>, pendingSnapshot?: boolean}} state
+ * @param {any} delta
+ * @param {string} fallbackColor
+ */
+function foldDelta(state, delta, fallbackColor) {
+  if (!state.equations || typeof state.equations !== "object") state.equations = {};
+  state.pendingSnapshot = false;
+  if (!delta || typeof delta !== "object") return;
+  if (delta.snapshot) {
+    loadCanvasView(state, delta.canvas_view);
+    return;
+  }
+  let unwipe = false;
   for (const op of delta.ops || []) {
     if (!op || typeof op !== "object") continue;
     const id = String(op.id || "");
     const type = String(op.type || "");
     if (!id) continue;
+    if (type === "board_wipe") {
+      dropOwnerInk(state, op.owner);
+      continue;
+    }
+    if (type === "board_unwipe") {
+      unwipe = true;
+      continue;
+    }
+    if (type === "equation_upsert") {
+      applyEquation(state, op, fallbackColor);
+      continue;
+    }
     if (type === "stroke_remove") {
       delete state.strokes[id];
       continue;
@@ -406,6 +500,192 @@ function foldDelta(state, delta, fallbackColor) {
     }
     existing.points = (existing.points || []).concat(points);
   }
+  if (!unwipe) return;
+  if (delta.canvas_view) {
+    loadCanvasView(state, delta.canvas_view);
+    return;
+  }
+  state.pendingSnapshot = true;
+}
+
+/**
+ * Stable stamp for one board's ink.
+ *
+ * A gallery poll often repeats the same strokes under a new sequence
+ * number. Sequence is not part of the stamp, so that poll does not
+ * clear the thumbnail.
+ *
+ * @param {Record<string, any>|null|undefined} strokes
+ * @param {Record<string, any>|null|undefined} texts
+ * @param {Record<string, any>|null|undefined} [equations]
+ * @returns {string}
+ */
+export function inkContentStamp(strokes, texts, equations) {
+  let hash = 2166136261;
+  /**
+   * @param {unknown} value
+   */
+  const mix = (value) => {
+    const text = String(value ?? "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    hash ^= 124;
+    hash = Math.imul(hash, 16777619);
+  };
+  const strokeRows = Object.values(strokes || {});
+  strokeRows.sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  for (const stroke of strokeRows) {
+    mix(stroke?.id);
+    mix(stroke?.color);
+    const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    mix(points.length);
+    for (const point of points) {
+      if (Array.isArray(point)) {
+        mix(point[0]);
+        mix(point[1]);
+      } else {
+        mix(point?.x);
+        mix(point?.y);
+      }
+    }
+  }
+  const labels = Object.values(texts || {});
+  labels.sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  for (const label of labels) {
+    mix(label?.id);
+    mix(label?.text);
+    mix(label?.x);
+    mix(label?.y);
+    mix(label?.color);
+    mix(label?.size);
+    mix(label?.bold ? 1 : 0);
+    mix(label?.underline ? 1 : 0);
+    mix(label?.script);
+  }
+  const eqs = Object.values(equations || {});
+  eqs.sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  for (const eq of eqs) {
+    mix(eq?.id);
+    mix(eq?.latex);
+    mix(eq?.x);
+    mix(eq?.y);
+    mix(eq?.color);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
+ * Keep one button and one canvas per board.
+ *
+ * A canvas is cleared only when its ink stamp changed. An unchanged
+ * thumbnail stays the same node and is not redrawn.
+ *
+ * @param {HTMLElement} grid
+ * @param {Array<{
+ *   key: string,
+ *   name?: string,
+ *   away?: boolean,
+ *   status?: string,
+ *   text?: string,
+ *   open?: boolean,
+ *   stamp: string,
+ *   strokes?: Record<string, any>,
+ *   texts?: Record<string, any>,
+ *   equations?: Record<string, any>,
+ * }>} tiles
+ * @param {{
+ *   paint: (canvas: HTMLCanvasElement, strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>) => void,
+ *   onOpen?: (key: string) => void,
+ * }} hooks
+ * @returns {{painted: string[], kept: string[]}}
+ */
+export function syncWhiteboardGrid(grid, tiles, hooks) {
+  const visible = Array.isArray(tiles) ? tiles : [];
+  const keep = new Set();
+  /** @type {string[]} */
+  const painted = [];
+  /** @type {string[]} */
+  const kept = [];
+  let previous = null;
+  for (const tile of visible) {
+    const key = String(tile?.key || "");
+    keep.add(key);
+    let button = null;
+    for (const candidate of grid.querySelectorAll(".wb-live-tile")) {
+      if (candidate instanceof HTMLButtonElement && candidate.dataset.boardKey === key) {
+        button = candidate;
+        break;
+      }
+    }
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "wb-live-tile";
+      button.dataset.boardKey = key;
+      const stage = document.createElement("canvas");
+      const bitmap = tileBitmapSize(320);
+      stage.width = bitmap.width;
+      stage.height = bitmap.height;
+      stage.className = "wb-live-tile-canvas";
+      const meta = document.createElement("span");
+      meta.className = "wb-live-tile-meta";
+      const dot = document.createElement("span");
+      dot.className = "wb-live-dot";
+      const name = document.createElement("span");
+      name.className = "wb-live-name";
+      const team = document.createElement("span");
+      team.className = "wb-live-team";
+      meta.append(dot, name, team);
+      button.append(stage, meta);
+      button.addEventListener("click", () => {
+        if (typeof hooks.onOpen === "function") hooks.onOpen(key);
+      });
+    }
+    button.classList.toggle("is-open", Boolean(tile.open));
+    const dot = button.querySelector(".wb-live-dot");
+    if (dot) dot.classList.toggle("is-away", Boolean(tile.away));
+    const name = button.querySelector(".wb-live-name");
+    const label = String(tile.name || "");
+    if (name && name.textContent !== label) name.textContent = label;
+    const meta = button.querySelector(".wb-live-tile-meta");
+    if (meta instanceof HTMLElement) {
+      const wanted = [];
+      if (tile.text) wanted.push(String(tile.text));
+      if (tile.status) wanted.push(String(tile.status));
+      const nodes = [...meta.querySelectorAll(".wb-live-status")];
+      const same =
+        nodes.length === wanted.length &&
+        wanted.every((text, index) => nodes[index].textContent === text);
+      if (!same) {
+        for (const node of nodes) node.remove();
+        for (const text of wanted) {
+          const span = document.createElement("span");
+          span.className = "wb-live-status";
+          span.textContent = text;
+          meta.appendChild(span);
+        }
+      }
+    }
+    const stage = button.querySelector("canvas");
+    if (stage instanceof HTMLCanvasElement) {
+      const stamp = String(tile.stamp || "");
+      if (stage.dataset.inkStamp === stamp) kept.push(key);
+      else {
+        hooks.paint(stage, tile.strokes || {}, tile.texts || {}, tile.equations || {});
+        stage.dataset.inkStamp = stamp;
+        painted.push(key);
+      }
+    }
+    const at = previous ? previous.nextSibling : grid.firstChild;
+    if (button !== at) grid.insertBefore(button, at);
+    previous = button;
+  }
+  for (const button of [...grid.querySelectorAll(".wb-live-tile")]) {
+    if (!keep.has(button.dataset.boardKey || "")) button.remove();
+  }
+  return { painted, kept };
 }
 
 /**
@@ -424,8 +704,9 @@ function foldDelta(state, delta, fallbackColor) {
  * @param {Record<string, any>} texts
  * @param {string} fallbackColor
  * @param {HTMLImageElement | null} [background]
+ * @param {Record<string, any>} [equations]
  */
-function paintTile(canvas, strokes, texts, fallbackColor, background = null) {
+function paintTile(canvas, strokes, texts, fallbackColor, background = null, equations = {}) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const w = canvas.width;
@@ -451,9 +732,24 @@ function paintTile(canvas, strokes, texts, fallbackColor, background = null) {
   for (const label of Object.values(texts)) {
     const body = String(label.text || "").trim();
     if (!body) continue;
+    const px = textSizePx(label.size, h);
     ctx.font = textFontCss(label.size, h, Boolean(label.bold));
     ctx.fillStyle = String(label.color || fallbackColor);
-    ctx.fillText(body, Number(label.x) * w, Number(label.y) * h);
+    let y = Number(label.y) * h;
+    if (label.script === "super") y -= px * 0.45;
+    if (label.script === "sub") y += px * 0.2;
+    ctx.fillText(body, Number(label.x) * w, y);
+    if (label.underline) {
+      const width = ctx.measureText ? ctx.measureText(body).width : body.length * 6;
+      ctx.fillRect(Number(label.x) * w, y + px + 1, width, 1);
+    }
+  }
+  ctx.font = "12px sans-serif";
+  for (const eq of Object.values(equations || {})) {
+    const latex = String(eq?.latex || "").trim();
+    if (!latex) continue;
+    ctx.fillStyle = String(eq.color || fallbackColor);
+    ctx.fillText(latex, Number(eq.x) * w, Number(eq.y) * h + 12);
   }
 }
 
@@ -539,12 +835,13 @@ export function mountTeacherGrid(root, options = {}) {
   let panelRun = "";
   let runKey = "";
   let projectedKey = "";
+  let projectedAll = false;
   const openStrokes = new Set();
   const cols = part("cols");
 
   const readOnly = Boolean(options.readOnly);
   if (readOnly) {
-    for (const name of ["pen", "text", "erase", "undo", "redo", "clear", "show"]) {
+    for (const name of ["pen", "text", "erase", "undo", "redo", "clear", "show", "show-all"]) {
       const node = part(name);
       if (node instanceof HTMLElement) {
         node.hidden = true;
@@ -813,133 +1110,64 @@ export function mountTeacherGrid(root, options = {}) {
   /**
    * Stamp for one tile's ink so a poll can skip repainting an unchanged canvas.
    *
-   * Sequence alone misses a point appended under the same seq. Point count
-   * catches that without rebuilding the tile button.
+   * The stamp is the ink itself. A new sequence with the same strokes
+   * does not clear the thumbnail.
    *
    * @param {string} key
-   * @param {number} seq
    * @returns {string}
    */
-  function tileInkStamp(key, seq) {
+  function tileInkStamp(key) {
     const bag = ink[key] || emptyInk();
-    let points = 0;
-    for (const stroke of Object.values(bag.strokes || {})) {
-      points += Array.isArray(stroke?.points) ? stroke.points.length : 0;
-    }
-    const texts = Object.keys(bag.texts || {}).length;
-    return `${Number(seq) || 0}:${points}:${texts}`;
-  }
-
-  /**
-   * Find the tile button already on the grid for this board.
-   *
-   * @param {string} key
-   * @returns {HTMLButtonElement | null}
-   */
-  function tileButton(key) {
-    for (const button of grid.querySelectorAll(".wb-live-tile")) {
-      if (button instanceof HTMLButtonElement && button.dataset.boardKey === key) return button;
-    }
-    return null;
-  }
-
-  /**
-   * Create one tile button and its canvas. The node stays for later polls.
-   *
-   * @param {string} key
-   * @returns {HTMLButtonElement}
-   */
-  function createTileButton(key) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "wb-live-tile";
-    button.dataset.boardKey = key;
-    const stage = document.createElement("canvas");
-    const bitmap = tileBitmapSize(320);
-    stage.width = bitmap.width;
-    stage.height = bitmap.height;
-    stage.className = "wb-live-tile-canvas";
-    const meta = document.createElement("span");
-    meta.className = "wb-live-tile-meta";
-    const dot = document.createElement("span");
-    dot.className = "wb-live-dot";
-    const name = document.createElement("span");
-    name.className = "wb-live-name";
-    const team = document.createElement("span");
-    team.className = "wb-live-team";
-    meta.append(dot, name, team);
-    button.append(stage, meta);
-    button.addEventListener("click", () => openBoard(key));
-    return button;
-  }
-
-  /**
-   * Refresh the label and, when the ink changed, the existing canvas.
-   *
-   * @param {HTMLButtonElement} button
-   * @param {any} tile
-   */
-  function updateTileButton(button, tile) {
-    const key = String(tile.board_key || "");
-    button.classList.toggle("is-open", Boolean(key) && key === openKey);
-    const dot = button.querySelector(".wb-live-dot");
-    if (dot) dot.classList.toggle("is-away", Boolean(tile.away));
-    const name = button.querySelector(".wb-live-name");
-    const label = tileName(tile);
-    if (name && name.textContent !== label) name.textContent = label;
-    const meta = button.querySelector(".wb-live-tile-meta");
-    if (meta instanceof HTMLElement) {
-      const wanted = [];
-      if (tile.text) wanted.push(String(tile.text));
-      if (tile.status) wanted.push(String(tile.status));
-      const nodes = meta.querySelectorAll(".wb-live-status");
-      const same =
-        nodes.length === wanted.length &&
-        wanted.every((text, index) => nodes[index].textContent === text);
-      if (!same) {
-        for (const node of nodes) node.remove();
-        for (const text of wanted) {
-          const span = document.createElement("span");
-          span.className = "wb-live-status";
-          span.textContent = text;
-          meta.appendChild(span);
-        }
-      }
-    }
-    const stage = button.querySelector("canvas");
-    if (!(stage instanceof HTMLCanvasElement)) return;
-    const stamp = tileInkStamp(key, Number(tile.board_seq));
-    if (stage.dataset.inkStamp === stamp) return;
-    const bag = ink[key] || emptyInk();
-    paintTile(stage, bag.strokes, bag.texts, STUDENT_INK, boardBackgroundImage);
-    stage.dataset.inkStamp = stamp;
+    return inkContentStamp(bag.strokes, bag.texts, bag.equations);
   }
 
   /**
    * Paint the visible tiles without replacing buttons that are already there.
    *
    * A poll used to rebuild every canvas. That flashed the row and, with the
-   * open board's resize observer, fed another layout pass.
+   * open board's resize observer, fed another layout pass. Only a board
+   * whose ink changed is redrawn.
    *
    * @param {any[]} rows
    */
   function paintGrid(rows) {
     const visible = Array.isArray(rows) ? rows : [];
-    const keep = new Set();
-    let previous = null;
-    for (const tile of visible) {
-      const key = String(tile.board_key || "");
-      keep.add(key);
-      let button = tileButton(key);
-      if (!button) button = createTileButton(key);
-      updateTileButton(button, tile);
-      const at = previous ? previous.nextSibling : grid.firstChild;
-      if (button !== at) grid.insertBefore(button, at);
-      previous = button;
-    }
-    for (const button of [...grid.querySelectorAll(".wb-live-tile")]) {
-      if (!keep.has(button.dataset.boardKey || "")) button.remove();
-    }
+    syncWhiteboardGrid(
+      grid,
+      visible.map((tile) => {
+        const key = String(tile.board_key || "");
+        const bag = ink[key] || emptyInk();
+        return {
+          key,
+          name: tileName(tile),
+          away: Boolean(tile.away),
+          status: tile.status ? String(tile.status) : "",
+          text: tile.text ? String(tile.text) : "",
+          open: Boolean(key) && key === openKey,
+          stamp: tileInkStamp(key),
+          strokes: bag.strokes,
+          texts: bag.texts,
+          equations: bag.equations,
+        };
+      }),
+      {
+        /**
+         * @param {HTMLCanvasElement} stage
+         * @param {Record<string, any>} strokes
+         * @param {Record<string, any>} texts
+         * @param {Record<string, any>} equations
+         */
+        paint(stage, strokes, texts, equations) {
+          paintTile(stage, strokes, texts, STUDENT_INK, boardBackgroundImage, equations);
+        },
+        /**
+         * @param {string} key
+         */
+        onOpen(key) {
+          openBoard(key);
+        },
+      }
+    );
     layoutGallery();
   }
 
@@ -956,7 +1184,9 @@ export function mountTeacherGrid(root, options = {}) {
     tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
     if (typeof payload.answer_with === "string") answerWith = payload.answer_with;
     const nextBg = String(payload.image_url || "").trim();
+    let backgroundCleared = false;
     if (nextBg !== boardBackgroundUrl) {
+      const hadBackground = Boolean(boardBackgroundUrl);
       boardBackgroundUrl = nextBg;
       boardBackgroundImage = null;
       if (boardBackgroundUrl) {
@@ -965,18 +1195,19 @@ export function mountTeacherGrid(root, options = {}) {
           applyCanvasBoardBackground(canvas, boardBackgroundUrl);
           for (const button of grid.querySelectorAll(".wb-live-tile")) {
             if (!(button instanceof HTMLButtonElement)) continue;
-            const canvas = button.querySelector("canvas");
-            if (!(canvas instanceof HTMLCanvasElement)) continue;
-            delete canvas.dataset.inkStamp;
-            const key = button.dataset.boardKey || "";
-            const tile = tiles.find((row) => String(row.board_key || "") === key);
-            if (tile) updateTileButton(button, tile);
+            const tileCanvas = button.querySelector("canvas");
+            if (!(tileCanvas instanceof HTMLCanvasElement)) continue;
+            delete tileCanvas.dataset.inkStamp;
           }
+          paintGrid(tiles);
           if (openKey) {
             const openTile = tiles.find((row) => String(row.board_key || "") === openKey);
             if (openTile) paintPanelCopy(openTile);
           }
         });
+      } else if (hadBackground) {
+        backgroundCleared = true;
+        applyCanvasBoardBackground(canvas, "");
       }
     }
     if (context) context.textContent = String(payload.context || "");
@@ -986,8 +1217,21 @@ export function mountTeacherGrid(root, options = {}) {
       if (!key) continue;
       if (!ink[key]) ink[key] = emptyInk();
       foldDelta(ink[key], tile, STUDENT_INK);
-      if (tile.board_seq != null && Number.isFinite(Number(tile.board_seq))) {
+      if (ink[key].pendingSnapshot) {
+        // The public unwipe carries no archive. A cursor past the head
+        // is the existing snapshot signal, so the next poll sends the
+        // folded canvas instead of another empty undo.
+        ink[key].pendingSnapshot = false;
+        cursors[key] = Number.MAX_SAFE_INTEGER;
+      } else if (tile.board_seq != null && Number.isFinite(Number(tile.board_seq))) {
         cursors[key] = Number(tile.board_seq);
+      }
+    }
+    if (backgroundCleared) {
+      for (const button of grid.querySelectorAll(".wb-live-tile")) {
+        if (!(button instanceof HTMLButtonElement)) continue;
+        const tileCanvas = button.querySelector("canvas");
+        if (tileCanvas instanceof HTMLCanvasElement) delete tileCanvas.dataset.inkStamp;
       }
     }
     paintGrid(tiles);
@@ -999,17 +1243,27 @@ export function mountTeacherGrid(root, options = {}) {
       }
     }
     const showButton = part("show");
-    if (!(showButton instanceof HTMLButtonElement) || showButton.dataset.pending !== "1") {
+    const showAllButton = part("show-all");
+    const showBusy =
+      (showButton instanceof HTMLButtonElement && showButton.dataset.pending === "1") ||
+      (showAllButton instanceof HTMLButtonElement && showAllButton.dataset.pending === "1");
+    if (!showBusy) {
       projectedKey = String(payload.projected_board || "");
+      projectedAll = Boolean(payload.projected_all);
     }
     const status = part("projected");
     if (status) {
-      const projected = tiles.find(
-        (tile) => String(tile.board_key || "") === projectedKey
-      );
-      status.textContent = projected ? `On the board · ${tileName(projected)}` : "";
+      if (projectedAll) {
+        status.textContent = "On the board · All boards";
+      } else {
+        const projected = tiles.find(
+          (tile) => String(tile.board_key || "") === projectedKey
+        );
+        status.textContent = projected ? `On the board · ${tileName(projected)}` : "";
+      }
     }
     paintShowButton();
+    paintShowAllButton();
   }
 
   /**
@@ -1022,6 +1276,31 @@ export function mountTeacherGrid(root, options = {}) {
     button.textContent = state.label;
     button.setAttribute("aria-pressed", state.pressed ? "true" : "false");
     button.classList.toggle("is-on", state.showing);
+  }
+
+  /**
+   * Show All on Board, or Stop showing when the grid is up.
+   */
+  function paintShowAllButton() {
+    const button = part("show-all");
+    if (!(button instanceof HTMLButtonElement)) return;
+    if (readOnly) {
+      button.hidden = true;
+      return;
+    }
+    button.hidden = false;
+    button.textContent = projectedAll ? "Stop showing" : "Show All on Board";
+    button.setAttribute("aria-pressed", projectedAll ? "true" : "false");
+    button.classList.toggle("is-on", projectedAll);
+  }
+
+  /**
+   * @param {string} id
+   * @returns {string}
+   */
+  function showAllUrl(id) {
+    if (typeof options.showAllUrl === "function") return options.showAllUrl(id);
+    return `/api/live-sessions/${id}/whiteboard-gallery/show-all`;
   }
 
   /**
@@ -1243,8 +1522,11 @@ export function mountTeacherGrid(root, options = {}) {
     if (!id || !key || !(button instanceof HTMLButtonElement)) return;
     if (button.dataset.pending === "1") return;
     const previous = projectedKey;
+    const previousAll = projectedAll;
     projectedKey = previous === key ? "" : key;
+    projectedAll = false;
     paintShowButton();
+    paintShowAllButton();
     button.dataset.pending = "1";
     const error = part("show-error");
     if (error instanceof HTMLElement) {
@@ -1253,7 +1535,9 @@ export function mountTeacherGrid(root, options = {}) {
     }
     const showFailure = () => {
       projectedKey = previous;
+      projectedAll = previousAll;
       paintShowButton();
+      paintShowAllButton();
       if (error instanceof HTMLElement) {
         error.hidden = false;
         error.textContent = "Couldn't update the board.";
@@ -1275,7 +1559,64 @@ export function mountTeacherGrid(root, options = {}) {
           return;
         }
         projectedKey = data.projected === false ? "" : key;
+        projectedAll = false;
         paintShowButton();
+        paintShowAllButton();
+        return pollTiles();
+      })
+      .catch(() => {
+        showFailure();
+      })
+      .finally(() => {
+        button.dataset.pending = "";
+      });
+  });
+  part("show-all")?.addEventListener("click", () => {
+    const button = part("show-all");
+    const id = sessionId();
+    if (!id || readOnly || !(button instanceof HTMLButtonElement)) return;
+    if (button.dataset.pending === "1") return;
+    const previous = projectedKey;
+    const previousAll = projectedAll;
+    projectedAll = !previousAll;
+    projectedKey = "";
+    paintShowButton();
+    paintShowAllButton();
+    button.dataset.pending = "1";
+    const error = part("show-error");
+    if (error instanceof HTMLElement) {
+      error.hidden = true;
+      error.textContent = "";
+    }
+    const showFailure = () => {
+      projectedKey = previous;
+      projectedAll = previousAll;
+      paintShowButton();
+      paintShowAllButton();
+      if (error instanceof HTMLElement) {
+        error.hidden = false;
+        error.textContent = "Couldn't update the board.";
+      }
+    };
+    fetch(showAllUrl(id), {
+      method: "POST",
+      credentials: "same-origin",
+    })
+      .then(async (res) => {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (!res.ok || !data) {
+          showFailure();
+          return;
+        }
+        projectedAll = Boolean(data.projected_all);
+        projectedKey = "";
+        paintShowButton();
+        paintShowAllButton();
         return pollTiles();
       })
       .catch(() => {
