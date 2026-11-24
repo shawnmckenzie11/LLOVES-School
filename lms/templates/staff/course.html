@@ -677,7 +677,7 @@
 
       <div id="class-list-scrim" class="class-list-scrim" hidden aria-hidden="true"></div>
       <div class="live-shell-body">
-        <aside class="live-shell-left" id="live-shell-left" aria-hidden="true">
+        <aside class="live-shell-left" id="live-shell-left">
           <button type="button" id="class-list-toggle" class="class-list-toggle" aria-controls="class-list-body" aria-expanded="false" aria-label="Show class list" title="Show class list">Class (0)</button>
           <section id="class-list-pane" class="live-pane class-list-drawer" role="dialog" aria-modal="true" aria-labelledby="class-list-title" hidden>
             <div id="class-list-body">
@@ -801,14 +801,14 @@
                     <button type="button" id="live-add-question-btn" class="secondary live-q-btn">Add New</button>
                     <button type="button" id="live-import-mc-btn" class="secondary live-q-btn">Import from bank</button>
                     <button type="button" id="live-bank-bot-btn" class="secondary live-q-btn">Question bank</button>
-                    <button type="button" id="live-hide-key-btn" class="secondary live-q-btn live-hide-key-btn" aria-pressed="false" aria-controls="live-question-list">Hide key</button>
+                    <button type="button" id="live-hide-key-btn" class="secondary live-q-btn live-hide-key-btn" aria-pressed="false" aria-controls="live-questions-layout">Hide key</button>
                   </div>
                 </div>
                 <p id="live-group-poll-feel" class="live-group-poll-feel" hidden>
                   <span class="live-group-poll-feel-copy"></span>
                   <button type="button" id="live-group-poll-retry" hidden>Retry</button>
                 </p>
-                <div class="live-questions-layout">
+                <div class="live-questions-layout" id="live-questions-layout">
                   <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
                   <aside id="teacher-minimized-panel" class="teacher-minimized-panel" hidden aria-label="Minimized questions">
                     <h3 class="teacher-minimized-heading">Minimized</h3>

@@ -1490,17 +1490,41 @@ function adoptLifecycleChoiceTallies(tallies) {
 }
 
 /**
+ * Hosts that can show a teacher question card (main stack or minimize dock).
+ *
+ * @returns {HTMLElement[]}
+ */
+function liveQuestionCardHosts() {
+  return [$("live-question-list"), $("teacher-minimized-list")].filter(
+    (row) => row instanceof HTMLElement
+  );
+}
+
+/**
+ * One teacher question card in the main list or minimize dock.
+ *
+ * @param {number} liveItemId
+ * @returns {HTMLElement|null}
+ */
+function liveQuestionCardForItem(liveItemId) {
+  if (!liveItemId) return null;
+  const token = `.live-question-card[data-live-item-id="${liveItemId}"]`;
+  for (const host of liveQuestionCardHosts()) {
+    const card = host.querySelector(token);
+    if (card instanceof HTMLElement) return card;
+  }
+  return null;
+}
+
+/**
  * Replace or insert the bar graph on one individual card.
  *
  * The teacher highlight stays on. Close is not required.
  * @param {number} liveItemId
  */
 function paintLifecycleBarsInPlace(liveItemId) {
-  const host = $("live-question-list");
-  if (!host || !liveItemId) return;
-  const card = host.querySelector(
-    `.live-question-card[data-live-item-id="${liveItemId}"]`
-  );
+  if (!liveItemId) return;
+  const card = liveQuestionCardForItem(liveItemId);
   if (!card) return;
   const result = lifecycleResults.get(liveItemId) || {};
   const tally = result.tally;
@@ -1546,11 +1570,8 @@ function paintLifecycleBarsInPlace(liveItemId) {
  * @param {number} liveItemId
  */
 function paintLifecycleProgressInPlace(liveItemId) {
-  const host = $("live-question-list");
-  if (!host || !liveItemId) return;
-  const card = host.querySelector(
-    `.live-question-card[data-live-item-id="${liveItemId}"]`
-  );
+  if (!liveItemId) return;
+  const card = liveQuestionCardForItem(liveItemId);
   if (!card) return;
   const progress = card.querySelector(".live-question-progress");
   if (!progress) return;
@@ -1735,7 +1756,10 @@ function hideKeyOn() {
  */
 function applyHideKey() {
   const on = hideKeyOn();
+  const layout = $("live-questions-layout");
+  layout?.classList.toggle("is-key-hidden", on);
   $("live-question-list")?.classList.toggle("is-key-hidden", on);
+  $("teacher-minimized-list")?.classList.toggle("is-key-hidden", on);
   const btn = $("live-hide-key-btn");
   if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
   // MCK-155 gate MED-1: the Responses dialog follows Hide key too. Marks
@@ -11179,6 +11203,7 @@ function bindClassListToggle() {
     classListEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !classListIsOpen()) return;
+      if (document.querySelector("dialog[open]") instanceof HTMLDialogElement) return;
       setClassListOpen(false);
       event.preventDefault();
     });
@@ -14624,7 +14649,12 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
   });
 });
 
-$("live-question-list")?.addEventListener("click", async (event) => {
+/**
+ * Clicks on teacher question cards (main list and minimize dock).
+ *
+ * @param {MouseEvent} event
+ */
+async function handleLiveQuestionCardClick(event) {
   const graphControl = event.target.closest("[data-mc-order], [data-mc-key]");
   if (graphControl instanceof HTMLButtonElement) {
     event.preventDefault();
@@ -14779,7 +14809,18 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
-});
+}
+
+const liveQuestionsLayout = $("live-questions-layout");
+if (liveQuestionsLayout instanceof HTMLElement) {
+  liveQuestionsLayout.addEventListener("click", (event) => {
+    void handleLiveQuestionCardClick(event);
+  });
+} else {
+  $("live-question-list")?.addEventListener("click", (event) => {
+    void handleLiveQuestionCardClick(event);
+  });
+}
 
 {
   $("live-responses-dialog")?.addEventListener("close", () => {

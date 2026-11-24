@@ -32,6 +32,15 @@ class ClassListDrawerTests(unittest.TestCase):
             "body.staff-shell #class-list-pane .ap-att-row.has-team-color .ap-att-name",
             css,
         )
+        self.assertNotIn('id="live-shell-left" aria-hidden="true"', html)
+
+    def test_class_list_esc_yields_to_dialog(self) -> None:
+        """Esc closes the drawer only when no modal dialog is open."""
+        js = (LMS / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        esc = js.split('if (event.key !== "Escape" || !classListIsOpen()) return;')[1].split(
+            "setClassListOpen(false)"
+        )[0]
+        self.assertIn("dialog[open]", esc)
 
 
 class TeacherMinimizePanelTests(unittest.TestCase):
@@ -44,9 +53,23 @@ class TeacherMinimizePanelTests(unittest.TestCase):
         css = (LMS / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn('id="teacher-minimized-panel"', html)
         self.assertIn('id="teacher-minimized-list"', html)
+        self.assertIn('id="live-questions-layout"', html)
         self.assertIn("teacherQuestionInMinimizedPanel", js)
+        self.assertIn("handleLiveQuestionCardClick", js)
+        self.assertIn("liveQuestionsLayout.addEventListener", js)
+        self.assertIn("liveQuestionCardForItem", js)
         self.assertIn("has-teacher-minimized", css)
         self.assertIn("teacher-minimized-panel", css)
+
+    def test_hide_key_covers_minimize_dock(self) -> None:
+        """MCK-155: Hide key hides Answer chips and marks in the minimize dock too."""
+        js = (LMS / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        css = (LMS / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        apply = js.split("function applyHideKey()")[1].split("\n}\n")[0]
+        self.assertIn("live-questions-layout", apply)
+        self.assertIn("teacher-minimized-list", apply)
+        self.assertIn(".live-questions-layout.is-key-hidden", css)
+        self.assertIn(".teacher-minimized-list.is-key-hidden", css)
 
 
 class WhiteboardFilterRemovalTests(unittest.TestCase):

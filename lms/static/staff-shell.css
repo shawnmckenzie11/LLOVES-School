@@ -8050,16 +8050,26 @@ body.staff-shell .live-hide-key-btn[aria-pressed="true"] {
 body.staff-shell #live-responses-dialog.is-key-hidden input.is-key-tick {
   visibility: hidden;
 }
+body.staff-shell .live-questions-layout.is-key-hidden .live-question-key,
+body.staff-shell .live-questions-layout.is-key-hidden [data-key-mark],
 body.staff-shell .live-question-list.is-key-hidden .live-question-key,
-body.staff-shell .live-question-list.is-key-hidden [data-key-mark] {
+body.staff-shell .live-question-list.is-key-hidden [data-key-mark],
+body.staff-shell .teacher-minimized-list.is-key-hidden .live-question-key,
+body.staff-shell .teacher-minimized-list.is-key-hidden [data-key-mark] {
   display: none;
 }
+body.staff-shell .live-questions-layout.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-label,
+body.staff-shell .live-questions-layout.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-value,
 body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-label,
-body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-value {
+body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-value,
+body.staff-shell .teacher-minimized-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-label,
+body.staff-shell .teacher-minimized-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-value {
   font-weight: inherit;
   color: inherit;
 }
-body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-track > span {
+body.staff-shell .live-questions-layout.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-track > span,
+body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-track > span,
+body.staff-shell .teacher-minimized-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-track > span {
   background: #0f766e;
 }
 
