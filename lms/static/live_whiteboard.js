@@ -1335,9 +1335,92 @@ export function bindWhiteboard(canvas, opts = {}) {
     return lines;
   };
 
+  /** Size chosen for the text box that is open, including one not stored yet. */
+  let draftSize = "M";
+
   const textPxSize = (label) => textSizePx(label?.size, logicalH);
 
-  const textFont = (label) => textFontCss(label?.size, logicalH, Boolean(label?.bold));
+  /**
+   * How many backing-store pixels one logical pixel covers right now.
+   * @returns {{x: number, y: number}}
+   */
+  const boardScale = () => ({
+    x: (canvas.width || logicalW) / (logicalW || 1),
+    y: (canvas.height || logicalH) / (logicalH || 1),
+  });
+
+  /**
+   * Font size in CSS pixels, so the text box matches the canvas ink.
+   * @param {unknown} size
+   * @returns {number}
+   */
+  const cssTextPx = (size) => {
+    const logical = textSizePx(size, logicalH);
+    const rect = canvas.getBoundingClientRect();
+    if (rect && rect.height > 2 && logicalH > 0) {
+      return Math.max(8, Math.round((logical * rect.height) / logicalH));
+    }
+    return logical;
+  };
+
+  /**
+   * Paint one label in backing-store pixels.
+   *
+   * The stroke layer uses a transform. iOS keeps ``ctx.font`` in CSS pixels
+   * under that transform, so S, M, and L painted as the same default size.
+   * Text is drawn with the transform reset and a device-pixel font.
+   *
+   * @param {{size?: unknown, bold?: boolean, color?: string, script?: string}} label
+   * @param {string} body
+   * @param {number} xLogical
+   * @param {number} yLogical
+   */
+  const drawLabelBody = (label, body, xLogical, yLogical) => {
+    const scale = boardScale();
+    const px = Math.max(1, Math.round(textSizePx(label?.size, logicalH) * scale.y));
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = `${label?.bold ? "bold " : ""}${px}px sans-serif`;
+    ctx.fillStyle = label?.color || color;
+    ctx.textBaseline = "top";
+    const x = xLogical * scale.x;
+    let y = yLogical * scale.y;
+    if (label?.script === "super") y -= px * 0.45;
+    if (label?.script === "sub") y += px * 0.2;
+    const lineHeight = px * 1.35;
+    const maxWidth = (isFormative() ? formativeTextBoxLogical() : logicalW) * scale.x;
+    let row = 0;
+    for (const chunk of String(body || "").split("\n")) {
+      const lines = isFormative() ? wrapTextLines(ctx, chunk, maxWidth) : [chunk];
+      for (const line of lines) {
+        if (!line) continue;
+        ctx.fillText(line, x, y + row * lineHeight);
+        row += 1;
+      }
+    }
+    if (!isFormative() && label?.underline && body) {
+      const width = ctx.measureText(String(body)).width;
+      const lineY = y + px + scale.y;
+      ctx.beginPath();
+      ctx.moveTo(x, lineY);
+      ctx.lineTo(x + width, lineY);
+      ctx.lineWidth = Math.max(1, scale.y);
+      ctx.strokeStyle = label?.color || color;
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  /**
+   * Match the open text box to the size that will be painted.
+   * @param {unknown} size
+   */
+  const applyEditorFont = (size) => {
+    const px = cssTextPx(size);
+    editor.style.fontSize = `${px}px`;
+    editor.style.fontFamily = "sans-serif";
+    if (isFormative()) layoutFormativeEditor();
+  };
 
   /**
    * Restore own strokes, labels, and equations from one wipe snapshot.
@@ -1472,6 +1555,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     pending = [];
     selectedTextId = "";
     hideTextFormatBar();
+    hideEditor();
     if (remember && snapshot) rememberUndo("wipe", wipeId, snapshot);
     replayCommitted();
     syncButtons();
@@ -1522,20 +1606,6 @@ export function bindWhiteboard(canvas, opts = {}) {
     replayCommitted();
   };
 
-  const drawWrappedLabel = (context, body, x, y, maxWidth, fill) => {
-    const lineHeight = 16 * 1.35;
-    const hard = String(body || "").split("\n");
-    let row = 0;
-    for (const chunk of hard) {
-      const lines = isFormative() ? wrapTextLines(context, chunk, maxWidth) : [chunk];
-      for (const line of lines) {
-        if (!line) continue;
-        context.fillText(line, x, y + row * lineHeight);
-        row += 1;
-      }
-    }
-  };
-
   /**
    * Paint session labels on the committed layer.
    */
@@ -1572,36 +1642,25 @@ export function bindWhiteboard(canvas, opts = {}) {
     ctx.textBaseline = "top";
     for (const label of texts) {
       if (!label.text || label.id === editingId) continue;
-      ctx.font = textFont(label);
-      ctx.fillStyle = label.color || color;
-      let lx = label.x * logicalW;
-      let ly = label.y * logicalH;
-      if (label.script === "super") ly -= textPxSize(label) * 0.45;
-      if (label.script === "sub") ly += textPxSize(label) * 0.2;
-      if (isFormative()) {
-        drawWrappedLabel(ctx, label.text, lx, ly, formativeTextBoxLogical(), label.color || color);
-      } else {
-        ctx.fillText(label.text, lx, ly);
-        if (label.underline) {
-          const width = ctx.measureText(label.text).width;
-          const y = ly + textPxSize(label) + 1;
-          ctx.beginPath();
-          ctx.moveTo(lx, y);
-          ctx.lineTo(lx + width, y);
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = label.color || color;
-          ctx.stroke();
-        }
-      }
+      drawLabelBody(label, label.text, label.x * logicalW, label.y * logicalH);
     }
     layoutEquationNodes();
-    if (isFormative() && !editor.hidden) {
-      const left = Number(editor.dataset.nx || "0") * logicalW;
-      const top = Number(editor.dataset.ny || "0") * logicalH;
-      const draft = String(editor.value || "");
+    if (!editor.hidden) {
+      const draft = String(editor.value || "").trim();
       if (draft) {
-        ctx.fillStyle = color;
-        drawWrappedLabel(ctx, draft, left, top, formativeTextBoxLogical(), color);
+        const open = texts.find((label) => label.id === editingId);
+        drawLabelBody(
+          {
+            size: open?.size || draftSize,
+            bold: Boolean(open?.bold),
+            color: open?.color || color,
+            script: open?.script || "",
+            underline: Boolean(open?.underline),
+          },
+          draft,
+          Number(editor.dataset.nx || "0") * logicalW,
+          Number(editor.dataset.ny || "0") * logicalH
+        );
       }
     }
   };
@@ -1873,7 +1932,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       bold: Boolean(existing?.bold),
       underline: Boolean(existing?.underline),
       script: existing?.script === "super" || existing?.script === "sub" ? existing.script : "",
-      size: textSizeForStore(existing?.size),
+      size: textSizeForStore(existing?.size ?? draftSize),
     };
     if (body) {
       texts.push({
@@ -1910,6 +1969,16 @@ export function bindWhiteboard(canvas, opts = {}) {
     editor.removeAttribute("hidden");
     editor.style.left = `${nx * canvas.clientWidth}px`;
     editor.style.top = `${ny * canvas.clientHeight}px`;
+    draftSize = textSizeToken(existing?.size ?? draftSize);
+    applyEditorFont(draftSize);
+    if (existing?.id) {
+      showTextFormatBar({ ...existing, id: existing.id, size: draftSize, mine: true });
+    } else {
+      selectedTextId = "";
+      highlightSize(draftSize);
+      textFormatBar.hidden = false;
+      textFormatBar.removeAttribute("hidden");
+    }
     if (isFormative()) layoutFormativeEditor();
     lastEditorOpenAt = performance.now();
     window.setTimeout(() => {
@@ -2116,10 +2185,35 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!label) return;
     updateSelectedText({ script: label.script === "sub" ? "" : "sub" });
   });
+  /**
+   * Light the S/M/L button that matches ``token``.
+   * @param {unknown} token
+   */
+  const highlightSize = (token) => {
+    const current = textSizeToken(token);
+    for (const key of ["S", "M", "L"]) {
+      const btn = fmtSize[key];
+      const on = key === current;
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  };
   for (const token of ["S", "M", "L"]) {
-    fmtSize[token].addEventListener("click", () => {
-      const label = selectedText();
-      if (!label) return;
+    const btn = fmtSize[token];
+    btn.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
+    btn.addEventListener("click", () => {
+      draftSize = token;
+      highlightSize(token);
+      applyEditorFont(token);
+      const label =
+        selectedText() || texts.find((row) => row.id === editingId && row.mine) || null;
+      if (!label) {
+        replayCommitted();
+        return;
+      }
+      selectedTextId = label.id;
       updateSelectedText({ size: token });
     });
   }

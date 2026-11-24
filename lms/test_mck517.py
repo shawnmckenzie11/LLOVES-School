@@ -295,12 +295,203 @@ const tile = readFileSync("./lms/static/formative_live_board.js", "utf8");
 const board = readFileSync("./lms/static/live_whiteboard.js", "utf8");
 if (!show.includes("textFontCss(label && label.size")) fail("show on board drops size");
 if (!tile.includes("textFontCss(label.size")) fail("projector tile drops size");
-if (!board.includes("textFontCss(label?.size")) fail("board paint drops size");
+if (!board.includes("textSizePx(label?.size")) fail("board paint drops size");
 if (!board.includes('canvas.setPointerCapture') ) fail("drawing capture missing");
 const down = board.slice(board.indexOf('canvas.addEventListener("pointerdown"'), board.indexOf('canvas.addEventListener("pointermove"'));
 const place = down.indexOf('tool === "equation" || tool === "text"');
 const capture = down.indexOf("setPointerCapture");
 if (place < 0 || capture < 0 || place > capture) fail("text tool captures the finger");
+"""
+        proc = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+
+    def test_painted_and_stored_size_differs_across_s_m_l(self) -> None:
+        """S, M, and L paint different fonts and stay on the label through undo."""
+        script = r"""
+import { bindWhiteboard, textFontCss, textSizePx } from "./lms/static/live_whiteboard.js";
+
+function fail(message) { throw new Error(message); }
+function fontPx(font) {
+  const match = String(font || "").match(/(\d+(?:\.\d+)?)px/);
+  return match ? Number(match[1]) : 0;
+}
+
+const tile = ["S", "M", "L"].map((size) => textSizePx(size, 160));
+if (!(tile[0] < tile[1] && tile[1] < tile[2])) fail(`teacher tile sizes collapsed ${tile}`);
+const tileFonts = ["S", "M", "L"].map((size) => fontPx(textFontCss(size, 160, false)));
+if (!(tileFonts[0] < tileFonts[1] && tileFonts[1] < tileFonts[2])) {
+  fail(`teacher tile fonts collapsed ${tileFonts}`);
+}
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.Element = HTMLElement;
+
+const painted = [];
+function makeEl() {
+  const listeners = {};
+  const node = {
+    hidden: false,
+    disabled: false,
+    title: "",
+    value: "",
+    type: "",
+    textContent: "",
+    className: "",
+    style: {},
+    dataset: {},
+    children: [],
+    parentElement: null,
+    width: 720,
+    height: 360,
+    clientWidth: 320,
+    clientHeight: 160,
+    offsetLeft: 0,
+    offsetTop: 0,
+    classList: {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() { return false; },
+    },
+    appendChild(child) {
+      node.children.push(child);
+      child.parentElement = node;
+      return child;
+    },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    removeEventListener() {},
+    setAttribute(name, value) { node.dataset[name] = value; },
+    removeAttribute() {},
+    getAttribute(name) { return node.dataset[name] ?? null; },
+    querySelector() { return null; },
+    getBoundingClientRect() {
+      return { width: 320, height: 160, left: 0, top: 0, right: 320, bottom: 160 };
+    },
+    setPointerCapture() {},
+    focus() {},
+    select() {},
+    blur() { node.dispatch("blur"); },
+    getContext() {
+      const context = {
+        _font: "10px sans-serif",
+        set font(value) { this._font = value; },
+        get font() { return this._font; },
+        fillText() { painted.push(this._font); },
+        measureText() { return { width: 24 }; },
+        save() {},
+        restore() {},
+        setTransform() {},
+        clearRect() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        stroke() {},
+        fill() {},
+        arc() {},
+        setLineDash() {},
+      };
+      return context;
+    },
+    dispatch(type, props) {
+      const event = {
+        preventDefault() {},
+        stopPropagation() {},
+        target: node,
+        key: "",
+        ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+    click() { node.dispatch("click"); },
+  };
+  return node;
+}
+
+const stage = makeEl();
+const canvas = makeEl();
+Object.setPrototypeOf(stage, HTMLElement.prototype);
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+canvas.width = 720;
+canvas.height = 360;
+stage.appendChild(canvas);
+globalThis.document = {
+  addEventListener() {},
+  createElement() { return makeEl(); },
+  body: stage,
+  head: stage,
+  querySelector() { return null; },
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = (fn) => { fn(); return 1; };
+window.clearTimeout = () => {};
+window.devicePixelRatio = 2;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+globalThis.ResizeObserver = undefined;
+
+const clearBtn = makeEl();
+const undoBtn = makeEl();
+Object.setPrototypeOf(clearBtn, HTMLButtonElement.prototype);
+Object.setPrototypeOf(undoBtn, HTMLButtonElement.prototype);
+const board = bindWhiteboard(canvas, { owner: "1", clearBtn, undoBtn });
+
+function walk(node, out = []) {
+  out.push(node);
+  for (const child of node.children || []) walk(child, out);
+  return out;
+}
+function editor() {
+  return walk(stage).find((node) => String(node.className).includes("canvas-text-editor"));
+}
+function sizeButton(token) {
+  return walk(stage).find((node) => node.dataset && node.dataset.size === token);
+}
+
+board.openTextAt(0.2, 0.3);
+const box = editor();
+if (!box) fail("text box missing");
+box.value = "Hi";
+const fonts = {};
+const editorFonts = {};
+for (const token of ["S", "M", "L"]) {
+  painted.length = 0;
+  const btn = sizeButton(token);
+  if (!btn) fail(`missing ${token}`);
+  btn.click();
+  const last = painted.filter((font) => fontPx(font) > 0).pop();
+  if (!last) fail(`no paint for ${token} hidden=${box.hidden} value=${JSON.stringify(box.value)} n=${painted.length}`);
+  fonts[token] = fontPx(last);
+  editorFonts[token] = fontPx(box.style.fontSize);
+}
+if (!(fonts.S < fonts.M && fonts.M < fonts.L)) fail(`painted fonts ${JSON.stringify(fonts)}`);
+if (!(editorFonts.S < editorFonts.M && editorFonts.M < editorFonts.L)) {
+  fail(`editor fonts ${JSON.stringify(editorFonts)}`);
+}
+box.dispatch("keydown", { key: "Enter" });
+const stored = board.getInk().texts.map((label) => label.size);
+if (stored.join(",") !== "L") fail(`stored sizes ${stored}`);
+
+painted.length = 0;
+clearBtn.click();
+if (board.getInk().texts.length !== 0) fail("clear left the label");
+undoBtn.click();
+const restored = board.getInk().texts[0];
+if (!restored || restored.size !== "L") fail(`undo size ${restored && restored.size}`);
+const undone = painted.filter((font) => fontPx(font) > 0).pop();
+if (fontPx(undone) !== fonts.L) fail(`undo painted ${undone} not L ${fonts.L}`);
 """
         proc = subprocess.run(
             ["node", "--input-type=module", "-e", script],
