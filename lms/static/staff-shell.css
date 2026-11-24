@@ -3320,32 +3320,23 @@ body.staff-shell.course-live .live-shell-body {
   grid-template-columns: minmax(0, 1fr);
 }
 body.staff-shell.course-live .live-shell-left {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: visible;
-  min-width: 0;
-  max-width: none;
-  pointer-events: none;
+  display: none;
 }
-body.staff-shell.course-live .class-list-toggle {
-  pointer-events: auto;
-  position: fixed;
-  z-index: 46;
-  left: 0.65rem;
-  top: calc(var(--live-header-stack, 7.5rem) + 0.35rem);
+body.staff-shell.course-live .live-header-join .class-list-toggle {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.25rem;
   width: auto;
   min-width: 2.35rem;
-  max-width: min(7.5rem, 30vw);
-  min-height: 2.35rem;
+  max-width: min(7.5rem, 28vw);
+  min-height: var(--live-header-chip-max-h);
+  max-height: var(--live-header-chip-max-h);
   margin: 0;
-  padding: 0.35rem 0.55rem;
+  padding: 0.12rem 0.55rem;
   border: 1px solid var(--live-border, #d5dde6);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   color: #12202e;
   font-size: 0.72rem;
@@ -3353,16 +3344,8 @@ body.staff-shell.course-live .class-list-toggle {
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
-}
-body.staff-shell.course-live.class-list-collapsed .class-list-toggle::before {
-  content: "☰";
-  font-size: 1rem;
-  line-height: 1;
-}
-body.staff-shell.course-live.class-list-collapsed .class-list-toggle {
-  min-width: 2.35rem;
-  padding-inline: 0.45rem;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
 }
 body.staff-shell.course-live .class-list-scrim {
   position: fixed;
@@ -3370,6 +3353,7 @@ body.staff-shell.course-live .class-list-scrim {
   z-index: 44;
   border: 0;
   background: rgba(15, 23, 42, 0.28);
+  pointer-events: none;
 }
 body.staff-shell.course-live .class-list-scrim[hidden] {
   display: none !important;
@@ -3379,7 +3363,7 @@ body.staff-shell.course-live #class-list-pane.class-list-drawer {
   position: fixed;
   z-index: 45;
   left: 0;
-  top: var(--live-header-stack, 7.5rem);
+  top: var(--class-list-drawer-top, var(--live-header-stack, 7.5rem));
   bottom: 0.75rem;
   box-sizing: border-box;
   display: flex;
@@ -3415,13 +3399,8 @@ body.staff-shell.course-live #class-list-pane .class-list-head {
   align-items: center;
   gap: 0.35rem 0.55rem;
 }
-body.staff-shell.course-live .class-list-close {
-  margin-left: auto;
-  min-width: 2rem;
-  min-height: 2rem;
-  padding: 0.15rem 0.45rem;
-  font-size: 1.1rem;
-  line-height: 1;
+body.staff-shell.course-live #class-list-pane.class-list-drawer * {
+  pointer-events: auto;
 }
 body.staff-shell.course-live .live-questions-layout {
   display: grid;
