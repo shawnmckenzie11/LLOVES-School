@@ -1469,6 +1469,14 @@ def submit_live_board(
                     member_ids=_live_award_ids(school, item, members),
                     now=now,
                 )
+                if not group:
+                    credit = getattr(school, "_credit_participation_on_submit", None)
+                    if callable(credit):
+                        credit(
+                            int(session_id),
+                            student_id=int(student_id),
+                            prompt_id=int(prompt_id),
+                        )
             _finish_write(school, started)
         finally:
             # A committed write is not in a transaction, so this is a no-op

@@ -48,7 +48,7 @@ export const STUDENT_BOARD_FEEDBACK_LEAD = "Teacher feedback:";
 
 export function questionCardLayout(item, focusId) {
   const status = String(item?.status || "active");
-  if (status === "closed" || item?.my_response) return "is-compact";
+  if (status === "closed") return "is-compact";
   if (Number(item?.id) === Number(focusId)) return "is-open-focus";
   return "is-open-extra";
 }
