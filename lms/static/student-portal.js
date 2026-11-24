@@ -349,7 +349,7 @@ function unsentPendingNoteHtml(item) {
 }
 
 /**
- * Copy a saved answer back into the in-memory draft so a refresh keeps it typed.
+ * Copy a failed-outbox answer back into the in-memory draft for display only.
  */
 function hydrateUnsentDrafts() {
   heldUnsentRows().forEach((row) => {
@@ -360,6 +360,67 @@ function hydrateUnsentDrafts() {
     const key = `${itemId}:${row.action || "individual"}`;
     if (!liveCardDrafts.has(key)) liveCardDrafts.set(key, response);
   });
+}
+
+/**
+ * Whether this lifecycle card already has a stored individual answer.
+ * @param {any} item
+ * @returns {boolean}
+ */
+function hasStoredIndividualAnswer(item) {
+  const response = item?.my_response?.response;
+  if (!response || typeof response !== "object") return false;
+  if (String(response.kind || "") === "team_draw") return true;
+  if (Array.isArray(response.order) && response.order.length) return true;
+  const token = String(response.choice ?? response.value ?? response.text ?? "").trim();
+  return Boolean(token);
+}
+
+/**
+ * Paint in-memory drafts from server ``my_response`` only (read-only; no POST).
+ * @param {any} payload Latest ``/api/student/state`` body.
+ */
+function hydrateServerSavedAnswers(payload) {
+  if (!payload || typeof payload !== "object") return;
+  const pools = []
+    .concat(payload.active_questions || [])
+    .concat(payload.closed_results || [])
+    .concat(payload.saved_cards || []);
+  pools.forEach((item) => {
+    const itemId = Number(item?.id) || 0;
+    if (!itemId) return;
+    const response = item?.my_response?.response;
+    if (response && typeof response === "object") {
+      const mode = String(item?.response_mode || "individual");
+      const base =
+        mode === "group_consensus"
+          ? "vote"
+          : mode === "group_submit"
+            ? "group"
+            : "individual";
+      liveCardDrafts.set(`${itemId}:${base}`, response);
+    }
+    const group = item?.group_submit;
+    if (group && typeof group === "object") {
+      if (group.my_pick) {
+        liveCardDrafts.set(`${itemId}:group-pick`, { choice: String(group.my_pick) });
+      }
+      liveCardDrafts.set(`${itemId}:group`, {
+        choice: String(group.choice || group.submitted_choice || ""),
+        why: String(group.why || group.submitted_why || ""),
+      });
+    }
+    const vote = item?.group_consensus?.my_vote;
+    if (vote && typeof vote === "object") {
+      liveCardDrafts.set(`${itemId}:vote`, vote);
+    }
+  });
+  const top = payload.my_response?.response;
+  const promptId = Number(payload.prompt?.id) || 0;
+  if (top && typeof top === "object" && promptId) {
+  const itemId = itemIdForPrompt(promptId);
+    if (itemId) liveCardDrafts.set(`${itemId}:individual`, top);
+  }
 }
 
 /**
@@ -4566,6 +4627,7 @@ function paintStudentMinimizedBars(items, sessionItems) {
 
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
+  hydrateServerSavedAnswers(payload);
   hydrateUnsentDrafts();
   const grabbedCard = [...activePaneDrags].find((el) =>
     el instanceof HTMLElement && el.classList.contains("student-live-card")
@@ -4665,13 +4727,16 @@ function paintLifecycleQuestionStack(payload) {
                 : [],
               "Change answer"
             )
-          : !groupMode && !groupSubmit && ((!item.my_response && item.can_submit) || (rankKind && rankEdit))
+          : !groupMode &&
+              !groupSubmit &&
+              ((item.can_submit && !hasStoredIndividualAnswer(item)) || (rankKind && rankEdit))
             ? lifecycleAnswerControls(
                 item,
                 "individual",
                 rankEdit
                   ? item.my_response?.response
-                  : liveCardDrafts.get(`${Number(item.id)}:individual`)
+                  : liveCardDrafts.get(`${Number(item.id)}:individual`) ||
+                    item.my_response?.response
               )
             : "";
       const ownLabel = !groupMode && !groupSubmit
