@@ -735,7 +735,6 @@ export function bindWhiteboard(canvas, opts = {}) {
    */
   const dropUndo = (kind, id) => {
     undoStack = undoStack.filter((row) => row.kind !== kind || row.id !== id);
-    if (kind === "wipe") wipeSnapshots.delete(id);
   };
 
   /**
@@ -775,7 +774,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       if (row.kind === "equation" && equations.some((eq) => eq.id === row.id && eq.mine)) {
         return row;
       }
-      if (row.kind === "wipe" && wipeSnapshots.has(row.id)) {
+      if (row.kind === "wipe" && (wipeSnapshots.has(row.id) || row.snapshot)) {
         return row;
       }
     }
@@ -811,7 +810,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         opts.onEquation({ id: last.id, x: last.x, y: last.y, latex: "" });
       }
     } else if (row.kind === "wipe") {
-      const snapshot = wipeSnapshots.get(row.id);
+      const snapshot = row.snapshot || wipeSnapshots.get(row.id);
       wipeSnapshots.delete(row.id);
       if (snapshot) restoreOwnerSnapshot(snapshot);
       redoStack.push({ kind: "wipe", id: row.id, snapshot });
@@ -1649,11 +1648,11 @@ export function bindWhiteboard(canvas, opts = {}) {
     const id = editingId;
     const left = Number(editor.dataset.nx || "0");
     const top = Number(editor.dataset.ny || "0");
+    const existing = texts.find((row) => row.id === id);
     hideEditor();
     if (!id) return;
     texts = texts.filter((label) => label.id !== id);
     dropUndo("text", id);
-    const existing = texts.find((row) => row.id === id);
     const style = {
       bold: Boolean(existing?.bold),
       underline: Boolean(existing?.underline),

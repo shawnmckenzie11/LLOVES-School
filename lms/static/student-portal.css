@@ -657,6 +657,11 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
 .wb-equation-preview {
   min-height: 1.5rem;
   overflow-x: auto;
+  color: #12202e;
+}
+
+.wb-equation-preview .katex {
+  color: #12202e;
 }
 
 .wb-text-format {
