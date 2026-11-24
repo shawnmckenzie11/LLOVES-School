@@ -1,5 +1,4 @@
 {
-  "description": "URL map from main before the MCK-364 blueprint split. Each row is [rule, methods, endpoint].",
   "rows": [
     [
       "/",
@@ -948,6 +947,14 @@
         "POST"
       ],
       "api_live_session_google_slides_unpublish"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/groups/redo",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_live_session_redo_groups"
     ],
     [
       "/api/live-sessions/<int:session_id>/guests",
