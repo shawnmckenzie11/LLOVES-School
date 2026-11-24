@@ -428,6 +428,8 @@ class ResultsViewTests(unittest.TestCase):
         src = "\n".join(
             _function_source(js, name)
             for name in (
+                "liveQuestionCardHosts",
+                "liveQuestionCardForItem",
                 "lifecycleRowIsRank",
                 "adoptLifecycleResponseCounts",
                 "adoptLifecycleChoiceTallies",
@@ -438,6 +440,8 @@ class ResultsViewTests(unittest.TestCase):
         harness = r"""
 const vm = require("vm");
 const src = require("fs").readFileSync(0, "utf8");
+class HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
 class Node {
   constructor(cls, attrs, text) {
     this.className = cls;
@@ -472,6 +476,7 @@ class Node {
     this.parent.children.splice(where === "beforebegin" ? index : index + 1, 0, node);
   }
 }
+Object.setPrototypeOf(Node.prototype, HTMLElement.prototype);
 const host = new Node("live-question-list");
 const card = new Node("live-question-card", { "data-live-item-id": "7" });
 const progress = new Node("live-question-progress", {}, "0 / 4 answered");
@@ -481,6 +486,7 @@ card.parent = host;
 host.children.push(card);
 let fetched = 0;
 const ctx = {
+  HTMLElement,
   $: (id) => (id === "live-question-list" ? host : null),
   lifecycleResults: new Map([[7, { response_count: 0, eligible_count: 4, tally: {} }]]),
   lastLiveItems: [{ id: 7, response_mode: "individual", item: { type: "mc" } }],

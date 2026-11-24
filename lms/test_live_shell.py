@@ -3282,7 +3282,9 @@ class LiveShellTests(unittest.TestCase):
         paint = js.split("function paintLiveQuestionCards()")[1].split(
             "function individualLifecycleResultsHtml("
         )[0]
-        self.assertIn("writeQuestionCardsKeepingConfirms(host, cards", paint)
+        self.assertIn("writeQuestionCardsKeepingConfirms(host, mainHtml)", paint)
+        self.assertIn("writeQuestionCardsKeepingConfirms(", paint)
+        self.assertIn("dockHost", paint)
         self.assertNotIn("host.innerHTML = cards", paint)
         keep = js.split("function writeQuestionCardsKeepingConfirms(")[1].split(
             "function individualLifecycleResultsHtml("
