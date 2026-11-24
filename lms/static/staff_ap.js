@@ -6685,11 +6685,13 @@ function paintLiveQuestionCards() {
         active && groupChrome && result?.any_picking
           ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">${PICKS_COPY.moveOn}</button>`
           : "";
+      const groupMcFooter = groupChrome && liveGroupMcUsesIndividualFooter(item, card);
+      const mcCloseMinimizeFooter = !groupChrome || groupMcFooter;
       // MCK-274: projector lanes are not the open card, so the strip
       // Reveal stays. It closes the item; Score teams follows (MCK-185).
       const raceLanesShowing = false;
       const revealHtml =
-        active && groupChrome
+        active && groupChrome && !groupMcFooter
           ? raceLanesShowing
             ? moveOnHtml
             : `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
@@ -6697,11 +6699,11 @@ function paintLiveQuestionCards() {
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
       const minimizeHtml =
-        closed && liveItemId && !groupChrome
+        closed && liveItemId && mcCloseMinimizeFooter
           ? studentMinimizeButtonHtml(liveItemId, card.students_minimized)
           : "";
       const closeHtml =
-        active && liveItemId && !groupChrome
+        active && liveItemId && mcCloseMinimizeFooter
           ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
           : "";
       const resultGraph = splitMcResultsControls(resultHtml);
@@ -7706,6 +7708,18 @@ function paintQuestionResponses(responses, keepTicks) {
  */
 function liveGroupMcKeepsResponsePoints(item, card, hasAnswerKey) {
   return Boolean(hasAnswerKey) && liveQuestionIsMultipleChoice(item, card);
+}
+
+/**
+ * Group MC reuses the individual Close / Minimize footer. Group rank and
+ * consensus keep their own reveal controls.
+ *
+ * @param {any} item
+ * @param {any} card
+ * @returns {boolean}
+ */
+function liveGroupMcUsesIndividualFooter(item, card) {
+  return liveQuestionIsMultipleChoice(item, card) && !liveQuestionIsRank(item, card);
 }
 
 /**
