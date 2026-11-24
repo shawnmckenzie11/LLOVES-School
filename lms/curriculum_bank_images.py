@@ -1,18 +1,21 @@
-"""Resolve MCF3M module 5–7 bank figures to files the LMS can serve.
+"""Resolve bank figures to files the LMS can serve.
 
 Curriculum bank rows store diagrams on ``image_paths`` (and, when present,
 on stem, choice, feedback, or figure fields). The seed used to keep only
 the stem, so those diagrams never reached the teacher bank, live class,
 Lesson Slides, or catch-up.
 
-Only MCF3M modules 5, 6, and 7 get new image fields. Other courses and
-modules are left alone, including when a file happens to exist. A path
-whose bytes are not on disk and not in git history is reported and is
-not replaced with a drawn stand-in.
+Only MCF3M modules 5, 6, and 7 gain image fields in stored rows. Display
+also resolves stem and option images for MCF3M modules 6, 7, and 8 and
+for MCR3U, including the ``MCR3U-2`` section. That resolution returns a
+copy. It does not write the question, the playlist card, or a past class
+session. A path whose bytes are not on disk is reported and is not
+replaced with a drawn stand-in.
 """
 
 from __future__ import annotations
 
+import copy
 import html
 import json
 import re
@@ -20,6 +23,11 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+try:
+    from bank_image_mirror import is_remote_bank_image_url
+except ImportError:
+    from lms.bank_image_mirror import is_remote_bank_image_url
 
 _IMAGE_EXT = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"})
 _COURSE_RE = re.compile(r"[^A-Z0-9]")
@@ -47,6 +55,11 @@ _PATH_KEYS = frozenset(
 )
 #: Course/module pairs whose figure paths are copied onto question payloads.
 FIGURE_MODULES = frozenset({("MCF3M", 5), ("MCF3M", 6), ("MCF3M", 7)})
+#: MCF3M modules whose stem and option images are resolved at display time.
+_DISPLAY_MCF3M_MODULES = frozenset({6, 7, 8})
+_MODULE_TOKEN_RE = re.compile(r"(?:^|[^A-Z0-9])M(\d+)(?![0-9A-Z])")
+_STEM_HTML_KEYS = ("stem_html", "text_html")
+_STEM_URL_KEYS = ("image_url", "image_src", "image_paths", "image_urls")
 _PUBLIC_PREFIX = "/curriculum-bank-images/"
 _LMS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _LMS_DIR.parent
@@ -77,6 +90,79 @@ def serves_figure_modules(course_code: str, module_number: int) -> bool:
     except (TypeError, ValueError):
         return False
     return (course_code_token(course_code), number) in FIGURE_MODULES
+
+
+def catalogue_course_code(course_code: str) -> str:
+    """Return the Ontario course that owns this section's figures.
+
+    ``MCR3U-2`` is the second section of MCR3U. Figure files live under
+    ``MCR3U``. Any other code keeps the token used in curriculum URLs.
+
+    Args:
+        course_code: Ontario course code or a section label.
+    """
+    raw = str(course_code or "").strip().upper()
+    token = course_code_token(raw)
+    if token == "MCR3U2" or raw.startswith("MCR3U-"):
+        return "MCR3U"
+    return token
+
+
+def module_number_from_token(token: str) -> int:
+    """Return a module number from ``M6``, ``6``, or an import key.
+
+    Args:
+        token: A module label or a key such as ``cartridge:MCF3M:M6:item``.
+
+    Returns:
+        The module number, or ``0`` when the text has none.
+    """
+    text = str(token or "").strip().upper()
+    if not text:
+        return 0
+    if text.isdigit():
+        return int(text)
+    match = _MODULE_TOKEN_RE.search(text)
+    if match is None:
+        return 0
+    return int(match.group(1))
+
+
+def shows_question_images(course_code: str, module_number: int) -> bool:
+    """True when display should resolve stem and option images.
+
+    This is wider than :func:`serves_figure_modules`. MCF3M modules 6, 7,
+    and 8 qualify, as does every module of MCR3U, including the
+    ``MCR3U-2`` section. Stored rows still gain figure fields only for
+    MCF3M modules 5–7.
+
+    Args:
+        course_code: Ontario course code or a section label.
+        module_number: One-based module index.
+    """
+    try:
+        number = int(module_number)
+    except (TypeError, ValueError):
+        return False
+    code = catalogue_course_code(course_code)
+    if code == "MCR3U" and 1 <= number <= 8:
+        return True
+    return code == "MCF3M" and number in _DISPLAY_MCF3M_MODULES
+
+
+def question_images_in_scope(course_code: str, module_number: int) -> bool:
+    """True when a read should resolve images for this course and module.
+
+    Storage attachment stays on :func:`serves_figure_modules`. Display
+    also covers the modules in :func:`shows_question_images`.
+
+    Args:
+        course_code: Ontario course code or a section label.
+        module_number: One-based module index.
+    """
+    return serves_figure_modules(course_code, module_number) or shows_question_images(
+        course_code, module_number
+    )
 
 
 def _course_dir(course_code: str, cache_root: Path | None) -> Path:
@@ -345,6 +431,385 @@ def stored_figure_fields(fields: dict[str, Any]) -> dict[str, Any]:
     if isinstance(urls, list) and urls:
         stored["image_urls"] = list(urls)
     return stored
+
+
+def _image_identity(ref: str) -> str:
+    """Return a comparable identity for one image reference.
+
+    Args:
+        ref: An ``<img src>``, ``image_url``, or file path.
+    """
+    raw = html.unescape(str(ref or "")).strip()
+    raw = raw.split("?", 1)[0].split("#", 1)[0].replace("\\", "/")
+    return raw.lower()
+
+
+def _refs_from_html(fragment: str) -> list[str]:
+    """Return ``<img src>`` values from one HTML fragment, in order.
+
+    Args:
+        fragment: Stem or choice HTML.
+    """
+    return [html.unescape(match.group(1)).strip() for match in _IMG_SRC_RE.finditer(str(fragment or ""))]
+
+
+def _iter_field_refs(value: Any) -> list[str]:
+    """Return string image refs from one stem field.
+
+    Args:
+        value: A string, a list of strings, or something else.
+    """
+    found: list[str] = []
+    if isinstance(value, str):
+        token = value.strip()
+        if token:
+            found.append(token)
+        return found
+    if isinstance(value, list):
+        for item in value:
+            found.extend(_iter_field_refs(item))
+    return found
+
+
+def _choice_rows(item: dict[str, Any]) -> list[Any]:
+    """Return the choice list stored on ``choices`` or ``options``.
+
+    Args:
+        item: Question payload.
+    """
+    choices = item.get("choices")
+    if isinstance(choices, list) and choices:
+        return choices
+    options = item.get("options")
+    if isinstance(options, list):
+        return options
+    return []
+
+
+def _choice_html(choice: Any) -> str:
+    """Return the HTML of one choice.
+
+    Args:
+        choice: A choice dict or a plain string.
+    """
+    if isinstance(choice, dict):
+        return str(choice.get("html") or choice.get("text") or "")
+    return str(choice or "")
+
+
+def _resolve_display_ref(
+    course_code: str,
+    ref: str,
+    *,
+    cache_root: Path | None,
+) -> tuple[str, str]:
+    """Resolve one reference for display.
+
+    Canvas and Equatio URLs are left for :mod:`bank_image_mirror`. An
+    off-site URL is refused. A curriculum path becomes a public URL only
+    when the file is on disk.
+
+    Args:
+        course_code: Ontario course code or a section label.
+        ref: Image reference from the question.
+        cache_root: Optional curriculum root.
+
+    Returns:
+        ``(url, reason)``. ``url`` is empty when the reference is not
+        rewritten. ``reason`` is empty when nothing is wrong.
+    """
+    raw = html.unescape(str(ref or "")).strip()
+    if not raw:
+        return "", ""
+    if raw.lower().startswith(("http://", "https://", "//")):
+        if is_remote_bank_image_url(raw):
+            return "", ""
+        return "", "off-site image link refused"
+    found = resolve_curriculum_image(
+        catalogue_course_code(course_code),
+        raw,
+        cache_root=cache_root,
+    )
+    if found is not None:
+        return found[1], ""
+    if safe_curriculum_image_rel(raw) is not None or _static_file(raw) is not None:
+        return "", "image file is not on disk"
+    if _PUBLIC_PREFIX in raw or raw.startswith("cartridge/") or "nelson_assets/" in raw or "web_resources/" in raw:
+        return "", "image file is not on disk"
+    return "", ""
+
+
+def _rewrite_html_images(
+    fragment: str,
+    course_code: str,
+    *,
+    cache_root: Path | None,
+    missing: list[dict[str, str]],
+    place: str,
+    question_id: str,
+) -> str:
+    """Rewrite resolvable ``<img src>`` values in one HTML fragment.
+
+    The fragment is unchanged when no source resolves. A missing file
+    keeps its original ``src`` and is recorded in ``missing``.
+
+    Args:
+        fragment: Stem or choice HTML.
+        course_code: Ontario course code or a section label.
+        cache_root: Optional curriculum root.
+        missing: Rows appended for refs that cannot be shown.
+        place: ``stem`` or ``option N``.
+        question_id: Import key or other stable question id.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        """Resolve one ``src`` and keep the tag when it cannot be shown."""
+        src = html.unescape(match.group(1)).strip()
+        url, reason = _resolve_display_ref(course_code, src, cache_root=cache_root)
+        if reason:
+            missing.append(
+                {
+                    "question_id": question_id,
+                    "ref": src,
+                    "place": place,
+                    "reason": reason,
+                }
+            )
+        if not url or url == src:
+            return match.group(0)
+        return match.group(0).replace(match.group(1), url, 1)
+
+    return _IMG_SRC_RE.sub(replace, str(fragment or ""))
+
+
+def borrow_missing_image_fields(
+    card: dict[str, Any],
+    question: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return a copy of ``card`` filled with image fields it does not carry.
+
+    The question row is the source. The card's choice ids and choice
+    order stay. A choice gains the question's HTML only when that card
+    choice is empty and the question choice at the same index has an
+    image. Text the card already shows stays. Neither input is mutated.
+
+    Args:
+        card: Playlist card or session copy.
+        question: Saved question payload, or ``None``.
+    """
+    view = copy.deepcopy(card)
+    if not isinstance(question, dict):
+        return view
+    for key in _STEM_URL_KEYS:
+        if _iter_field_refs(view.get(key)):
+            continue
+        borrowed = question.get(key)
+        if _iter_field_refs(borrowed):
+            view[key] = copy.deepcopy(borrowed)
+    card_stem = " ".join(str(view.get(key) or "") for key in _STEM_HTML_KEYS)
+    question_stem = " ".join(str(question.get(key) or "") for key in _STEM_HTML_KEYS)
+    if not _refs_from_html(card_stem) and _refs_from_html(question_stem):
+        for key in _STEM_HTML_KEYS:
+            if _refs_from_html(str(question.get(key) or "")) and not _refs_from_html(
+                str(view.get(key) or "")
+            ):
+                view[key] = str(question.get(key) or "")
+    card_choices = view.get("choices")
+    question_choices = question.get("choices")
+    if isinstance(card_choices, list) and isinstance(question_choices, list):
+        for index, choice in enumerate(card_choices):
+            if index >= len(question_choices):
+                break
+            current = _choice_html(choice).strip()
+            if current:
+                continue
+            borrowed_html = _choice_html(question_choices[index])
+            if not _refs_from_html(borrowed_html):
+                continue
+            if isinstance(choice, dict):
+                choice["html"] = borrowed_html
+            else:
+                card_choices[index] = borrowed_html
+    card_htmls = view.get("options_html")
+    question_htmls = question.get("options_html")
+    if isinstance(card_htmls, list) and isinstance(question_htmls, list):
+        for index, fragment in enumerate(card_htmls):
+            if index >= len(question_htmls):
+                break
+            if str(fragment or "").strip():
+                continue
+            borrowed = str(question_htmls[index] or "")
+            if _refs_from_html(borrowed):
+                card_htmls[index] = borrowed
+    return view
+
+
+def describe_question_images(
+    course_code: str,
+    module_number: int,
+    item: dict[str, Any],
+    *,
+    cache_root: Path | None = None,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Return a display copy and every image that cannot be shown.
+
+    Stem images come from ``<img>`` in the stem and from ``image_url``,
+    ``image_src``, ``image_paths``, and ``image_urls``. Option images
+    come from ``<img>`` in each choice. A choice image is not promoted
+    onto the stem. Canvas and Equatio URLs are left for
+    :mod:`bank_image_mirror`. Off-site links stay refused. A missing
+    file is listed and is not replaced.
+
+    The input is not mutated. Running this on the returned copy reports
+    the same missing rows and the same URLs.
+
+    Args:
+        course_code: Ontario course code or a section label such as
+            ``MCR3U-2``.
+        module_number: One-based module index.
+        item: Question payload, playlist card, or session copy.
+        cache_root: Optional curriculum root.
+
+    Returns:
+        The display copy (the same object when this course and module
+        are out of scope) and missing-image rows. Each row has
+        ``question_id``, ``ref``, ``place``, and ``reason``.
+    """
+    if not isinstance(item, dict):
+        return {}, []
+    if not question_images_in_scope(course_code, module_number):
+        return item, []
+    question_id = str(
+        item.get("import_key") or item.get("smart_id") or item.get("id") or ""
+    ).strip()
+    view = copy.deepcopy(item)
+    missing: list[dict[str, str]] = []
+    choice_idents: set[str] = set()
+    option_urls: list[str] = []
+    choices = _choice_rows(view)
+    htmls = view.get("options_html")
+    html_list = htmls if isinstance(htmls, list) else []
+    count = max(len(choices), len(html_list))
+    for index in range(count):
+        place = f"option {index + 1}"
+        if index < len(choices):
+            choice = choices[index]
+            raw_html = _choice_html(choice)
+            for src in _refs_from_html(raw_html):
+                choice_idents.add(_image_identity(src))
+            rewritten = _rewrite_html_images(
+                raw_html,
+                course_code,
+                cache_root=cache_root,
+                missing=missing,
+                place=place,
+                question_id=question_id,
+            )
+            if isinstance(choice, dict):
+                if "html" in choice or rewritten != raw_html:
+                    choice["html"] = rewritten
+            elif index < len(choices):
+                choices[index] = rewritten
+            for src in _refs_from_html(rewritten):
+                choice_idents.add(_image_identity(src))
+        else:
+            rewritten = ""
+        if index < len(html_list):
+            raw_option = str(html_list[index] or "")
+            for src in _refs_from_html(raw_option):
+                choice_idents.add(_image_identity(src))
+            rewritten_option = _rewrite_html_images(
+                raw_option,
+                course_code,
+                cache_root=cache_root,
+                missing=missing,
+                place=place,
+                question_id=question_id,
+            )
+            html_list[index] = rewritten_option
+            if not rewritten:
+                rewritten = rewritten_option
+        srcs = _refs_from_html(rewritten)
+        option_urls.append(srcs[0] if srcs else "")
+    stem_html_idents: set[str] = set()
+    for key in _STEM_HTML_KEYS:
+        raw_stem = str(view.get(key) or "")
+        for src in _refs_from_html(raw_stem):
+            stem_html_idents.add(_image_identity(src))
+        view[key] = _rewrite_html_images(
+            raw_stem,
+            course_code,
+            cache_root=cache_root,
+            missing=missing,
+            place="stem",
+            question_id=question_id,
+        )
+        for src in _refs_from_html(str(view.get(key) or "")):
+            stem_html_idents.add(_image_identity(src))
+    gallery: list[str] = []
+    seen_gallery: set[str] = set()
+
+    def add_gallery(ref: str) -> None:
+        """Append one stem figure that the stem HTML does not already show."""
+        ident = _image_identity(ref)
+        if ident in choice_idents and ident not in stem_html_idents:
+            return
+        url, reason = _resolve_display_ref(course_code, ref, cache_root=cache_root)
+        if reason:
+            missing.append(
+                {
+                    "question_id": question_id,
+                    "ref": ref,
+                    "place": "stem",
+                    "reason": reason,
+                }
+            )
+            return
+        shown = url or (
+            ref if ref.lower().startswith(("http://", "https://", "/")) else ""
+        )
+        if not shown:
+            return
+        ident_shown = _image_identity(shown)
+        if ident in stem_html_idents or ident_shown in stem_html_idents:
+            return
+        if ident_shown in seen_gallery:
+            return
+        seen_gallery.add(ident_shown)
+        gallery.append(shown)
+
+    for key in _STEM_URL_KEYS:
+        for ref in _iter_field_refs(view.get(key)):
+            add_gallery(ref)
+    if gallery:
+        view["image_urls"] = gallery
+        view["image_url"] = gallery[0]
+    elif any(ident in choice_idents and ident not in stem_html_idents for ident in (
+        _image_identity(str(view.get("image_url") or "")),
+        _image_identity(str(view.get("image_src") or "")),
+    ) if ident):
+        view.pop("image_url", None)
+        view.pop("image_src", None)
+    if any(option_urls):
+        view["options_image_urls"] = option_urls
+    return view, _unique_missing(missing)
+
+
+def _unique_missing(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Drop duplicate missing-image rows, keeping the first of each.
+
+    Args:
+        rows: Rows from one :func:`describe_question_images` call.
+    """
+    found: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for row in rows:
+        key = (row.get("question_id", ""), row.get("ref", ""), row.get("place", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(row)
+    return found
 
 
 @lru_cache(maxsize=1)
