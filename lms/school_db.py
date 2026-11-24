@@ -1973,6 +1973,30 @@ RACE_AGREE_RESET_COPY = "The order changed. Agree again when you're ready."
 
 # MCK-155 gate MED-2: group MC flow recorded on ``item_json`` at publish.
 GROUP_MC_FLOW_KEY = "group_mc_flow"
+#: MCK-514: marker on a run's live_session_items.item_json saying its
+#: 0-point Show Your Work board was floored to 1 point at publish.
+BOARD_WORTH_FLOOR_KEY = "board_worth_floor"
+#: MCK-514: points a new Show Your Work board offers when its stored
+#: points are 0 or less. Applied once, at publish, to this run's copy.
+BOARD_WORTH_FLOOR = 1
+
+
+def _board_worth_below_floor(kind: str, body: Any) -> bool:
+    """True when an individual board poll would offer 0 points.
+
+    Args:
+        kind: Lifecycle or prompt kind.
+        body: Question JSON.
+    """
+    try:
+        from participation_weight import board_poll_worth
+    except ImportError:
+        from lms.participation_weight import board_poll_worth
+
+    worth = board_poll_worth(str(kind or ""), body)
+    return worth is not None and int(worth) <= 0
+
+
 # MCK-174: ``item_json`` marker on a reopened whiteboard, ``{start, n}``.
 WHITEBOARD_REOPEN_KEY = "reopen"
 WHITEBOARD_REOPEN_STARTS = ("last", "fresh")
@@ -22859,6 +22883,15 @@ class SchoolDB(LovesDB):
             body[rank_challenge.RACE_FLAG] = bool(saved_json[rank_challenge.RACE_FLAG])
         if isinstance(saved_json, dict) and saved_json.get(rank_challenge.RACE_CLOSED_BY):
             body[rank_challenge.RACE_CLOSED_BY] = str(saved_json[rank_challenge.RACE_CLOSED_BY])
+        # MCK-514: a board floored to 1 point at publish keeps that point
+        # when the deck refresh re-copies the catalogue's 0.
+        if (
+            isinstance(saved_json, dict)
+            and saved_json.get(BOARD_WORTH_FLOOR_KEY)
+            and _board_worth_below_floor(str(body.get("type") or ""), body)
+        ):
+            body["live_points"] = BOARD_WORTH_FLOOR
+            body[BOARD_WORTH_FLOOR_KEY] = BOARD_WORTH_FLOOR
         # MCK-174: the whiteboard reopen marker drives the student cue.
         if isinstance(saved_json, dict) and isinstance(
             saved_json.get(WHITEBOARD_REOPEN_KEY), dict
@@ -24413,6 +24446,75 @@ class SchoolDB(LovesDB):
             out.append(item)
         return out
 
+    #: MCK-514: see the module-level ``BOARD_WORTH_FLOOR``.
+    BOARD_WORTH_FLOOR = 1
+
+    @staticmethod
+    def _board_worth_needs_floor(kind: str, body: Any) -> bool:
+        """True when an individual board poll would offer 0 points.
+
+        Args:
+            kind: Lifecycle or prompt kind.
+            body: Question JSON.
+        """
+        return _board_worth_below_floor(kind, body)
+
+    def _stamp_board_worth_floor(
+        self, session_id: int, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Record 1 point on this run's copy of a 0-point Show Your Work board.
+
+        MCK-514: a finished board must read 1/1, not 1/0. Readers are not
+        changed, so boards published before this keep the numbers they
+        had. Only this session's ``live_session_items.item_json`` gets
+        ``live_points`` = 1; the bank question keeps the teacher's value.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row about to be published.
+
+        Returns:
+            The fresh row (unchanged when no floor was needed).
+        """
+        body = item.get("item") if isinstance(item.get("item"), dict) else {}
+        kind = str(item.get("kind") or body.get("type") or "")
+        if not self._board_worth_needs_floor(kind, body):
+            return item
+        question = dict(body)
+        question["live_points"] = self.BOARD_WORTH_FLOOR
+        question[BOARD_WORTH_FLOOR_KEY] = self.BOARD_WORTH_FLOOR
+        with self._lock:
+            self.conn.execute(
+                "UPDATE live_session_items SET item_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(question), _now(), int(item["id"])),
+            )
+            self.conn.commit()
+        return self.get_live_session_item(session_id, int(item["id"]))
+
+    def _stamp_prompt_board_worth_floor(self, prompt: dict[str, Any]) -> dict[str, Any]:
+        """Same floor on the linked prompt payload, which End copies.
+
+        Args:
+            prompt: Prompt linked to the board being published.
+
+        Returns:
+            The prompt with the stamped payload, or as given.
+        """
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else None
+        if payload is None or not self._board_worth_needs_floor(
+            str(prompt.get("kind") or ""), payload
+        ):
+            return prompt
+        stamped = dict(payload)
+        stamped["live_points"] = self.BOARD_WORTH_FLOOR
+        with self._lock:
+            self.conn.execute(
+                "UPDATE live_session_prompts SET payload = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(stamped), _now(), int(prompt["id"])),
+            )
+            self.conn.commit()
+        return {**prompt, "payload": stamped}
+
     @emits("item.offered", _ev_item)
     def publish_live_session_item(
         self,
@@ -24488,7 +24590,11 @@ class SchoolDB(LovesDB):
             int(item["id"]), fresh=item["status"] == "inactive"
         ):
             item = self.get_live_session_item(session_id, int(item["id"]))
+        if board_question and response_mode == "individual":
+            item = self._stamp_board_worth_floor(session_id, item)
         prompt = self._ensure_prompt_for_live_item(item)
+        if board_question and response_mode == "individual" and prompt is not None:
+            prompt = self._stamp_prompt_board_worth_floor(prompt)
         if prompt is not None and self.rank_display_order(item):
             prompt = self._sync_prompt_rank_display_order(int(item["id"]), prompt)
         stamp_sql = ""

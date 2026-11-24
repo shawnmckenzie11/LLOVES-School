@@ -2,7 +2,8 @@
 """MCK-514: Show Your Work fixes from live class.
 
 1. Submit does not minimize (dock) the student's card.
-2. A finished board reads 1/1, not 1/0, even when its points were 0.
+2. A new board set to 0 points reads 1/1, not 1/0. Boards published
+   before this change keep the numbers they had.
 3. Close on a card that is already closed repaints instead of erroring.
 4. Show on Board paints the question image under the student's marks.
 
@@ -29,7 +30,12 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from live_news_wire import log_for, reset_logs  # noqa: E402
-from participation_weight import board_poll_worth, item_participation_weight  # noqa: E402
+from participation_weight import (  # noqa: E402
+    board_poll_worth,
+    count_participation_opportunities,
+    count_student_answered_opportunities,
+    item_participation_weight,
+)
 from question_board import public_board_image_url  # noqa: E402
 
 IMAGE = "/static/bank-graphs/parabola-grid.svg"
@@ -53,22 +59,42 @@ def _stroke(stroke_id: str) -> list[dict]:
 
 
 class WorthTests(unittest.TestCase):
-    """A Show Your Work board is worth at least one point."""
+    """Report-time weights are exactly what they were before MCK-514."""
 
-    def test_zero_or_negative_points_count_as_one(self) -> None:
-        """0, -2 and 0.2 points all offer 1; 3 still offers 3."""
-        for raw in (0, "0", -2, 0.2):
-            board = {"type": "poll", "answer_with": "board", "live_points": raw}
-            self.assertEqual(board_poll_worth("poll", board), 1, raw)
-            self.assertEqual(
-                item_participation_weight("share", publish_mode="individual", item_json=board),
-                1,
-            )
+    def test_readers_keep_zero_point_boards_at_zero(self) -> None:
+        """A stored 0-point board still weighs 0 in every reader."""
+        board = {"type": "poll", "answer_with": "board", "live_points": 0}
+        self.assertEqual(board_poll_worth("poll", board), 0)
+        self.assertEqual(
+            item_participation_weight("share", publish_mode="individual", item_json=board), 0
+        )
+        deck = [
+            {
+                "question_key": "item:past",
+                "prompt_kind": "share",
+                "publish_mode": "individual",
+                "item_json": json.dumps(board),
+            }
+        ]
+        self.assertEqual(
+            count_participation_opportunities(
+                deck,
+                include_individual=True,
+                include_group=False,
+                live_answered_keys=frozenset({"item:past"}),
+            ),
+            0,
+        )
+        self.assertEqual(
+            count_student_answered_opportunities(
+                deck, {"item:past"}, include_individual=True, include_group=False
+            ),
+            0,
+        )
         self.assertEqual(
             board_poll_worth("poll", {"type": "poll", "answer_with": "board", "live_points": 3}),
             3,
         )
-        self.assertIsNone(board_poll_worth("poll", {"type": "poll", "answer_with": "text"}))
 
 
 class ShowYourWorkLiveTests(unittest.TestCase):
@@ -193,6 +219,51 @@ class ShowYourWorkLiveTests(unittest.TestCase):
                 (prompt_id, sid),
             ).fetchone()
         self.assertEqual((int(stored["worth"]), int(stored["completed"]), int(stored["delta"])), (1, 1, 0))
+
+    def _cell(self, student_id: int) -> dict:
+        """Saved participation cell for one student in M1."""
+        data = self.school.class_participation(self.class_id)
+        match = next(row for row in data["students"] if row["student_id"] == student_id)
+        return match["modules"]["M1"]
+
+    def test_new_zero_point_board_reads_one_of_one_in_the_report(self) -> None:
+        """After End, a new 0-point board counts 1 of 1 for the student who submitted."""
+        prompt_id, _item_id = self._publish_show_your_work("Report points", live_points="0")
+        sid = self.ids[0]
+        self.school.append_question_board_ops(self.session_id, prompt_id, sid, _stroke("r"))
+        self.school.submit_question_board(self.session_id, prompt_id, sid, "")
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        cell = self._cell(sid)
+        self.assertEqual((cell["answered"], cell["offered"]), (1, 1))
+        other = self._cell(self.ids[1])
+        self.assertEqual((other["answered"], other["offered"]), (0, 1))
+
+    def test_past_zero_point_board_numbers_are_unchanged(self) -> None:
+        """A board published before MCK-514 (no floor stamped) keeps its old numbers.
+
+        Old behaviour: the board offered 0, so it is outside both the
+        teacher denominator and the student's count, live and after End.
+        """
+        from unittest import mock
+
+        with mock.patch.object(type(self.school), "_board_worth_needs_floor", return_value=False):
+            prompt_id, item_id = self._publish_show_your_work("Past board", live_points="0")
+        item = self.school.get_live_session_item(self.session_id, item_id)
+        self.assertEqual(float((item.get("item") or {}).get("live_points")), 0.0)
+        sid = self.ids[0]
+        self.school.append_question_board_ops(self.session_id, prompt_id, sid, _stroke("p"))
+        self.school.submit_question_board(self.session_id, prompt_id, sid, "")
+        self.assertEqual(self._engagement(sid), "0/0")
+        with self.school._lock:
+            stored = self.school.conn.execute(
+                "SELECT worth FROM board_poll_credit WHERE prompt_id = ? AND student_id = ?",
+                (prompt_id, sid),
+            ).fetchone()
+        self.assertEqual(int(stored["worth"]), 0)
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        cell = self._cell(sid)
+        self.assertEqual((cell["answered"], cell["offered"]), (0, 0))
+        self.assertIsNone(cell["percent"])
 
     def test_submit_keeps_item_active_and_close_works_once(self) -> None:
         """Submit and Show on Board leave the item active; Close then closes it.
