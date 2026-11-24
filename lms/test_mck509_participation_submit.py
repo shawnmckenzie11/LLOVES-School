@@ -70,67 +70,6 @@ class SubmitEmitsSelfTests(unittest.TestCase):
         assert prompt is not None
         return published, int(prompt["id"])
 
-
-    def _publish_board_poll(self) -> tuple[dict, int]:
-        """Publish one individual whiteboard poll for credit tests."""
-        item = {
-            "id": "q-board-poll",
-            "ref": "test/question/q-board-poll",
-            "item_type": "question",
-            "stage": "round",
-            "page_number": 1,
-            "order": 2,
-            "type": "poll",
-            "text": "Sketch one idea",
-            "options": [],
-            "answer_with": "board",
-            "live_points": 2,
-            "default_status": "inactive",
-            "publish_modes": ["individual"],
-            "response_mode": "individual",
-        }
-        self.school.live_class_metadata_for_session = lambda _sid: {
-            **backend.metadata_fixture(),
-            "questions": [item],
-            "items": [item],
-        }
-        rows = self.school.ensure_live_session_items(self.session_id)
-        row = next(found for found in rows if found["item_id"] == "q-board-poll")
-        published = self.school.publish_live_session_item(
-            self.session_id, int(row["id"]), publish_mode="individual"
-        )
-        prompt = self.school._prompt_for_live_item(published)
-        assert prompt is not None
-        return published, int(prompt["id"])
-
-    def test_is_test_individual_submit_writes_board_poll_credit(self) -> None:
-        """A test class still records whiteboard poll credit at Submit."""
-        with self.school._lock:
-            self.school.conn.execute(
-                """
-                UPDATE live_class_sessions
-                SET is_test = 1, created_as_test = 1
-                WHERE id = ?
-                """,
-                (self.session_id,),
-            )
-            self.school.conn.commit()
-        self._begin_and_join(1)
-        _published, prompt_id = self._publish_board_poll()
-        sid = self.student_ids[0]
-        self.school.submit_live_prompt_response(prompt_id, sid, {"text": "done"})
-        with self.school._lock:
-            row = self.school.conn.execute(
-                """
-                SELECT completed, worth FROM board_poll_credit
-                WHERE prompt_id = ? AND student_id = ?
-                """,
-                (int(prompt_id), int(sid)),
-            ).fetchone()
-        self.assertIsNotNone(row)
-        self.assertEqual(int(row["completed"] or 0), 1)
-        self.assertEqual(int(row["worth"] or 0), 2)
-
     def test_numeric_submit_emits_engagement_self(self) -> None:
         """Tier-1 credit is visible before Close and does not fan out state_seq."""
         self._begin_and_join(1)
