@@ -33,12 +33,17 @@ const DOWN_LINE = "That didn't go through. Your drawing is safe, so press Submit
  * @returns {{text_id: string, text: string, x: number, y: number}}
  */
 export function questionBoardTextPost(label) {
-  return {
+  const row = {
     text_id: String(label?.id || ""),
     text: String(label?.text || ""),
     x: Number(label?.x),
     y: Number(label?.y),
   };
+  if (label?.bold) row.bold = true;
+  if (label?.underline) row.underline = true;
+  if (label?.script === "super" || label?.script === "sub") row.script = label.script;
+  if (label?.size != null) row.size = Number(label.size) || 2;
+  return row;
 }
 
 /** @type {Set<{kick: (force?: boolean) => void}>} */
@@ -110,7 +115,7 @@ function boardUrls(kind, id, token) {
 }
 
 /**
- * Student phone toolbar: Pen, Line, Text, and Undo only (MCK-504).
+ * Student phone toolbar: Pen, Line, Text, Equation, Undo, and Clear (MCK-511).
  * @returns {HTMLElement}
  */
 function toolBar() {
@@ -122,7 +127,9 @@ function toolBar() {
     '<button type="button" data-tool="pen" class="is-on" aria-pressed="true">Pen</button>',
     '<button type="button" data-tool="line" aria-pressed="false" title="Line">Line</button>',
     '<button type="button" data-tool="text" aria-pressed="false">Text</button>',
+    '<button type="button" data-tool="equation" class="wb-tool-eq" aria-pressed="false" aria-label="Equation" title="Equation">√</button>',
     '<button type="button" data-tool="undo" title="Nothing to undo" disabled>Undo</button>',
+    '<button type="button" data-tool="clear" title="Clear">Clear</button>',
   ].join("");
   return tools;
 }
@@ -425,6 +432,8 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     penBtn: tools.querySelector('[data-tool="pen"]'),
     lineBtn: tools.querySelector('[data-tool="line"]'),
     textBtn: tools.querySelector('[data-tool="text"]'),
+    equationBtn: tools.querySelector('[data-tool="equation"]'),
+    clearBtn: tools.querySelector('[data-tool="clear"]'),
     undoBtn: tools.querySelector('[data-tool="undo"]'),
     color: "#12202e",
     fixedInkColor: true,
@@ -440,6 +449,35 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     onText: (label) => {
       if (root._editingLocked) return;
       queue.push(questionBoardTextPost(label));
+      submit.disabled = false;
+    },
+    onEquation: (eq) => {
+      if (root._editingLocked) return;
+      queue.push({
+        equation_id: String(eq?.id || ""),
+        latex: String(eq?.latex || ""),
+        x: Number(eq?.x),
+        y: Number(eq?.y),
+      });
+      submit.disabled = false;
+    },
+    onWipe: (payload) => {
+      if (root._editingLocked) return;
+      queue.push({
+        op: "board_wipe",
+        wipe_id: String(payload?.wipe_id || payload?.id || ""),
+        id: String(payload?.wipe_id || payload?.id || ""),
+      });
+      submit.disabled = false;
+    },
+    onUnwipe: (payload) => {
+      if (root._editingLocked) return;
+      queue.push({
+        op: "board_unwipe",
+        unwipe_id: String(payload?.unwipe_id || payload?.id || ""),
+        id: String(payload?.unwipe_id || payload?.id || ""),
+        wipe_id: String(payload?.wipe_id || ""),
+      });
       submit.disabled = false;
     },
     onPoints: (points, ended, strokeId) => postPoints(points, ended, strokeId),

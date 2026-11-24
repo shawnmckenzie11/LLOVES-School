@@ -1,5 +1,50 @@
 import { wireFormativeWhiteboard, colorForOwner, cursorChipInkStyle } from "./whiteboard_formative.js";
 
+const KATEX_LOCAL = "/static/vendor/katex";
+const KATEX_CDN = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist";
+
+/**
+ * Load KaTeX once (same pattern as ``/static/common.js``).
+ * @returns {Promise<unknown>}
+ */
+function loadKatex() {
+  if (globalThis.katex) return Promise.resolve(globalThis.katex);
+  if (
+    typeof document === "undefined" ||
+    typeof document.querySelector !== "function" ||
+    !document.head
+  ) {
+    return Promise.resolve(null);
+  }
+  if (globalThis.__llovesKatexPromise) return globalThis.__llovesKatexPromise;
+  globalThis.__llovesKatexPromise = new Promise((resolve) => {
+    const trySrc = (base, fallback) => {
+      if (!document.querySelector('link[data-lloves-katex]')) {
+        const css = document.createElement("link");
+        css.rel = "stylesheet";
+        css.href = `${base}/katex.min.css`;
+        css.setAttribute("data-lloves-katex", "1");
+        document.head.appendChild(css);
+      }
+      const script = document.createElement("script");
+      script.src = `${base}/katex.min.js`;
+      script.async = true;
+      script.onload = () => resolve(globalThis.katex || null);
+      script.onerror = () => {
+        if (fallback) {
+          document.querySelectorAll('link[data-lloves-katex]').forEach((el) => el.remove());
+          trySrc(fallback, null);
+          return;
+        }
+        resolve(null);
+      };
+      document.head.appendChild(script);
+    };
+    trySrc(KATEX_LOCAL, KATEX_CDN);
+  });
+  return globalThis.__llovesKatexPromise;
+}
+
 /**
  * Live whiteboard: draw, undo, redo, erase, and a Text tool.
  *
@@ -10,6 +55,9 @@ import { wireFormativeWhiteboard, colorForOwner, cursorChipInkStyle } from "./wh
 
 /** How often a drawing tab flushes queued points while the pointer is down. */
 export const PRESENCE_FLUSH_MS = 80;
+
+/** Canvas font sizes for text preset 1–4. */
+const TEXT_SIZE_PX = { 1: 12, 2: 16, 3: 20, 4: 24 };
 
 /**
  * True when the board has a finished stroke or the pen is down on one.
@@ -669,10 +717,14 @@ export function bindWhiteboard(canvas, opts = {}) {
 
   /** @type {{id: string, owner: string, points: {x: number, y: number}[], color: string, mine: boolean}[]} */
   let strokes = [];
-  /** @type {{kind: "stroke"|"text", item: any}[]} */
+  /** @type {{id: string, x: number, y: number, latex: string, color: string, mine: boolean}[]} */
+  let equations = [];
+  /** @type {{kind: "stroke"|"text"|"equation"|"wipe", item?: any, id: string, snapshot?: any}[]} */
   let redoStack = [];
-  /** @type {{kind: "stroke"|"text", id: string}[]} */
+  /** @type {{kind: "stroke"|"text"|"equation"|"wipe", id: string, snapshot?: any}[]} */
   let undoStack = [];
+  /** @type {Map<string, any>} */
+  const wipeSnapshots = new Map();
   /** @type {{undo: () => boolean, canUndo: () => boolean, isShown: () => boolean, contains: (node: EventTarget | null) => boolean, mark: () => void} | null} */
   let shortcutApi = null;
 
@@ -690,9 +742,19 @@ export function bindWhiteboard(canvas, opts = {}) {
    * @param {"stroke"|"text"} kind
    * @param {string} id
    */
-  const rememberUndo = (kind, id) => {
+  /**
+   * @param {"stroke"|"text"|"equation"|"wipe"} kind
+   * @param {string} id
+   * @param {any} [snapshot]
+   */
+  const rememberUndo = (kind, id, snapshot) => {
     dropUndo(kind, id);
-    undoStack.push({ kind, id });
+    const row = { kind, id };
+    if (kind === "wipe" && snapshot) {
+      row.snapshot = snapshot;
+      wipeSnapshots.set(id, snapshot);
+    }
+    undoStack.push(row);
     redoStack = [];
   };
 
@@ -707,6 +769,12 @@ export function bindWhiteboard(canvas, opts = {}) {
         return row;
       }
       if (row.kind === "text" && texts.some((label) => label.id === row.id && label.mine)) {
+        return row;
+      }
+      if (row.kind === "equation" && equations.some((eq) => eq.id === row.id && eq.mine)) {
+        return row;
+      }
+      if (row.kind === "wipe" && (wipeSnapshots.has(row.id) || row.snapshot)) {
         return row;
       }
     }
@@ -727,12 +795,27 @@ export function bindWhiteboard(canvas, opts = {}) {
       const last = index >= 0 ? strokes.splice(index, 1)[0] : null;
       if (last) redoStack.push({ kind: "stroke", item: last });
       if (last && last.mine && collab && typeof opts.onUndo === "function") opts.onUndo(last);
-    } else {
+    } else if (row.kind === "text") {
       const index = texts.findIndex((label) => label.id === row.id && label.mine);
       const last = index >= 0 ? texts.splice(index, 1)[0] : null;
       if (last) redoStack.push({ kind: "text", item: last });
       if (last && last.mine && collab && typeof opts.onText === "function") {
         opts.onText({ id: last.id, x: last.x, y: last.y, text: "" });
+      }
+    } else if (row.kind === "equation") {
+      const index = equations.findIndex((eq) => eq.id === row.id && eq.mine);
+      const last = index >= 0 ? equations.splice(index, 1)[0] : null;
+      if (last) redoStack.push({ kind: "equation", id: last.id, item: last });
+      if (last && last.mine && collab && typeof opts.onEquation === "function") {
+        opts.onEquation({ id: last.id, x: last.x, y: last.y, latex: "" });
+      }
+    } else if (row.kind === "wipe") {
+      const snapshot = row.snapshot || wipeSnapshots.get(row.id);
+      wipeSnapshots.delete(row.id);
+      if (snapshot) restoreOwnerSnapshot(snapshot);
+      redoStack.push({ kind: "wipe", id: row.id, snapshot });
+      if (collab && typeof opts.onUnwipe === "function") {
+        opts.onUnwipe({ unwipe_id: `unwipe-${row.id}`, wipe_id: row.id });
       }
     }
     replayCommitted();
@@ -753,6 +836,19 @@ export function bindWhiteboard(canvas, opts = {}) {
       dropUndo("text", next.item.id);
       undoStack.push({ kind: "text", id: next.item.id });
       if (next.item.mine && collab && typeof opts.onText === "function") opts.onText(next.item);
+    } else if (next.kind === "equation") {
+      equations = equations.filter((eq) => eq.id !== next.item.id);
+      equations.push(next.item);
+      dropUndo("equation", next.item.id);
+      undoStack.push({ kind: "equation", id: next.item.id });
+      if (next.item.mine && collab && typeof opts.onEquation === "function") opts.onEquation(next.item);
+    } else if (next.kind === "wipe") {
+      performBoardClear(next.snapshot, next.id, false);
+      dropUndo("wipe", next.id);
+      undoStack.push({ kind: "wipe", id: next.id, snapshot: next.snapshot });
+      if (collab && typeof opts.onWipe === "function") {
+        opts.onWipe({ wipe_id: next.id, snapshot: next.snapshot });
+      }
     } else {
       const stroke = next.item;
       strokes = strokes.filter((row) => row.id !== stroke.id);
@@ -764,8 +860,11 @@ export function bindWhiteboard(canvas, opts = {}) {
     replayCommitted();
     syncButtons();
   };
-  /** @type {{id: string, x: number, y: number, text: string, color: string, mine: boolean}[]} */
+  /** @type {{id: string, x: number, y: number, text: string, color: string, mine: boolean, bold?: boolean, underline?: boolean, script?: string, size?: number}[]} */
   let texts = [];
+  let selectedTextId = "";
+  let editingEquationId = "";
+  let katexReady = loadKatex();
   /** @type {Set<string>} */
   const ownIds = new Set();
   /** @type {{x: number, y: number}[]} */
@@ -820,6 +919,59 @@ export function bindWhiteboard(canvas, opts = {}) {
     editor.wrap = "soft";
   }
   if (stage) stage.appendChild(editor);
+
+  const eqLayer = document.createElement("div");
+  eqLayer.className = "wb-equation-layer";
+  eqLayer.setAttribute("aria-hidden", "true");
+  if (stage) stage.appendChild(eqLayer);
+
+  const eqEditor = document.createElement("div");
+  eqEditor.className = "wb-equation-editor";
+  eqEditor.hidden = true;
+  const eqInput = document.createElement("input");
+  eqInput.type = "text";
+  eqInput.className = "wb-equation-input";
+  eqInput.setAttribute("aria-label", "Equation");
+  eqInput.maxLength = 240;
+  const eqPreview = document.createElement("div");
+  eqPreview.className = "wb-equation-preview";
+  eqEditor.appendChild(eqInput);
+  eqEditor.appendChild(eqPreview);
+  if (stage) stage.appendChild(eqEditor);
+
+  const textFormatBar = document.createElement("div");
+  textFormatBar.className = "wb-text-format";
+  textFormatBar.hidden = true;
+  textFormatBar.setAttribute("role", "toolbar");
+  textFormatBar.setAttribute("aria-label", "Text formatting");
+  const fmtBold = document.createElement("button");
+  fmtBold.type = "button";
+  fmtBold.textContent = "B";
+  fmtBold.title = "Bold";
+  const fmtUnderline = document.createElement("button");
+  fmtUnderline.type = "button";
+  fmtUnderline.textContent = "U";
+  fmtUnderline.title = "Underline";
+  const fmtSuper = document.createElement("button");
+  fmtSuper.type = "button";
+  fmtSuper.textContent = "x²";
+  fmtSuper.title = "Superscript";
+  const fmtSub = document.createElement("button");
+  fmtSub.type = "button";
+  fmtSub.textContent = "x₂";
+  fmtSub.title = "Subscript";
+  const fmtSizeDown = document.createElement("button");
+  fmtSizeDown.type = "button";
+  fmtSizeDown.textContent = "−";
+  fmtSizeDown.title = "Text size";
+  const fmtSizeUp = document.createElement("button");
+  fmtSizeUp.type = "button";
+  fmtSizeUp.textContent = "+";
+  fmtSizeUp.title = "Text size";
+  for (const btn of [fmtBold, fmtUnderline, fmtSuper, fmtSub, fmtSizeDown, fmtSizeUp]) {
+    textFormatBar.appendChild(btn);
+  }
+  if (stage) stage.appendChild(textFormatBar);
 
   /**
    * Current writer token for stroke ids.
@@ -974,6 +1126,189 @@ export function bindWhiteboard(canvas, opts = {}) {
     return lines;
   };
 
+  const textPxSize = (label) => TEXT_SIZE_PX[Number(label?.size) || 2] || 16;
+
+  const textFont = (label) => {
+    const px = textPxSize(label);
+    return `${label?.bold ? "bold " : ""}${px}px sans-serif`;
+  };
+
+  /**
+   * Restore own strokes, labels, and equations from one wipe snapshot.
+   * @param {{strokes?: any[], texts?: any[], equations?: any[]}} snapshot
+   */
+  const restoreOwnerSnapshot = (snapshot) => {
+    const rows = Array.isArray(snapshot?.strokes) ? snapshot.strokes : [];
+    for (const raw of rows) {
+      const id = String(raw?.id || "");
+      if (!id) continue;
+      const points = remotePoints(raw);
+      if (!points.length) continue;
+      strokes.push({
+        id,
+        owner: String(raw.owner || ownerNow()),
+        points,
+        color: String(raw.color || color),
+        mine: true,
+      });
+      ownIds.add(id);
+    }
+    const labels = Array.isArray(snapshot?.texts) ? snapshot.texts : [];
+    for (const raw of labels) {
+      const id = String(raw?.id || "");
+      const body = String(raw?.text || "").trim();
+      if (!id || !body) continue;
+      texts.push({
+        id,
+        x: Number(raw.x),
+        y: Number(raw.y),
+        text: body,
+        color: String(raw.color || color),
+        mine: true,
+        bold: Boolean(raw.bold),
+        underline: Boolean(raw.underline),
+        script: raw.script === "super" || raw.script === "sub" ? raw.script : "",
+        size: Number(raw.size) || 2,
+      });
+      ownIds.add(id);
+    }
+    const eqs = Array.isArray(snapshot?.equations) ? snapshot.equations : [];
+    for (const raw of eqs) {
+      const id = String(raw?.id || "");
+      const latex = String(raw?.latex || "").trim();
+      if (!id || !latex) continue;
+      equations.push({
+        id,
+        x: Number(raw.x),
+        y: Number(raw.y),
+        latex,
+        color: String(raw.color || color),
+        mine: true,
+      });
+      ownIds.add(id);
+    }
+  };
+
+  /**
+   * Serialize own ink before one wipe (local undo only).
+   * @returns {{strokes: any[], texts: any[], equations: any[]}}
+   */
+  const ownInkSnapshot = () => {
+    const strokeRows = [];
+    for (const stroke of strokes) {
+      if (!stroke.mine) continue;
+      strokeRows.push({
+        id: stroke.id,
+        owner: stroke.owner || ownerNow(),
+        color: stroke.color || color,
+        points: stroke.points.map((p) => [
+          logicalW ? p.x / logicalW : 0,
+          logicalH ? p.y / logicalH : 0,
+        ]),
+      });
+    }
+    const textRows = [];
+    for (const label of texts) {
+      if (!label.mine || !label.text) continue;
+      const row = {
+        id: label.id,
+        owner: ownerNow(),
+        color: label.color || color,
+        x: label.x,
+        y: label.y,
+        text: label.text,
+      };
+      if (label.bold) row.bold = true;
+      if (label.underline) row.underline = true;
+      if (label.script === "super" || label.script === "sub") row.script = label.script;
+      row.size = Number(label.size) || 2;
+      textRows.push(row);
+    }
+    const equationRows = [];
+    for (const eq of equations) {
+      if (!eq.mine || !eq.latex) continue;
+      equationRows.push({
+        id: eq.id,
+        owner: ownerNow(),
+        color: eq.color || color,
+        x: eq.x,
+        y: eq.y,
+        latex: eq.latex,
+      });
+    }
+    return { strokes: strokeRows, texts: textRows, equations: equationRows };
+  };
+
+  /**
+   * Clear all own ink and optionally remember one wipe undo.
+   * @param {any} snapshot
+   * @param {string} wipeId
+   * @param {boolean} remember
+   */
+  const performBoardClear = (snapshot, wipeId, remember) => {
+    const mineStroke = new Set(strokes.filter((s) => s.mine).map((s) => s.id));
+    strokes = strokes.filter((s) => !s.mine);
+    const mineText = new Set(texts.filter((t) => t.mine).map((t) => t.id));
+    texts = texts.filter((t) => !t.mine);
+    const mineEq = new Set(equations.filter((e) => e.mine).map((e) => e.id));
+    equations = equations.filter((e) => !e.mine);
+    for (const id of mineStroke) ownIds.delete(id);
+    for (const id of mineText) ownIds.delete(id);
+    for (const id of mineEq) ownIds.delete(id);
+    undoStack = undoStack.filter(
+      (row) =>
+        (row.kind === "wipe" && row.id === wipeId) ||
+        (row.kind === "stroke" && !mineStroke.has(row.id)) ||
+        (row.kind === "text" && !mineText.has(row.id)) ||
+        (row.kind === "equation" && !mineEq.has(row.id))
+    );
+    current = [];
+    pending = [];
+    selectedTextId = "";
+    hideTextFormatBar();
+    if (remember && snapshot) rememberUndo("wipe", wipeId, snapshot);
+    replayCommitted();
+    syncButtons();
+  };
+
+  const hideTextFormatBar = () => {
+    selectedTextId = "";
+    textFormatBar.hidden = true;
+    textFormatBar.setAttribute("hidden", "");
+  };
+
+  const showTextFormatBar = (label) => {
+    if (!(label && label.mine)) {
+      hideTextFormatBar();
+      return;
+    }
+    selectedTextId = label.id;
+    textFormatBar.hidden = false;
+    textFormatBar.removeAttribute("hidden");
+    fmtBold.classList.toggle("is-on", Boolean(label.bold));
+    fmtUnderline.classList.toggle("is-on", Boolean(label.underline));
+    fmtSuper.classList.toggle("is-on", label.script === "super");
+    fmtSub.classList.toggle("is-on", label.script === "sub");
+  };
+
+  const selectedText = () => texts.find((label) => label.id === selectedTextId && label.mine) || null;
+
+  const pushSelectedText = () => {
+    const label = selectedText();
+    if (!label || typeof opts.onText !== "function") return;
+    opts.onText({
+      id: label.id,
+      x: label.x,
+      y: label.y,
+      text: label.text,
+      bold: Boolean(label.bold),
+      underline: Boolean(label.underline),
+      script: label.script === "super" || label.script === "sub" ? label.script : "",
+      size: Number(label.size) || 2,
+    });
+    replayCommitted();
+  };
+
   const drawWrappedLabel = (context, body, x, y, maxWidth, fill) => {
     const lineHeight = 16 * 1.35;
     const hard = String(body || "").split("\n");
@@ -991,25 +1326,62 @@ export function bindWhiteboard(canvas, opts = {}) {
   /**
    * Paint session labels on the committed layer.
    */
+  const layoutEquationNodes = () => {
+    eqLayer.innerHTML = "";
+    const box = canvas.getBoundingClientRect();
+    for (const eq of equations) {
+      if (!eq.latex || eq.id === editingEquationId) continue;
+      const node = document.createElement("div");
+      node.className = "wb-equation-node";
+      node.style.left = `${eq.x * box.width}px`;
+      node.style.top = `${eq.y * box.height}px`;
+      node.dataset.id = eq.id;
+      eqLayer.appendChild(node);
+      void katexReady.then((katex) => {
+        if (!(katex && typeof katex.render === "function")) {
+          node.textContent = eq.latex;
+          return;
+        }
+        try {
+          katex.render(eq.latex, node, { throwOnError: false, displayMode: false });
+        } catch {
+          node.textContent = eq.latex;
+        }
+      });
+    }
+    eqLayer.style.left = `${canvas.offsetLeft}px`;
+    eqLayer.style.top = `${canvas.offsetTop}px`;
+    eqLayer.style.width = `${box.width}px`;
+    eqLayer.style.height = `${box.height}px`;
+  };
+
   const drawTexts = () => {
-    ctx.font = "16px sans-serif";
     ctx.textBaseline = "top";
     for (const label of texts) {
       if (!label.text || label.id === editingId) continue;
+      ctx.font = textFont(label);
       ctx.fillStyle = label.color || color;
+      let lx = label.x * logicalW;
+      let ly = label.y * logicalH;
+      if (label.script === "super") ly -= textPxSize(label) * 0.45;
+      if (label.script === "sub") ly += textPxSize(label) * 0.2;
       if (isFormative()) {
-        drawWrappedLabel(
-          ctx,
-          label.text,
-          label.x * logicalW,
-          label.y * logicalH,
-          formativeTextBoxLogical(),
-          label.color || color
-        );
+        drawWrappedLabel(ctx, label.text, lx, ly, formativeTextBoxLogical(), label.color || color);
       } else {
-        ctx.fillText(label.text, label.x * logicalW, label.y * logicalH);
+        ctx.fillText(label.text, lx, ly);
+        if (label.underline) {
+          const width = ctx.measureText(label.text).width;
+          const y = ly + textPxSize(label) + 1;
+          ctx.beginPath();
+          ctx.moveTo(lx, y);
+          ctx.lineTo(lx + width, y);
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = label.color || color;
+          ctx.stroke();
+        }
       }
     }
+    layoutEquationNodes();
     if (isFormative() && !editor.hidden) {
       const left = Number(editor.dataset.nx || "0") * logicalW;
       const top = Number(editor.dataset.ny || "0") * logicalH;
@@ -1186,6 +1558,10 @@ export function bindWhiteboard(canvas, opts = {}) {
 
   const syncButtons = () => {
     const frozen = editingLocked;
+    const hasOwnInk =
+      strokes.some((s) => s.mine) ||
+      texts.some((t) => t.mine) ||
+      equations.some((e) => e.mine);
     const canUndo = !frozen && Boolean(undoTarget());
     if (opts.undoBtn instanceof HTMLButtonElement) {
       opts.undoBtn.disabled = !canUndo;
@@ -1195,6 +1571,8 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = frozen || !strokes.length;
     if (frozen && opts.penBtn instanceof HTMLButtonElement) opts.penBtn.disabled = true;
     if (frozen && opts.textBtn instanceof HTMLButtonElement) opts.textBtn.disabled = true;
+    if (frozen && opts.equationBtn instanceof HTMLButtonElement) opts.equationBtn.disabled = true;
+    if (frozen && opts.clearBtn instanceof HTMLButtonElement) opts.clearBtn.disabled = true;
     if (typeof opts.onInkChange === "function") {
       opts.onInkChange(boardHasStroke(strokes.length, current.length));
     }
@@ -1210,6 +1588,14 @@ export function bindWhiteboard(canvas, opts = {}) {
       opts.lineBtn.setAttribute("aria-pressed", tool === "line" ? "true" : "false");
       opts.lineBtn.classList.toggle("is-on", tool === "line");
       opts.lineBtn.disabled = frozen;
+    }
+    if (opts.equationBtn instanceof HTMLButtonElement) {
+      opts.equationBtn.setAttribute("aria-pressed", tool === "equation" ? "true" : "false");
+      opts.equationBtn.classList.toggle("is-on", tool === "equation");
+      opts.equationBtn.disabled = frozen;
+    }
+    if (opts.clearBtn instanceof HTMLButtonElement) {
+      opts.clearBtn.disabled = frozen || !hasOwnInk;
     }
   };
 
@@ -1262,10 +1648,17 @@ export function bindWhiteboard(canvas, opts = {}) {
     const id = editingId;
     const left = Number(editor.dataset.nx || "0");
     const top = Number(editor.dataset.ny || "0");
+    const existing = texts.find((row) => row.id === id);
     hideEditor();
     if (!id) return;
     texts = texts.filter((label) => label.id !== id);
     dropUndo("text", id);
+    const style = {
+      bold: Boolean(existing?.bold),
+      underline: Boolean(existing?.underline),
+      script: existing?.script === "super" || existing?.script === "sub" ? existing.script : "",
+      size: Number(existing?.size) || 2,
+    };
     if (body) {
       texts.push({
         id,
@@ -1274,13 +1667,14 @@ export function bindWhiteboard(canvas, opts = {}) {
         text: body,
         color: strokeColor(ownerNow()),
         mine: true,
+        ...style,
       });
       ownIds.add(id);
       rememberUndo("text", id);
     }
     replayCommitted();
     if (typeof opts.onText === "function") {
-      opts.onText({ id, x: left, y: top, text: body });
+      opts.onText({ id, x: left, y: top, text: body, ...style });
     }
   };
 
@@ -1322,10 +1716,148 @@ export function bindWhiteboard(canvas, opts = {}) {
       if (!label.mine) continue;
       const lx = label.x * logicalW;
       const ly = label.y * logicalH;
-      if (Math.abs(px - lx) < 80 && py >= ly - 4 && py <= ly + 22) return label;
+      const tall = textPxSize(label) + 8;
+      if (Math.abs(px - lx) < 120 && py >= ly - 4 && py <= ly + tall) return label;
     }
     return null;
   };
+
+  const hideEqEditor = () => {
+    eqEditor.hidden = true;
+    eqEditor.setAttribute("hidden", "");
+    eqInput.value = "";
+    eqPreview.textContent = "";
+    editingEquationId = "";
+  };
+
+  const commitEqEditor = () => {
+    if (eqEditor.hidden) return;
+    const body = eqInput.value.trim();
+    const id = editingEquationId || `eq-${Date.now()}`;
+    const left = Number(eqEditor.dataset.nx || "0");
+    const top = Number(eqEditor.dataset.ny || "0");
+    hideEqEditor();
+    if (!body) {
+      equations = equations.filter((eq) => eq.id !== id);
+      if (typeof opts.onEquation === "function") opts.onEquation({ id, x: left, y: top, latex: "" });
+      replayCommitted();
+      return;
+    }
+    equations = equations.filter((eq) => eq.id !== id);
+    const row = {
+      id,
+      x: left,
+      y: top,
+      latex: body,
+      color: strokeColor(ownerNow()),
+      mine: true,
+    };
+    equations.push(row);
+    ownIds.add(id);
+    rememberUndo("equation", id);
+    replayCommitted();
+    if (typeof opts.onEquation === "function") opts.onEquation(row);
+  };
+
+  const openEqEditor = (nx, ny, existing) => {
+    if (!(stage instanceof HTMLElement)) return;
+    editingEquationId = existing?.id || `eq-${Date.now()}`;
+    eqInput.value = existing?.latex || "";
+    eqEditor.dataset.nx = String(nx);
+    eqEditor.dataset.ny = String(ny);
+    eqEditor.hidden = false;
+    eqEditor.removeAttribute("hidden");
+    eqEditor.style.left = `${nx * canvas.clientWidth}px`;
+    eqEditor.style.top = `${ny * canvas.clientHeight}px`;
+    void katexReady.then((katex) => {
+      const latex = eqInput.value.trim();
+      if (!latex) {
+        eqPreview.textContent = "";
+        return;
+      }
+      if (katex && typeof katex.render === "function") {
+        try {
+          katex.render(latex, eqPreview, { throwOnError: false, displayMode: false });
+          return;
+        } catch {
+          /* plain text */
+        }
+      }
+      eqPreview.textContent = latex;
+    });
+    window.setTimeout(() => eqInput.focus(), 0);
+  };
+
+  eqInput.addEventListener("input", () => {
+    const latex = eqInput.value.trim();
+    void katexReady.then((katex) => {
+      if (!latex) {
+        eqPreview.textContent = "";
+        return;
+      }
+      if (katex && typeof katex.render === "function") {
+        try {
+          katex.render(latex, eqPreview, { throwOnError: false, displayMode: false });
+          return;
+        } catch {
+          /* plain */
+        }
+      }
+      eqPreview.textContent = latex;
+    });
+  });
+  eqInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitEqEditor();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      hideEqEditor();
+    }
+  });
+  eqInput.addEventListener("blur", () => {
+    window.setTimeout(() => commitEqEditor(), 0);
+  });
+
+  const updateSelectedText = (patch) => {
+    const label = selectedText();
+    if (!label) return;
+    Object.assign(label, patch);
+    showTextFormatBar(label);
+    pushSelectedText();
+  };
+  fmtBold.addEventListener("click", () => {
+    const label = selectedText();
+    if (!label) return;
+    updateSelectedText({ bold: !label.bold });
+  });
+  fmtUnderline.addEventListener("click", () => {
+    const label = selectedText();
+    if (!label) return;
+    updateSelectedText({ underline: !label.underline });
+  });
+  fmtSuper.addEventListener("click", () => {
+    const label = selectedText();
+    if (!label) return;
+    updateSelectedText({ script: label.script === "super" ? "" : "super" });
+  });
+  fmtSub.addEventListener("click", () => {
+    const label = selectedText();
+    if (!label) return;
+    updateSelectedText({ script: label.script === "sub" ? "" : "sub" });
+  });
+  fmtSizeDown.addEventListener("click", () => {
+    const label = selectedText();
+    if (!label) return;
+    const next = Math.max(1, (Number(label.size) || 2) - 1);
+    updateSelectedText({ size: next });
+  });
+  fmtSizeUp.addEventListener("click", () => {
+    const label = selectedText();
+    if (!label) return;
+    const next = Math.min(4, (Number(label.size) || 2) + 1);
+    updateSelectedText({ size: next });
+  });
 
   /**
    * True when two logical points are the same ink sample.
@@ -1430,6 +1962,10 @@ export function bindWhiteboard(canvas, opts = {}) {
         y: Number(label.y),
         text: String(label.text || ""),
         color: String(label.color || color),
+        bold: Boolean(label.bold),
+        underline: Boolean(label.underline),
+        script: label.script === "super" || label.script === "sub" ? label.script : "",
+        size: Number(label.size) || 2,
         mine:
           Boolean(label.mine) ||
           String(label.owner || "") === ownerNow() ||
@@ -1442,6 +1978,32 @@ export function bindWhiteboard(canvas, opts = {}) {
     const nextSig = next.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
     if (prevSig === nextSig) return false;
     texts = next;
+    return true;
+  };
+
+  /**
+   * @param {any} view
+   * @returns {boolean}
+   */
+  const applyEquations = (view) => {
+    if (editingEquationId || !Array.isArray(view?.equations)) return false;
+    const next = view.equations
+      .map((eq) => ({
+        id: String(eq.id || ""),
+        x: Number(eq.x),
+        y: Number(eq.y),
+        latex: String(eq.latex || ""),
+        color: String(eq.color || color),
+        mine:
+          Boolean(eq.mine) ||
+          String(eq.owner || "") === ownerNow() ||
+          ownIds.has(String(eq.id || "")),
+      }))
+      .filter((eq) => eq.id && eq.latex && Number.isFinite(eq.x) && Number.isFinite(eq.y));
+    const prevSig = equations.map((eq) => `${eq.id}|${eq.latex}|${eq.x}|${eq.y}`).join("\n");
+    const nextSig = next.map((eq) => `${eq.id}|${eq.latex}|${eq.x}|${eq.y}`).join("\n");
+    if (prevSig === nextSig) return false;
+    equations = next;
     return true;
   };
 
@@ -1511,10 +2073,20 @@ commitEditor();
   canvas.addEventListener("pointerdown", (event) => {
     shortcutApi?.mark();
     if (editingLocked || !enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
+    if (tool === "equation") {
+      event.preventDefault();
+      const p = norm(point(event));
+      hideTextFormatBar();
+      if (!eqEditor.hidden) commitEqEditor();
+      openEqEditor(p.x, p.y, null);
+      return;
+    }
     if (tool === "text") {
       event.preventDefault();
       const p = norm(point(event));
       const hit = hitText(p.x, p.y);
+      if (hit) showTextFormatBar(hit);
+      else hideTextFormatBar();
       const next = { nx: hit ? hit.x : p.x, ny: hit ? hit.y : p.y, hit };
       if (!editor.hidden) {
         if (performance.now() - lastEditorOpenAt < 200) return;
@@ -1662,6 +2234,8 @@ commitEditor();
     if (editingLocked) return;
     tool = "draw";
     if (!editor.hidden) commitEditor();
+    hideEqEditor();
+    hideTextFormatBar();
     canvas.style.cursor = "crosshair";
     syncButtons();
   });
@@ -1669,6 +2243,8 @@ commitEditor();
     if (editingLocked) return;
     tool = "line";
     if (!editor.hidden) commitEditor();
+    hideEqEditor();
+    hideTextFormatBar();
     canvas.style.cursor = "crosshair";
     syncButtons();
   });
@@ -1694,9 +2270,34 @@ commitEditor();
   opts.textBtn?.addEventListener("click", () => {
     if (editingLocked) return;
     tool = tool === "text" ? "draw" : "text";
-    if (tool !== "text") commitEditor();
+    if (tool !== "text") {
+      commitEditor();
+      hideTextFormatBar();
+    }
+    hideEqEditor();
     canvas.style.cursor = tool === "text" ? "text" : "crosshair";
     syncButtons();
+  });
+  opts.equationBtn?.addEventListener("click", () => {
+    if (editingLocked) return;
+    tool = tool === "equation" ? "draw" : "equation";
+    if (tool !== "equation") hideEqEditor();
+    commitEditor();
+    hideTextFormatBar();
+    canvas.style.cursor = tool === "equation" ? "crosshair" : "crosshair";
+    syncButtons();
+  });
+  opts.clearBtn?.addEventListener("click", () => {
+    if (editingLocked) return;
+    const snapshot = ownInkSnapshot();
+  const hasInk =
+      snapshot.strokes.length || snapshot.texts.length || snapshot.equations.length;
+    if (!hasInk) return;
+    const wipeId = makeStrokeId(ownerNow());
+    performBoardClear(snapshot, wipeId, true);
+    if (typeof opts.onWipe === "function") {
+      opts.onWipe({ wipe_id: wipeId, snapshot });
+    }
   });
 
   if (typeof ResizeObserver === "function") {
@@ -1757,8 +2358,51 @@ commitEditor();
               y: Number(op.y),
               text: body,
               color: String(op.color || color),
+              bold: Boolean(op.bold),
+              underline: Boolean(op.underline),
+              script: op.script === "super" || op.script === "sub" ? op.script : "",
+              size: Number(op.size) || 2,
               mine: Boolean(op.mine) || String(op.owner || "") === ownerNow(),
             });
+          }
+          structural = true;
+        }
+        continue;
+      }
+      if (type === "equation_upsert") {
+        if (!editingEquationId) {
+          const latex = String(op.latex || "").trim();
+          equations = equations.filter((eq) => eq.id !== id);
+          if (latex && id) {
+            equations.push({
+              id,
+              x: Number(op.x),
+              y: Number(op.y),
+              latex,
+              color: String(op.color || color),
+              mine: Boolean(op.mine) || String(op.owner || "") === ownerNow(),
+            });
+          }
+          structural = true;
+        }
+        continue;
+      }
+      if (type === "board_wipe") {
+        const who = String(op.owner || "");
+        if (!who || who === ownerNow()) {
+          performBoardClear(null, String(op.id || ""), false);
+          structural = true;
+        }
+        continue;
+      }
+      if (type === "board_unwipe") {
+        const who = String(op.owner || "");
+        const wid = String(op.wipe_id || "");
+        if (who === ownerNow()) {
+          const snap = wid && wipeSnapshots.get(wid);
+          if (snap) {
+            restoreOwnerSnapshot(snap);
+            wipeSnapshots.delete(wid);
           }
           structural = true;
         }
@@ -1845,15 +2489,17 @@ commitEditor();
       strokeId = "";
       tool = "draw";
       boardApi.closeTextEntry();
+      hideEqEditor();
+      hideTextFormatBar();
       canvas.style.cursor = "default";
       syncButtons();
     },
     clear: () => {
       if (editingLocked) return;
-      strokes = [];
+      strokes = strokes.filter((s) => !s.mine);
+      texts = texts.filter((t) => !t.mine);
+      equations = equations.filter((e) => !e.mine);
       redoStack = [];
-      undoStack = [];
-      texts = [];
       current = [];
       pending = [];
       replayCommitted();
@@ -1871,11 +2517,13 @@ commitEditor();
       strokes = [];
       redoStack = [];
       texts = [];
+      equations = [];
       current = [];
       pending = [];
       drawing = false;
       ownIds.clear();
       appliedOpKeys.clear();
+      wipeSnapshots.clear();
       const incoming = view && typeof view === "object" ? view : {};
       const remote = Array.isArray(incoming.strokes) ? incoming.strokes : [];
       for (const stroke of remote) {
@@ -1893,6 +2541,7 @@ commitEditor();
         });
       }
       applyTexts({ texts: incoming.texts });
+      applyEquations({ equations: incoming.equations });
       undoStack = [];
       redoStack = [];
       for (const stroke of strokes) {
@@ -1904,6 +2553,11 @@ commitEditor();
         if (!label.mine) continue;
         ownIds.add(label.id);
         undoStack.push({ kind: "text", id: label.id });
+      }
+      for (const eq of equations) {
+        if (!eq.mine) continue;
+        ownIds.add(eq.id);
+        undoStack.push({ kind: "equation", id: eq.id });
       }
       paintCursors(incoming.cursors || []);
       replayCommitted();
@@ -1928,8 +2582,9 @@ commitEditor();
     importRemote: (view, options = {}) => {
       if (options.collab != null) collab = Boolean(options.collab);
       const textChanged = applyTexts(view);
+      const eqChanged = applyEquations(view);
       paintCursors(view?.cursors);
-      let structural = textChanged;
+      let structural = textChanged || eqChanged;
       if (collab && Array.isArray(view?.strokes)) {
         structural = mergeRemoteStrokes(view.strokes) || structural;
       }
@@ -1944,6 +2599,7 @@ commitEditor();
     getInk: () => ({
       strokes: strokes.map((s) => ({ ...s, points: s.points.slice() })),
       texts: texts.map((t) => ({ ...t })),
+      equations: equations.map((e) => ({ ...e })),
     }),
     openTextAt: (nx, ny, existing = null) => {
       tool = "text";

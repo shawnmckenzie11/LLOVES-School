@@ -37,6 +37,10 @@ MAX_POINTS = 360
 MAX_CURSORS = 40
 MAX_TEXTS = 40
 MAX_TEXT_LEN = 240
+MAX_EQUATIONS = 40
+MAX_LATEX_LEN = 240
+TEXT_SIZE_MIN = 1
+TEXT_SIZE_MAX = 4
 # One POST cannot carry more samples than a stroke is allowed to keep.
 MAX_PRESENCE_BATCH = MAX_POINTS
 
@@ -47,7 +51,7 @@ def default_canvas_sync() -> dict[str, Any]:
     Strokes and cursors stay on the live session. ``texts`` is the
     whiteboard Text tool, also kept only for this session.
     """
-    return {"strokes": {"teacher": [], "teams": {}}, "cursors": {}, "texts": []}
+    return {"strokes": {"teacher": [], "teams": {}}, "cursors": {}, "texts": [], "equations": []}
 
 
 def normalize_canvas_align(raw: Any) -> str:
@@ -192,8 +196,17 @@ def public_canvas_sync(raw: Any) -> dict[str, Any]:
             solos[str(key)] = bucket
     if solos:
         base["strokes"]["solos"] = solos
+    equations: list[dict[str, Any]] = []
+    raw_equations = raw.get("equations") if isinstance(raw.get("equations"), list) else []
+    for item in raw_equations:
+        cleaned_eq = _clean_equation(item)
+        if cleaned_eq is not None:
+            equations.append(cleaned_eq)
+        if len(equations) >= MAX_EQUATIONS:
+            break
     base["cursors"] = cursors
     base["texts"] = texts
+    base["equations"] = equations
     return base
 
 
@@ -220,7 +233,7 @@ def _clean_text(raw: Any) -> dict[str, Any] | None:
         team_n = int(team_id) if team_id not in (None, "") else None
     except (TypeError, ValueError):
         team_n = None
-    return {
+    row = {
         "id": text_id[:80],
         "owner": owner,
         "name": str(raw.get("name") or owner).strip() or owner,
@@ -229,6 +242,50 @@ def _clean_text(raw: Any) -> dict[str, Any] | None:
         "y": point[1],
         "team_id": team_n,
         "text": text[:MAX_TEXT_LEN],
+    }
+    if bool(raw.get("bold")):
+        row["bold"] = True
+    if bool(raw.get("underline")):
+        row["underline"] = True
+    script = str(raw.get("script") or "").strip().lower()
+    if script in {"super", "sub"}:
+        row["script"] = script
+    try:
+        size = int(raw.get("size") or 2)
+    except (TypeError, ValueError):
+        size = 2
+    row["size"] = max(TEXT_SIZE_MIN, min(TEXT_SIZE_MAX, size))
+    return row
+
+
+def _clean_equation(raw: Any) -> dict[str, Any] | None:
+    """Keep one whiteboard equation in normalized coordinates."""
+    if not isinstance(raw, dict):
+        return None
+    latex = str(raw.get("latex") or "").replace("\r", "").strip()
+    if not latex:
+        return None
+    point = _clean_point([raw.get("x"), raw.get("y")])
+    if point is None:
+        return None
+    eq_id = str(raw.get("id") or "").strip()
+    if not eq_id:
+        return None
+    owner = str(raw.get("owner") or "").strip() or "teacher"
+    team_id = raw.get("team_id")
+    try:
+        team_n = int(team_id) if team_id not in (None, "") else None
+    except (TypeError, ValueError):
+        team_n = None
+    return {
+        "id": eq_id[:80],
+        "owner": owner,
+        "name": str(raw.get("name") or owner).strip() or owner,
+        "color": str(raw.get("color") or "").strip() or cursor_color_for(owner),
+        "x": point[0],
+        "y": point[1],
+        "team_id": team_n,
+        "latex": latex[:MAX_LATEX_LEN],
     }
 
 
@@ -312,6 +369,19 @@ def apply_canvas_text(
             )
     blob["texts"] = kept[:MAX_TEXTS]
     return public_canvas_sync(blob)
+
+
+def _mark_equation_ownership(
+    rows: list[dict[str, Any]], viewer: str | None
+) -> list[dict[str, Any]]:
+    """Copy equation rows and flag the ones this viewer may edit."""
+    owner = str(viewer or "").strip()
+    marked: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["mine"] = bool(owner) and str(item.get("owner") or "") == owner
+        marked.append(item)
+    return marked
 
 
 def _mark_text_ownership(
@@ -482,11 +552,17 @@ def canvas_view_for(
     blob = public_canvas_sync(stored)
     mode = normalize_canvas_align(align)
     texts = list(blob.get("texts") or [])
+    equations = list(blob.get("equations") or [])
     teacher_strokes = list(blob["strokes"].get("teacher") or [])
     if mode == "student":
         own = [
             row
             for row in texts
+            if viewer and str(row.get("owner") or "") == str(viewer)
+        ]
+        own_equations = [
+            row
+            for row in equations
             if viewer and str(row.get("owner") or "") == str(viewer)
         ]
         solos = blob["strokes"].get("solos") if isinstance(blob["strokes"].get("solos"), dict) else {}
@@ -495,14 +571,17 @@ def canvas_view_for(
             "strokes": own_strokes,
             "cursors": [],
             "texts": _mark_text_ownership(own, viewer),
+            "equations": _mark_equation_ownership(own_equations, viewer),
         }
     if mode == "teacher":
         teacher_cursor = blob["cursors"].get("teacher")
         own = [row for row in texts if str(row.get("owner") or "") == "teacher"]
+        own_equations = [row for row in equations if str(row.get("owner") or "") == "teacher"]
         return {
             "strokes": teacher_strokes,
             "cursors": [teacher_cursor] if teacher_cursor else [],
             "texts": _mark_text_ownership(own, viewer or "teacher"),
+            "equations": _mark_equation_ownership(own_equations, viewer or "teacher"),
         }
     strokes: list[dict[str, Any]] = []
     cursors: list[dict[str, Any]] = []
@@ -537,8 +616,22 @@ def canvas_view_for(
             for row in texts
             if row.get("team_id") == 0 or row.get("owner") == "teacher"
         ]
+    visible_equations = list(equations)
+    if not include_all_teams and team_id is not None:
+        visible_equations = [
+            row
+            for row in equations
+            if row.get("team_id") == int(team_id) or row.get("owner") == "teacher"
+        ]
+    elif not include_all_teams:
+        visible_equations = [
+            row
+            for row in equations
+            if row.get("team_id") in (None, "", 0) or row.get("owner") == "teacher"
+        ]
     return {
         "strokes": strokes,
         "cursors": cursors,
         "texts": _mark_text_ownership(visible_texts, viewer),
+        "equations": _mark_equation_ownership(visible_equations, viewer),
     }

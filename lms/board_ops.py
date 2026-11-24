@@ -13,6 +13,7 @@ lock and ignores a duplicate-table race so four workers can boot together.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -35,6 +36,8 @@ from live_canvas import (
 MAX_DELTA_OPS = 200
 # One write cannot carry an unbounded op list.
 MAX_OPS_PER_BATCH = 32
+MAX_EQUATIONS = 40
+MAX_LATEX_LEN = 240
 # Stable lock id for board_ops DDL. Not a presence-table lock.
 _BOARD_DDL_LOCK = 87421301
 _BOARD_KEY = re.compile(
@@ -49,6 +52,9 @@ _OP_TYPES = frozenset(
         "stroke_end",
         "stroke_remove",
         "text_upsert",
+        "equation_upsert",
+        "board_wipe",
+        "board_unwipe",
         "feedback_release",
     }
 )
@@ -322,7 +328,7 @@ def fold_to_public_blob(rows: list[dict[str, Any]]) -> dict[str, Any]:
         grouped.setdefault(key, []).append(row)
     for key, items in grouped.items():
         items.sort(key=lambda item: int(item.get("board_seq") or 0))
-        strokes, texts, cursors = _fold_board(items)
+        strokes, texts, equations, cursors = _fold_board(items)
         if key == "teacher":
             blob["strokes"]["teacher"].extend(strokes)
         elif key == "shared" or key.startswith("team:"):
@@ -333,6 +339,8 @@ def fold_to_public_blob(rows: list[dict[str, Any]]) -> dict[str, Any]:
             solos = blob["strokes"].setdefault("solos", {})
             solos.setdefault(key, []).extend(strokes)
         blob["texts"].extend(texts)
+        if equations:
+            blob.setdefault("equations", []).extend(equations)
         for owner, cursor in cursors.items():
             blob["cursors"][owner] = cursor
     return blob
@@ -352,10 +360,13 @@ def fold_one_board(
         ``{strokes, texts}`` in the shape the whiteboard paints.
     """
     ordered = sorted(rows, key=lambda item: int(item.get("board_seq") or 0))
-    strokes, texts, _cursors = _fold_board(
+    strokes, texts, equations, _cursors = _fold_board(
         ordered, include_feedback=include_feedback
     )
-    return {"strokes": strokes, "texts": texts}
+    view = {"strokes": strokes, "texts": texts}
+    if equations:
+        view["equations"] = equations
+    return view
 
 
 def feedback_released(rows: list[dict[str, Any]]) -> bool:
@@ -375,12 +386,209 @@ def feedback_released(rows: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _text_style_fields(op: dict[str, Any]) -> dict[str, Any]:
+    """Normalize optional text-format fields from a ``text_upsert`` op."""
+    style: dict[str, Any] = {}
+    if bool(op.get("bold")):
+        style["bold"] = True
+    if bool(op.get("underline")):
+        style["underline"] = True
+    script = str(op.get("script") or "").strip().lower()
+    if script in {"super", "sub"}:
+        style["script"] = script
+    try:
+        size = int(op.get("size") or 2)
+    except (TypeError, ValueError):
+        size = 2
+    style["size"] = max(1, min(4, size))
+    return style
+
+
+def _board_wipe_owner(exec_: Exec, run_key: str, board_key: str, wipe_id: str) -> str | None:
+    """Return the owner recorded on one ``board_wipe`` op, if present."""
+    cursor = exec_(
+        """
+        SELECT op, owner FROM board_ops
+        WHERE run_key = ? AND board_key = ? AND stroke_id = ?
+        ORDER BY board_seq DESC
+        LIMIT 4
+        """,
+        (run_key, board_key, wipe_id),
+    )
+    for row in cursor.fetchall():
+        item = _row_dict(row)
+        op = _loads(item.get("op"))
+        if (
+            isinstance(op, dict)
+            and str(op.get("type") or "") == "board_wipe"
+            and str(op.get("id") or "") == wipe_id
+        ):
+            return str(item.get("owner") or op.get("owner") or "").strip() or None
+    cursor = exec_(
+        """
+        SELECT op FROM board_ops
+        WHERE run_key = ? AND board_key = ?
+        ORDER BY board_seq
+        """,
+        (run_key, board_key),
+    )
+    for row in cursor.fetchall():
+        op = _loads(_row_dict(row).get("op"))
+        if (
+            isinstance(op, dict)
+            and str(op.get("type") or "") == "board_wipe"
+            and str(op.get("id") or "") == wipe_id
+        ):
+            return str(op.get("owner") or "").strip() or None
+    return None
+
+
+def _unwipe_for_wipe_exists(exec_: Exec, run_key: str, board_key: str, wipe_id: str) -> bool:
+    """True when an unwipe already cancelled this wipe."""
+    cursor = exec_(
+        """
+        SELECT op FROM board_ops
+        WHERE run_key = ? AND board_key = ?
+        ORDER BY board_seq
+        """,
+        (run_key, board_key),
+    )
+    for row in cursor.fetchall():
+        op = _loads(_row_dict(row).get("op"))
+        if (
+            isinstance(op, dict)
+            and str(op.get("type") or "") == "board_unwipe"
+            and str(op.get("wipe_id") or "") == wipe_id
+        ):
+            return True
+    return False
+
+
+def _assert_unwipe_allowed(
+    exec_: Exec, run_key: str, board_key: str, owner: str, wipe_id: str
+) -> None:
+    """Reject an unwipe that cannot safely cancel one wipe."""
+    wipe_owner = _board_wipe_owner(exec_, run_key, board_key, wipe_id)
+    if not wipe_owner:
+        raise BoardOpRejected("wipe undo target is missing")
+    if wipe_owner != owner:
+        raise BoardOpRejected("wipe undo target belongs to another writer")
+    if _unwipe_for_wipe_exists(exec_, run_key, board_key, wipe_id):
+        raise BoardOpRejected("wipe was already undone")
+
+
+def _wipe_owner_ink(
+    strokes: dict[str, dict[str, Any]],
+    order: list[str],
+    texts: dict[str, dict[str, Any]],
+    text_order: list[str],
+    equations: dict[str, dict[str, Any]],
+    equation_order: list[str],
+    owner: str,
+) -> None:
+    """Remove every stroke, text, and equation owned by ``owner``."""
+    who = str(owner or "").strip()
+    if not who:
+        return
+    drop_strokes = [sid for sid, row in strokes.items() if str(row.get("owner") or "") == who]
+    for sid in drop_strokes:
+        strokes.pop(sid, None)
+    order[:] = [sid for sid in order if sid in strokes]
+    drop_texts = [sid for sid, row in texts.items() if str(row.get("owner") or "") == who]
+    for sid in drop_texts:
+        texts.pop(sid, None)
+    text_order[:] = [sid for sid in text_order if sid in texts]
+    drop_eq = [sid for sid, row in equations.items() if str(row.get("owner") or "") == who]
+    for sid in drop_eq:
+        equations.pop(sid, None)
+    equation_order[:] = [sid for sid in equation_order if sid in equations]
+
+
+def _capture_owner_ink(
+    strokes: dict[str, dict[str, Any]],
+    order: list[str],
+    texts: dict[str, dict[str, Any]],
+    text_order: list[str],
+    equations: dict[str, dict[str, Any]],
+    equation_order: list[str],
+    owner: str,
+) -> dict[str, Any]:
+    """Copy strokes, texts, and equations owned by ``owner`` before one wipe."""
+    who = str(owner or "").strip()
+    stroke_rows: list[dict[str, Any]] = []
+    for sid in order:
+        row = strokes.get(sid)
+        if not row or str(row.get("owner") or "") != who:
+            continue
+        stroke_rows.append(copy.deepcopy(row))
+    text_rows: list[dict[str, Any]] = []
+    for sid in text_order:
+        row = texts.get(sid)
+        if not row or str(row.get("owner") or "") != who:
+            continue
+        text_rows.append(copy.deepcopy(row))
+    equation_rows: list[dict[str, Any]] = []
+    for sid in equation_order:
+        row = equations.get(sid)
+        if not row or str(row.get("owner") or "") != who:
+            continue
+        equation_rows.append(copy.deepcopy(row))
+    return {"strokes": stroke_rows, "texts": text_rows, "equations": equation_rows}
+
+
+def _restore_captured_ink(
+    strokes: dict[str, dict[str, Any]],
+    order: list[str],
+    texts: dict[str, dict[str, Any]],
+    text_order: list[str],
+    equations: dict[str, dict[str, Any]],
+    equation_order: list[str],
+    snapshot: dict[str, Any],
+    owner: str,
+) -> None:
+    """Put one owner's ink back from a server-captured wipe archive."""
+    who = str(owner or "").strip()
+    if not who:
+        return
+    for raw in snapshot.get("strokes") if isinstance(snapshot.get("strokes"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("id") or "").strip()[:80]
+        if not sid or sid in strokes:
+            continue
+        points = _batch_points(raw.get("points"))
+        if not points:
+            continue
+        strokes[sid] = {
+            "id": sid,
+            "owner": who,
+            "team_id": raw.get("team_id"),
+            "color": str(raw.get("color") or "").strip() or cursor_color_for(who),
+            "points": points[:MAX_POINTS],
+        }
+        order.append(sid)
+    for raw in snapshot.get("texts") if isinstance(snapshot.get("texts"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("id") or "").strip()[:80]
+        if not sid or sid in texts:
+            continue
+        _fold_text(texts, text_order, {**raw, "type": "text_upsert", "owner": who})
+    for raw in snapshot.get("equations") if isinstance(snapshot.get("equations"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("id") or "").strip()[:80]
+        if not sid or sid in equations:
+            continue
+        _fold_equation(equations, equation_order, {**raw, "type": "equation_upsert", "owner": who})
+
+
 def _fold_board(
     items: list[dict[str, Any]],
     *,
     include_feedback: bool | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Replay one board's ops into strokes, texts, and cursors.
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Replay one board's ops into strokes, texts, equations, and cursors.
 
     Args:
         items: Rows for a single ``board_key``, oldest sequence first.
@@ -388,7 +596,7 @@ def _fold_board(
             None keeps it only after ``feedback_release``.
 
     Returns:
-        Stroke list, text list, and cursors keyed by owner.
+        Stroke list, text list, equation list, and cursors keyed by owner.
     """
     show_feedback = (
         feedback_released(items) if include_feedback is None else bool(include_feedback)
@@ -397,7 +605,11 @@ def _fold_board(
     order: list[str] = []
     texts: dict[str, dict[str, Any]] = {}
     text_order: list[str] = []
+    equations: dict[str, dict[str, Any]] = {}
+    equation_order: list[str] = []
     cursors: dict[str, dict[str, Any]] = {}
+    wipe_archives: dict[str, dict[str, Any]] = {}
+    undone_wipes: set[str] = set()
     for row in items:
         op = _loads(row.get("op"))
         if op is None:
@@ -409,6 +621,30 @@ def _fold_board(
         _note_cursor(cursors, op, str(row.get("owner") or ""))
         kind = str(op.get("type") or "")
         sid = str(op.get("id") or "")
+        who = str(op.get("owner") or row.get("owner") or "").strip()
+        if kind == "board_wipe":
+            wid = str(sid or "").strip()
+            if wid:
+                wipe_archives[wid] = _capture_owner_ink(
+                    strokes, order, texts, text_order, equations, equation_order, who
+                )
+            _wipe_owner_ink(strokes, order, texts, text_order, equations, equation_order, who)
+            continue
+        if kind == "board_unwipe":
+            wid = str(op.get("wipe_id") or "").strip()
+            if wid and wid in wipe_archives and wid not in undone_wipes:
+                _restore_captured_ink(
+                    strokes,
+                    order,
+                    texts,
+                    text_order,
+                    equations,
+                    equation_order,
+                    wipe_archives[wid],
+                    who,
+                )
+                undone_wipes.add(wid)
+            continue
         if kind == "stroke_remove":
             if sid in strokes:
                 del strokes[sid]
@@ -417,12 +653,16 @@ def _fold_board(
         if kind == "text_upsert":
             _fold_text(texts, text_order, op)
             continue
+        if kind == "equation_upsert":
+            _fold_equation(equations, equation_order, op)
+            continue
         if kind not in {"stroke_add", "pts_append", "stroke_end"} or not sid:
             continue
         _fold_stroke(strokes, order, op, sid)
     painted = [strokes[sid] for sid in order if sid in strokes and strokes[sid]["points"]]
     labels = [texts[sid] for sid in text_order if sid in texts]
-    return painted, labels, cursors
+    eqs = [equations[sid] for sid in equation_order if sid in equations]
+    return painted, labels, eqs, cursors
 
 
 def _note_cursor(cursors: dict[str, dict[str, Any]], op: dict[str, Any], owner: str) -> None:
@@ -484,7 +724,7 @@ def _fold_text(
     except (TypeError, ValueError):
         team_n = None
     owner = str(op.get("owner") or "").strip() or "teacher"
-    texts[sid] = {
+    row = {
         "id": sid[:80],
         "owner": owner,
         "name": str(op.get("name") or owner).strip() or owner,
@@ -493,6 +733,50 @@ def _fold_text(
         "y": point[1],
         "team_id": team_n,
         "text": body[:240],
+    }
+    row.update(_text_style_fields(op))
+    texts[sid] = row
+
+
+def _fold_equation(
+    equations: dict[str, dict[str, Any]],
+    order: list[str],
+    op: dict[str, Any],
+) -> None:
+    """Insert, replace, or delete one equation object.
+
+    Args:
+        equations: Id to equation, mutated.
+        order: First-seen ids, mutated.
+        op: ``equation_upsert`` object. Empty ``latex`` deletes.
+    """
+    sid = str(op.get("id") or "").strip()
+    if not sid:
+        return
+    latex = str(op.get("latex") or "").strip()
+    if not latex:
+        equations.pop(sid, None)
+        return
+    point = _clean_point([op.get("x"), op.get("y")])
+    if point is None:
+        return
+    if sid not in equations:
+        order.append(sid)
+    team_id = op.get("team_id")
+    try:
+        team_n = int(team_id) if team_id not in (None, "") else None
+    except (TypeError, ValueError):
+        team_n = None
+    owner = str(op.get("owner") or "").strip() or "teacher"
+    equations[sid] = {
+        "id": sid[:80],
+        "owner": owner,
+        "name": str(op.get("name") or owner).strip() or owner,
+        "color": str(op.get("color") or "").strip() or cursor_color_for(owner),
+        "x": point[0],
+        "y": point[1],
+        "team_id": team_n,
+        "latex": latex[:MAX_LATEX_LEN],
     }
 
 
@@ -609,6 +893,28 @@ def _stroke_state(exec_: Exec, run_key: str, board_key: str, stroke_id: str) -> 
     }
 
 
+def _equation_owner(exec_: Exec, run_key: str, board_key: str, equation_id: str) -> str | None:
+    """Return the current owner of an equation object, if one is still visible."""
+    cursor = exec_(
+        """
+        SELECT op, owner FROM board_ops
+        WHERE run_key = ? AND board_key = ? AND stroke_id = ?
+        ORDER BY board_seq ASC
+        """,
+        (_run_key(run_key), board_key, equation_id),
+    )
+    owner = ""
+    alive = False
+    for row in cursor.fetchall():
+        item = _row_dict(row)
+        op = _loads(item.get("op"))
+        if not isinstance(op, dict) or str(op.get("type") or "") != "equation_upsert":
+            continue
+        owner = str(item.get("owner") or op.get("owner") or owner)
+        alive = bool(str(op.get("latex") or "").strip())
+    return owner if alive else None
+
+
 def _text_owner(exec_: Exec, run_key: str, board_key: str, text_id: str) -> str | None:
     """Return the current owner of a text label, if one is still visible.
 
@@ -710,6 +1016,114 @@ class _BoardStore:
 
         return self._run(work, run_key, key, who, client_batch_id)
 
+    def append_equation(
+        self,
+        run_key: str,
+        board_key: str,
+        *,
+        owner: str,
+        name: str,
+        equation_id: str,
+        latex: str,
+        x: Any,
+        y: Any,
+        color: str | None,
+        team_id: int | None,
+        client_batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append one ``equation_upsert``. Another owner's equation is left as-is."""
+        key = normalize_board_key(board_key)
+        who = str(owner or "").strip() or "teacher"
+        sid = str(equation_id or "").strip()[:80]
+
+        def work(exec_: Exec) -> dict[str, Any]:
+            ops: list[dict[str, Any]] = []
+            if sid:
+                current = _equation_owner(exec_, _run_key(run_key), key, sid)
+                if current is None or current == who:
+                    ops = [
+                        {
+                            "type": "equation_upsert",
+                            "id": sid,
+                            "owner": who,
+                            "name": str(name or who).strip() or who,
+                            "latex": str(latex or ""),
+                            "x": x,
+                            "y": y,
+                            "color": (color or "").strip() or cursor_color_for(who),
+                            "team_id": team_id,
+                        }
+                    ]
+            return self._insert_ops(
+                exec_,
+                _run_key(run_key),
+                key,
+                who,
+                ops,
+                client_batch_id,
+            )
+
+        return self._run(work, run_key, key, who, client_batch_id)
+
+    def append_wipe(
+        self,
+        run_key: str,
+        board_key: str,
+        *,
+        owner: str,
+        wipe_id: str,
+        client_batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ``board_wipe`` for one owner on this board."""
+        key = normalize_board_key(board_key)
+        who = str(owner or "").strip() or "teacher"
+        wid = str(wipe_id or "").strip()[:80] or f"wipe-{who}"
+        op = {"type": "board_wipe", "id": wid, "owner": who}
+
+        def work(exec_: Exec) -> dict[str, Any]:
+            return self._insert_ops(
+                exec_,
+                _run_key(run_key),
+                key,
+                who,
+                [op],
+                client_batch_id,
+            )
+
+        return self._run(work, run_key, key, who, client_batch_id)
+
+    def append_unwipe(
+        self,
+        run_key: str,
+        board_key: str,
+        *,
+        owner: str,
+        unwipe_id: str,
+        wipe_id: str,
+        client_batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ``board_unwipe`` that cancels one prior ``board_wipe`` by id."""
+        key = normalize_board_key(board_key)
+        who = str(owner or "").strip() or "teacher"
+        uid = str(unwipe_id or "").strip()[:80] or f"unwipe-{who}"
+        wid = str(wipe_id or "").strip()[:80]
+        if not wid:
+            raise BoardOpRejected("wipe undo needs a wipe id")
+        op = {"type": "board_unwipe", "id": uid, "owner": who, "wipe_id": wid}
+
+        def work(exec_: Exec) -> dict[str, Any]:
+            _assert_unwipe_allowed(exec_, _run_key(run_key), key, who, wid)
+            return self._insert_ops(
+                exec_,
+                _run_key(run_key),
+                key,
+                who,
+                [op],
+                client_batch_id,
+            )
+
+        return self._run(work, run_key, key, who, client_batch_id)
+
     def append_text(
         self,
         run_key: str,
@@ -724,6 +1138,10 @@ class _BoardStore:
         color: str | None,
         team_id: int | None,
         client_batch_id: str | None = None,
+        bold: bool | None = None,
+        underline: bool | None = None,
+        script: str | None = None,
+        size: int | None = None,
     ) -> dict[str, Any]:
         """Append one ``text_upsert``. Another owner's label is left as-is.
 
@@ -754,19 +1172,28 @@ class _BoardStore:
                 if current is not None and current != who:
                     ops = []
                 else:
-                    ops = [
-                        {
-                            "type": "text_upsert",
-                            "id": sid,
-                            "owner": who,
-                            "name": str(name or who).strip() or who,
-                            "text": str(text or ""),
-                            "x": x,
-                            "y": y,
-                            "color": (color or "").strip() or cursor_color_for(who),
-                            "team_id": team_id,
-                        }
-                    ]
+                    text_op: dict[str, Any] = {
+                        "type": "text_upsert",
+                        "id": sid,
+                        "owner": who,
+                        "name": str(name or who).strip() or who,
+                        "text": str(text or ""),
+                        "x": x,
+                        "y": y,
+                        "color": (color or "").strip() or cursor_color_for(who),
+                        "team_id": team_id,
+                    }
+                    text_op.update(
+                        _text_style_fields(
+                            {
+                                "bold": bold,
+                                "underline": underline,
+                                "script": script,
+                                "size": size,
+                            }
+                        )
+                    )
+                    ops = [text_op]
             return self._insert_ops(
                 exec_,
                 _run_key(run_key),
@@ -1748,6 +2175,23 @@ class _BoardStore:
                 )
                 continue
             layer = "feedback" if owner == "teacher" and str(raw.get("layer") or "") == "feedback" else ""
+            if kind == "board_wipe":
+                prepared.append({"type": "board_wipe", "id": sid, "owner": owner})
+                continue
+            if kind == "board_unwipe":
+                wipe_id = str(raw.get("wipe_id") or "").strip()[:80]
+                if not wipe_id:
+                    raise BoardOpRejected("wipe undo needs a wipe id")
+                _assert_unwipe_allowed(exec_, run_key, board_key, owner, wipe_id)
+                prepared.append(
+                    {
+                        "type": "board_unwipe",
+                        "id": sid,
+                        "owner": owner,
+                        "wipe_id": wipe_id,
+                    }
+                )
+                continue
             if kind == "text_upsert":
                 current = _text_owner(exec_, run_key, board_key, sid)
                 if current is not None and current != owner:
@@ -1763,9 +2207,29 @@ class _BoardStore:
                     "color": str(raw.get("color") or "") or cursor_color_for(owner),
                     "team_id": raw.get("team_id"),
                 }
+                text_op.update(_text_style_fields(raw))
                 if layer:
                     text_op["layer"] = layer
                 prepared.append(text_op)
+                continue
+            if kind == "equation_upsert":
+                current = _equation_owner(exec_, run_key, board_key, sid)
+                if current is not None and current != owner:
+                    continue
+                eq_op = {
+                    "type": "equation_upsert",
+                    "id": sid,
+                    "owner": owner,
+                    "name": str(raw.get("name") or owner),
+                    "latex": str(raw.get("latex") or ""),
+                    "x": raw.get("x"),
+                    "y": raw.get("y"),
+                    "color": str(raw.get("color") or "") or cursor_color_for(owner),
+                    "team_id": raw.get("team_id"),
+                }
+                if layer:
+                    eq_op["layer"] = layer
+                prepared.append(eq_op)
                 continue
             state = _stroke_state(exec_, run_key, board_key, sid)
             if state is not None and state.get("alive") and str(state.get("owner") or "") != owner:
