@@ -798,16 +798,16 @@ console.log(JSON.stringify(posted));
         self.assertIn('data-tab="slides"', tabs)
         self.assertNotIn('data-tab="canvas"', tabs)
 
-    def test_editor_answer_with_is_only_marked_up_for_polls(self) -> None:
-        """The Answer with control is in the editor markup."""
+    def test_editor_show_your_work_type_chips(self) -> None:
+        """Poll and Show Your Work are separate type chips (MCK-512)."""
         html = (LMS_DIR / "templates" / "partials" / "question_editor.html").read_text(
             encoding="utf-8"
         )
-        self.assertIn('name="live-add-q-answer-with"', html)
-        self.assertIn("Typing and whiteboard", html)
+        self.assertIn('name="live-add-q-type" value="show_your_work"', html)
         self.assertIn("Use image as the board background", html)
+        self.assertNotIn('name="live-add-q-answer-with"', html)
         js = (LMS_DIR / "static" / "question_editor.js").read_text(encoding="utf-8")
-        self.assertIn('kind !== "poll"', js)
+        self.assertIn("SHOW_YOUR_WORK_PICKER", js)
 
 
 class SchoolDbImportTests(unittest.TestCase):

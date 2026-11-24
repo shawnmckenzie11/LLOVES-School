@@ -10,6 +10,11 @@ import {
   createPresenceQueue,
   normalizeBoardPoint,
 } from "./live_whiteboard.js";
+import {
+  applyCanvasBoardBackground,
+  drawFittedBoardBackground,
+  loadBoardBackgroundImage,
+} from "./board_background.js";
 import { featureOn } from "./teacher_features.js";
 
 /** Teacher tile poll. About every 2 seconds, one since-seq request. */
@@ -410,14 +415,21 @@ function foldDelta(state, delta, fallbackColor) {
  * @param {Record<string, any>} texts
  * @param {string} fallbackColor
  */
-function paintTile(canvas, strokes, texts, fallbackColor) {
+/**
+ * Paint one thumbnail, optionally with the question image under the ink.
+ *
+ * @param {HTMLCanvasElement} canvas
+ * @param {Record<string, any>} strokes
+ * @param {Record<string, any>} texts
+ * @param {string} fallbackColor
+ * @param {HTMLImageElement | null} [background]
+ */
+function paintTile(canvas, strokes, texts, fallbackColor, background = null) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const w = canvas.width;
   const h = canvas.height;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
+  drawFittedBoardBackground(ctx, w, h, background);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = 2;
@@ -514,6 +526,9 @@ export function mountTeacherGrid(root, options = {}) {
   /** @type {any[]} */
   let tiles = [];
   let answerWith = "";
+  /** Question image locked under ink for this poll, when set. */
+  let boardBackgroundUrl = "";
+  let boardBackgroundImage = null;
   let openKey = "";
   let session = 0;
   let tileTimer = 0;
@@ -894,7 +909,7 @@ export function mountTeacherGrid(root, options = {}) {
     const stamp = tileInkStamp(key, Number(tile.board_seq));
     if (stage.dataset.inkStamp === stamp) return;
     const bag = ink[key] || emptyInk();
-    paintTile(stage, bag.strokes, bag.texts, STUDENT_INK);
+    paintTile(stage, bag.strokes, bag.texts, STUDENT_INK, boardBackgroundImage);
     stage.dataset.inkStamp = stamp;
   }
 
@@ -938,6 +953,30 @@ export function mountTeacherGrid(root, options = {}) {
     }
     tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
     if (typeof payload.answer_with === "string") answerWith = payload.answer_with;
+    const nextBg = String(payload.image_url || "").trim();
+    if (nextBg !== boardBackgroundUrl) {
+      boardBackgroundUrl = nextBg;
+      boardBackgroundImage = null;
+      if (boardBackgroundUrl) {
+        void loadBoardBackgroundImage(boardBackgroundUrl).then((image) => {
+          boardBackgroundImage = image;
+          applyCanvasBoardBackground(canvas, boardBackgroundUrl);
+          for (const button of grid.querySelectorAll(".wb-live-tile")) {
+            if (!(button instanceof HTMLButtonElement)) continue;
+            const canvas = button.querySelector("canvas");
+            if (!(canvas instanceof HTMLCanvasElement)) continue;
+            delete canvas.dataset.inkStamp;
+            const key = button.dataset.boardKey || "";
+            const tile = tiles.find((row) => String(row.board_key || "") === key);
+            if (tile) updateTileButton(button, tile);
+          }
+          if (openKey) {
+            const openTile = tiles.find((row) => String(row.board_key || "") === openKey);
+            if (openTile) paintPanelCopy(openTile);
+          }
+        });
+      }
+    }
     if (context) context.textContent = String(payload.context || "");
     if (summary) summary.textContent = String(payload.summary || "");
     for (const tile of tiles) {
@@ -1047,6 +1086,7 @@ export function mountTeacherGrid(root, options = {}) {
     if (!keepCollapse) root.classList.remove("is-feedback-collapsed");
     const tile = tiles.find((row) => String(row.board_key || "") === openKey);
     paintPanelCopy(tile);
+    applyCanvasBoardBackground(canvas, boardBackgroundUrl);
     applyPanelLegend([]);
     paintGrid(tiles);
     paintShowButton();
