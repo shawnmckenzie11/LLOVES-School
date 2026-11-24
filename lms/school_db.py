@@ -25,6 +25,9 @@ from name_match import loose_name_key, name_key, same_name  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+#: Show All grids kept in this process. Older sessions are dropped.
+_SHOW_ALL_CACHE_SESSIONS = 8
+
 #: End waits this long for another End of the same run (double click) to
 #: finish before refusing with "End in progress, try again" (MCK-72).
 LIVE_END_BUSY_WAIT_SECONDS = 3.0
@@ -39266,11 +39269,10 @@ class SchoolDB(LovesDB):
                 )
                 # MCK-338: phones get the grid without names. The teacher
                 # gallery and the projector still read the named cards.
-                payload["class_boards"] = strip_shown_board_names(
-                    self.whiteboard_class_boards(
-                        int(session_id),
-                        teacher_state=teacher,
-                    )
+                payload["class_boards"] = self.whiteboard_class_boards(
+                    int(session_id),
+                    teacher_state=teacher,
+                    for_student=True,
                 )
                 active_prompt = self._student_board_feedback_prompt(int(session_id))
                 note = self._student_board_feedback_text(
@@ -41064,20 +41066,25 @@ class SchoolDB(LovesDB):
         *,
         teacher_state: dict[str, Any] | None = None,
         session_row: dict[str, Any] | None = None,
+        for_student: bool = False,
     ) -> list[dict[str, Any]] | None:
         """Every board Show All is projecting, or None.
 
         Each card is the Show on Board drawing: strokes and text in the
         board's coordinate space, and at most one image reference under
         them. The reference is a site path or ``https`` URL. Image bytes
-        are not copied. Names stay on the card (MCK-272). Nothing is
-        written, and the wipe path is not entered. An idle poll with the
-        flag off returns before the gallery is read.
+        are not copied. The teacher copy keeps names (MCK-272). The
+        student copy is the same grid with names removed (MCK-338). The
+        two copies are cached apart, keyed by this session and the
+        boards' ink sequences, so a quiet poll does not fold the ink
+        again. Nothing is written, and the wipe path is not entered. An
+        idle poll with the flag off returns before the gallery is read.
 
         Args:
             session_id: ``live_class_sessions.id``.
             teacher_state: Teacher state already loaded for this poll.
             session_row: Live session row already loaded for this poll.
+            for_student: True for the name-free copy sent to phones.
 
         Returns:
             A list of board cards, or None when Show All is off.
@@ -41099,14 +41106,179 @@ class SchoolDB(LovesDB):
             parsed = parse_board_run_key(run)
         except ValueError:
             return None
-        if parsed.kind == "question":
-            return self._question_show_all_cards(
-                int(session_id), int(parsed.n or 0), run
-            )
-        return self._session_show_all_cards(
+        audience = "student" if for_student else "teacher"
+        stamp = self._show_all_cache_stamp(
             int(session_id),
+            run,
+            parsed,
             session_row if isinstance(session_row, dict) else None,
         )
+        cached = self._show_all_cache_get(int(session_id), stamp, audience)
+        if cached is not None:
+            return cached
+        if parsed.kind == "question":
+            named = self._question_show_all_cards(
+                int(session_id), int(parsed.n or 0), run
+            )
+        else:
+            named = self._session_show_all_cards(
+                int(session_id),
+                session_row if isinstance(session_row, dict) else None,
+            )
+        stripped = strip_shown_board_names(named)
+        self._show_all_cache_put(int(session_id), stamp, named, stripped)
+        return stripped if for_student else named
+
+    def _show_all_cache_stamp(
+        self,
+        session_id: int,
+        run_key: str,
+        parsed: Any,
+        session_row: dict[str, Any] | None,
+    ) -> tuple[Any, ...]:
+        """Identity of the grid that is up, without folding strokes.
+
+        The stamp is the run, each board's latest counter, and the image
+        reference. A new stroke moves one counter. A quiet poll does not.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            run_key: Projected run key.
+            parsed: Parsed run key.
+            session_row: Live session row already loaded for this poll.
+        """
+        _ = session_row
+        keys = self._show_all_board_keys(int(session_id), parsed)
+        seqs = self._show_all_seq_stamp(run_key, keys)
+        image = ""
+        if getattr(parsed, "kind", "") == "question":
+            try:
+                from question_board import question_board_image_url
+            except ImportError:
+                from lms.question_board import question_board_image_url
+
+            image = question_board_image_url(
+                self, int(session_id), int(getattr(parsed, "n", 0) or 0)
+            )
+        return (run_key, seqs, image)
+
+    def _show_all_board_keys(
+        self, session_id: int, parsed: Any
+    ) -> tuple[str, ...]:
+        """Board keys in the projected gallery, in a stable order.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            parsed: Parsed run key.
+        """
+        if getattr(parsed, "kind", "") == "question":
+            try:
+                from question_board import _cards_for_question, _question_item
+            except ImportError:
+                from lms.question_board import _cards_for_question, _question_item
+
+            try:
+                _prompt, item = _question_item(
+                    self, int(session_id), int(getattr(parsed, "n", 0) or 0)
+                )
+            except Exception:
+                return ()
+            cards = _cards_for_question(self, int(session_id), item)
+        else:
+            try:
+                cards = self._gallery_cards(int(session_id))
+            except (KeyError, ValueError):
+                return ()
+        keys = sorted(
+            {
+                str(card.get("board_key") or "")
+                for card in cards
+                if str(card.get("board_key") or "")
+            }
+        )
+        return tuple(keys)
+
+    def _show_all_seq_stamp(
+        self, run_key: str, keys: tuple[str, ...]
+    ) -> tuple[tuple[str, int], ...]:
+        """Latest ink counter for each board. One read, no stroke fold.
+
+        Args:
+            run_key: Projected run key.
+            keys: Board keys already sorted.
+        """
+        if not keys:
+            return ()
+        placeholders = ",".join("?" for _ in keys)
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT board_key, next_seq FROM board_counters
+                WHERE run_key = ? AND board_key IN ({placeholders})
+                """,
+                (run_key, *keys),
+            ).fetchall()
+        found = {
+            str(row["board_key"]): int(row["next_seq"] or 0) for row in rows
+        }
+        return tuple((key, found.get(key, 0)) for key in keys)
+
+    def _show_all_cache_get(
+        self, session_id: int, stamp: tuple[Any, ...], audience: str
+    ) -> list[dict[str, Any]] | None:
+        """Return a cached grid, or None on a miss.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stamp: Run, sequences, and image reference.
+            audience: ``teacher`` or ``student``.
+        """
+        cache = getattr(self, "_show_all_grid_cache", None)
+        if not isinstance(cache, dict):
+            return None
+        found = cache.get((int(session_id), stamp, audience))
+        if not isinstance(found, list):
+            return None
+        return found
+
+    def _show_all_cache_put(
+        self,
+        session_id: int,
+        stamp: tuple[Any, ...],
+        named: list[dict[str, Any]],
+        stripped: list[dict[str, Any]],
+    ) -> None:
+        """Store both grids and drop sessions that fell off the end.
+
+        The student list is a separate object from the teacher list.
+        Callers must not mutate either.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stamp: Run, sequences, and image reference.
+            named: Teacher and projector copy.
+            stripped: Phone copy, with names already removed.
+        """
+        cache = getattr(self, "_show_all_grid_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._show_all_grid_cache = cache
+        order = getattr(self, "_show_all_session_order", None)
+        if not isinstance(order, list):
+            order = []
+            self._show_all_session_order = order
+        sid = int(session_id)
+        if sid in order:
+            order.remove(sid)
+        order.append(sid)
+        while len(order) > _SHOW_ALL_CACHE_SESSIONS:
+            old = order.pop(0)
+            for key in [item for item in cache if item[0] == old]:
+                cache.pop(key, None)
+        for key in [item for item in cache if item[0] == sid]:
+            cache.pop(key, None)
+        cache[(sid, stamp, "teacher")] = named
+        cache[(sid, stamp, "student")] = stripped
 
     def _show_all_card(
         self,
@@ -55644,15 +55816,15 @@ class SchoolDB(LovesDB):
             )
         else:
             payload["class_board"] = None
-        # MCK-338: the student snapshot carries the grid without names.
-        payload["class_boards"] = strip_shown_board_names(
-            self.whiteboard_class_boards(
-                int(live_session_id),
-                teacher_state=payload["teacher_state"]
-                if isinstance(payload.get("teacher_state"), dict)
-                else None,
-                session_row=session_row if isinstance(session_row, dict) else None,
-            )
+        # MCK-338: the student snapshot carries the stripped grid, not the
+        # named teacher copy.
+        payload["class_boards"] = self.whiteboard_class_boards(
+            int(live_session_id),
+            teacher_state=payload["teacher_state"]
+            if isinstance(payload.get("teacher_state"), dict)
+            else None,
+            session_row=session_row if isinstance(session_row, dict) else None,
+            for_student=True,
         )
         if sid not in (None, "") and not payload.get("board_key"):
             try:

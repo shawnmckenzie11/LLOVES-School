@@ -406,6 +406,86 @@ class ShowAllLiveTests(unittest.TestCase):
             for label in labels + members:
                 self.assertNotIn(label.casefold(), blob)
 
+    def test_quiet_polls_reuse_the_grid_and_a_stroke_rebuilds_it(self) -> None:
+        """A poll with no new ink does not fold the grid again. A stroke does."""
+        prompt_id, _item_id = self._publish("Cached grid", image_url=IMAGE)
+        sid = self.ids[0]
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, sid, _stroke("cached")
+        )
+        shown = self._show_all(prompt_id)
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        calls = {"n": 0}
+        original = self.school._question_show_all_cards
+
+        def wrapped(*args: object, **kwargs: object) -> list:
+            """Count grid builds."""
+            calls["n"] += 1
+            return original(*args, **kwargs)
+
+        self.school._question_show_all_cards = wrapped  # type: ignore[method-assign]
+        first = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, sid
+        )
+        second = self.school.read_board(
+            self.session_id, f"solo:{sid}", 0, student_id=sid
+        )
+        teacher = self.school.whiteboard_class_boards(self.session_id)
+        self.assertEqual(calls["n"], 1)
+        self.assertIsNot(first.get("class_boards"), teacher)
+        self.assertNotIn("name", self._nested_keys(first.get("class_boards")))
+        self.assertIn("name", self._nested_keys(teacher))
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, sid, _stroke("fresh-ink")
+        )
+        third = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, sid
+        )
+        self.assertEqual(calls["n"], 2)
+        def _strokes(payload: object) -> int:
+            """Count strokes on the cached grid."""
+            total = 0
+            if isinstance(payload, list):
+                for board in payload:
+                    view = board.get("canvas_view") if isinstance(board, dict) else None
+                    total += len((view or {}).get("strokes") or [])
+            return total
+        self.assertEqual(_strokes(first.get("class_boards")), 1)
+        self.assertEqual(_strokes(third.get("class_boards")), 2)
+        self.assertNotIn("name", self._nested_keys(third.get("class_boards")))
+
+    def test_own_team_members_stay_while_show_all_is_up(self) -> None:
+        """Show All strips the grid and leaves this student's team list in place."""
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=self.ids,
+            assignments=[
+                {"student_id": self.ids[0], "team_index": 0},
+                {"student_id": self.ids[1], "team_index": 1},
+            ],
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        whiteboard = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str(row.get("kind") or "") == "whiteboard"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(whiteboard["id"]), publish_mode="group_shared"
+        )
+        prompt_id, _item_id = self._publish("Own team", image_url=IMAGE)
+        shown = self._show_all(prompt_id)
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        phone = self.school.read_board(
+            self.session_id, "team:0", 0, student_id=self.ids[0]
+        )
+        members = (phone.get("formative") or {}).get("members") or []
+        self.assertTrue(any(str(row.get("name") or "").strip() for row in members))
+        self.assertNotIn("name", self._nested_keys(phone.get("class_boards")))
+        self.assertNotIn("member_names", self._nested_keys(phone.get("class_boards")))
+
     def test_unsafe_image_urls_are_left_off_the_grid(self) -> None:
         """javascript, data, http, and protocol-relative URLs are not sent."""
         for index, url in enumerate(UNSAFE_URLS):

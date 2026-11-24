@@ -188,6 +188,23 @@ if (urls.includes("javascript:alert(1)")) fail("javascript url was painted");
 if (!urls.includes("") || !urls.includes("/static/bank-graphs/parabola-grid.svg")) {
   fail(`image refs were not filtered: ${urls.join("|")}`);
 }
+const stripped = boards.map((board) => ({
+  board_key: board.board_key,
+  poll: true,
+  read_only: true,
+  image_url: board.image_url,
+  canvas_view: board.canvas_view,
+}));
+if (!syncShownBoards(doc, { class_boards: stripped })) fail("stripped grid did not show");
+const blank = [];
+const walkBlank = (node) => {
+  if (node.className === "poll-board-name") blank.push(node.textContent);
+  for (const child of node.children || []) walkBlank(child);
+};
+walkBlank(doc.getElementById(POLL_BOARD_GRID_ID));
+if (blank.length !== 2 || blank.some((label) => label)) {
+  fail(`stripped captions were not blank: ${JSON.stringify(blank)}`);
+}
 if (syncShownBoards(doc, { class_boards: null })) fail("null grid stayed up");
 if (!doc.getElementById(POLL_BOARD_GRID_ID).hidden) fail("grid did not dismiss");
 console.log("ok");
