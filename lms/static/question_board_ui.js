@@ -14,6 +14,7 @@ import {
   createBoardDeltaPoll,
   createPresenceQueue,
   normalizeBoardPoint,
+  WHITEBOARD_TOOL_SVG,
 } from "./live_whiteboard.js";
 import { applyCanvasBoardBackground } from "./board_background.js";
 import { mountTeacherGrid } from "./formative_live_board.js";
@@ -43,7 +44,10 @@ export function questionBoardTextPost(label) {
   if (label?.bold) row.bold = true;
   if (label?.underline) row.underline = true;
   if (label?.script === "super" || label?.script === "sub") row.script = label.script;
-  if (label?.size != null) row.size = Number(label.size) || 2;
+  if (label?.size != null && label.size !== "") {
+    const token = String(label.size).trim().toUpperCase();
+    row.size = token === "S" || token === "M" || token === "L" ? token : Number(label.size) || 2;
+  }
   return row;
 }
 
@@ -116,7 +120,7 @@ function boardUrls(kind, id, token) {
 }
 
 /**
- * Student phone toolbar: Pen, Line, Text, Equation, Undo, and Clear (MCK-511).
+ * Student phone toolbar: icon-only Pen, Line, Text, Equation, Undo, and Clear.
  * @returns {HTMLElement}
  */
 function toolBar() {
@@ -125,12 +129,12 @@ function toolBar() {
   tools.setAttribute("role", "toolbar");
   tools.setAttribute("aria-label", "Whiteboard tools");
   tools.innerHTML = [
-    '<button type="button" data-tool="pen" class="is-on" aria-pressed="true">Pen</button>',
-    '<button type="button" data-tool="line" aria-pressed="false" title="Line">Line</button>',
-    '<button type="button" data-tool="text" aria-pressed="false">Text</button>',
-    '<button type="button" data-tool="equation" class="wb-tool-eq" aria-pressed="false" aria-label="Equation" title="Equation">√</button>',
-    '<button type="button" data-tool="undo" title="Nothing to undo" disabled>Undo</button>',
-    '<button type="button" data-tool="clear" title="Clear">Clear</button>',
+    `<button type="button" data-tool="pen" class="is-on" aria-pressed="true" aria-label="Pen" title="Pen">${WHITEBOARD_TOOL_SVG.pen}</button>`,
+    `<button type="button" data-tool="line" aria-pressed="false" aria-label="Line" title="Line">${WHITEBOARD_TOOL_SVG.line}</button>`,
+    `<button type="button" data-tool="text" aria-pressed="false" aria-label="Text" title="Text">${WHITEBOARD_TOOL_SVG.text}</button>`,
+    `<button type="button" data-tool="equation" class="wb-tool-eq" aria-pressed="false" aria-label="Equation" title="Equation">${WHITEBOARD_TOOL_SVG.equation}</button>`,
+    `<button type="button" data-tool="undo" aria-label="Undo" title="Undo" disabled>${WHITEBOARD_TOOL_SVG.undo}</button>`,
+    `<button type="button" data-tool="clear" aria-label="Clear board" title="Clear board">${WHITEBOARD_TOOL_SVG.clear}</button>`,
   ].join("");
   return tools;
 }

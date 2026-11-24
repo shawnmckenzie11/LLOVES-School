@@ -90,7 +90,7 @@ class LiveViewFlickerTests(unittest.TestCase):
             self.assertNotIn("/api/student/state", text, name)
         self.assertNotIn("fetch(", self.graph_js)
         self.assertNotIn("method: \"POST\"", self.graph_js)
-        self.assertEqual(self.board_js.count('method: "POST"'), 2)
+        self.assertEqual(self.board_js.count('method: "POST"'), 3)
         paint = self.staff_js.split("function paintLifecycleBarsInPlace(")[1].split(
             "\nfunction "
         )[0]

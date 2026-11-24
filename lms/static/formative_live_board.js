@@ -9,6 +9,8 @@ import {
   bindWhiteboard,
   createPresenceQueue,
   normalizeBoardPoint,
+  textFontCss,
+  textSizePx,
 } from "./live_whiteboard.js";
 import {
   applyCanvasBoardBackground,
@@ -726,19 +728,20 @@ function paintTile(canvas, strokes, texts, fallbackColor, background = null, equ
     });
     ctx.stroke();
   }
+  ctx.textBaseline = "top";
   for (const label of Object.values(texts)) {
     const body = String(label.text || "").trim();
     if (!body) continue;
-    const px = Math.max(10, Math.round(8 + (Number(label.size) || 2) * 2));
-    ctx.font = `${label.bold ? "700" : "400"} ${px}px sans-serif`;
+    const px = textSizePx(label.size, h);
+    ctx.font = textFontCss(label.size, h, Boolean(label.bold));
     ctx.fillStyle = String(label.color || fallbackColor);
-    let y = Number(label.y) * h + 12;
+    let y = Number(label.y) * h;
     if (label.script === "super") y -= px * 0.45;
     if (label.script === "sub") y += px * 0.2;
     ctx.fillText(body, Number(label.x) * w, y);
     if (label.underline) {
       const width = ctx.measureText ? ctx.measureText(body).width : body.length * 6;
-      ctx.fillRect(Number(label.x) * w, y + 2, width, 1);
+      ctx.fillRect(Number(label.x) * w, y + px + 1, width, 1);
     }
   }
   ctx.font = "12px sans-serif";

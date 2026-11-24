@@ -41,6 +41,7 @@ MAX_EQUATIONS = 40
 MAX_LATEX_LEN = 240
 TEXT_SIZE_MIN = 1
 TEXT_SIZE_MAX = 4
+TEXT_SIZE_LETTERS = ("S", "M", "L")
 # One POST cannot carry more samples than a stroke is allowed to keep.
 MAX_PRESENCE_BATCH = MAX_POINTS
 
@@ -210,6 +211,51 @@ def public_canvas_sync(raw: Any) -> dict[str, Any]:
     return base
 
 
+def stored_text_size(raw: Any) -> str | int | None:
+    """Size to write on a text op, or None so the field stays off.
+
+    ``S``, ``M``, and ``L`` are stored as those letters. Legacy integers
+    1–4 stay integers. A missing, blank, or unknown value is omitted so an
+    older text op is not rewritten with a default.
+
+    Args:
+        raw: Client or stored size.
+    """
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, str):
+        token = raw.strip().upper()
+        if token in TEXT_SIZE_LETTERS:
+            return token
+        if not token:
+            return None
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(raw, str) and not raw.strip().lstrip("-").isdigit():
+        return None
+    return max(TEXT_SIZE_MIN, min(TEXT_SIZE_MAX, size))
+
+
+def read_text_size(raw: Any, *, present: bool) -> str | int:
+    """Paint size for one text label.
+
+    A missing field reads as ``M``. Letters and legacy integers are kept.
+    This does not write the stored op.
+
+    Args:
+        raw: Stored size value.
+        present: False when the op has no size field.
+    """
+    if not present:
+        return "M"
+    stored = stored_text_size(raw)
+    if stored is None:
+        return "M"
+    return stored
+
+
 def _clean_text(raw: Any) -> dict[str, Any] | None:
     """Keep one whiteboard text label in normalized coordinates.
 
@@ -250,11 +296,8 @@ def _clean_text(raw: Any) -> dict[str, Any] | None:
     script = str(raw.get("script") or "").strip().lower()
     if script in {"super", "sub"}:
         row["script"] = script
-    try:
-        size = int(raw.get("size") or 2)
-    except (TypeError, ValueError):
-        size = 2
-    row["size"] = max(TEXT_SIZE_MIN, min(TEXT_SIZE_MAX, size))
+    present = "size" in raw and raw.get("size") not in (None, "")
+    row["size"] = read_text_size(raw.get("size"), present=present)
     return row
 
 

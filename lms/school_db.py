@@ -38626,9 +38626,12 @@ class SchoolDB(LovesDB):
         bold: bool | None = None,
         underline: bool | None = None,
         script: str | None = None,
-        size: int | None = None,
+        size: str | int | None = None,
     ) -> dict[str, Any]:
         """Persist one whiteboard text label for this live session.
+
+        ``size`` is ``S``, ``M``, or ``L`` on the existing text op. Omit it
+        to leave an older op without a size field.
 
         Group-shared boards stamp the writer's team so the group sees
         the label. Individual boards keep the label on that writer only.

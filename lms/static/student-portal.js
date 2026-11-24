@@ -12,6 +12,7 @@ import {
   liveQuestionHeadHtml,
   mountQuestionLightbox,
   newestOpenQuestionId,
+  newQuestionScrollPlan,
   questionCardLayout,
   STUDENT_BOARD_FEEDBACK_LEAD,
   syncQuestionLightbox,
@@ -128,6 +129,9 @@ const promptShell = document.getElementById("prompt-shell");
 const questionFrame = document.getElementById("question-frame");
 const liveQuestionStack = document.getElementById("live-question-stack");
 const liveQuestionStackBody = document.getElementById("live-question-stack-body");
+const newQuestionPill = document.getElementById("new-question-pill");
+/** Card id waiting behind the "New question ↓" pill. */
+let pendingNewQuestionId = "";
 const studentQuestionDock = document.getElementById("student-question-dock");
 const promptFeedback = document.getElementById("prompt-feedback");
 const promptFeedbackLead = document.getElementById("prompt-feedback-lead");
@@ -1350,7 +1354,10 @@ function postStudentCanvas(p, extra) {
     if (text.bold) row.bold = true;
     if (text.underline) row.underline = true;
     if (text.script === "super" || text.script === "sub") row.script = text.script;
-    if (text.size != null) row.size = Number(text.size) || 2;
+    if (text.size != null && text.size !== "") {
+      const token = String(text.size).trim().toUpperCase();
+      row.size = token === "S" || token === "M" || token === "L" ? token : Number(text.size) || 2;
+    }
     studentPresenceQueue().push(row);
     return;
   }
@@ -4682,6 +4689,58 @@ function paintStudentMinimizedBars(items, sessionItems) {
     .join("");
 }
 
+/**
+ * True when this student is typing or drawing, so a new question must not scroll them.
+ * @returns {boolean}
+ */
+function studentIsComposing() {
+  if (document.querySelector(".canvas-text-editor:not([hidden]), .wb-equation-editor:not([hidden]), canvas.student-canvas.is-stroke-down")) {
+    return true;
+  }
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  if (!active.closest("#live-question-stack, #canvas-pane, .qboard-slot")) return false;
+  return active.matches("textarea, input");
+}
+
+/**
+ * Show or hide the pill and move the panel only when the student is free.
+ * @param {{keepScroll: boolean, showPill: boolean, targetId: string, scrollTop: number}} plan
+ * @param {string[]} nextIds Cards now on the panel.
+ */
+function applyNewQuestionScroll(plan, nextIds) {
+  const body = liveQuestionStackBody;
+  if (!(body instanceof HTMLElement)) return;
+  if (plan.showPill && plan.targetId) pendingNewQuestionId = plan.targetId;
+  if (!plan.showPill && plan.targetId && !plan.keepScroll) pendingNewQuestionId = "";
+  if (pendingNewQuestionId && !nextIds.includes(pendingNewQuestionId)) pendingNewQuestionId = "";
+  if (plan.keepScroll) body.scrollTop = plan.scrollTop;
+  else if (plan.targetId) {
+    const card = body.querySelector(`[data-live-card-id="${CSS.escape(plan.targetId)}"]`);
+    if (card instanceof HTMLElement && typeof card.scrollIntoView === "function") {
+      card.scrollIntoView({ block: "nearest" });
+    }
+  }
+  if (newQuestionPill instanceof HTMLButtonElement) {
+    newQuestionPill.hidden = !pendingNewQuestionId;
+    newQuestionPill.dataset.targetId = pendingNewQuestionId;
+  }
+}
+
+if (newQuestionPill instanceof HTMLButtonElement) {
+  newQuestionPill.addEventListener("click", () => {
+    const id = newQuestionPill.dataset.targetId || "";
+    const card = id
+      ? liveQuestionStackBody?.querySelector(`[data-live-card-id="${CSS.escape(id)}"]`)
+      : null;
+    if (card instanceof HTMLElement && typeof card.scrollIntoView === "function") {
+      card.scrollIntoView({ block: "start" });
+    }
+    pendingNewQuestionId = "";
+    newQuestionPill.hidden = true;
+  });
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   hydrateServerSavedAnswers(payload);
@@ -4880,7 +4939,22 @@ function paintLifecycleQuestionStack(payload) {
         ${results}
       </article>`;
   };
+  const previousIds = [...liveQuestionStackBody.querySelectorAll("[data-live-card-id]")].map((card) =>
+    card.getAttribute("data-live-card-id") || ""
+  );
+  const heldScroll = liveQuestionStackBody.scrollTop;
+  const composing = studentIsComposing();
   liveQuestionStackBody.innerHTML = stacked.map(renderLiveCard).join("");
+  const nextIds = stacked.map((item) => String(Number(item.id) || ""));
+  applyNewQuestionScroll(
+    newQuestionScrollPlan({
+      busy: composing,
+      scrollTop: heldScroll,
+      previousIds,
+      nextIds,
+    }),
+    nextIds
+  );
   mountQuestionLightbox(document);
   syncQuestionLightbox(liveQuestionStackBody);
   // MCK-184: a card the student lifted (phone resize pill, desktop drag)

@@ -56,8 +56,187 @@ function loadKatex() {
 /** How often a drawing tab flushes queued points while the pointer is down. */
 export const PRESENCE_FLUSH_MS = 80;
 
-/** Canvas font sizes for text preset 1–4. */
-const TEXT_SIZE_PX = { 1: 12, 2: 16, 3: 20, 4: 24 };
+/** Canvas font sizes. Letters are S/M/L. Integers 1–4 are older text ops. */
+const TEXT_SIZE_PX = { S: 18, M: 26, L: 36, 1: 12, 2: 16, 3: 20, 4: 24 };
+
+/** Icon-only whiteboard tools. ``data-icon`` names the glyph. */
+export const WHITEBOARD_TOOL_SVG = {
+  pen: '<svg viewBox="0 0 24 24" data-icon="pencil" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
+  line: '<svg viewBox="0 0 24 24" data-icon="line" aria-hidden="true"><path d="M5 19 L19 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  text: '<svg viewBox="0 0 24 24" data-icon="text" aria-hidden="true"><path d="M5 6h14M12 6v13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  equation: '<svg viewBox="0 0 24 24" data-icon="radical" aria-hidden="true"><text x="3" y="18" fill="currentColor" font-size="16" font-family="sans-serif">√</text></svg>',
+  undo: '<svg viewBox="0 0 24 24" data-icon="undo" aria-hidden="true"><path d="M8 7H4v-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 8a8 8 0 1 1-.8 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  clear: '<svg viewBox="0 0 24 24" data-icon="trash" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+
+/**
+ * True when this tool should take the finger on a touch screen.
+ *
+ * Pen and Line draw. Text and Equation leave the finger with the page
+ * so a board does not trap scrolling.
+ *
+ * @param {string} tool ``draw``, ``line``, ``text``, or ``equation``.
+ * @returns {boolean}
+ */
+export function boardCapturesTouch(tool) {
+  const name = String(tool || "");
+  return name === "draw" || name === "pen" || name === "line";
+}
+
+/**
+ * Letter to highlight for a stored size. Missing and legacy 2 read as M.
+ *
+ * @param {unknown} raw Stored size.
+ * @returns {"S"|"M"|"L"}
+ */
+export function textSizeToken(raw) {
+  const token = String(raw ?? "").trim().toUpperCase();
+  if (token === "S" || token === "M" || token === "L") return token;
+  const n = Number(raw);
+  if (n === 1) return "S";
+  if (n === 3 || n === 4) return "L";
+  return "M";
+}
+
+/**
+ * Size written on the text op. Letters stay letters. Missing reads as M.
+ *
+ * @param {unknown} raw Stored or chosen size.
+ * @returns {"S"|"M"|"L"|number}
+ */
+export function textSizeForStore(raw) {
+  const token = String(raw ?? "").trim().toUpperCase();
+  if (token === "S" || token === "M" || token === "L") return token;
+  const n = Number(raw);
+  if (n === 1 || n === 2 || n === 3 || n === 4) return n;
+  return "M";
+}
+
+/**
+ * Font size in pixels for one text block, scaled to the board height.
+ *
+ * @param {unknown} raw Stored size.
+ * @param {number} [boardHeight] Logical board height. 360 is the full board.
+ * @returns {number}
+ */
+export function textSizePx(raw, boardHeight = 360) {
+  const scale = (Number(boardHeight) > 0 ? Number(boardHeight) : 360) / 360;
+  const token = String(raw ?? "").trim().toUpperCase();
+  let base = TEXT_SIZE_PX.M;
+  if (token === "S" || token === "M" || token === "L") base = TEXT_SIZE_PX[token];
+  else {
+    const n = Number(raw);
+    if (n === 1 || n === 2 || n === 3 || n === 4) base = TEXT_SIZE_PX[n];
+  }
+  return Math.max(8, Math.round(base * scale));
+}
+
+/**
+ * CSS font for one text block, including bold when set.
+ *
+ * @param {unknown} raw Stored size.
+ * @param {number} [boardHeight] Logical board height.
+ * @param {boolean} [bold] True for a bold label.
+ * @returns {string}
+ */
+export function textFontCss(raw, boardHeight = 360, bold = false) {
+  return `${bold ? "bold " : ""}${textSizePx(raw, boardHeight)}px sans-serif`;
+}
+
+/** Plain-text forms the equation help popover may show. */
+export const MATH_HELP_SPEC = [
+  { label: "Power", examples: ["x^2", "x^(n+1)"] },
+  { label: "Subscript", examples: ["x_1"] },
+  { label: "Fraction", examples: ["a/b", "(x+1)/(x-2)"] },
+  { label: "Square root", examples: ["sqrt(x)"] },
+  { label: "Symbols", examples: ["pi", "theta", "<=", ">=", "!=", "+-"] },
+];
+
+/**
+ * Turn a few plain math forms into KaTeX. Real LaTeX is left unchanged.
+ *
+ * The stored equation is still the characters the student typed. This
+ * string is for display only.
+ *
+ * @param {unknown} input Typed equation.
+ * @returns {string}
+ */
+export function plainMathToLatex(input) {
+  const raw = String(input ?? "");
+  if (!raw) return "";
+  if (/\\[a-zA-Z]+/.test(raw)) return raw;
+  let text = raw;
+  text = text.replace(/<=/g, "\\leq");
+  text = text.replace(/>=/g, "\\geq");
+  text = text.replace(/!=/g, "\\neq");
+  text = text.replace(/\+-/g, "\\pm");
+  text = text.replace(/\btheta\b/g, "\\theta");
+  text = text.replace(/\bpi\b/g, "\\pi");
+  text = text.replace(/sqrt\(([^()]*)\)/g, "\\sqrt{$1}");
+  text = text.replace(/\(([^()]+)\)\/\(([^()]+)\)/g, "\\frac{$1}{$2}");
+  text = text.replace(
+    /(^|[^A-Za-z0-9\\])([A-Za-z0-9]+)\/([A-Za-z0-9]+)/g,
+    (_match, lead, num, den) => `${lead}\\frac{${num}}{${den}}`
+  );
+  text = text.replace(/\^\(([^()]+)\)/g, "^{$1}");
+  text = text.replace(/\^(?![{\\])([A-Za-z0-9])/g, "^{$1}");
+  text = text.replace(/_(?![{\\])([A-Za-z0-9])/g, "_{$1}");
+  return text;
+}
+
+/**
+ * True when KaTeX can paint one help example.
+ *
+ * @param {{renderToString?: Function}|null|undefined} katex Loaded KaTeX.
+ * @param {string} source Typed example.
+ * @returns {boolean}
+ */
+export function mathExampleRenders(katex, source) {
+  if (!katex || typeof katex.renderToString !== "function") return false;
+  try {
+    const html = katex.renderToString(plainMathToLatex(source), {
+      throwOnError: true,
+      displayMode: false,
+    });
+    return typeof html === "string" && html.includes("katex");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Help lines whose every example actually renders.
+ *
+ * A line with a form KaTeX cannot paint is omitted, so the popover
+ * never shows a hint that does not work.
+ *
+ * @param {{renderToString?: Function}|null|undefined} katex Loaded KaTeX.
+ * @returns {{label: string, examples: {source: string, latex: string}[]}[]}
+ */
+export function mathHelpLines(katex) {
+  const lines = [];
+  for (const spec of MATH_HELP_SPEC) {
+    if (!spec.examples.every((source) => mathExampleRenders(katex, source))) continue;
+    lines.push({
+      label: spec.label,
+      examples: spec.examples.map((source) => ({
+        source,
+        latex: plainMathToLatex(source),
+      })),
+    });
+  }
+  return lines;
+}
+
+/**
+ * Equation text saved on the board. Display translation is not stored.
+ *
+ * @param {unknown} typed Characters in the equation box.
+ * @returns {string}
+ */
+export function equationStoredLatex(typed) {
+  return String(typed ?? "");
+}
 
 /**
  * True when the board has a finished stroke or the pen is down on one.
@@ -615,7 +794,7 @@ export function createPresenceQueue(opts) {
  *   importRemote: (view: any, options?: {collab?: boolean}) => void,
  * }}
  */
-const UNDO_TIP = "Undo last stroke or text (Ctrl/Cmd+Z)";
+const UNDO_TIP = "Undo";
 const NOTHING_TIP = "Nothing to undo";
 
 /** @type {Set<{undo: () => boolean, canUndo: () => boolean, isShown: () => boolean, contains: (node: EventTarget | null) => boolean, mark: () => void}>} */
@@ -933,9 +1112,32 @@ export function bindWhiteboard(canvas, opts = {}) {
   eqInput.className = "wb-equation-input";
   eqInput.setAttribute("aria-label", "Equation");
   eqInput.maxLength = 240;
+  const eqHelp = document.createElement("button");
+  eqHelp.type = "button";
+  eqHelp.className = "wb-equation-help";
+  eqHelp.textContent = "?";
+  eqHelp.title = "Equation help";
+  eqHelp.setAttribute("aria-label", "Equation help");
+  eqHelp.setAttribute("aria-expanded", "false");
+  const eqHelpPop = document.createElement("div");
+  eqHelpPop.className = "wb-math-help";
+  eqHelpPop.hidden = true;
+  eqHelpPop.setAttribute("role", "dialog");
+  eqHelpPop.setAttribute("aria-label", "How to type math");
+  const eqHelpTitle = document.createElement("p");
+  eqHelpTitle.className = "wb-math-help-title";
+  eqHelpTitle.textContent = "How to type math";
+  const eqHelpList = document.createElement("ul");
+  eqHelpPop.appendChild(eqHelpTitle);
+  eqHelpPop.appendChild(eqHelpList);
   const eqPreview = document.createElement("div");
   eqPreview.className = "wb-equation-preview";
-  eqEditor.appendChild(eqInput);
+  const eqRow = document.createElement("div");
+  eqRow.className = "wb-equation-row";
+  eqRow.appendChild(eqInput);
+  eqRow.appendChild(eqHelp);
+  eqEditor.appendChild(eqRow);
+  eqEditor.appendChild(eqHelpPop);
   eqEditor.appendChild(eqPreview);
   if (stage) stage.appendChild(eqEditor);
 
@@ -960,15 +1162,22 @@ export function bindWhiteboard(canvas, opts = {}) {
   fmtSub.type = "button";
   fmtSub.textContent = "x₂";
   fmtSub.title = "Subscript";
-  const fmtSizeDown = document.createElement("button");
-  fmtSizeDown.type = "button";
-  fmtSizeDown.textContent = "−";
-  fmtSizeDown.title = "Text size";
-  const fmtSizeUp = document.createElement("button");
-  fmtSizeUp.type = "button";
-  fmtSizeUp.textContent = "+";
-  fmtSizeUp.title = "Text size";
-  for (const btn of [fmtBold, fmtUnderline, fmtSuper, fmtSub, fmtSizeDown, fmtSizeUp]) {
+  /** @type {Record<string, HTMLButtonElement>} */
+  const fmtSize = {};
+  for (const [token, label] of [
+    ["S", "Small"],
+    ["M", "Medium"],
+    ["L", "Large"],
+  ]) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = token;
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.dataset.size = token;
+    fmtSize[token] = btn;
+  }
+  for (const btn of [fmtBold, fmtUnderline, fmtSuper, fmtSub, fmtSize.S, fmtSize.M, fmtSize.L]) {
     textFormatBar.appendChild(btn);
   }
   if (stage) stage.appendChild(textFormatBar);
@@ -1126,11 +1335,91 @@ export function bindWhiteboard(canvas, opts = {}) {
     return lines;
   };
 
-  const textPxSize = (label) => TEXT_SIZE_PX[Number(label?.size) || 2] || 16;
+  /** Size chosen for the text box that is open, including one not stored yet. */
+  let draftSize = "M";
 
-  const textFont = (label) => {
-    const px = textPxSize(label);
-    return `${label?.bold ? "bold " : ""}${px}px sans-serif`;
+  const textPxSize = (label) => textSizePx(label?.size, logicalH);
+
+  /**
+   * How many backing-store pixels one logical pixel covers right now.
+   * @returns {{x: number, y: number}}
+   */
+  const boardScale = () => ({
+    x: (canvas.width || logicalW) / (logicalW || 1),
+    y: (canvas.height || logicalH) / (logicalH || 1),
+  });
+
+  /**
+   * Font size in CSS pixels, so the text box matches the canvas ink.
+   * @param {unknown} size
+   * @returns {number}
+   */
+  const cssTextPx = (size) => {
+    const logical = textSizePx(size, logicalH);
+    const rect = canvas.getBoundingClientRect();
+    if (rect && rect.height > 2 && logicalH > 0) {
+      return Math.max(8, Math.round((logical * rect.height) / logicalH));
+    }
+    return logical;
+  };
+
+  /**
+   * Paint one label in backing-store pixels.
+   *
+   * The stroke layer uses a transform. iOS keeps ``ctx.font`` in CSS pixels
+   * under that transform, so S, M, and L painted as the same default size.
+   * Text is drawn with the transform reset and a device-pixel font.
+   *
+   * @param {{size?: unknown, bold?: boolean, color?: string, script?: string}} label
+   * @param {string} body
+   * @param {number} xLogical
+   * @param {number} yLogical
+   */
+  const drawLabelBody = (label, body, xLogical, yLogical) => {
+    const scale = boardScale();
+    const px = Math.max(1, Math.round(textSizePx(label?.size, logicalH) * scale.y));
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = `${label?.bold ? "bold " : ""}${px}px sans-serif`;
+    ctx.fillStyle = label?.color || color;
+    ctx.textBaseline = "top";
+    const x = xLogical * scale.x;
+    let y = yLogical * scale.y;
+    if (label?.script === "super") y -= px * 0.45;
+    if (label?.script === "sub") y += px * 0.2;
+    const lineHeight = px * 1.35;
+    const maxWidth = (isFormative() ? formativeTextBoxLogical() : logicalW) * scale.x;
+    let row = 0;
+    for (const chunk of String(body || "").split("\n")) {
+      const lines = isFormative() ? wrapTextLines(ctx, chunk, maxWidth) : [chunk];
+      for (const line of lines) {
+        if (!line) continue;
+        ctx.fillText(line, x, y + row * lineHeight);
+        row += 1;
+      }
+    }
+    if (!isFormative() && label?.underline && body) {
+      const width = ctx.measureText(String(body)).width;
+      const lineY = y + px + scale.y;
+      ctx.beginPath();
+      ctx.moveTo(x, lineY);
+      ctx.lineTo(x + width, lineY);
+      ctx.lineWidth = Math.max(1, scale.y);
+      ctx.strokeStyle = label?.color || color;
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  /**
+   * Match the open text box to the size that will be painted.
+   * @param {unknown} size
+   */
+  const applyEditorFont = (size) => {
+    const px = cssTextPx(size);
+    editor.style.fontSize = `${px}px`;
+    editor.style.fontFamily = "sans-serif";
+    if (isFormative()) layoutFormativeEditor();
   };
 
   /**
@@ -1168,7 +1457,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         bold: Boolean(raw.bold),
         underline: Boolean(raw.underline),
         script: raw.script === "super" || raw.script === "sub" ? raw.script : "",
-        size: Number(raw.size) || 2,
+        size: textSizeForStore(raw.size),
       });
       ownIds.add(id);
     }
@@ -1221,7 +1510,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       if (label.bold) row.bold = true;
       if (label.underline) row.underline = true;
       if (label.script === "super" || label.script === "sub") row.script = label.script;
-      row.size = Number(label.size) || 2;
+      row.size = textSizeForStore(label.size);
       textRows.push(row);
     }
     const equationRows = [];
@@ -1266,6 +1555,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     pending = [];
     selectedTextId = "";
     hideTextFormatBar();
+    hideEditor();
     if (remember && snapshot) rememberUndo("wipe", wipeId, snapshot);
     replayCommitted();
     syncButtons();
@@ -1289,6 +1579,13 @@ export function bindWhiteboard(canvas, opts = {}) {
     fmtUnderline.classList.toggle("is-on", Boolean(label.underline));
     fmtSuper.classList.toggle("is-on", label.script === "super");
     fmtSub.classList.toggle("is-on", label.script === "sub");
+    const currentSize = textSizeToken(label.size);
+    for (const token of ["S", "M", "L"]) {
+      const btn = fmtSize[token];
+      const on = token === currentSize;
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
   };
 
   const selectedText = () => texts.find((label) => label.id === selectedTextId && label.mine) || null;
@@ -1304,23 +1601,9 @@ export function bindWhiteboard(canvas, opts = {}) {
       bold: Boolean(label.bold),
       underline: Boolean(label.underline),
       script: label.script === "super" || label.script === "sub" ? label.script : "",
-      size: Number(label.size) || 2,
+      size: textSizeForStore(label.size),
     });
     replayCommitted();
-  };
-
-  const drawWrappedLabel = (context, body, x, y, maxWidth, fill) => {
-    const lineHeight = 16 * 1.35;
-    const hard = String(body || "").split("\n");
-    let row = 0;
-    for (const chunk of hard) {
-      const lines = isFormative() ? wrapTextLines(context, chunk, maxWidth) : [chunk];
-      for (const line of lines) {
-        if (!line) continue;
-        context.fillText(line, x, y + row * lineHeight);
-        row += 1;
-      }
-    }
   };
 
   /**
@@ -1343,7 +1626,7 @@ export function bindWhiteboard(canvas, opts = {}) {
           return;
         }
         try {
-          katex.render(eq.latex, node, { throwOnError: false, displayMode: false });
+          katex.render(plainMathToLatex(eq.latex), node, { throwOnError: false, displayMode: false });
         } catch {
           node.textContent = eq.latex;
         }
@@ -1359,36 +1642,25 @@ export function bindWhiteboard(canvas, opts = {}) {
     ctx.textBaseline = "top";
     for (const label of texts) {
       if (!label.text || label.id === editingId) continue;
-      ctx.font = textFont(label);
-      ctx.fillStyle = label.color || color;
-      let lx = label.x * logicalW;
-      let ly = label.y * logicalH;
-      if (label.script === "super") ly -= textPxSize(label) * 0.45;
-      if (label.script === "sub") ly += textPxSize(label) * 0.2;
-      if (isFormative()) {
-        drawWrappedLabel(ctx, label.text, lx, ly, formativeTextBoxLogical(), label.color || color);
-      } else {
-        ctx.fillText(label.text, lx, ly);
-        if (label.underline) {
-          const width = ctx.measureText(label.text).width;
-          const y = ly + textPxSize(label) + 1;
-          ctx.beginPath();
-          ctx.moveTo(lx, y);
-          ctx.lineTo(lx + width, y);
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = label.color || color;
-          ctx.stroke();
-        }
-      }
+      drawLabelBody(label, label.text, label.x * logicalW, label.y * logicalH);
     }
     layoutEquationNodes();
-    if (isFormative() && !editor.hidden) {
-      const left = Number(editor.dataset.nx || "0") * logicalW;
-      const top = Number(editor.dataset.ny || "0") * logicalH;
-      const draft = String(editor.value || "");
+    if (!editor.hidden) {
+      const draft = String(editor.value || "").trim();
       if (draft) {
-        ctx.fillStyle = color;
-        drawWrappedLabel(ctx, draft, left, top, formativeTextBoxLogical(), color);
+        const open = texts.find((label) => label.id === editingId);
+        drawLabelBody(
+          {
+            size: open?.size || draftSize,
+            bold: Boolean(open?.bold),
+            color: open?.color || color,
+            script: open?.script || "",
+            underline: Boolean(open?.underline),
+          },
+          draft,
+          Number(editor.dataset.nx || "0") * logicalW,
+          Number(editor.dataset.ny || "0") * logicalH
+        );
       }
     }
   };
@@ -1566,6 +1838,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (opts.undoBtn instanceof HTMLButtonElement) {
       opts.undoBtn.disabled = !canUndo;
       opts.undoBtn.title = canUndo ? UNDO_TIP : NOTHING_TIP;
+      opts.undoBtn.setAttribute("aria-label", "Undo");
     }
     if (opts.redoBtn instanceof HTMLButtonElement) opts.redoBtn.disabled = frozen || !redoStack.length;
     if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = frozen || !strokes.length;
@@ -1594,6 +1867,8 @@ export function bindWhiteboard(canvas, opts = {}) {
       opts.equationBtn.classList.toggle("is-on", tool === "equation");
       opts.equationBtn.disabled = frozen;
     }
+    canvas.classList.toggle("is-drawing-capture", boardCapturesTouch(tool) && !frozen);
+    canvas.classList.toggle("is-stroke-down", Boolean(drawing || lining));
     if (opts.clearBtn instanceof HTMLButtonElement) {
       opts.clearBtn.disabled = frozen || !hasOwnInk;
     }
@@ -1657,7 +1932,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       bold: Boolean(existing?.bold),
       underline: Boolean(existing?.underline),
       script: existing?.script === "super" || existing?.script === "sub" ? existing.script : "",
-      size: Number(existing?.size) || 2,
+      size: textSizeForStore(existing?.size ?? draftSize),
     };
     if (body) {
       texts.push({
@@ -1694,6 +1969,16 @@ export function bindWhiteboard(canvas, opts = {}) {
     editor.removeAttribute("hidden");
     editor.style.left = `${nx * canvas.clientWidth}px`;
     editor.style.top = `${ny * canvas.clientHeight}px`;
+    draftSize = textSizeToken(existing?.size ?? draftSize);
+    applyEditorFont(draftSize);
+    if (existing?.id) {
+      showTextFormatBar({ ...existing, id: existing.id, size: draftSize, mine: true });
+    } else {
+      selectedTextId = "";
+      highlightSize(draftSize);
+      textFormatBar.hidden = false;
+      textFormatBar.removeAttribute("hidden");
+    }
     if (isFormative()) layoutFormativeEditor();
     lastEditorOpenAt = performance.now();
     window.setTimeout(() => {
@@ -1728,6 +2013,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     eqInput.value = "";
     eqPreview.textContent = "";
     editingEquationId = "";
+    hideMathHelp();
   };
 
   const commitEqEditor = () => {
@@ -1748,7 +2034,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       id,
       x: left,
       y: top,
-      latex: body,
+      latex: equationStoredLatex(body),
       color: strokeColor(ownerNow()),
       mine: true,
     };
@@ -1777,7 +2063,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       }
       if (katex && typeof katex.render === "function") {
         try {
-          katex.render(latex, eqPreview, { throwOnError: false, displayMode: false });
+          katex.render(plainMathToLatex(latex), eqPreview, { throwOnError: false, displayMode: false });
           return;
         } catch {
           /* plain text */
@@ -1788,6 +2074,59 @@ export function bindWhiteboard(canvas, opts = {}) {
     window.setTimeout(() => eqInput.focus(), 0);
   };
 
+  /**
+   * Paint the help list, dropping any line KaTeX cannot render.
+   * @param {unknown} katex
+   */
+  const fillMathHelp = (katex) => {
+    eqHelpList.textContent = "";
+    for (const line of mathHelpLines(katex)) {
+      const item = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "wb-math-help-label";
+      name.textContent = line.label;
+      item.appendChild(name);
+      line.examples.forEach((example, index) => {
+        if (index) {
+          const or = document.createElement("span");
+          or.textContent = " or ";
+          item.appendChild(or);
+        }
+        const typed = document.createElement("code");
+        typed.textContent = example.source;
+        const result = document.createElement("span");
+        result.className = "wb-math-help-result";
+        item.append(typed, result);
+        if (katex && typeof katex.render === "function") {
+          try {
+            katex.render(example.latex, result, { throwOnError: true, displayMode: false });
+          } catch {
+            result.remove();
+          }
+        }
+      });
+      eqHelpList.appendChild(item);
+    }
+  };
+
+  const hideMathHelp = () => {
+    eqHelpPop.hidden = true;
+    eqHelp.setAttribute("aria-expanded", "false");
+  };
+
+  eqHelp.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+  eqHelp.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const open = eqHelpPop.hidden;
+    eqHelpPop.hidden = !open;
+    eqHelp.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!open) return;
+    void katexReady.then((katex) => fillMathHelp(katex));
+  });
+
   eqInput.addEventListener("input", () => {
     const latex = eqInput.value.trim();
     void katexReady.then((katex) => {
@@ -1797,7 +2136,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       }
       if (katex && typeof katex.render === "function") {
         try {
-          katex.render(latex, eqPreview, { throwOnError: false, displayMode: false });
+          katex.render(plainMathToLatex(latex), eqPreview, { throwOnError: false, displayMode: false });
           return;
         } catch {
           /* plain */
@@ -1846,18 +2185,38 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!label) return;
     updateSelectedText({ script: label.script === "sub" ? "" : "sub" });
   });
-  fmtSizeDown.addEventListener("click", () => {
-    const label = selectedText();
-    if (!label) return;
-    const next = Math.max(1, (Number(label.size) || 2) - 1);
-    updateSelectedText({ size: next });
-  });
-  fmtSizeUp.addEventListener("click", () => {
-    const label = selectedText();
-    if (!label) return;
-    const next = Math.min(4, (Number(label.size) || 2) + 1);
-    updateSelectedText({ size: next });
-  });
+  /**
+   * Light the S/M/L button that matches ``token``.
+   * @param {unknown} token
+   */
+  const highlightSize = (token) => {
+    const current = textSizeToken(token);
+    for (const key of ["S", "M", "L"]) {
+      const btn = fmtSize[key];
+      const on = key === current;
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  };
+  for (const token of ["S", "M", "L"]) {
+    const btn = fmtSize[token];
+    btn.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
+    btn.addEventListener("click", () => {
+      draftSize = token;
+      highlightSize(token);
+      applyEditorFont(token);
+      const label =
+        selectedText() || texts.find((row) => row.id === editingId && row.mine) || null;
+      if (!label) {
+        replayCommitted();
+        return;
+      }
+      selectedTextId = label.id;
+      updateSelectedText({ size: token });
+    });
+  }
 
   /**
    * True when two logical points are the same ink sample.
@@ -1965,7 +2324,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         bold: Boolean(label.bold),
         underline: Boolean(label.underline),
         script: label.script === "super" || label.script === "sub" ? label.script : "",
-        size: Number(label.size) || 2,
+        size: textSizeForStore(label.size),
         mine:
           Boolean(label.mine) ||
           String(label.owner || "") === ownerNow() ||
@@ -1974,8 +2333,10 @@ export function bindWhiteboard(canvas, opts = {}) {
       .filter((label) => label.id && label.text && Number.isFinite(label.x) && Number.isFinite(label.y));
     const liveTextIds = new Set(next.map((label) => label.id));
     undoStack = undoStack.filter((row) => row.kind !== "text" || liveTextIds.has(row.id));
-    const prevSig = texts.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
-    const nextSig = next.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
+    const sig = (label) =>
+      `${label.id}|${label.text}|${label.x}|${label.y}|${label.size}|${label.bold}|${label.underline}|${label.script}`;
+    const prevSig = texts.map(sig).join("\n");
+    const nextSig = next.map(sig).join("\n");
     if (prevSig === nextSig) return false;
     texts = next;
     return true;
@@ -2070,31 +2431,51 @@ commitEditor();
     strokeId = "";
   };
 
-  canvas.addEventListener("pointerdown", (event) => {
-    shortcutApi?.mark();
-    if (editingLocked || !enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
-    if (tool === "equation") {
-      event.preventDefault();
-      const p = norm(point(event));
+  /** @type {{id: number, x: number, y: number, tool: string, moved: boolean}|null} */
+  let placeGesture = null;
+
+  /**
+   * Open text or an equation on a tap. A moving finger scrolls the page.
+   * @param {PointerEvent} event
+   * @returns {boolean} True when this event belonged to a place gesture.
+   */
+  const finishPlace = (event) => {
+    if (!placeGesture || event.pointerId !== placeGesture.id) return false;
+    const gesture = placeGesture;
+    placeGesture = null;
+    if (gesture.moved || editingLocked) return true;
+    const p = norm(point(event));
+    if (gesture.tool === "equation") {
       hideTextFormatBar();
       if (!eqEditor.hidden) commitEqEditor();
       openEqEditor(p.x, p.y, null);
-      return;
+      return true;
     }
-    if (tool === "text") {
-      event.preventDefault();
-      const p = norm(point(event));
-      const hit = hitText(p.x, p.y);
-      if (hit) showTextFormatBar(hit);
-      else hideTextFormatBar();
-      const next = { nx: hit ? hit.x : p.x, ny: hit ? hit.y : p.y, hit };
-      if (!editor.hidden) {
-        if (performance.now() - lastEditorOpenAt < 200) return;
-        reopen = next;
-        editor.blur();
-        return;
-      }
-      openEditor(next.nx, next.ny, next.hit);
+    const hit = hitText(p.x, p.y);
+    if (hit) showTextFormatBar(hit);
+    else hideTextFormatBar();
+    const next = { nx: hit ? hit.x : p.x, ny: hit ? hit.y : p.y, hit };
+    if (!editor.hidden) {
+      if (performance.now() - lastEditorOpenAt < 200) return true;
+      reopen = next;
+      editor.blur();
+      return true;
+    }
+    openEditor(next.nx, next.ny, next.hit);
+    return true;
+  };
+
+  canvas.addEventListener("pointerdown", (event) => {
+    shortcutApi?.mark();
+    if (editingLocked || !enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
+    if (tool === "equation" || tool === "text") {
+      placeGesture = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        tool,
+        moved: false,
+      };
       return;
     }
     if (canDrawLine()) {
@@ -2134,6 +2515,11 @@ commitEditor();
     syncButtons();
   });
   canvas.addEventListener("pointermove", (event) => {
+    if (placeGesture && event.pointerId === placeGesture.id) {
+      const dx = event.clientX - placeGesture.x;
+      const dy = event.clientY - placeGesture.y;
+      if (dx * dx + dy * dy > 64) placeGesture.moved = true;
+    }
     if (lining && canDrawLine()) {
       linePreview = point(event);
       requestPaint();
@@ -2204,6 +2590,7 @@ commitEditor();
     syncButtons();
   };
   canvas.addEventListener("pointerup", (event) => {
+    if (finishPlace(event)) return;
     if (lining) {
       endLine(event);
       return;
@@ -2211,6 +2598,10 @@ commitEditor();
     endStroke(event);
   });
   canvas.addEventListener("pointercancel", (event) => {
+    if (placeGesture && event.pointerId === placeGesture.id) {
+      placeGesture = null;
+      return;
+    }
     if (lining) {
       lining = false;
       lineStart = null;
@@ -2361,7 +2752,7 @@ commitEditor();
               bold: Boolean(op.bold),
               underline: Boolean(op.underline),
               script: op.script === "super" || op.script === "sub" ? op.script : "",
-              size: Number(op.size) || 2,
+              size: textSizeForStore(op.size),
               mine: Boolean(op.mine) || String(op.owner || "") === ownerNow(),
             });
           }

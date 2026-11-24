@@ -201,7 +201,7 @@ function stroke(x1, y1, x2, y2) {
 stroke(30, 40, 180, 120);
 stroke(40, 50, 200, 140);
 if (board.getInk().strokes.length !== 2) fail("two strokes");
-if (undo.disabled || undo.title !== "Undo last stroke or text (Ctrl/Cmd+Z)") fail("undo tip");
+if (undo.disabled || undo.title !== "Undo") fail("undo tip");
 undo.click();
 if (calls.undo !== 1 || board.getInk().strokes.length !== 1) fail("one stroke undone");
 undo.click();

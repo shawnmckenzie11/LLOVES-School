@@ -30,6 +30,8 @@ from live_canvas import (
     _clean_point,
     cursor_color_for,
     default_canvas_sync,
+    read_text_size,
+    stored_text_size,
 )
 
 # Ops returned by a since-seq read. A wider gap is a snapshot instead.
@@ -387,7 +389,15 @@ def feedback_released(rows: list[dict[str, Any]]) -> bool:
 
 
 def _text_style_fields(op: dict[str, Any]) -> dict[str, Any]:
-    """Normalize optional text-format fields from a ``text_upsert`` op."""
+    """Normalize optional text-format fields from a ``text_upsert`` op.
+
+    ``size`` is written only when the op already has ``S``, ``M``, ``L``,
+    or a legacy integer. A missing field is left off so the stored row is
+    not rewritten; readers treat that as M.
+
+    Args:
+        op: One ``text_upsert`` object.
+    """
     style: dict[str, Any] = {}
     if bool(op.get("bold")):
         style["bold"] = True
@@ -396,11 +406,10 @@ def _text_style_fields(op: dict[str, Any]) -> dict[str, Any]:
     script = str(op.get("script") or "").strip().lower()
     if script in {"super", "sub"}:
         style["script"] = script
-    try:
-        size = int(op.get("size") or 2)
-    except (TypeError, ValueError):
-        size = 2
-    style["size"] = max(1, min(4, size))
+    if "size" in op:
+        stored = stored_text_size(op.get("size"))
+        if stored is not None:
+            style["size"] = stored
     return style
 
 
@@ -735,6 +744,8 @@ def _fold_text(
         "text": body[:240],
     }
     row.update(_text_style_fields(op))
+    if "size" not in row:
+        row["size"] = read_text_size(None, present=False)
     texts[sid] = row
 
 
@@ -1141,9 +1152,12 @@ class _BoardStore:
         bold: bool | None = None,
         underline: bool | None = None,
         script: str | None = None,
-        size: int | None = None,
+        size: str | int | None = None,
     ) -> dict[str, Any]:
         """Append one ``text_upsert``. Another owner's label is left as-is.
+
+        ``size`` is ``S``, ``M``, or ``L`` on the same text op. A missing
+        size is not written. Legacy integers 1–4 are still accepted.
 
         Args:
             run_key: Key minted when this live run started.
