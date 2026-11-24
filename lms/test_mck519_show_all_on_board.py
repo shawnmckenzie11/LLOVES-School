@@ -17,6 +17,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import tempfile
 import unittest
 from pathlib import Path
@@ -485,6 +486,40 @@ class ShowAllLiveTests(unittest.TestCase):
         self.assertTrue(any(str(row.get("name") or "").strip() for row in members))
         self.assertNotIn("name", self._nested_keys(phone.get("class_boards")))
         self.assertNotIn("member_names", self._nested_keys(phone.get("class_boards")))
+
+    def test_overlapping_cache_puts_do_not_raise(self) -> None:
+        """Two polls can store and drop the same session without a 500."""
+        errors: list[BaseException] = []
+
+        def store(slot: int) -> None:
+            """Put and read one session many times."""
+            try:
+                for turn in range(30):
+                    stamp = ("run", turn, "")
+                    self.school._show_all_cache_put(
+                        slot,
+                        stamp,
+                        [{"board_key": "solo:1"}],
+                        [{"board_key": "solo:1"}],
+                    )
+                    got = self.school._show_all_cache_get(slot, stamp, "student")
+                    if got is not None:
+                        got.append({"board_key": "extra"})
+                    self.school._show_all_cache_get(slot, stamp, "missing")
+            except BaseException as exc:  # noqa: BLE001 - the thread must report it
+                errors.append(exc)
+
+        workers = [threading.Thread(target=store, args=(n,)) for n in range(12)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        self.assertEqual(errors, [])
+        # Dropping a session that is already gone must not raise.
+        self.school._show_all_cache_put(1, ("run", 0, ""), [], [])
+        self.school._show_all_cache_put(1, ("run", 1, ""), [], [])
+        fresh = self.school._show_all_cache_get(1, ("run", 1, ""), "student")
+        self.assertEqual(fresh, [])
 
     def test_unsafe_image_urls_are_left_off_the_grid(self) -> None:
         """javascript, data, http, and protocol-relative URLs are not sent."""

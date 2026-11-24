@@ -18,6 +18,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from collections import OrderedDict
 from typing import Any, Callable, Iterator
 
 from formative_live_board import strip_shown_board_names
@@ -41233,13 +41234,14 @@ class SchoolDB(LovesDB):
             stamp: Run, sequences, and image reference.
             audience: ``teacher`` or ``student``.
         """
-        cache = getattr(self, "_show_all_grid_cache", None)
-        if not isinstance(cache, dict):
-            return None
-        found = cache.get((int(session_id), stamp, audience))
-        if not isinstance(found, list):
-            return None
-        return found
+        with self._lock:
+            cache = getattr(self, "_show_all_grid_cache", None)
+            if not isinstance(cache, OrderedDict):
+                return None
+            found = cache.get((int(session_id), stamp, audience))
+            if not isinstance(found, list):
+                return None
+            return list(found)
 
     def _show_all_cache_put(
         self,
@@ -41251,7 +41253,9 @@ class SchoolDB(LovesDB):
         """Store both grids and drop sessions that fell off the end.
 
         The student list is a separate object from the teacher list.
-        Callers must not mutate either.
+        Reads and writes share ``self._lock``. Dropping a session uses
+        ``pop`` so a second poll cannot raise if that session is already
+        gone. Callers must not mutate the stored cards.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -41259,26 +41263,25 @@ class SchoolDB(LovesDB):
             named: Teacher and projector copy.
             stripped: Phone copy, with names already removed.
         """
-        cache = getattr(self, "_show_all_grid_cache", None)
-        if not isinstance(cache, dict):
-            cache = {}
-            self._show_all_grid_cache = cache
-        order = getattr(self, "_show_all_session_order", None)
-        if not isinstance(order, list):
-            order = []
-            self._show_all_session_order = order
-        sid = int(session_id)
-        if sid in order:
-            order.remove(sid)
-        order.append(sid)
-        while len(order) > _SHOW_ALL_CACHE_SESSIONS:
-            old = order.pop(0)
-            for key in [item for item in cache if item[0] == old]:
+        with self._lock:
+            cache = getattr(self, "_show_all_grid_cache", None)
+            if not isinstance(cache, OrderedDict):
+                cache = OrderedDict()
+                self._show_all_grid_cache = cache
+            sid = int(session_id)
+            for key in [item for item in cache if item[0] == sid]:
                 cache.pop(key, None)
-        for key in [item for item in cache if item[0] == sid]:
-            cache.pop(key, None)
-        cache[(sid, stamp, "teacher")] = named
-        cache[(sid, stamp, "student")] = stripped
+            cache[(sid, stamp, "teacher")] = named
+            cache[(sid, stamp, "student")] = stripped
+            cache.move_to_end((sid, stamp, "student"))
+            sessions: list[int] = []
+            for key in cache:
+                if key[0] not in sessions:
+                    sessions.append(key[0])
+            while len(sessions) > _SHOW_ALL_CACHE_SESSIONS:
+                old = sessions.pop(0)
+                for key in [item for item in cache if item[0] == old]:
+                    cache.pop(key, None)
 
     def _show_all_card(
         self,
