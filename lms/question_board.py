@@ -250,6 +250,55 @@ def image_is_background(payload: Any) -> bool:
     return bool(flag)
 
 
+_MAX_BOARD_IMAGE_URL = 500
+
+
+def public_board_image_url(raw: Any) -> str:
+    """A background image reference that is safe to send to phones.
+
+    Only a site path (``/static/...``) or an ``https://`` link is kept.
+    Inline ``data:`` images and anything long are dropped, so image
+    bytes never ride on a board payload or postcard.
+
+    Args:
+        raw: Stored ``image_url``.
+
+    Returns:
+        The reference, or an empty string.
+    """
+    url = str(raw or "").strip()
+    if not url or len(url) > _MAX_BOARD_IMAGE_URL:
+        return ""
+    if url.startswith("//"):
+        return ""
+    if url.startswith("/") or url.lower().startswith("https://"):
+        return url
+    return ""
+
+
+def question_board_image_url(school: Any, session_id: int, prompt_id: int) -> str:
+    """Background image reference for one question board, or blank.
+
+    Reads the question the board belongs to. Nothing is written. MCK-514:
+    Show on Board paints this under the student's marks.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        prompt_id: ``live_session_prompts.id`` from the board run key.
+    """
+    try:
+        prompt, item = _question_item(school, int(session_id), int(prompt_id))
+    except QuestionBoardError:
+        return ""
+    payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+    if not uses_board(payload):
+        payload = item.get("item") if isinstance(item.get("item"), dict) else payload
+    if not image_is_background(payload):
+        return ""
+    return public_board_image_url(payload.get("image_url"))
+
+
 def _round_coord(value: Any) -> float | None:
     """Round one 0–1 coordinate, or return None when it is not a number.
 

@@ -7444,21 +7444,12 @@ document.getElementById("live-response")?.addEventListener("input", (event) => {
   }
 });
 
+// MCK-514: Submit on a board question repaints the stack but never docks
+// (minimizes) the card. The student keeps seeing their work; only the
+// student's own minimize or the teacher's minimize docks it (MCK-509).
 window.addEventListener("lloves-question-board-submitted", (event) => {
   const promptId = Number(event.detail?.promptId) || 0;
   if (!promptId || !lastStudentPayload) return;
-  const pools = [
-    lastStudentPayload.active_questions,
-    lastStudentPayload.closed_results,
-    lastStudentPayload.saved_cards,
-  ];
-  for (const pool of pools) {
-    if (!Array.isArray(pool)) continue;
-    const item = pool.find((row) => Number(row?.prompt?.id) === promptId);
-    if (!item) continue;
-    dockedLiveCardKeys.add(liveCardDockKey(item));
-    writeDockedQuestionKeys(lastStudentPayload);
-  }
   paintLifecycleQuestionStack(lastStudentPayload);
 });
 

@@ -6058,9 +6058,37 @@ function adoptLiveItemsSnapshot(items) {
   if (surfaceStatusSignature() !== before) paintSurfacePublishing();
 }
 
+/**
+ * MCK-514: questions this tab closed, with the time the Close landed. A
+ * /state that left before the Close answered still says ``active``; it
+ * must not paint Close back onto the card for a moment.
+ * @type {Map<number, number>}
+ */
+const closedHereAt = new Map();
+const CLOSED_HERE_HOLD_MS = 20000;
+
+/**
+ * Keep a just-closed question closed against an older /state snapshot.
+ * @param {any} row Lifecycle row from /state.
+ * @param {number} [now]
+ * @returns {any}
+ */
+function keepClosedHere(row, now = Date.now()) {
+  const id = Number(row?.id) || 0;
+  const at = closedHereAt.get(id);
+  if (!at) return row;
+  const status = String(row?.status || "");
+  if (status !== "active" || now - at > CLOSED_HERE_HOLD_MS) {
+    closedHereAt.delete(id);
+    return row;
+  }
+  return { ...row, status: "closed" };
+}
+
 function absorbSaveToCardSnapshot(items) {
   const rows = Array.isArray(items) ? items : [];
-  return rows.map((row) => {
+  return rows.map((raw) => {
+    const row = keepClosedHere(raw);
     const id = Number(row?.id) || 0;
     if (!id) return row;
     const next = { ...row };
@@ -6477,8 +6505,14 @@ function paintLiveQuestionCards() {
       // MCK-261: this render map is its own function. The merge map's
       // lifecycle const is not in scope here (that threw and blanked the deck).
       const token = String(card.id || card.item_id || "").trim();
+      // MCK-514: status comes from the same lifecycle row the Close and
+      // Publish buttons post to. Two rows can share a question id (a
+      // moved or re-added question); reading the other row's status
+      // showed Close on a row that was not active.
       const lifecycle =
-        lifecycleByItemId.get(token) || lifecycleByItemId.get(liveItemAlias(token));
+        (liveItemId && lifecycleById.get(liveItemId)) ||
+        lifecycleByItemId.get(token) ||
+        lifecycleByItemId.get(liveItemAlias(token));
       const status = String(
         lifecycle?.status || card.status || "inactive"
       ).toLowerCase();
@@ -7327,17 +7361,34 @@ async function publishLifecycleItem(liveItemId) {
   await refreshLifecycleResults();
 }
 
+/** Server reply when Close reaches a question that is no longer active. */
+const CLOSE_NOT_ACTIVE_RE = /only an active item can be closed/i;
+
 /**
  * Close one active question and freeze its final results.
+ *
+ * MCK-514: when the question is already closed on the server (another
+ * tab, the 0:00 timer, or a card painted from an older /state), the
+ * card is repainted from a fresh /state instead of showing an error.
+ * The server guard is unchanged and nothing is written.
  * @param {number} liveItemId
  */
 async function closeLifecycleItem(liveItemId) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !liveItemId) return;
-  const result = await api(
-    `/api/live-sessions/${sessionId}/items/${liveItemId}/close`,
-    { method: "POST", body: "{}" }
-  );
+  let result;
+  try {
+    result = await api(
+      `/api/live-sessions/${sessionId}/items/${liveItemId}/close`,
+      { method: "POST", body: "{}" }
+    );
+  } catch (err) {
+    if (!CLOSE_NOT_ACTIVE_RE.test(String(err?.message || ""))) throw err;
+    await pollLiveSessionAttendees({ full: true, force: true, quiet: true });
+    paintLiveQuestionCards();
+    return;
+  }
+  closedHereAt.set(Number(liveItemId), Date.now());
   adoptLiveItem(result?.item);
   if (result?.results) {
     lifecycleResults.set(liveItemId, result.results);

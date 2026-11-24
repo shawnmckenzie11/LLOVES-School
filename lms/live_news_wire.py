@@ -730,12 +730,20 @@ def _public_shown_board(raw: Any) -> dict[str, Any] | None:
                 "color": str(label.get("color") or "")[:20],
             }
         )
-    return {
+    shown: dict[str, Any] = {
         "board_key": str(raw.get("board_key") or "")[:80],
         "poll": bool(raw.get("poll")),
         "read_only": True,
         "canvas_view": {"strokes": strokes, "texts": texts},
     }
+    try:
+        from question_board import public_board_image_url
+    except ImportError:
+        from lms.question_board import public_board_image_url
+    image = public_board_image_url(raw.get("image_url"))
+    if image:
+        shown["image_url"] = image
+    return shown
 
 
 def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:

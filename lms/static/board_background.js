@@ -60,12 +60,35 @@ export function drawFittedBoardBackground(ctx, width, height, image) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
   if (!image || !image.naturalWidth || !image.naturalHeight) return;
-  const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
-  const drawW = image.naturalWidth * scale;
-  const drawH = image.naturalHeight * scale;
-  const x = (width - drawW) / 2;
-  const y = (height - drawH) / 2;
-  ctx.drawImage(image, x, y, drawW, drawH);
+  const rect = fittedImageRect(width, height, image.naturalWidth, image.naturalHeight);
+  if (!rect) return;
+  ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h);
+}
+
+/**
+ * Where a background image sits on a board: scaled to fit, centred.
+ *
+ * This is the same rule as CSS ``background-size: contain`` with
+ * ``background-position: center`` on the phone canvas. Every board is
+ * 2:1 and ink is stored as 0–1 of the board, so a mark at one spot on
+ * the image lands on that spot at any board size.
+ *
+ * @param {number} width Board width.
+ * @param {number} height Board height.
+ * @param {number} imageW Image natural width.
+ * @param {number} imageH Image natural height.
+ * @returns {{x: number, y: number, w: number, h: number} | null}
+ */
+export function fittedImageRect(width, height, imageW, imageH) {
+  const bw = Number(width);
+  const bh = Number(height);
+  const iw = Number(imageW);
+  const ih = Number(imageH);
+  if (!(bw > 0 && bh > 0 && iw > 0 && ih > 0)) return null;
+  const scale = Math.min(bw / iw, bh / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  return { x: (bw - w) / 2, y: (bh - h) / 2, w, h };
 }
 
 /**
