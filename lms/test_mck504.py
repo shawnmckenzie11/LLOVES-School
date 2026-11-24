@@ -34,10 +34,12 @@ class StudentWhiteboardToolbarTests(unittest.TestCase):
         """The floating pane uses a left rail with Pen, Line, Text, and Undo."""
         home = (LMS / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         self.assertIn('id="student-canvas-line"', home)
+        self.assertIn('title="Line"', home)
         self.assertIn("live-canvas-toolbar-vertical", home)
         self.assertIn('id="student-canvas-feedback"', home)
         self.assertNotIn('id="student-canvas-erase"', home)
         self.assertNotIn('id="class-board-legend"', home)
+        self.assertLess(home.index("live-canvas-toolbar-vertical"), home.index("id=\"student-canvas\""))
 
     def test_student_css_hides_legend_and_styles_vertical_tools(self) -> None:
         """Colour chips stay off; tool buttons sit in a left column."""
@@ -45,11 +47,16 @@ class StudentWhiteboardToolbarTests(unittest.TestCase):
         self.assertIn(".canvas-pane .wb-formative-legend", css)
         self.assertIn("display: none !important", css)
         self.assertIn(".live-canvas-toolbar-vertical", css)
+        self.assertIn("position: absolute", css)
+        self.assertIn("2.75rem", css)
+        self.assertIn("Teacher feedback", (LMS / "static" / "live_question_card.js").read_text(encoding="utf-8"))
 
     def test_question_phone_toolbar_matches(self) -> None:
         """Docked question boards reuse the same student tool set."""
         js = (LMS / "static" / "question_board_ui.js").read_text(encoding="utf-8")
         self.assertIn('data-tool="line"', js)
+        self.assertIn('title="Line"', js)
+        self.assertIn("qboard-phone-feedback", js)
         self.assertIn("live-canvas-toolbar-vertical", js)
         self.assertNotIn('data-tool="erase"', js)
 
@@ -283,6 +290,14 @@ class StudentBoardFeedbackReadTests(unittest.TestCase):
             self.session_id, key, 0, student_id=student_id
         )
 
+    def _student_client(self, student_id: int):
+        """Flask client authenticated as one joined student."""
+        attendee = self.school.get_live_session_attendee(self.session_id, student_id)
+        self.assertIsNotNone(attendee)
+        client = self.app.test_client()
+        client.environ_base["HTTP_X_STUDENT_VISIT_TOKEN"] = str(attendee["visit_token"])
+        return client
+
     def test_feedback_field_clears_after_teacher_clears_note(self) -> None:
         """A cleared teacher note returns feedback=\"\" on the next read."""
         prompt_id = self._publish_board_poll("Feedback clear")
@@ -349,6 +364,36 @@ class StudentBoardFeedbackReadTests(unittest.TestCase):
         peer = self._student_read(self.ids[2])
         self.assertIn("feedback", peer)
         self.assertEqual(peer.get("feedback"), "")
+
+    def test_student_question_board_get_returns_teacher_note(self) -> None:
+        """The student question-board poll exposes the note on the next read."""
+        prompt_id = self._publish_board_poll("HTTP feedback")
+        sid = self.ids[0]
+        self.school.append_question_board_ops(self.session_id, prompt_id, sid, _stroke())
+        key = f"solo:{sid}"
+        saved = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/boards/{key}/note",
+            json={"text": "Nice reasoning."},
+        )
+        self.assertEqual(saved.status_code, 200, saved.get_json())
+        phone = self._student_client(sid)
+        rv = phone.get(f"/api/student/question-board/{prompt_id}")
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        body = rv.get_json()
+        self.assertEqual(body.get("feedback"), "Nice reasoning.")
+
+    def test_live_state_sends_empty_board_feedback_for_clear(self) -> None:
+        """Lifecycle /state includes board_feedback even when the note is blank."""
+        prompt_id = self._publish_board_poll("State feedback field")
+        sid = self.ids[0]
+        payload = self.school.student_live_items_payload(self.session_id, sid)
+        card = next(
+            row
+            for row in payload.get("active_questions") or []
+            if int((row.get("prompt") or {}).get("id") or 0) == prompt_id
+        )
+        self.assertIn("board_feedback", card)
+        self.assertEqual(card.get("board_feedback"), "")
 
 
 if __name__ == "__main__":

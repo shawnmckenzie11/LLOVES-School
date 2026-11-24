@@ -5405,6 +5405,147 @@ def _mck499_png(path: Path) -> None:
     )
 
 
+def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-504: board feedback strip, overlay toolbar, and MC card at 375px.
+
+    Uses the seeded demo class. Shots mask on-screen names and refuse to
+    save when an email or a demo code is visible.
+
+    Args:
+        base: Loopback origin.
+        out_dir: Directory for PNG files.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths written.
+    """
+
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        live_module="M1",
+        live_slot="C2",
+        stage="round",
+        page_number=4,
+        page_id="round_1",
+        student_view={"questions": "student"},
+    )
+    board = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C2",
+        page_number=4,
+        stage="round",
+        question_type="poll",
+        text="Sketch your answer on the board.",
+        extra_item={"answer_with": "board"},
+    )
+    school.ensure_live_session_items(session_id)
+    board_row = next(
+        item
+        for item in school.list_live_session_items(session_id)
+        if str(item.get("item_id") or "") == str(board.get("item_id") or "")
+    )
+    published_board = school.publish_live_session_item(
+        session_id, int(board_row["id"]), publish_mode="individual"
+    )
+    board_prompt = school._prompt_for_live_item(published_board)
+    if board_prompt is None:
+        raise SystemExit("Board prompt missing")
+    board_prompt_id = int(board_prompt["id"])
+    student = school.game.find_student_by_codename(class_id, "Maple")
+    if student is None:
+        raise SystemExit("Demo student missing. Run with --seed first.")
+    student_id = int(student["id"])
+    school.join_live_class_session(session_id, student_id, codename="Maple")
+    school.append_question_board_ops(
+        session_id,
+        board_prompt_id,
+        student_id,
+        [
+            {"type": "stroke_add", "id": "s1", "points": [[0.2, 0.2], [0.6, 0.6]]},
+            {"type": "stroke_end", "id": "s1"},
+        ],
+    )
+    board_key = f"solo:{student_id}"
+    school.save_question_board_feedback(
+        session_id, board_prompt_id, board_key, "Strong triangle sketch."
+    )
+    attendees = school.list_live_session_attendees(session_id)
+    visit = str(
+        next(item["visit_token"] for item in attendees if item.get("codename") == "Maple")
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    url = f"{origin}/student/s/{visit}"
+    viewport = {"width": 375, "height": 667}
+
+    def shot_card(page: object, wait: str, name: str) -> None:
+        """Mask the demo name, then crop one live question card."""
+        page.locator(wait).first.wait_for(state="visible", timeout=60000)  # type: ignore[attr-defined]
+        _mask_demo_identity(page)
+        _refuse_private_text(page, [visit, str(live.get("session_code") or "")])
+        dest = out_dir / name
+        card = page.locator(".student-live-card").first  # type: ignore[attr-defined]
+        box = card.bounding_box()
+        if not box:
+            raise SystemExit("student question card has no box")
+        page.screenshot(  # type: ignore[attr-defined]
+            path=str(dest),
+            clip={
+                "x": max(0, box["x"]),
+                "y": max(0, box["y"]),
+                "width": min(box["width"], viewport["width"] - max(0, box["x"])),
+                "height": min(box["height"], viewport["height"] - max(0, box["y"])),
+            },
+        )
+        written.append(dest)
+
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(viewport=viewport, is_mobile=True)
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded")
+        _mck215_reach_live_home(page)
+        _mck215_dismiss_catchup_pin(page)
+        shot_card(page, ".qboard-phone .student-board-feedback-strip", "mck504-phone-board-feedback-375.png")
+        mc = school.add_staff_question_to_class_playlist(
+            class_id,
+            "M1",
+            "C2",
+            page_number=4,
+            stage="round",
+            question_type="mc",
+            text="Which sum is 2 + 2?",
+            options=["3", "4", "5", "6"],
+            correct_index=1,
+        )
+        school.ensure_live_session_items(session_id)
+        mc_row = next(
+            item
+            for item in school.list_live_session_items(session_id)
+            if str(item.get("item_id") or "") == str(mc.get("item_id") or "")
+        )
+        school.publish_live_session_item(session_id, int(mc_row["id"]), publish_mode="individual")
+        page.reload(wait_until="domcontentloaded")
+        _mck215_reach_live_home(page)
+        _mck215_dismiss_catchup_pin(page)
+        shot_card(page, ".student-live-answer-controls", "mck504-phone-mc-375.png")
+        context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck499(base: str, out_dir: Path, path: Path) -> list[Path]:
     """MCK-499: one open question with Submit in view and a capped image.
 
@@ -5840,6 +5981,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck496",
             "mck499",
             "mck500",
+            "mck504",
         ),
         default="",
         help=(
@@ -5866,7 +6008,7 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        student_only = args.scenario in {"mck222", "mck495", "mck497", "mck499"}
+        student_only = args.scenario in {"mck222", "mck495", "mck497", "mck499", "mck504"}
         needs_login = (
             not student_only
             and (args.seed or not state.exists() or state.stat().st_size == 0)
@@ -5946,6 +6088,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck495(args.base, out, path))
         if args.scenario == "mck499":
             written.extend(shoot_mck499(args.base, out, path))
+        if args.scenario == "mck504":
+            written.extend(shoot_mck504(args.base, out, path))
         if args.scenario == "mck497":
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
@@ -5971,7 +6115,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500|mck504."
             )
         for item in written:
             print(item)
