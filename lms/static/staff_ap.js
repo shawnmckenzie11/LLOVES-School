@@ -3061,8 +3061,10 @@ function paintGlobalGroupControls() {
   const active = $("live-groups-configured");
   if (setup) setup.hidden = configured;
   if (active) active.hidden = !configured;
-  const run = $("live-run-as-group");
-  if (run instanceof HTMLInputElement) run.checked = Boolean(teacherState.run_as_group);
+  const redo = $("live-redo-groups");
+  if (redo instanceof HTMLButtonElement) {
+    redo.hidden = !Boolean(teacherState.groups_redo_allowed);
+  }
   const hideAbsent = $("live-hide-absent");
   if (hideAbsent instanceof HTMLInputElement) {
     hideAbsent.checked = Boolean(teacherState.hide_absent);
@@ -3071,22 +3073,52 @@ function paintGlobalGroupControls() {
   if (timerCloses instanceof HTMLInputElement) {
     timerCloses.checked = Boolean(teacherState.timer_closes_answers);
   }
-  const scoreboard = $("ap-scoreboard-toggle");
-  if (scoreboard instanceof HTMLInputElement) {
-    scoreboard.checked = Boolean(teacherState.scoreboard_visible);
-    scoreboard.disabled = false;
-  }
-  const winnerPage = $("ap-gamification-toggle");
-  if (winnerPage instanceof HTMLInputElement) {
-    winnerPage.checked = Boolean(teacherState.gamification_on);
-  }
-  syncScoreboardPreview();
   const rename = $("ap-teams-rename");
   if (rename instanceof HTMLButtonElement) {
     rename.hidden = !configured;
     rename.disabled = !configured;
     rename.setAttribute("aria-disabled", configured ? "false" : "true");
   }
+}
+
+/**
+ * Prefill the groups setup controls from ``teacherState.group_setup``.
+ */
+function applyStoredGroupSetup() {
+  const setup = teacherState.group_setup;
+  if (!setup || typeof setup !== "object") return;
+  const nTeams = Number(setup.n_teams);
+  if (Number.isFinite(nTeams) && nTeams >= 2) {
+    setNTeams(nTeams);
+  }
+  const mode = String(setup.mode || "").trim().toLowerCase();
+  if (mode === "balanced" || mode === "random" || mode === "manual") {
+    selectAssignMode(mode);
+  }
+}
+
+/**
+ * Clear fixed memberships and reopen the groups setup strip.
+ * @returns {Promise<void>}
+ */
+async function redoLiveGroups() {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  hideTeamsAssignError();
+  const res = await api(`/api/live-sessions/${sessionId}/groups/redo`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  if (res?.teacher_state) {
+    adoptTeacherState(res.teacher_state);
+  }
+  if (res?.game) {
+    overlayState = res.game;
+    lastGroups = (res.game.teams || []).filter((team) => team && team.name !== "Class");
+  }
+  applyStoredGroupSetup();
+  paintOptionCard();
+  renderAttendanceList();
 }
 
 /**
@@ -12041,12 +12073,6 @@ function setNTeams(value) {
  * Refresh the teams overlay from game state (scoreboard/rank live on Tracking mode).
  */
 function renderTeamsPanel() {
-  const box = $("ap-scoreboard-toggle");
-  if (box) box.checked = Boolean(teacherState.scoreboard_visible);
-  const winnerPage = $("ap-gamification-toggle");
-  if (winnerPage instanceof HTMLInputElement) {
-    winnerPage.checked = Boolean(teacherState.gamification_on);
-  }
   syncScoreboardPreview();
   setNTeams(Number($("ap-n-teams")?.value) || 1);
   syncSetupEnabled();
@@ -12100,20 +12126,6 @@ function syncSetupEnabled() {
 $("ap-n-teams-down")?.addEventListener("click", () => setNTeams(Number($("ap-n-teams").value) - 1));
 $("ap-n-teams-up")?.addEventListener("click", () => setNTeams(Number($("ap-n-teams").value) + 1));
 $("ap-n-teams")?.addEventListener("change", () => setNTeams(Number($("ap-n-teams").value)));
-$("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
-  const box = event.target;
-  if (box instanceof HTMLInputElement) {
-    patchTeacherState({ scoreboard_visible: box.checked });
-    syncScoreboardPreview();
-  }
-});
-$("ap-gamification-toggle")?.addEventListener("change", (event) => {
-  const box = event.target;
-  if (box instanceof HTMLInputElement) {
-    patchTeacherState({ gamification_on: box.checked });
-  }
-});
-
 /**
  * Assign teams, open Meet Your Team, and start the overlay meet timer.
  * @param {"random"|"balanced"|"manual"} mode
@@ -12135,7 +12147,7 @@ async function assign(mode) {
   const payload = {
     n_teams: Number($("ap-n-teams").value),
     mode,
-    scoreboard_visible: Boolean($("ap-scoreboard-toggle")?.checked),
+    scoreboard_visible: Boolean(teacherState.scoreboard_visible),
   };
   if (mode === "manual") {
     payload.assignments = [...document.querySelectorAll("#ap-manual-list .team-step")].map((el) => ({
@@ -12589,7 +12601,7 @@ async function startTeamsForCurrentStage() {
     );
     return;
   }
-  const scoreboardOn = Boolean($("ap-scoreboard-toggle")?.checked);
+  const scoreboardOn = Boolean(teacherState.scoreboard_visible);
   const assign = { n_teams: nTeams, mode, present_ids: ids, scoreboard_visible: scoreboardOn };
   if (mode === "manual") {
     assign.assignments = [
@@ -12731,7 +12743,7 @@ $("ap-teams-rename-done")?.addEventListener("click", () => {
 });
 
 $("ap-start-game")?.addEventListener("click", async () => {
-  pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
+  pendingScoreboard = Boolean(teacherState.scoreboard_visible);
   const teams = [...document.querySelectorAll("#ap-name-list input")].map((el) => ({
     id: Number(el.dataset.teamId),
     name: el.value,
@@ -12817,12 +12829,12 @@ $("live-teams-start")?.addEventListener("click", async () => {
     showTeamsAssignError(err);
   }
 });
-$("live-run-as-group")?.addEventListener("change", (event) => {
-  const input = event.currentTarget;
-  if (!(input instanceof HTMLInputElement)) return;
-  teacherState.run_as_group = input.checked;
-  renderAttendanceList();
-  patchTeacherState({ run_as_group: input.checked }, { silent: true });
+$("live-redo-groups")?.addEventListener("click", async () => {
+  try {
+    await redoLiveGroups();
+  } catch (err) {
+    showTeamsAssignError(err);
+  }
 });
 $("live-timer-closes")?.addEventListener("change", (event) => {
   const input = event.currentTarget;

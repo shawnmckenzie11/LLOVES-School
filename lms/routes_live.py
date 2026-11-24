@@ -4382,9 +4382,7 @@ def register_live(app, school, shared):
             return jsonify(
                 {
                     "ok": True,
-                    "teacher_state": school.live_session_teacher_state_payload(
-                        session_id
-                    ),
+                    "teacher_state": school.staff_teacher_state_view(session_id),
                     "defaults": default_teacher_state(),
                     "layout_presets": LAYOUT_PRESETS,
                 }
@@ -4392,8 +4390,14 @@ def register_live(app, school, shared):
         body = posted or {}
         if release_only and session_row.get("status") != "active":
             # MCK-26: Release after End is a harmless no-op, never a 400.
-            released = school.release_eyes_up(session_id)
-            return jsonify({"ok": True, "teacher_state": released, "ended": True})
+            school.release_eyes_up(session_id)
+            return jsonify(
+                {
+                    "ok": True,
+                    "teacher_state": school.staff_teacher_state_view(session_id),
+                    "ended": True,
+                }
+            )
         kwargs: dict[str, Any] = {}
         for key in (
             "advance",
@@ -4445,13 +4449,36 @@ def register_live(app, school, shared):
             session_id,
             events_for_teacher_patch(before_state, state),
         )
-        payload = {"ok": True, "teacher_state": state}
+        payload = {
+            "ok": True,
+            "teacher_state": school.staff_teacher_state_view(session_id),
+        }
         if "assign" in body or "advance" in body:
             try:
                 payload["game"] = school.game.game_state(int(session_row["class_id"]))
             except Exception:
                 report_swallowed("teacher patch game state")
         return jsonify(payload)
+
+    @bp.route(
+        "/api/live-sessions/<int:session_id>/groups/redo",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_session_redo_groups(session_id: int):
+        """Staff: clear fixed groups so setup can run again before group Qs go out."""
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if session_row.get("status") != "active":
+            return jsonify({"ok": False, "error": "Session is not active"}), 409
+        try:
+            result = school.redo_live_session_groups(session_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
 
     @bp.route(
         "/api/live-sessions/<int:session_id>/questions/<question_id>/visibility",

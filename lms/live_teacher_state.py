@@ -871,6 +871,15 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     if not base["groups_configured"]:
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base["run_as_group"] else "individual"
+    raw_setup = stored.get("group_setup")
+    if isinstance(raw_setup, dict):
+        try:
+            n_teams = int(raw_setup.get("n_teams") or 0)
+        except (TypeError, ValueError):
+            n_teams = 0
+        mode = str(raw_setup.get("mode") or "").strip().lower()
+        if n_teams >= 2 and mode in {"balanced", "random", "manual"}:
+            base["group_setup"] = {"n_teams": n_teams, "mode": mode}
     preset = stored.get("layout_preset")
     if preset in LAYOUT_PRESETS:
         base["layout_preset"] = preset
@@ -1008,6 +1017,7 @@ def apply_teacher_state_update(
     round_flags: Any = None,
     teams_mode: Any = None,
     groups_configured: Any = None,
+    unconfigure_groups: Any = None,
     run_as_group: Any = None,
     scoreboard_visible: Any = None,
     hide_absent: Any = None,
@@ -1051,6 +1061,8 @@ def apply_teacher_state_update(
         round_flags: ``{minds_on, action, consolidation}`` facet map.
         teams_mode: ``teams`` or ``individual``.
         groups_configured: Whether fixed memberships have been created.
+        unconfigure_groups: Internal redo-groups path; allows ``groups_configured``
+            to return to false once.
         run_as_group: Session-global group presentation/tracking toggle.
         scoreboard_visible: Session-global student scoreboard toggle.
         gamification_on: Optional Winner page. Off until the teacher opens it.
@@ -1142,7 +1154,9 @@ def apply_teacher_state_update(
         if configured is None:
             raise ValueError("groups_configured must be a boolean")
         if configured_before and not configured:
-            raise ValueError("groups cannot be unconfigured during a session")
+            allow_redo = _as_bool(unconfigure_groups)
+            if not allow_redo:
+                raise ValueError("groups cannot be unconfigured during a session")
         base["groups_configured"] = configured
         if configured and not configured_before:
             if run_as_group is None:
@@ -1354,6 +1368,7 @@ _SURFACE_SHOW_DERIVED = frozenset(
         "student_frames",
         "prompt_ref",
         "mc_ui",
+        "groups_redo_allowed",
     }
 )
 

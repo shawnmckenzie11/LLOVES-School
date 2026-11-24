@@ -503,9 +503,7 @@ class GamificationWinnerTests(unittest.TestCase):
 
     def test_copy_keys_are_in_the_staff_and_student_shells(self) -> None:
         html = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
-        self.assertIn('id="ap-gamification-toggle"', html)
-        self.assertIn('data-copy-key="winner.toggle"', html)
-        self.assertNotIn('id="ap-gamification-toggle" checked', html)
+        self.assertNotIn('id="ap-gamification-toggle"', html)
         home = (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         self.assertIn('id="gamification-winner"', home)
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")

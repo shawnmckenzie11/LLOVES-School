@@ -514,10 +514,9 @@ class LiveShellTests(unittest.TestCase):
             "ap-assign-balanced",
             "ap-assign-random",
             "ap-assign-manual",
-            "ap-scoreboard-toggle",
             "live-timer-toggle",
             "live-teams-start",
-            "live-run-as-group",
+            "live-redo-groups",
             "live-hide-absent",
             "live-responses-dialog",
             "ap-teams-rename",
@@ -549,8 +548,7 @@ class LiveShellTests(unittest.TestCase):
         ).get_data(as_text=True)
         self.assertIn("Round options", html)
         self.assertIn(">Hide Absent<", html)
-        # MCK-112 (Wonder v1): Run as Group reads "Show teams to students".
-        self.assertIn(">Show teams to students<", html)
+        self.assertIn(">Redo groups<", html)
         self.assertIn(">Rename Teams<", html)
         self.assertIn(">Set Up<", html)
         self.assertIn('id="live-teams-start"', html)
@@ -1066,9 +1064,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn(">Random<", html)
         self.assertIn(">Manual<", html)
         self.assertIn(">Set Up<", html)
-        self.assertIn('id="live-run-as-group"', html)
-        self.assertIn('id="ap-scoreboard-toggle"', html)
-        self.assertIn(">Scoreboard<", html)
+        self.assertIn('id="live-redo-groups"', html)
         self.assertIn('id="ap-teams-rename"', html)
         self.assertIn(">Rename Teams<", html)
         self.assertIn('id="ap-manual-assign"', html)
@@ -1076,19 +1072,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="team-assign-pane"', html)
         unlocks_html = html.split('id="live-unlocks-strip"')[1].split('id="teams-option-card"')[0]
         self.assertIn('id="session-timer"', unlocks_html)
-        self.assertIn('id="live-run-as-group"', unlocks_html)
-        self.assertIn('id="ap-scoreboard-toggle"', unlocks_html)
+        self.assertIn('id="live-redo-groups"', unlocks_html)
         self.assertIn('id="ap-teams-rename"', unlocks_html)
         self.assertLess(unlocks_html.find('id="session-timer"'), unlocks_html.find('id="live-groups-configured"'))
-        self.assertLess(unlocks_html.find('id="ap-scoreboard-toggle"'), unlocks_html.find('id="live-groups-configured"'))
-        self.assertLess(unlocks_html.find('id="ap-scoreboard-preview-wrap"'), unlocks_html.find('id="live-groups-configured"'))
-        self.assertLess(unlocks_html.find('id="live-run-as-group"'), unlocks_html.find('id="ap-teams-rename"'))
+        self.assertLess(unlocks_html.find('id="live-redo-groups"'), unlocks_html.find('id="ap-teams-rename"'))
         strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
         self.assertIn('id="ap-n-teams"', strip_html)
         self.assertIn('id="ap-assign-balanced"', strip_html)
-        self.assertNotIn('id="ap-scoreboard-toggle"', strip_html)
-        self.assertNotIn('id="ap-scoreboard-preview-wrap"', strip_html)
-        self.assertNotIn('id="live-run-as-group"', strip_html)
+        self.assertNotIn('id="live-redo-groups"', strip_html)
         self.assertLess(strip_html.find('id="ap-n-teams"'), strip_html.find('id="live-teams-assign"'))
         self.assertLess(strip_html.find('id="live-teams-assign"'), strip_html.find('id="live-teams-start"'))
         body_i = html.index('class="live-shell-body"')
@@ -1553,7 +1544,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("advanceLivePage(1)", next_click)
         self.assertNotIn("advanceTeamsToMeet()", next_click)
         setup = js.split('$("live-teams-start")?.addEventListener("click"')[1].split(
-            '$("live-run-as-group")'
+            '$("live-redo-groups")'
         )[0]
         self.assertIn("startTeamsForCurrentStage()", setup)
 
@@ -2047,7 +2038,7 @@ class LiveShellTests(unittest.TestCase):
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
         ).get_data(as_text=True)
-        self.assertIn('id="ap-scoreboard-toggle"', html)
+        self.assertNotIn('id="ap-scoreboard-toggle"', html)
 
     def test_beat27_classlist_course_game_team_cols(self) -> None:
         """Beat 27: ClassList shows compact Course / Game / Team headers."""
@@ -2930,7 +2921,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("live-reconnect-retry", course)
         self.assertIn("function teacherStateNeedsQuestionRefresh(", js)
         self.assertNotIn("lastLiveItems = payload.live_metadata.items", js)
-        handler = js.split('$("live-run-as-group")')[1].split(
+        handler = js.split('$("live-redo-groups")')[1].split(
             '$("live-hide-absent")'
         )[0]
         self.assertNotIn("pollLiveSessionAttendees()", handler)

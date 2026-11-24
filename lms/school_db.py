@@ -37562,6 +37562,20 @@ class SchoolDB(LovesDB):
         )
         return state
 
+    def staff_teacher_state_view(self, session_id: int) -> dict[str, Any]:
+        """Teacher-state for staff APIs, including ephemeral UI flags.
+
+        Student ``/state`` reads use ``live_session_teacher_state_payload``
+        without the extra SQL this adds for Redo groups.
+        """
+        state = dict(self.live_session_teacher_state_payload(int(session_id)))
+        if not state.get("groups_configured"):
+            state["groups_redo_allowed"] = False
+            return state
+        blocked = self._live_session_groups_redo_blocked(int(session_id))
+        state["groups_redo_allowed"] = not blocked
+        return state
+
     def live_class_roster_projection(
         self, session_id: int
     ) -> list[dict[str, Any]]:
@@ -41672,6 +41686,10 @@ class SchoolDB(LovesDB):
                             else {}
                         ),
                     )
+                    teacher["group_setup"] = {
+                        "n_teams": int(n_teams),
+                        "mode": str(mode or "balanced"),
+                    }
                     teacher = self._write_teacher_state(session_id, teacher)
                 game = restored if isinstance(restored, dict) else self.game.game_state(
                     class_id
@@ -41707,8 +41725,124 @@ class SchoolDB(LovesDB):
                 else {}
             ),
         )
+        teacher["group_setup"] = {
+            "n_teams": int(n_teams),
+            "mode": str(mode or "balanced"),
+        }
         teacher = self._write_teacher_state(session_id, teacher)
         return {"game": game, "teacher_state": teacher}
+
+    def _live_session_has_published_group_question(self, session_id: int) -> bool:
+        """True when this session already published a group-mode question."""
+        tokens = tuple(sorted(LESSON_SLIDE_GROUP_MODES))
+        placeholders = ",".join("?" * len(tokens))
+        clause = (
+            f"LOWER(COALESCE(publish_mode, '')) IN ({placeholders}) "
+            f"OR LOWER(COALESCE(response_mode, '')) IN ({placeholders})"
+        )
+        args: list[Any] = [int(session_id), *tokens, *tokens]
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT 1
+                FROM live_session_items
+                WHERE live_session_id = ?
+                  AND published_at IS NOT NULL
+                  AND ({clause})
+                LIMIT 1
+                """,
+                args,
+            ).fetchone()
+        return row is not None
+
+    def _team_ids_with_group_responses(self, session_id: int) -> frozenset[int]:
+        """Team ids that already have rows in ``live_group_responses``."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT DISTINCT r.team_id AS team_id
+                FROM live_group_responses r
+                JOIN live_session_items i ON i.id = r.live_item_id
+                WHERE i.live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
+        return frozenset(int(row["team_id"]) for row in rows)
+
+    def _live_session_groups_redo_blocked(self, session_id: int) -> bool:
+        """True when redo must be refused (published group Q or team responses)."""
+        tokens = tuple(sorted(LESSON_SLIDE_GROUP_MODES))
+        placeholders = ",".join("?" * len(tokens))
+        clause = (
+            f"LOWER(COALESCE(publish_mode, '')) IN ({placeholders}) "
+            f"OR LOWER(COALESCE(response_mode, '')) IN ({placeholders})"
+        )
+        args: list[Any] = [int(session_id), *tokens, *tokens, int(session_id)]
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT 1
+                WHERE EXISTS (
+                    SELECT 1 FROM live_session_items
+                    WHERE live_session_id = ?
+                      AND published_at IS NOT NULL
+                      AND ({clause})
+                )
+                OR EXISTS (
+                    SELECT 1 FROM live_group_responses r
+                    JOIN live_session_items i ON i.id = r.live_item_id
+                    WHERE i.live_session_id = ?
+                )
+                LIMIT 1
+                """,
+                args,
+            ).fetchone()
+        return row is not None
+
+    def redo_live_session_groups(self, session_id: int) -> dict[str, Any]:
+        """Clear fixed memberships so the teacher can run group setup again.
+
+        Allowed only before the first group question is published and when no
+        team already has ``live_group_responses`` rows. Protected teams are
+        never deleted.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Updated ``game`` and ``teacher_state`` payloads.
+
+        Raises:
+            KeyError: Missing or inactive session.
+            ValueError: Groups are not configured, redo is locked, or a team
+                with group responses would be changed.
+        """
+        session_row = self._require_active_live_session(session_id)
+        current = self.live_session_teacher_state_payload(session_id)
+        if not current.get("groups_configured"):
+            raise ValueError("Set up groups before using Redo groups.")
+        if self._live_session_groups_redo_blocked(session_id):
+            if self._live_session_has_published_group_question(session_id):
+                raise ValueError(
+                    "Cannot redo groups after a group question is published."
+                )
+            raise ValueError(
+                "Cannot redo groups while a team has linked group responses."
+            )
+        class_id = int(session_row["class_id"])
+        self.game.clear_named_teams(class_id)
+        self.game.clear_team_lock(class_id)
+        teacher = apply_teacher_state_update(
+            current,
+            groups_configured=False,
+            unconfigure_groups=True,
+        )
+        teacher = self._write_teacher_state(session_id, teacher)
+        self.sync_live_board_assignments_for_session(int(session_id))
+        return {
+            "game": self.game.game_state(class_id),
+            "teacher_state": self.staff_teacher_state_view(session_id),
+        }
 
     def record_meet_chain_pick(
         self,
