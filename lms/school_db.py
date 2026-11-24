@@ -16002,6 +16002,54 @@ class SchoolDB(LovesDB):
         )
         return shown
 
+    def _present_student_question_images(
+        self,
+        payload: dict[str, Any],
+        *,
+        class_id: int | None,
+        module: str = "",
+        course_code: str = "",
+    ) -> dict[str, Any]:
+        """Resolve stem and option images for one student card.
+
+        A known module that is outside the figure set returns ``payload``
+        before any question-row read or image-file stat. An empty module
+        token falls back to the question import key.
+
+        Args:
+            payload: Student-safe card. Not written back.
+            class_id: Class the student is viewing.
+            module: Deck token such as ``M1`` or ``M8``.
+            course_code: Section label already known to the caller.
+        """
+        try:
+            from curriculum_bank_images import (
+                module_number_from_token,
+                question_images_in_scope,
+            )
+        except ImportError:
+            from lms.curriculum_bank_images import (
+                module_number_from_token,
+                question_images_in_scope,
+            )
+
+        course = str(course_code or "").strip()
+        if not course and class_id is not None:
+            course = self._section_code_for_class(int(class_id))
+        number = module_number_from_token(module)
+        if number and course and not question_images_in_scope(course, number):
+            return payload
+        if not number:
+            number = self._module_number_for_images(module, payload)
+            if not course or not question_images_in_scope(course, number):
+                return payload
+        return self._present_question_images(
+            payload,
+            course_code=course,
+            module_number=number,
+            source=self._question_payload_for_images(payload),
+        )
+
     def _same_course_section_classes(
         self,
         class_id: int,
@@ -18791,14 +18839,11 @@ class SchoolDB(LovesDB):
                 )
             # Rehydrate scrubs on every return. A class with no library
             # never gets that far, so scrub the stored card here too.
+            # Image URLs stay unresolved here. This list is merged into
+            # live metadata and ``ensure_live_session_items`` writes that
+            # merge into ``live_session_items.item_json``.
             scrub_choice_images_from_stem(payload)
-            source = self._question_payload_for_images(payload)
-            item["item"] = self._present_question_images(
-                payload,
-                course_code=self._section_code_for_class(int(class_id)),
-                module_number=self._module_number_for_images(module, payload),
-                source=source,
-            )
+            item["item"] = payload
         return out
 
     @staticmethod
@@ -31020,6 +31065,8 @@ class SchoolDB(LovesDB):
         raw_payload: Any,
         *,
         class_id: int | None = None,
+        module: str = "",
+        course_code: str = "",
     ) -> dict[str, Any]:
         """Strip teacher keys, remirror bank graphs, and rewrite image URLs.
 
@@ -31035,6 +31082,11 @@ class SchoolDB(LovesDB):
         Args:
             raw_payload: Stored prompt or playlist item JSON.
             class_id: Owning class, used to remirror and resolve pack files.
+            module: Deck token such as ``M8``. When this course and module
+                do not show figures, the question row is not read and no
+                image file is stat'd.
+            course_code: Section label when the caller already has it.
+                Omit to read it from ``class_id``.
         """
         try:
             from question_math import (
@@ -31097,15 +31149,11 @@ class SchoolDB(LovesDB):
             return find_library_blob(self.conn, int(library_id), relpath) is not None
 
         if isinstance(cleaned, dict):
-            source = self._question_payload_for_images(cleaned)
-            course = self._section_code_for_class(viewing) if viewing is not None else ""
-            if not course and isinstance(source, dict):
-                course = str(source.get("course_code") or "")
-            cleaned = self._present_question_images(
+            cleaned = self._present_student_question_images(
                 cleaned,
-                course_code=course,
-                module_number=self._module_number_for_images("", cleaned),
-                source=source,
+                class_id=viewing,
+                module=module,
+                course_code=course_code,
             )
         return rewrite_student_prompt_images(
             cleaned, class_id=viewing, library_has=library_has
@@ -31456,6 +31504,8 @@ class SchoolDB(LovesDB):
             if short_id:
                 deck_ids.append(short_id)
         listed = list(self.list_live_session_items(session_id))
+        figure_module = str(teacher.get("live_module") or "")
+        figure_course = self._section_code_for_class(int(session_row["class_id"]))
         items = []
         for row in listed:
             status = str(row.get("status") or "")
@@ -31670,7 +31720,10 @@ class SchoolDB(LovesDB):
                     "phase": "final" if status == "closed" else "live",
                 }
             public_content = self._student_public_item_payload(
-                raw_payload, class_id=session_row.get("class_id")
+                raw_payload,
+                class_id=session_row.get("class_id"),
+                module=figure_module,
+                course_code=figure_course,
             )
             public_items.append(
                 {
@@ -34558,6 +34611,19 @@ class SchoolDB(LovesDB):
 
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "join")
+        session_row = self.get_live_session(session_id)
+        figure_course = ""
+        figure_module = 0
+        if session_row is not None and session_row.get("class_id") not in (None, ""):
+            try:
+                from curriculum_bank_images import module_number_from_token
+            except ImportError:
+                from lms.curriculum_bank_images import module_number_from_token
+
+            figure_course = self._section_code_for_class(int(session_row["class_id"]))
+            figure_module = module_number_from_token(
+                str(teacher.get("live_module") or "")
+            )
         metadata = self.live_class_metadata_for_session(session_id)
         current_page = self._current_deck_page(metadata, teacher)
         wanted_page = self._page_number_for_deck_page(current_page)
@@ -34683,8 +34749,7 @@ class SchoolDB(LovesDB):
                 if prompt_id not in (None, "")
                 else []
             )
-            cards.append(
-                {
+            card = {
                     **question,
                     "id": question_id,
                     "type": kind,
@@ -34734,7 +34799,13 @@ class SchoolDB(LovesDB):
                         question_id, {**question, **payload}
                     )
                     else "",
-                }
+            }
+            cards.append(
+                self._present_question_images(
+                    card,
+                    course_code=figure_course,
+                    module_number=figure_module,
+                )
             )
             seen.add(self._live_item_alias(question_id))
         # Build a map from prompt_id to lifecycle stage for filtering
@@ -36632,6 +36703,12 @@ class SchoolDB(LovesDB):
         cleaned = self._student_public_item_payload(
             raw_payload,
             class_id=(prompt_session or {}).get("class_id"),
+            module=str((teacher or {}).get("live_module") or ""),
+            course_code=(
+                self._section_code_for_class(int(prompt_session["class_id"]))
+                if prompt_session and prompt_session.get("class_id") not in (None, "")
+                else ""
+            ),
         )
         if is_teams_spark_payload(raw_payload):
             ui = teacher.get("mc_ui") if isinstance((teacher or {}).get("mc_ui"), dict) else {}
@@ -48784,6 +48861,7 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT p.id AS item_id, p.question_key, p.item_json, p.prompt_kind,
+                       p.live_module,
                        (SELECT a.source FROM participation_answers a
                         INNER JOIN participation_items ap
                             ON ap.class_id = a.class_id AND ap.run_key = a.run_key
@@ -48816,7 +48894,11 @@ class SchoolDB(LovesDB):
             out.append({
                 "question_key": r["question_key"],
                 "item_id": int(r["item_id"]),
-                "content": self._student_public_item_payload(item, class_id=class_id),
+                "content": self._student_public_item_payload(
+                    item,
+                    class_id=class_id,
+                    module=str(r["live_module"] or ""),
+                ),
                 "prompt_kind": str(r["prompt_kind"] or ""),
                 "answered": r["source"] in {"catchup", "live"},
                 "read_only": bool(board and r["source"] == "live"),
@@ -48859,7 +48941,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT i.question_key, i.item_json, i.prompt_kind,
+                SELECT i.question_key, i.item_json, i.prompt_kind, i.live_module,
                        g.earned, g.possible, g.source
                 FROM group_engagement_items i
                 LEFT JOIN group_engagement g
@@ -48887,7 +48969,11 @@ class SchoolDB(LovesDB):
             item = item if isinstance(item, dict) else {}
             out.append({
                 "question_key": row["question_key"],
-                "content": self._student_public_item_payload(item, class_id=class_id),
+                "content": self._student_public_item_payload(
+                    item,
+                    class_id=class_id,
+                    module=str(row["live_module"] or ""),
+                ),
                 "prompt_kind": str(row["prompt_kind"] or "rank"),
                 "group_rank": True,
                 "answered": source == "catchup" and earned >= 1,

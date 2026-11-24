@@ -202,7 +202,8 @@ class QuestionImageDisplayTests(unittest.TestCase):
     def test_offsite_refused_and_canvas_left_for_the_mirror(self) -> None:
         """Other sites stay refused. Canvas still uses the image mirror."""
         item = _question()
-        item["stem_html"] = f"<img src='{_OFFSITE}' alt=''>"
+        upper = "HTTP://evil.example/also-refused.png"
+        item["stem_html"] = f"<img src='{_OFFSITE}' alt=''><img src='{upper}' alt=''>"
         item["choices"][0]["html"] = f"<img src='{_CANVAS}' alt=''>"
         item["image_url"] = _OFFSITE
         item["image_src"] = ""
@@ -212,6 +213,7 @@ class QuestionImageDisplayTests(unittest.TestCase):
         )
         reasons = {(row["ref"], row["reason"]) for row in missing}
         self.assertIn((_OFFSITE, "off-site image link refused"), reasons)
+        self.assertIn((upper, "off-site image link refused"), reasons)
         self.assertNotIn(_CANVAS, {row["ref"] for row in missing})
         self.assertIn(_CANVAS, _shown["choices"][0]["html"])
         self.assertFalse(is_remote_bank_image_url(_OFFSITE))
@@ -432,14 +434,12 @@ class QuestionImageReadDoesNotWriteTests(unittest.TestCase):
         placements = self.school.list_class_playlist_placements(self.class_id, "M8", "C1")
         self.assertEqual(len(placements), 1)
         shown_card = placements[0]["item"]
-        self.assertIn("/curriculum-bank-images/MCF3M/", str(shown_card.get("text_html") or ""))
-        self.assertIn(
-            "/curriculum-bank-images/MCF3M/",
-            str((shown_card.get("options_html") or [""])[0]),
-        )
+        self.assertIn(_STEM, str(shown_card.get("text_html") or ""))
+        self.assertNotIn("/curriculum-bank-images/", json.dumps(shown_card))
         public = self.school._student_public_item_payload(
             json.loads(self.card_json),
             class_id=self.class_id,
+            module="M8",
         )
         self.assertIn("/curriculum-bank-images/MCF3M/", str(public.get("text_html") or ""))
         self.assertIn(
@@ -459,8 +459,59 @@ class QuestionImageReadDoesNotWriteTests(unittest.TestCase):
         self.school._student_public_item_payload(
             json.loads(self.card_json),
             class_id=self.class_id,
+            module="M8",
         )
         self.assertEqual(self._stored(), before)
+
+    def test_out_of_scope_module_skips_question_and_file_lookups(self) -> None:
+        """Module 1 does not read the question row or stat image files."""
+        with mock.patch.object(
+            self.school, "_question_payload_for_images"
+        ) as question_read, mock.patch.object(
+            self.school, "_module_number_for_images"
+        ) as module_read:
+            public = self.school._student_public_item_payload(
+                json.loads(self.card_json),
+                class_id=self.class_id,
+                module="M1",
+            )
+        question_read.assert_not_called()
+        module_read.assert_not_called()
+        self.assertIn(_STEM, str(public.get("text_html") or ""))
+        self.assertNotIn("/curriculum-bank-images/", json.dumps(public))
+
+    def test_ensure_live_session_items_keeps_relative_playlist_refs(self) -> None:
+        """Session start stores the playlist card, not resolved image URLs."""
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET status = 'active' WHERE id = ?",
+            (self.session_id,),
+        )
+        self.school.conn.commit()
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M8",
+            live_slot="C1",
+            stage="round",
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        row = self.school.conn.execute(
+            """
+            SELECT item_json FROM live_session_items
+            WHERE live_session_id = ? AND item_id = 'bank-import-mck518'
+            """,
+            (self.session_id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        stored = str(row["item_json"])
+        playlist = self.school.conn.execute(
+            "SELECT item_json FROM class_live_playlist_placements WHERE class_id = ?",
+            (self.class_id,),
+        ).fetchone()
+        self.assertEqual(str(playlist["item_json"]), self.card_json)
+        self.assertIn(_STEM, stored)
+        self.assertIn(_OPT_A, stored)
+        self.assertNotIn("/curriculum-bank-images/", stored)
+        self.assertNotIn('"image_url"', stored)
 
 
 if __name__ == "__main__":

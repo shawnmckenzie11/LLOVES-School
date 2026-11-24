@@ -521,7 +521,7 @@ def _resolve_display_ref(
     raw = html.unescape(str(ref or "")).strip()
     if not raw:
         return "", ""
-    if raw.startswith(("http://", "https://", "//")):
+    if raw.lower().startswith(("http://", "https://", "//")):
         if is_remote_bank_image_url(raw):
             return "", ""
         return "", "off-site image link refused"
@@ -765,7 +765,9 @@ def describe_question_images(
                 }
             )
             return
-        shown = url or (ref if ref.startswith(("http://", "https://", "/")) else "")
+        shown = url or (
+            ref if ref.lower().startswith(("http://", "https://", "/")) else ""
+        )
         if not shown:
             return
         ident_shown = _image_identity(shown)
