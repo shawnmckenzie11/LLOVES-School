@@ -236,8 +236,8 @@ class StudentPortalTests(unittest.TestCase):
         ranked = self.student.get("/api/student/state").get_json()
         self.assertTrue(ranked["show_rank"])
 
-    def test_mood_choice_saves_and_change_mood_returns(self) -> None:
-        """A mood post still saves, and Change mood opens the face screen again."""
+    def test_mood_choice_saves_and_avatar_has_no_change_mood(self) -> None:
+        """A mood post still saves, and the avatar screen has no Change mood button."""
         self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
@@ -252,8 +252,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("/student/character", saved.headers.get("Location", ""))
         self.assertEqual(self._maple_row().get("mood"), "ok")
         char_html = self.student.get("/student/character").get_data(as_text=True)
-        self.assertIn(">Change mood<", char_html)
-        self.assertIn("change=1", char_html)
+        self.assertNotIn("Change mood", char_html)
+        self.assertNotIn("change=1", char_html)
         back = self.student.get("/student/mood?change=1")
         self.assertEqual(back.status_code, 200)
         self.assertIn("How are you feeling?", back.get_data(as_text=True))
