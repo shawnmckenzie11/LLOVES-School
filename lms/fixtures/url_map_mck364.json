@@ -1175,6 +1175,14 @@
       "api_question_board_show"
     ],
     [
+      "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/boards/show-all",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_question_boards_show_all"
+    ],
+    [
       "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/participation",
       [
         "OPTIONS",
@@ -1276,6 +1284,14 @@
         "POST"
       ],
       "api_whiteboard_gallery_show"
+    ],
+    [
+      "/api/live-sessions/<int:session_id>/whiteboard-gallery/show-all",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_whiteboard_gallery_show_all"
     ],
     [
       "/api/live-sessions/active",
