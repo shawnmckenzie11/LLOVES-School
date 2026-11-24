@@ -2280,21 +2280,27 @@ def register_live(app, school, shared):
             # client holding an older stamp, so its next poll rebuilds
             # (one extra build at worst) instead of matching a newer stamp
             # on a stale payload and answering ``unchanged`` for ~20 s.
+            try:
+                from sentry_wire import live_trace_span
+            except ImportError:
+                from lms.sentry_wire import live_trace_span
+
             stamp = school.live_student_poll_stamp(
                 live_session_id, int(class_id), poll_student
             )
-            payload = school.assemble_student_live_payload(
-                live_session_id,
-                int(class_id),
-                int(student_id) if student_id not in (None, "") else None,
-                participant_uuid=pid,
-                codename=str(
-                    (ctx or {}).get("codename")
-                    or session.get("student_codename")
-                    or ""
-                ),
-                unmatched=unmatched,
-            )
+            with live_trace_span("http", "student.state.build"):
+                payload = school.assemble_student_live_payload(
+                    live_session_id,
+                    int(class_id),
+                    int(student_id) if student_id not in (None, "") else None,
+                    participant_uuid=pid,
+                    codename=str(
+                        (ctx or {}).get("codename")
+                        or session.get("student_codename")
+                        or ""
+                    ),
+                    unmatched=unmatched,
+                )
             payload["display_time"] = school.live_session_display_time(int(class_id))
             payload["stamp"] = stamp
             payload["state_seq"] = int(

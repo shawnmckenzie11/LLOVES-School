@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 #: Show All grids kept in this process. Older sessions are dropped.
 _SHOW_ALL_CACHE_SESSIONS = 8
 
+#: Student-safe image-resolved cards shared across phones in one process.
+_STUDENT_PUBLIC_CARD_CACHE_MAX = 256
+
 #: End waits this long for another End of the same run (double click) to
 #: finish before refusing with "End in progress, try again" (MCK-72).
 LIVE_END_BUSY_WAIT_SECONDS = 3.0
@@ -31072,6 +31075,9 @@ class SchoolDB(LovesDB):
         class_id: int | None = None,
         module: str = "",
         course_code: str = "",
+        live_prompt_id: int | None = None,
+        live_item_rev: str = "",
+        live_prompt_rev: str = "",
     ) -> dict[str, Any]:
         """Strip teacher keys, remirror bank graphs, and rewrite image URLs.
 
@@ -31084,6 +31090,10 @@ class SchoolDB(LovesDB):
         has that file. Otherwise the other class id stays, and that route
         still refuses the student.
 
+        When ``live_prompt_id`` and revision strings are set, the
+        image-resolved body is cached in-process per class and invalidated
+        by prompt or item updates. Returned dicts are deep copies.
+
         Args:
             raw_payload: Stored prompt or playlist item JSON.
             class_id: Owning class, used to remirror and resolve pack files.
@@ -31092,6 +31102,9 @@ class SchoolDB(LovesDB):
                 image file is stat'd.
             course_code: Section label when the caller already has it.
                 Omit to read it from ``class_id``.
+            live_prompt_id: Lifecycle prompt id for the cache key.
+            live_item_rev: ``live_session_items.updated_at`` for the key.
+            live_prompt_rev: ``live_session_prompts.updated_at`` for the key.
         """
         try:
             from question_math import (
@@ -31105,6 +31118,26 @@ class SchoolDB(LovesDB):
             )
 
         payload = raw_payload if isinstance(raw_payload, dict) else {}
+        viewing: int | None
+        try:
+            viewing = int(class_id) if class_id not in (None, "") else None
+        except (TypeError, ValueError):
+            viewing = None
+        cache_key: tuple[int, int, str, str] | None = None
+        if viewing is not None and live_prompt_id not in (None, ""):
+            try:
+                cache_key = (
+                    viewing,
+                    int(live_prompt_id),
+                    str(live_item_rev or ""),
+                    str(live_prompt_rev or ""),
+                )
+            except (TypeError, ValueError):
+                cache_key = None
+            if cache_key is not None:
+                cached = self._student_public_card_cache_get(cache_key)
+                if cached is not None:
+                    return deepcopy(cached)
         if payload:
             payload = clean_question_stem_fields(dict(payload))
         item_token = str(payload.get("id") or payload.get("item_id") or "")
@@ -31133,11 +31166,6 @@ class SchoolDB(LovesDB):
             cleaned.pop("added_live_run_key", None)
             cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
             cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
-        viewing: int | None
-        try:
-            viewing = int(class_id) if class_id not in (None, "") else None
-        except (TypeError, ValueError):
-            viewing = None
 
         def library_has(relpath: str) -> bool:
             """True when this class's library already stores ``relpath``."""
@@ -31160,9 +31188,52 @@ class SchoolDB(LovesDB):
                 module=module,
                 course_code=course_code,
             )
-        return rewrite_student_prompt_images(
+        result = rewrite_student_prompt_images(
             cleaned, class_id=viewing, library_has=library_has
         )
+        if cache_key is not None and isinstance(result, dict):
+            self._student_public_card_cache_put(cache_key, result)
+        return result
+
+    def _student_public_card_cache_get(
+        self, cache_key: tuple[int, int, str, str]
+    ) -> dict[str, Any] | None:
+        """Return a copied student card payload, or None on miss.
+
+        Args:
+            cache_key: ``(class_id, prompt_id, item_rev, prompt_rev)``.
+        """
+        with self._lock:
+            cache = getattr(self, "_student_public_card_cache", None)
+            if not isinstance(cache, OrderedDict):
+                return None
+            found = cache.get(cache_key)
+            if not isinstance(found, dict):
+                return None
+            cache.move_to_end(cache_key)
+            return deepcopy(found)
+
+    def _student_public_card_cache_put(
+        self, cache_key: tuple[int, int, str, str], payload: dict[str, Any]
+    ) -> None:
+        """Store an immutable student card snapshot under the lock.
+
+        Callers must not mutate a returned card. Entries drop off the end
+        when the map is full.
+
+        Args:
+            cache_key: ``(class_id, prompt_id, item_rev, prompt_rev)``.
+            payload: Student-safe card with images resolved.
+        """
+        with self._lock:
+            cache = getattr(self, "_student_public_card_cache", None)
+            if not isinstance(cache, OrderedDict):
+                cache = OrderedDict()
+                self._student_public_card_cache = cache
+            cache[cache_key] = deepcopy(payload)
+            cache.move_to_end(cache_key)
+            while len(cache) > _STUDENT_PUBLIC_CARD_CACHE_MAX:
+                cache.popitem(last=False)
 
     def _orphan_saved_answer(
         self,
@@ -31729,6 +31800,17 @@ class SchoolDB(LovesDB):
                 class_id=session_row.get("class_id"),
                 module=figure_module,
                 course_code=figure_course,
+                live_prompt_id=(
+                    int(prompt["id"])
+                    if prompt is not None and prompt.get("id") not in (None, "")
+                    else None
+                ),
+                live_item_rev=str(item.get("updated_at") or ""),
+                live_prompt_rev=(
+                    str(prompt.get("updated_at") or "")
+                    if prompt is not None
+                    else ""
+                ),
             )
             public_items.append(
                 {
@@ -54892,6 +54974,58 @@ class SchoolDB(LovesDB):
         sql += " ORDER BY c.run_key, c.board_key"
         return list(self.conn.execute(sql, params))
 
+    def _live_tally_poll_stamp(
+        self, session_id: int, student_id: int | None
+    ) -> str:
+        """Class-wide MC response rev for students who see live tallies.
+
+        A scoped ``response_max`` moves only when this student answers.
+        While live results are on, peers' writes must still bump the stamp
+        so early answerers rebuild tallies without widening fan-out for
+        everyone else.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id. ``None`` returns empty.
+        """
+        if student_id in (None, ""):
+            return ""
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return ""
+        if not self._is_session_attendee(sid, student):
+            return ""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT p.id AS prompt_id,
+                       COUNT(r.id) AS response_n,
+                       COALESCE(MAX(r.id), 0) AS response_max
+                FROM live_session_items AS i
+                INNER JOIN live_session_prompts AS p ON p.id = i.prompt_id
+                LEFT JOIN live_session_responses AS r ON r.prompt_id = p.id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND i.show_live_results = 1
+                  AND i.response_mode = 'individual'
+                  AND EXISTS (
+                    SELECT 1 FROM live_session_responses AS mine
+                    WHERE mine.prompt_id = p.id AND mine.student_id = ?
+                  )
+                GROUP BY p.id
+                ORDER BY p.id
+                """,
+                (sid, student),
+            ).fetchall()
+        if not rows:
+            return ""
+        return "|".join(
+            f"{int(row['prompt_id'])}:{int(row['response_n'])}:{int(row['response_max'])}"
+            for row in rows
+        )
+
     def live_student_poll_stamp(
         self,
         session_id: int,
@@ -55097,6 +55231,7 @@ class SchoolDB(LovesDB):
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:"
+            f"{self._live_tally_poll_stamp(int(session_id), student_id)}:"
             f"{self._session_timer_stamp_token(int(class_id))}:"
             f"{self._google_slides_stamp_token(int(session_id))}:"
             f"{self._rendered_card_revision(int(session_id), student_id)}:"

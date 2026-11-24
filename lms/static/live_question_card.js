@@ -158,7 +158,7 @@ export function questionImageHtmlStudent(imageUrl) {
         index + 1
       } of ${total}"><img class="live-question-image is-full" src="${escapeText(
         figure.url
-      )}" alt="${escapeText(figure.alt)}" width="${width}" height="${height}" loading="lazy"><span class="live-q-zoom-badge">${zoomBadgeLabel(
+      )}" alt="${escapeText(figure.alt)}" width="${width}" height="${height}" loading="eager" decoding="async"><span class="live-q-zoom-badge">${zoomBadgeLabel(
         false
       )}</span></button>`;
     })
