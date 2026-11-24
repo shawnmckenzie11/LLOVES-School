@@ -1377,7 +1377,7 @@ function postStudentCanvas(p, extra) {
       op: "board_unwipe",
       unwipe_id: extra.unwipe.unwipe_id,
       id: extra.unwipe.unwipe_id,
-      snapshot: extra.unwipe.snapshot,
+      wipe_id: extra.unwipe.wipe_id,
     });
     return;
   }

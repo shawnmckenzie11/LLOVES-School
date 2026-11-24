@@ -2492,12 +2492,11 @@ def register_live(app, school, shared):
                     claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
             elif op_kind == "board_unwipe":
-                snapshot = body.get("snapshot") if isinstance(body.get("snapshot"), dict) else {}
                 school.apply_live_board_unwipe(
                     live_session_id,
                     owner=str(int(student_id)),
                     unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
-                    snapshot=snapshot,
+                    wipe_id=str(body.get("wipe_id") or body.get("wipe") or ""),
                     team_id=team_id,
                     as_teacher=False,
                     client_batch_id=batch_id,
@@ -5287,12 +5286,11 @@ def register_live(app, school, shared):
                     claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
             elif op_kind == "board_unwipe":
-                snapshot = body.get("snapshot") if isinstance(body.get("snapshot"), dict) else {}
                 school.apply_live_board_unwipe(
                     session_id,
                     owner=owner,
                     unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
-                    snapshot=snapshot,
+                    wipe_id=str(body.get("wipe_id") or body.get("wipe") or ""),
                     team_id=team_id,
                     as_teacher=as_teacher,
                     client_batch_id=batch_id,

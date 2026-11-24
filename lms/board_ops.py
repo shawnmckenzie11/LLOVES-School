@@ -13,6 +13,7 @@ lock and ignores a duplicate-table race so four workers can boot together.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -35,8 +36,6 @@ from live_canvas import (
 MAX_DELTA_OPS = 200
 # One write cannot carry an unbounded op list.
 MAX_OPS_PER_BATCH = 32
-# One board_unwipe op cannot carry more JSON than this many bytes.
-WIPE_UNWIPE_MAX_BYTES = 8192
 MAX_EQUATIONS = 40
 MAX_LATEX_LEN = 240
 # Stable lock id for board_ops DDL. Not a presence-table lock.
@@ -405,6 +404,79 @@ def _text_style_fields(op: dict[str, Any]) -> dict[str, Any]:
     return style
 
 
+def _board_wipe_owner(exec_: Exec, run_key: str, board_key: str, wipe_id: str) -> str | None:
+    """Return the owner recorded on one ``board_wipe`` op, if present."""
+    cursor = exec_(
+        """
+        SELECT op, owner FROM board_ops
+        WHERE run_key = ? AND board_key = ? AND stroke_id = ?
+        ORDER BY board_seq DESC
+        LIMIT 4
+        """,
+        (run_key, board_key, wipe_id),
+    )
+    for row in cursor.fetchall():
+        item = _row_dict(row)
+        op = _loads(item.get("op"))
+        if (
+            isinstance(op, dict)
+            and str(op.get("type") or "") == "board_wipe"
+            and str(op.get("id") or "") == wipe_id
+        ):
+            return str(item.get("owner") or op.get("owner") or "").strip() or None
+    cursor = exec_(
+        """
+        SELECT op FROM board_ops
+        WHERE run_key = ? AND board_key = ?
+        ORDER BY board_seq
+        """,
+        (run_key, board_key),
+    )
+    for row in cursor.fetchall():
+        op = _loads(_row_dict(row).get("op"))
+        if (
+            isinstance(op, dict)
+            and str(op.get("type") or "") == "board_wipe"
+            and str(op.get("id") or "") == wipe_id
+        ):
+            return str(op.get("owner") or "").strip() or None
+    return None
+
+
+def _unwipe_for_wipe_exists(exec_: Exec, run_key: str, board_key: str, wipe_id: str) -> bool:
+    """True when an unwipe already cancelled this wipe."""
+    cursor = exec_(
+        """
+        SELECT op FROM board_ops
+        WHERE run_key = ? AND board_key = ?
+        ORDER BY board_seq
+        """,
+        (run_key, board_key),
+    )
+    for row in cursor.fetchall():
+        op = _loads(_row_dict(row).get("op"))
+        if (
+            isinstance(op, dict)
+            and str(op.get("type") or "") == "board_unwipe"
+            and str(op.get("wipe_id") or "") == wipe_id
+        ):
+            return True
+    return False
+
+
+def _assert_unwipe_allowed(
+    exec_: Exec, run_key: str, board_key: str, owner: str, wipe_id: str
+) -> None:
+    """Reject an unwipe that cannot safely cancel one wipe."""
+    wipe_owner = _board_wipe_owner(exec_, run_key, board_key, wipe_id)
+    if not wipe_owner:
+        raise BoardOpRejected("wipe undo target is missing")
+    if wipe_owner != owner:
+        raise BoardOpRejected("wipe undo target belongs to another writer")
+    if _unwipe_for_wipe_exists(exec_, run_key, board_key, wipe_id):
+        raise BoardOpRejected("wipe was already undone")
+
+
 def _wipe_owner_ink(
     strokes: dict[str, dict[str, Any]],
     order: list[str],
@@ -432,29 +504,61 @@ def _wipe_owner_ink(
     equation_order[:] = [sid for sid in equation_order if sid in equations]
 
 
-def _restore_owner_snapshot(
+def _capture_owner_ink(
     strokes: dict[str, dict[str, Any]],
     order: list[str],
     texts: dict[str, dict[str, Any]],
     text_order: list[str],
     equations: dict[str, dict[str, Any]],
     equation_order: list[str],
-    op: dict[str, Any],
+    owner: str,
+) -> dict[str, Any]:
+    """Copy strokes, texts, and equations owned by ``owner`` before one wipe."""
+    who = str(owner or "").strip()
+    stroke_rows: list[dict[str, Any]] = []
+    for sid in order:
+        row = strokes.get(sid)
+        if not row or str(row.get("owner") or "") != who:
+            continue
+        stroke_rows.append(copy.deepcopy(row))
+    text_rows: list[dict[str, Any]] = []
+    for sid in text_order:
+        row = texts.get(sid)
+        if not row or str(row.get("owner") or "") != who:
+            continue
+        text_rows.append(copy.deepcopy(row))
+    equation_rows: list[dict[str, Any]] = []
+    for sid in equation_order:
+        row = equations.get(sid)
+        if not row or str(row.get("owner") or "") != who:
+            continue
+        equation_rows.append(copy.deepcopy(row))
+    return {"strokes": stroke_rows, "texts": text_rows, "equations": equation_rows}
+
+
+def _restore_captured_ink(
+    strokes: dict[str, dict[str, Any]],
+    order: list[str],
+    texts: dict[str, dict[str, Any]],
+    text_order: list[str],
+    equations: dict[str, dict[str, Any]],
+    equation_order: list[str],
+    snapshot: dict[str, Any],
+    owner: str,
 ) -> None:
-    """Put strokes, texts, and equations back from one ``board_unwipe`` op."""
-    owner = str(op.get("owner") or "").strip()
-    if owner:
-        _wipe_owner_ink(strokes, order, texts, text_order, equations, equation_order, owner)
-    for raw in op.get("strokes") if isinstance(op.get("strokes"), list) else []:
+    """Put one owner's ink back from a server-captured wipe archive."""
+    who = str(owner or "").strip()
+    if not who:
+        return
+    for raw in snapshot.get("strokes") if isinstance(snapshot.get("strokes"), list) else []:
         if not isinstance(raw, dict):
             continue
         sid = str(raw.get("id") or "").strip()[:80]
-        if not sid:
+        if not sid or sid in strokes:
             continue
         points = _batch_points(raw.get("points"))
         if not points:
             continue
-        who = str(raw.get("owner") or owner or "teacher").strip() or "teacher"
         strokes[sid] = {
             "id": sid,
             "owner": who,
@@ -462,14 +566,21 @@ def _restore_owner_snapshot(
             "color": str(raw.get("color") or "").strip() or cursor_color_for(who),
             "points": points[:MAX_POINTS],
         }
-        if sid not in order:
-            order.append(sid)
-    for raw in op.get("texts") if isinstance(op.get("texts"), list) else []:
-        if isinstance(raw, dict):
-            _fold_text(texts, text_order, {**raw, "type": "text_upsert"})
-    for raw in op.get("equations") if isinstance(op.get("equations"), list) else []:
-        if isinstance(raw, dict):
-            _fold_equation(equations, equation_order, {**raw, "type": "equation_upsert"})
+        order.append(sid)
+    for raw in snapshot.get("texts") if isinstance(snapshot.get("texts"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("id") or "").strip()[:80]
+        if not sid or sid in texts:
+            continue
+        _fold_text(texts, text_order, {**raw, "type": "text_upsert", "owner": who})
+    for raw in snapshot.get("equations") if isinstance(snapshot.get("equations"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("id") or "").strip()[:80]
+        if not sid or sid in equations:
+            continue
+        _fold_equation(equations, equation_order, {**raw, "type": "equation_upsert", "owner": who})
 
 
 def _fold_board(
@@ -497,6 +608,8 @@ def _fold_board(
     equations: dict[str, dict[str, Any]] = {}
     equation_order: list[str] = []
     cursors: dict[str, dict[str, Any]] = {}
+    wipe_archives: dict[str, dict[str, Any]] = {}
+    undone_wipes: set[str] = set()
     for row in items:
         op = _loads(row.get("op"))
         if op is None:
@@ -510,12 +623,27 @@ def _fold_board(
         sid = str(op.get("id") or "")
         who = str(op.get("owner") or row.get("owner") or "").strip()
         if kind == "board_wipe":
+            wid = str(sid or "").strip()
+            if wid:
+                wipe_archives[wid] = _capture_owner_ink(
+                    strokes, order, texts, text_order, equations, equation_order, who
+                )
             _wipe_owner_ink(strokes, order, texts, text_order, equations, equation_order, who)
             continue
         if kind == "board_unwipe":
-            _restore_owner_snapshot(
-                strokes, order, texts, text_order, equations, equation_order, op
-            )
+            wid = str(op.get("wipe_id") or "").strip()
+            if wid and wid in wipe_archives and wid not in undone_wipes:
+                _restore_captured_ink(
+                    strokes,
+                    order,
+                    texts,
+                    text_order,
+                    equations,
+                    equation_order,
+                    wipe_archives[wid],
+                    who,
+                )
+                undone_wipes.add(wid)
             continue
         if kind == "stroke_remove":
             if sid in strokes:
@@ -971,32 +1099,30 @@ class _BoardStore:
         *,
         owner: str,
         unwipe_id: str,
-        snapshot: dict[str, Any],
+        wipe_id: str,
         client_batch_id: str | None = None,
     ) -> dict[str, Any]:
-        """Append ``board_unwipe`` with a capped ink snapshot."""
+        """Append ``board_unwipe`` that cancels one prior ``board_wipe`` by id."""
         key = normalize_board_key(board_key)
         who = str(owner or "").strip() or "teacher"
         uid = str(unwipe_id or "").strip()[:80] or f"unwipe-{who}"
-        op = {
-            "type": "board_unwipe",
-            "id": uid,
-            "owner": who,
-            "strokes": snapshot.get("strokes") if isinstance(snapshot.get("strokes"), list) else [],
-            "texts": snapshot.get("texts") if isinstance(snapshot.get("texts"), list) else [],
-            "equations": snapshot.get("equations")
-            if isinstance(snapshot.get("equations"), list)
-            else [],
-        }
-        if len(json.dumps(op, separators=(",", ":")).encode("utf-8")) > WIPE_UNWIPE_MAX_BYTES:
-            raise BoardOpRejected("wipe undo payload is too large")
-        return self.append_ops(
-            _run_key(run_key),
-            key,
-            owner=who,
-            ops=[op],
-            client_batch_id=client_batch_id,
-        )
+        wid = str(wipe_id or "").strip()[:80]
+        if not wid:
+            raise BoardOpRejected("wipe undo needs a wipe id")
+        op = {"type": "board_unwipe", "id": uid, "owner": who, "wipe_id": wid}
+
+        def work(exec_: Exec) -> dict[str, Any]:
+            _assert_unwipe_allowed(exec_, _run_key(run_key), key, who, wid)
+            return self._insert_ops(
+                exec_,
+                _run_key(run_key),
+                key,
+                who,
+                [op],
+                client_batch_id,
+            )
+
+        return self._run(work, run_key, key, who, client_batch_id)
 
     def append_text(
         self,
@@ -2053,22 +2179,18 @@ class _BoardStore:
                 prepared.append({"type": "board_wipe", "id": sid, "owner": owner})
                 continue
             if kind == "board_unwipe":
-                unwipe = {
-                    "type": "board_unwipe",
-                    "id": sid,
-                    "owner": owner,
-                    "strokes": raw.get("strokes") if isinstance(raw.get("strokes"), list) else [],
-                    "texts": raw.get("texts") if isinstance(raw.get("texts"), list) else [],
-                    "equations": raw.get("equations")
-                    if isinstance(raw.get("equations"), list)
-                    else [],
-                }
-                if (
-                    len(json.dumps(unwipe, separators=(",", ":")).encode("utf-8"))
-                    > WIPE_UNWIPE_MAX_BYTES
-                ):
-                    raise BoardOpRejected("wipe undo payload is too large")
-                prepared.append(unwipe)
+                wipe_id = str(raw.get("wipe_id") or "").strip()[:80]
+                if not wipe_id:
+                    raise BoardOpRejected("wipe undo needs a wipe id")
+                _assert_unwipe_allowed(exec_, run_key, board_key, owner, wipe_id)
+                prepared.append(
+                    {
+                        "type": "board_unwipe",
+                        "id": sid,
+                        "owner": owner,
+                        "wipe_id": wipe_id,
+                    }
+                )
                 continue
             if kind == "text_upsert":
                 current = _text_owner(exec_, run_key, board_key, sid)

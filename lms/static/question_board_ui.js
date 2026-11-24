@@ -476,7 +476,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
         op: "board_unwipe",
         unwipe_id: String(payload?.unwipe_id || payload?.id || ""),
         id: String(payload?.unwipe_id || payload?.id || ""),
-        snapshot: payload?.snapshot || {},
+        wipe_id: String(payload?.wipe_id || ""),
       });
       submit.disabled = false;
     },

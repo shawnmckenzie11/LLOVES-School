@@ -38418,13 +38418,13 @@ class SchoolDB(LovesDB):
         *,
         owner: str,
         unwipe_id: str,
-        snapshot: dict[str, Any],
+        wipe_id: str,
         team_id: int | None = None,
         as_teacher: bool = False,
         client_batch_id: str | None = None,
         claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
-        """Append ``board_unwipe`` with a capped snapshot for this writer."""
+        """Append ``board_unwipe`` that cancels one prior wipe for this writer."""
         who = "teacher" if as_teacher else str(owner)
         key = self._live_writer_board_key(
             session_id, owner=who, team_id=team_id, as_teacher=as_teacher
@@ -38435,7 +38435,7 @@ class SchoolDB(LovesDB):
             key,
             owner=who,
             unwipe_id=str(unwipe_id or ""),
-            snapshot=snapshot if isinstance(snapshot, dict) else {},
+            wipe_id=str(wipe_id or ""),
             client_batch_id=str(client_batch_id or "").strip() or None,
         )
 

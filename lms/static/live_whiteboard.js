@@ -815,7 +815,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       if (snapshot) restoreOwnerSnapshot(snapshot);
       redoStack.push({ kind: "wipe", id: row.id, snapshot });
       if (collab && typeof opts.onUnwipe === "function") {
-        opts.onUnwipe({ unwipe_id: `unwipe-${row.id}`, snapshot });
+        opts.onUnwipe({ unwipe_id: `unwipe-${row.id}`, wipe_id: row.id });
       }
     }
     replayCommitted();
@@ -1190,7 +1190,7 @@ export function bindWhiteboard(canvas, opts = {}) {
   };
 
   /**
-   * Serialize own ink for ``board_unwipe``.
+   * Serialize own ink before one wipe (local undo only).
    * @returns {{strokes: any[], texts: any[], equations: any[]}}
    */
   const ownInkSnapshot = () => {
@@ -2397,8 +2397,13 @@ commitEditor();
       }
       if (type === "board_unwipe") {
         const who = String(op.owner || "");
-        if (!who || who === ownerNow()) {
-          restoreOwnerSnapshot(op);
+        const wid = String(op.wipe_id || "");
+        if (who === ownerNow()) {
+          const snap = wid && wipeSnapshots.get(wid);
+          if (snap) {
+            restoreOwnerSnapshot(snap);
+            wipeSnapshots.delete(wid);
+          }
           structural = true;
         }
         continue;

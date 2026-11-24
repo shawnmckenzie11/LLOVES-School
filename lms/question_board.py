@@ -2227,13 +2227,12 @@ def apply_question_presence(
                 client_batch_id=batch,
             )
         elif op_kind == "board_unwipe":
-            snapshot = body.get("snapshot") if isinstance(body.get("snapshot"), dict) else {}
             boards.append_unwipe(
                 run_key,
                 board_key,
                 owner=who,
                 unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
-                snapshot=snapshot,
+                wipe_id=str(body.get("wipe_id") or body.get("wipe") or ""),
                 client_batch_id=batch,
             )
         elif op_kind == "stroke_remove":
