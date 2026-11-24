@@ -342,7 +342,7 @@ class LiveFixReportTests(unittest.TestCase):
             "/api/student/flags",
             json={
                 "note": f"{SECRET_NAME} saw the question twice",
-                "actions": ["live-catchup-pin-later"],
+                "actions": ["save-work"],
             },
             headers={"X-Student-Visit-Token": self.visit_token},
         )
@@ -376,11 +376,10 @@ class LiveFixReportTests(unittest.TestCase):
         self.assertIn("Release: abc1234deadbeef", text)
         self.assertIn("Slide 1", text)
         self.assertIn("eq-image-1", text)
-        self.assertIn("live-catchup-pin-later", text)
-        self.assertIn("Catch-up pin: later", text)
+        self.assertIn("save-work", text)
         self.assertRegex(
             text,
-            r"Debug: student · student-[0-9a-f]{12} · mc · eq-image-1 · live-catchup-pin-later",
+            r"Debug: student · student-[0-9a-f]{12} · mc · eq-image-1 · save-work",
         )
         self.assertRegex(text, r"Reporter: student student-[0-9a-f]{12}")
         self.assertIn("LLOVES-LMS-9", text)

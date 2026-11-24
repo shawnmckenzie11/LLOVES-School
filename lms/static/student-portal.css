@@ -3825,25 +3825,6 @@ button.secondary.rank-check {
   background: var(--team);
 }
 
-/* MCK-207 catch-up PIN pop-up (Live Class + shared) */
-dialog.catchup-pin-dialog,
-dialog.student-pin-dialog {
-  max-width: 22rem;
-  border: none;
-  border-radius: 0.5rem;
-  padding: 1rem 1.1rem;
-}
-dialog.catchup-pin-dialog::backdrop,
-dialog.student-pin-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.45);
-}
-.catchup-pin-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-top: 0.75rem;
-}
-
 /* MCK-242 Team Draw */
 .canvas-pane.is-team-draw .live-canvas-stage {
   min-height: min(62vh, 520px);
