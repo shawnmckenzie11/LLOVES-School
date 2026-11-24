@@ -196,39 +196,41 @@ def prefer_persisted_group_rows(rows: list) -> list:
     A legacy or teacher ``live`` insert must win over staging for display totals.
 
     Args:
-        rows: Query rows with ``student_id``, ``question_key``, and ``source``.
+        rows: Query rows with ``run_key``, ``student_id``, ``question_key``, and ``source``.
 
     Returns:
-        Rows with at most one entry per ``(student_id, question_key)``.
+        Rows with at most one entry per ``(run_key, student_id, question_key)``.
     """
     priority = {
         GROUP_ENGAGEMENT_SOURCE_LIVE: 3,
         "catchup": 2,
         GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT: 1,
     }
-    best: dict[tuple[int, str], tuple[int, object]] = {}
+    best: dict[tuple[str, int, str], tuple[int, object]] = {}
     for row in rows:
+        run_key = str(row["run_key"] if "run_key" in row.keys() else "")
         student_id = int(row["student_id"])
         question_key = str(row["question_key"])
         source = str(row["source"] if "source" in row.keys() else "live")
         rank = priority.get(source, 0)
-        key = (student_id, question_key)
-        current = best.get(key)
+        dedupe_key = (run_key, student_id, question_key)
+        current = best.get(dedupe_key)
         if current is None or rank > current[0]:
-            best[key] = (rank, row)
+            best[dedupe_key] = (rank, row)
     kept = [pair[1] for pair in best.values()]
-    students_with_live = {
-        int(row["student_id"])
+    runs_with_live_for_student: set[tuple[str, int]] = {
+        (str(row["run_key"] if "run_key" in row.keys() else ""), int(row["student_id"]))
         for row in kept
         if str(row["source"] or "") == GROUP_ENGAGEMENT_SOURCE_LIVE
     }
-    if not students_with_live:
+    if not runs_with_live_for_student:
         return kept
     return [
         row
         for row in kept
         if not (
-            int(row["student_id"]) in students_with_live
+            (str(row["run_key"] if "run_key" in row.keys() else ""), int(row["student_id"]))
+            in runs_with_live_for_student
             and str(row["source"] or "") == GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
         )
     ]

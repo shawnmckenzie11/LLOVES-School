@@ -3416,7 +3416,7 @@ class LovesDB:
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT g.student_id, g.question_key, g.earned, g.possible,
+                SELECT g.run_key, g.student_id, g.question_key, g.earned, g.possible,
                        g.source, COALESCE(i.prompt_kind, '') AS prompt_kind
                 FROM group_engagement g
                 LEFT JOIN group_engagement_items i
@@ -48935,7 +48935,10 @@ class SchoolDB(LovesDB):
             if not run_key:
                 return
             self.conn.execute(
-                "DELETE FROM group_engagement WHERE class_id = ? AND run_key = ?",
+                """
+                DELETE FROM group_engagement
+                WHERE class_id = ? AND run_key = ? AND source = 'live_submit'
+                """,
                 (class_id, run_key),
             )
             self.conn.execute(

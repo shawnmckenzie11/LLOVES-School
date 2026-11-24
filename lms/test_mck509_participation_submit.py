@@ -164,5 +164,55 @@ class PortalRegressionTests(unittest.TestCase):
         self.assertIn("item?.my_response", badge)
 
 
+class GroupFractionsRunScopeTests(GroupEngagementTests):
+    """Class-wide group totals must not collapse rows across runs."""
+
+    def test_class_module_total_includes_all_runs_and_live_submit(self) -> None:
+        """Two saved runs with the same question_key plus Submit staging both count."""
+        ava = self.ids["Ava"]
+        shared_key = "item:shared-placement"
+        now = "2026-09-01T00:00:00Z"
+        with self.school._lock:
+            for run_key, earned in (("prior-run-a", 1), ("prior-run-b", 1)):
+                self.school.conn.execute(
+                    """
+                    INSERT INTO group_engagement_items (
+                        class_id, run_key, question_key, live_module, live_slot,
+                        item_json, prompt_kind, offered_at
+                    ) VALUES (?, ?, ?, 'M1', 'C1', '{}', 'rank', ?)
+                    """,
+                    (self.class_id, run_key, shared_key, now),
+                )
+                self.school.conn.execute(
+                    """
+                    INSERT INTO group_engagement (
+                        class_id, run_key, question_key, student_id,
+                        earned, possible, source, recorded_at
+                    ) VALUES (?, ?, ?, ?, ?, 1, 'live', ?)
+                    """,
+                    (self.class_id, run_key, shared_key, ava, earned, now),
+                )
+            self.school.conn.commit()
+        before = self.school.group_engagement_fractions(self.class_id, module="M1")
+        self.assertEqual(before.get(ava), "2/2")
+        item = self._open()
+        self._place(item, TEAM_A, KEY_IDS)
+        new_key = self._question_key(item)
+        self.assertNotEqual(new_key, shared_key)
+        after = self.school.group_engagement_fractions(self.class_id, module="M1")
+        self.assertEqual(after.get(ava), "4/3")
+        with self.school._lock:
+            row = self.school.conn.execute(
+                """
+                SELECT source FROM group_engagement
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (self.class_id, self._run_key(), new_key, ava),
+            ).fetchone()
+        self.assertEqual(str(row["source"]), "live_submit")
+
+
 if __name__ == "__main__":
+    unittest.main()
+
     unittest.main()
