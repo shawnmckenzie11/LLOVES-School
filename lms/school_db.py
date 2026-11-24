@@ -31434,8 +31434,7 @@ class SchoolDB(LovesDB):
                     note = student_live_feedback(
                         self, int(session_id), int(prompt["id"]), int(student_id)
                     )
-                    if note:
-                        public_items[-1]["board_feedback"] = note
+                    public_items[-1]["board_feedback"] = note
             if str(item.get("kind") or "") == "whiteboard":
                 # MCK-174: tells a tab that saw this board before Close
                 # which cue line to show after Reopen. No ink rides here.

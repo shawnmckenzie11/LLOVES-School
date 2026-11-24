@@ -13,6 +13,7 @@ import {
   mountQuestionLightbox,
   newestOpenQuestionId,
   questionCardLayout,
+  STUDENT_BOARD_FEEDBACK_LEAD,
   syncQuestionLightbox,
 } from "/static/live_question_card.js";
 import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_graph.js";
@@ -42,7 +43,11 @@ import {
   studentFallbackPollMs,
   studentSessionOver,
 } from "/static/live_news_wire.js";
-import { kickQuestionBoardPolls, mountStudentQuestionBoards } from "/static/question_board_ui.js";
+import {
+  kickQuestionBoardPolls,
+  mountStudentQuestionBoards,
+  paintBoardFeedback,
+} from "/static/question_board_ui.js";
 import {
   bindWhiteboard,
   boardAuthLost,
@@ -1284,6 +1289,7 @@ function studentPresenceQueue() {
       const classMode = syncClassBoard(data);
       if (classMode === "show-class" || classMode === "keep-class") {
         bindStudentCanvas.setViewOnly?.(true);
+        applyStudentBoardFeedback(data);
         return;
       }
       if (classMode === "clear-class") {
@@ -1609,6 +1615,7 @@ function refreshStudentBoard() {
       bindStudentCanvas.setViewOnly?.(true);
       studentBoardSince = Number(data.board_seq) || 0;
       studentTeacherSince = Number(data.teacher_board_seq) || 0;
+      applyStudentBoardFeedback(data);
       return;
     }
     if (typeof bindStudentCanvas.resetRun === "function") {
@@ -1796,6 +1803,7 @@ function ensureStudentBoardPoll() {
       const classMode = syncClassBoard(data);
       if (classMode === "show-class" || classMode === "keep-class") {
         bindStudentCanvas.setViewOnly?.(true);
+        applyStudentBoardFeedback(data);
         return;
       }
       if (classMode === "clear-class") {
@@ -3601,7 +3609,8 @@ function questionBoardSlot(item, content) {
     content?.image_as_board_background !== false && content?.image_url
       ? String(content.image_url)
       : "";
-  return `<div class="qboard-slot" data-qboard-prompt="${promptId}" data-qboard-mode="${mode}" data-qboard-team="${team}" data-qboard-image="${escapeText(image)}"></div>`;
+  const note = String(item?.board_feedback || "");
+  return `<div class="qboard-slot" data-qboard-prompt="${promptId}" data-qboard-mode="${mode}" data-qboard-team="${team}" data-qboard-image="${escapeText(image)}" data-qboard-initial-feedback="${escapeText(note)}"></div>`;
 }
 
 function lifecycleAnswerControls(item, action, initial = null) {
@@ -3727,9 +3736,10 @@ function lifecycleConsensusHtml(item) {
 function boardFeedbackHtml(text) {
   const note = String(text || "").trim();
   if (!note) return "";
-  return `<div class="prompt-feedback qboard-feedback" role="note">
-    <p class="prompt-feedback-lead">Feedback</p>
-    <p class="prompt-feedback-why">${escapeText(note)}</p>
+  return `<div class="prompt-feedback qboard-feedback student-board-feedback-strip" role="note">
+    <p class="student-board-feedback-line"><span class="prompt-feedback-lead">${escapeText(
+      STUDENT_BOARD_FEEDBACK_LEAD
+    )}</span> ${escapeText(note)}</p>
   </div>`;
 }
 
@@ -4832,7 +4842,6 @@ function paintLifecycleQuestionStack(payload) {
         </div>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
         ${questionBoardSlot(item, content)}
-        ${boardFeedbackHtml(item.board_feedback)}
         ${questionBoardMode(content) ? "" : answerControls}
         ${ownAnswer}
         ${unsentDraftNoteHtml(item)}
@@ -7463,9 +7472,23 @@ window.addEventListener("lloves-question-board-note", (event) => {
   }
   if (!found) return;
   const open = document.querySelector(`[data-live-prompt-id="${promptId}"]`);
-  if (open) return;
+  if (open instanceof HTMLElement) {
+    syncOpenCardBoardFeedback(open, text);
+    return;
+  }
   paintLifecycleQuestionStack(lastStudentPayload);
 });
+
+/**
+ * Paint teacher board feedback on an open question card without rebuilding.
+ *
+ * @param {HTMLElement} card Live question card.
+ * @param {string} text Stored note; blank clears the strip.
+ */
+function syncOpenCardBoardFeedback(card, text) {
+  const slot = card.querySelector(".qboard-slot");
+  if (slot instanceof HTMLElement) paintBoardFeedback(slot, text);
+}
 
 if (studentQuestionDock) {
   studentQuestionDock.addEventListener("click", (event) => {

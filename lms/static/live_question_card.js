@@ -43,6 +43,9 @@ export function zoomBadgeLabel(finePointer) {
  * @param {number} focusId Newest unanswered live item id, or 0.
  * @returns {"is-compact"|"is-open-focus"|"is-open-extra"}
  */
+/** Student board note prefix above the canvas (MCK-504). */
+export const STUDENT_BOARD_FEEDBACK_LEAD = "Teacher feedback:";
+
 export function questionCardLayout(item, focusId) {
   const status = String(item?.status || "active");
   if (status === "closed" || item?.my_response) return "is-compact";

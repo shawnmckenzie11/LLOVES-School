@@ -74,13 +74,13 @@
       <div id="canvas-lock" class="student-frame-lock">Whiteboard locked</div>
       <div id="student-canvas-feedback" class="student-canvas-feedback" hidden role="note"></div>
       <div class="live-canvas-workspace">
+        <div class="live-canvas-stage team-draw-stage">
         <div class="live-canvas-toolbar live-canvas-toolbar-vertical" role="toolbar" aria-label="Whiteboard tools">
           <button type="button" id="student-canvas-pen" class="is-on" aria-pressed="true">Pen</button>
-          <button type="button" id="student-canvas-line" aria-pressed="false">Line</button>
+          <button type="button" id="student-canvas-line" aria-pressed="false" title="Line">Line</button>
           <button type="button" id="student-canvas-text" aria-pressed="false">Text</button>
           <button type="button" id="student-canvas-undo" title="Nothing to undo" disabled>Undo</button>
         </div>
-        <div class="live-canvas-stage team-draw-stage">
         {% if teacher_features.team_draw or teacher_features.group_draw %}
         <div id="team-draw-mystery" class="team-draw-mystery" hidden aria-label="Mystery rule steps"></div>
         <p id="team-draw-step4-banner" class="team-draw-step4-banner" hidden>Step 4 — yours</p>

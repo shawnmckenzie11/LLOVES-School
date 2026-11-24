@@ -668,14 +668,7 @@ body.student-home:has(#canvas-pane:not([hidden])) {
 .canvas-pane .live-canvas-workspace {
   flex: 1 1 auto;
   min-height: 0;
-  display: flex;
-  flex-direction: row;
-  gap: 0.45rem;
-}
-
-.canvas-pane .live-canvas-toolbar,
-.canvas-pane .live-canvas-toolbar-vertical {
-  flex: 0 0 auto;
+  display: block;
 }
 
 .canvas-pane .live-canvas-stage {
@@ -684,6 +677,8 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   min-width: 0;
   height: auto;
   overflow: hidden;
+  position: relative;
+  width: 100%;
 }
 
 .canvas-pane .student-canvas {
@@ -780,7 +775,7 @@ body.student-home:has(#canvas-pane:not([hidden])) {
 .qboard-phone {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.25rem;
   min-width: 0;
 }
 

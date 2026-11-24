@@ -16,6 +16,7 @@ import {
   normalizeBoardPoint,
 } from "./live_whiteboard.js";
 import { mountTeacherGrid } from "./formative_live_board.js";
+import { STUDENT_BOARD_FEEDBACK_LEAD } from "./live_question_card.js";
 import { studentShownMembers } from "./whiteboard_formative.js";
 
 const SIZE_LINE = "Your board is too full to submit. Erase a little and try again.";
@@ -109,7 +110,7 @@ function boardUrls(kind, id, token) {
 }
 
 /**
- * Toolbar the live student board uses, plus Redo and Clear.
+ * Student phone toolbar: Pen, Line, Text, and Undo only (MCK-504).
  * @returns {HTMLElement}
  */
 function toolBar() {
@@ -119,11 +120,9 @@ function toolBar() {
   tools.setAttribute("aria-label", "Whiteboard tools");
   tools.innerHTML = [
     '<button type="button" data-tool="pen" class="is-on" aria-pressed="true">Pen</button>',
-    '<button type="button" data-tool="line" aria-pressed="false">Line</button>',
+    '<button type="button" data-tool="line" aria-pressed="false" title="Line">Line</button>',
     '<button type="button" data-tool="text" aria-pressed="false">Text</button>',
     '<button type="button" data-tool="undo" title="Nothing to undo" disabled>Undo</button>',
-    '<button type="button" data-tool="redo" hidden>Redo</button>',
-    '<button type="button" data-tool="clear" hidden>Clear</button>',
   ].join("");
   return tools;
 }
@@ -134,29 +133,61 @@ function toolBar() {
  * @param {HTMLElement} slot
  * @param {string} text
  */
-function paintBoardFeedback(slot, text) {
-  const card = slot.closest("article");
-  if (!(card instanceof HTMLElement)) return;
-  let block = card.querySelector(".qboard-feedback");
+export function paintBoardFeedback(slot, text) {
   const note = String(text || "").trim();
+  const phoneSlot = slot.querySelector(".qboard-phone-feedback");
+  const card = slot.closest("article");
+  const insertBefore = slot;
+  let block =
+    (phoneSlot instanceof HTMLElement && phoneSlot.querySelector(".qboard-feedback")) ||
+    card?.querySelector(".qboard-feedback") ||
+    null;
   if (!note) {
     if (block instanceof HTMLElement) block.remove();
+    if (phoneSlot instanceof HTMLElement) {
+      phoneSlot.hidden = true;
+      phoneSlot.replaceChildren();
+    }
     return;
   }
   if (!(block instanceof HTMLElement)) {
     block = document.createElement("div");
-    block.className = "prompt-feedback qboard-feedback";
+    block.className = "prompt-feedback qboard-feedback student-board-feedback-strip";
     block.setAttribute("role", "note");
-    const lead = document.createElement("p");
+    const line = document.createElement("p");
+    line.className = "student-board-feedback-line";
+    const lead = document.createElement("span");
     lead.className = "prompt-feedback-lead";
-    lead.textContent = "Feedback";
-    const why = document.createElement("p");
-    why.className = "prompt-feedback-why";
-    block.append(lead, why);
-    card.appendChild(block);
+    lead.textContent = STUDENT_BOARD_FEEDBACK_LEAD;
+    line.append(lead, ` ${note}`);
+    block.append(line);
+    if (phoneSlot instanceof HTMLElement) {
+      phoneSlot.replaceChildren(block);
+      phoneSlot.hidden = false;
+    } else if (insertBefore instanceof HTMLElement) {
+      insertBefore.insertAdjacentElement("beforebegin", block);
+    } else if (card instanceof HTMLElement) {
+      card.appendChild(block);
+    }
+    return;
   }
-  const why = block.querySelector(".prompt-feedback-why");
-  if (why) why.textContent = note;
+  const line = block.querySelector(".student-board-feedback-line");
+  if (line instanceof HTMLElement) {
+    line.innerHTML = `<span class="prompt-feedback-lead">${STUDENT_BOARD_FEEDBACK_LEAD}</span> ${escapeBoardFeedback(note)}`;
+  }
+}
+
+/**
+ * Escape text for a feedback line on the student phone.
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeBoardFeedback(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -214,6 +245,8 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     if (typed instanceof HTMLTextAreaElement) {
       typed.hidden = slot.getAttribute("data-qboard-mode") !== "both";
     }
+    const initial = String(slot.getAttribute("data-qboard-initial-feedback") || "");
+    if (initial) paintBoardFeedback(slot, initial);
     return;
   }
   if (root && root._poll) {
@@ -228,6 +261,9 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   text.rows = 2;
   text.hidden = slot.getAttribute("data-qboard-mode") !== "both";
   text.setAttribute("aria-label", "Typed answer");
+  const feedbackSlot = document.createElement("div");
+  feedbackSlot.className = "qboard-phone-feedback";
+  feedbackSlot.hidden = true;
   const stage = document.createElement("div");
   stage.className = "live-canvas-stage";
   const canvas = document.createElement("canvas");
@@ -240,11 +276,11 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   canvas.style.backgroundSize = "contain";
   canvas.style.backgroundRepeat = "no-repeat";
   canvas.style.backgroundPosition = "center";
-  stage.appendChild(canvas);
   const tools = toolBar();
+  stage.append(tools, canvas);
   const workspace = document.createElement("div");
   workspace.className = "live-canvas-workspace";
-  workspace.append(tools, stage);
+  workspace.append(stage);
   const submit = document.createElement("button");
   submit.type = "button";
   submit.className = "prompt-submit";
@@ -253,12 +289,14 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   const submitRow = document.createElement("div");
   submitRow.className = "qboard-tools";
   submitRow.appendChild(submit);
-  root.append(text, workspace, submitRow);
+  root.append(text, feedbackSlot, workspace, submitRow);
   /** Current card. Live sync swaps the slot; the poll and notes follow it. */
   const place = { slot };
   root._place = place;
   phoneRoots.set(key, root);
   slot.appendChild(root);
+  const initialNote = String(slot.getAttribute("data-qboard-initial-feedback") || "");
+  if (initialNote) paintBoardFeedback(slot, initialNote);
 
   let since = 0;
   let runKey = "";
