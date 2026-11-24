@@ -46,7 +46,7 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 | Class | 12 students |
 | Waves | 4 |
 | In-flight cap | 2 |
-| Wall | 802 ms |
+| Wall | 969 ms |
 | sqlite lock logs | 0 |
 | `_resume_live_attendee` writes | 96 |
 | school in_transaction | False |
@@ -55,10 +55,10 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| heartbeat | 48 | 2 | 3 | 3 |
-| media | 48 | 1 | 1 | 4 |
-| staff-state | 4 | 14 | 14 | 20 |
-| state | 48 | 27 | 30 | 42 |
+| heartbeat | 48 | 2 | 4 | 7 |
+| media | 48 | 1 | 2 | 3 |
+| staff-state | 4 | 23 | 23 | 26 |
+| state | 48 | 31 | 38 | 46 |
 
 ### Errors
 
