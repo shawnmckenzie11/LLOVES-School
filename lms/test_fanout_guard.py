@@ -974,9 +974,10 @@ class FanoutGuardTests(unittest.TestCase):
     def test_quit_join_note_does_not_fan_out(self) -> None:
         """Quit reuses one end signal. Phones are not each told to reload.
 
-        The join note is the ``ended=1`` flag on the redirect the student
+        The join signal is the ``ended=1`` flag on the redirect the student
         poll already returns. Quit stores one postcard for the session,
         not one per phone, and the phones' follow-up polls add none.
+        The landing page does not print the ended sentence.
         """
         from urllib.parse import parse_qs, urlsplit
 
@@ -989,8 +990,10 @@ class FanoutGuardTests(unittest.TestCase):
         landing = (LMS_DIR / "templates" / "landing.html").read_text(encoding="utf-8")
         portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertNotIn(CLASS_ENDED_JOIN_NOTE, landing)
+        self.assertNotIn("New to ALC?", landing)
         self.assertNotIn(CLASS_ENDED_JOIN_NOTE, portal)
-        self.assertIn("{{ class_ended_note }}", landing)
+        self.assertNotIn("{{ class_ended_note }}", landing)
+        self.assertNotIn("class-ended-note", landing)
         self.assertNotIn("setInterval", landing)
 
         tip = self._news_tip()
@@ -1025,12 +1028,15 @@ class FanoutGuardTests(unittest.TestCase):
         noted = self.phones[0].get(redirects[0])
         self._ok_status(noted, 200)
         html = noted.get_data(as_text=True)
-        self.assertEqual(html.count(CLASS_ENDED_JOIN_NOTE), 1)
-        self.assertIn('id="class-ended-note"', html)
+        self.assertNotIn(CLASS_ENDED_JOIN_NOTE, html)
+        self.assertNotIn('id="class-ended-note"', html)
+        self.assertNotIn("New to ALC?", html)
         plain = self.phones[0].get("/")
         self._ok_status(plain, 200)
-        self.assertNotIn(CLASS_ENDED_JOIN_NOTE, plain.get_data(as_text=True))
-        self.assertNotIn('id="class-ended-note"', plain.get_data(as_text=True))
+        plain_html = plain.get_data(as_text=True)
+        self.assertNotIn(CLASS_ENDED_JOIN_NOTE, plain_html)
+        self.assertNotIn('id="class-ended-note"', plain_html)
+        self.assertNotIn("New to ALC?", plain_html)
 
 
     def test_dead_bank_image_student_refresh_fetches_once(self) -> None:

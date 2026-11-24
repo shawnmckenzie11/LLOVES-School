@@ -147,6 +147,160 @@ function resultsRowHtml(row) {
       </div>`;
 }
 
+/**
+ * Ordered bar rows for one tally. The graph HTML and the in-place
+ * poll update both use this so a count change cannot disagree with
+ * the first paint.
+ *
+ * @param {any} tally
+ * @param {{
+ *   order?: "default"|"ranked",
+ *   showKey?: boolean,
+ *   markKey?: boolean,
+ *   keyMark?: "tag"|"check",
+ * }} [opts]
+ * @returns {{order: "default"|"ranked", showKey: boolean, keyMark: "tag"|"check", rows: {id: string, label: string, pct: number, count: number, marked: boolean, keyMark: "tag"|"check"}[]}|null}
+ */
+export function mcBarModel(tally, opts = {}) {
+  const choices = Array.isArray(tally?.choices) ? tally.choices : [];
+  if (!choices.length) return null;
+  const order = opts.order === "ranked" ? "ranked" : "default";
+  const showKey = Boolean(opts.showKey);
+  const markKey = opts.markKey == null ? showKey : Boolean(opts.markKey);
+  const keyMark = opts.keyMark === "check" ? "check" : "tag";
+  const ordered = orderMcChoices(choices, order);
+  const total = ordered.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+  return {
+    order,
+    showKey,
+    keyMark,
+    rows: ordered.map((row) => {
+      const count = Number(row.count) || 0;
+      return {
+        id: String(row.id || row.label || ""),
+        label: String(row.label ?? row.id ?? ""),
+        pct: barPercent(row, count, total),
+        count,
+        marked: markKey && row.correct === true,
+        keyMark,
+      };
+    }),
+  };
+}
+
+/**
+ * Inline width already painted on a fill.
+ *
+ * The stylesheet width is zero. Reading that would look like the bar
+ * had restarted. Only an explicit width counts.
+ *
+ * @param {Element|null|undefined} fill
+ * @returns {string}
+ */
+function readFillWidth(fill) {
+  if (!fill) return "";
+  const fromStyle = fill.style && typeof fill.style.width === "string" ? fill.style.width.trim() : "";
+  if (fromStyle) return fromStyle;
+  const attr = typeof fill.getAttribute === "function" ? String(fill.getAttribute("style") || "") : "";
+  const match = /(?:^|;)\s*width:\s*([^;]+)/i.exec(attr);
+  return match ? match[1].trim() : "";
+}
+
+/**
+ * Choice id already painted on a row: the letter, or the label when
+ * there is no letter.
+ *
+ * @param {Element} node
+ * @returns {string}
+ */
+function paintedChoiceId(node) {
+  const letter = node.querySelector(".mc-results-letter");
+  const fromLetter = letter ? String(letter.textContent || "").trim() : "";
+  if (fromLetter) return fromLetter;
+  const label = node.querySelector(".mc-results-label");
+  return label ? String(label.textContent || "").replace(/\s+/g, " ").trim() : "";
+}
+
+/**
+ * True when this graph already lists the same choices in the same order.
+ *
+ * A different order or Show answer state needs a new graph. A count
+ * change does not.
+ *
+ * @param {Element|null|undefined} root Existing ``.mc-results-graph``.
+ * @param {any} tally
+ * @param {{order?: "default"|"ranked", showKey?: boolean, markKey?: boolean, keyMark?: "tag"|"check"}} [opts]
+ * @returns {boolean}
+ */
+export function mcResultsBarsMatch(root, tally, opts = {}) {
+  if (!root || typeof root.querySelectorAll !== "function") return false;
+  const model = mcBarModel(tally, opts);
+  if (!model || !model.rows.length) return false;
+  if (model.rows.some((row) => !row.id)) return false;
+  const order = root.getAttribute?.("data-mc-order") || "";
+  const shown = root.getAttribute?.("data-mc-key") || "";
+  if (order !== model.order) return false;
+  if (shown !== (model.showKey ? "shown" : "hidden")) return false;
+  const existing = [...root.querySelectorAll(".mc-results-row")];
+  if (existing.length !== model.rows.length) return false;
+  return model.rows.every((row, index) => {
+    const node = existing[index];
+    return (
+      paintedChoiceId(node) === row.id &&
+      node.querySelector(".mc-results-fill") &&
+      node.querySelector(".mc-results-count")
+    );
+  });
+}
+
+/**
+ * Move bars that changed from their current width to the new width.
+ *
+ * The graph element and every row stay. A bar whose count and percent
+ * are already painted is not written. Nothing is set to zero on the
+ * way to the new width.
+ *
+ * @param {Element} root Existing ``.mc-results-graph``.
+ * @param {any} tally
+ * @param {{order?: "default"|"ranked", showKey?: boolean, markKey?: boolean, keyMark?: "tag"|"check"}} [opts]
+ * @returns {{matched: boolean, updated: string[], skipped: string[]}}
+ */
+export function syncMcResultsBars(root, tally, opts = {}) {
+  const empty = { matched: false, updated: [], skipped: [] };
+  if (!mcResultsBarsMatch(root, tally, opts)) return empty;
+  const model = mcBarModel(tally, opts);
+  if (!model) return empty;
+  const existing = [...root.querySelectorAll(".mc-results-row")];
+  /** @type {string[]} */
+  const updated = [];
+  /** @type {string[]} */
+  const skipped = [];
+  model.rows.forEach((row, index) => {
+    const node = existing[index];
+    const fill = node.querySelector(".mc-results-fill");
+    const countEl = node.querySelector(".mc-results-count");
+    const nextWidth = `${row.pct}%`;
+    const nextCount = `${row.count} · ${row.pct}%`;
+    const widthSame = readFillWidth(fill) === nextWidth;
+    const countSame = Boolean(countEl) && countEl.textContent === nextCount;
+    const markSame = node.classList.contains("is-correct") === Boolean(row.marked);
+    if (widthSame && countSame && markSame) {
+      skipped.push(row.id);
+      return;
+    }
+    if (fill && !widthSame) fill.style.width = nextWidth;
+    if (countEl && !countSame) countEl.textContent = nextCount;
+    if (!markSame) node.classList.toggle("is-correct", Boolean(row.marked));
+    const keyEl = node.querySelector(".mc-results-key");
+    if (keyEl) {
+      const keyText = row.marked && row.keyMark !== "check" ? "Correct" : "";
+      if (keyEl.textContent !== keyText) keyEl.textContent = keyText;
+    }
+    updated.push(row.id);
+  });
+  return { matched: true, updated, skipped };
+}
+
 
 /**
  * Bar graph of answer counts. No names. The key highlight follows
@@ -165,15 +319,11 @@ function resultsRowHtml(row) {
  * @returns {string} Empty when there is nothing to graph.
  */
 export function mcResultsGraphHtml(tally, opts = {}) {
+  const model = mcBarModel(tally, opts);
+  if (!model) return "";
+  const { order, showKey, keyMark, rows } = model;
   const choices = Array.isArray(tally?.choices) ? tally.choices : [];
-  if (!choices.length) return "";
-  const order = opts.order === "ranked" ? "ranked" : "default";
-  const showKey = Boolean(opts.showKey);
-  const markKey = opts.markKey == null ? showKey : Boolean(opts.markKey);
-  const rows = orderMcChoices(choices, order);
-  const keyMark = opts.keyMark === "check" ? "check" : "tag";
-  const total = rows.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
-  const keyed = rows.some((row) => row?.correct === true);
+  const keyed = choices.some((row) => row?.correct === true);
   const itemKey = escapeGraphText(opts.itemKey || "");
   const controls = opts.controls
     ? `<div class="mc-results-controls">
@@ -195,18 +345,16 @@ export function mcResultsGraphHtml(tally, opts = {}) {
       </div>`
     : "";
   const bars = rows
-    .map((row) => {
-      const count = Number(row.count) || 0;
-      const pct = barPercent(row, count, total);
-      return resultsRowHtml({
-        letter: String(row.id || ""),
-        label: String(row.label ?? row.id ?? ""),
-        pct,
-        count,
-        marked: markKey && row.correct === true,
+    .map((row) =>
+      resultsRowHtml({
+        letter: row.id,
+        label: row.label,
+        pct: row.pct,
+        count: row.count,
+        marked: row.marked,
         keyMark,
-      });
-    })
+      })
+    )
     .join("");
   return `<section class="mc-results-graph" data-mc-graph="${itemKey}" data-mc-order="${order}" data-mc-key="${
     showKey ? "shown" : "hidden"

@@ -185,12 +185,13 @@ class AuthTests(unittest.TestCase):
         return int(row[0])
 
     def test_landing_has_request_access_button(self) -> None:
-        """The school home links to the request form from the top bar and the join card."""
+        """The school home links to the request form from the top bar."""
         rv = self.client.get("/")
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
         self.assertIn('id="landing-request-access"', body)
-        self.assertIn('id="landing-request-access-inline"', body)
+        self.assertNotIn('id="landing-request-access-inline"', body)
+        self.assertNotIn("New to ALC?", body)
         self.assertIn('href="/request-access"', body)
 
     def test_landing_carries_campaign_tags(self) -> None:

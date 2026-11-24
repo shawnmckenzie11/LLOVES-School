@@ -86,16 +86,12 @@
   height: auto;
   border-radius: 6px 0 0 6px;
   background: #93c5fd;
-  transform-origin: left center;
+  /* Width eases from whatever is already painted. A poll must not
+     restart the bar at zero. */
   transition: width 0.35s ease;
-  animation: mc-results-grow 0.35s ease;
 }
 .mc-results-fill[style*="width:100%"] {
   border-radius: 6px;
-}
-@keyframes mc-results-grow {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
 }
 .mc-results-face {
   position: relative;
