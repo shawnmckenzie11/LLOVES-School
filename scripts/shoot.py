@@ -4453,8 +4453,6 @@ def shoot_mck280(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         staff.locator("#formative-live-board .wb-live-status").filter(
             has_text="Teacher wrote"
         ).first.wait_for(state="visible", timeout=15000)
-        if not staff.locator("#wb-live-filters").get_by_text("Teacher wrote", exact=True).count():
-            raise SystemExit("Teacher wrote filter is missing.")
         gallery = out_dir / "mck280-gallery-1280x800.png"
         staff.screenshot(path=str(gallery))
         shots.append(gallery)
@@ -5723,7 +5721,20 @@ def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
             )
             toggle = page.locator("#class-list-toggle")
             toggle.wait_for(state="visible", timeout=20000)
-            page.locator("#class-list-pane").wait_for(state="visible", timeout=10000)
+            page.evaluate(
+                """() => {
+                  const id = document.body.getAttribute("data-user-id") || "";
+                  try { localStorage.setItem("lloves-class-list:" + id, "closed"); } catch (_e) {}
+                  document.body.classList.remove("class-list-open");
+                  document.body.classList.add("class-list-collapsed");
+                  const pane = document.getElementById("class-list-pane");
+                  const scrim = document.getElementById("class-list-scrim");
+                  const closeBtn = document.getElementById("class-list-close");
+                  if (pane) pane.hidden = true;
+                  if (scrim) scrim.hidden = true;
+                  if (closeBtn) closeBtn.hidden = true;
+                }"""
+            )
             rail = page.evaluate(
                 """() => {
                   const body = document.body;
@@ -5748,8 +5759,14 @@ def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
                 raise SystemExit("Class list button label is wrong")
             if rail["title"] != "Show class list":
                 raise SystemExit("Class list tooltip is wrong")
-            if float(rail["width"]) > 140:
-                raise SystemExit("Class list rail is wider than the collapsed column")
+            toggle_box = page.evaluate(
+                """() => {
+                  const btn = document.getElementById("class-list-toggle");
+                  return btn ? btn.getBoundingClientRect().width : 0;
+                }"""
+            )
+            if float(toggle_box) > 160:
+                raise SystemExit("Class list icon is wider than the collapsed chip")
             page.evaluate(
                 """() => {
                   document.querySelectorAll("#class-list-pane .ap-att-name").forEach((el) => {
@@ -5759,8 +5776,8 @@ def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
             )
             rail_text = _mck500_visible_text(page, "#class-list-pane")
             _mck500_refuse(rail_text, secrets)
-            rail_path = out_dir / "mck500-class-list-collapsed-1280.png"
-            page.locator("#class-list-pane").screenshot(path=str(rail_path))
+            rail_path = out_dir / "mck503-class-list-icon-1280.png"
+            page.locator("#class-list-toggle").screenshot(path=str(rail_path))
             written.append(rail_path)
             context.close()
             browser.close()

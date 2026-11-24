@@ -683,7 +683,7 @@ class QuestionBoardTests(unittest.TestCase):
         self.assertIn(">Clear<", js)
         css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
         self.assertNotIn("qboard-filter", css)
-        self.assertIn(".wb-live-filter", css)
+        self.assertNotIn("wb-live-filter", css)
 
     def test_centered_text_is_not_normalized_twice(self) -> None:
         """Text committed at (0.5, 0.5) stays there on the teacher board.

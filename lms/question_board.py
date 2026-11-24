@@ -1807,25 +1807,6 @@ def question_dashboard(
         "drawing": counts["Drawing"],
         "summary": f"{submitted} of {len(tiles)} submitted · {counts['Drawing']} drawing",
         "projected_board": projected,
-        "filters": [
-            {"id": "all", "label": f"All {len(tiles)}", "count": len(tiles)},
-            {
-                "id": "Not started",
-                "label": f"Not started {counts['Not started']}",
-                "count": counts["Not started"],
-            },
-            {"id": "Drawing", "label": f"Drawing {counts['Drawing']}", "count": counts["Drawing"]},
-            {
-                "id": "Submitted",
-                "label": f"Submitted {counts['Submitted']}",
-                "count": counts["Submitted"],
-            },
-            {
-                "id": "Teacher wrote",
-                "label": f"Teacher wrote {counts['Teacher wrote']}",
-                "count": counts["Teacher wrote"],
-            },
-        ],
         "tiles": tiles,
         "image_url": str(payload.get("image_url") or "") if image_is_background(payload) else "",
     }
@@ -3459,7 +3440,6 @@ def lesson_submission_gallery(
         "question_key": qkey,
         "context": stem,
         "summary": f"{len(tiles)} submitted",
-        "filters": [{"id": "all", "label": f"All {len(tiles)}", "count": len(tiles)}],
         "tiles": tiles,
         "projected_board": "",
     }

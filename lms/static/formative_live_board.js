@@ -103,20 +103,6 @@ function tileName(tile) {
 }
 
 /**
- * Whether a gallery card matches the selected filter chip.
- *
- * @param {any} tile
- * @param {string} selected
- * @returns {boolean}
- */
-function tileMatches(tile, selected) {
-  if (selected === "all") return true;
-  if (selected === "teacher_wrote") return Boolean(tile?.teacher_wrote);
-  if (tile?.status && tile.status === selected) return true;
-  return tile?.team_board === selected;
-}
-
-/**
  * Empty ink bag for one board key.
  *
  * @returns {{strokes: Record<string, any>, texts: Record<string, any>}}
@@ -516,7 +502,6 @@ export function mountTeacherGrid(root, options = {}) {
   root.dataset.wbMounted = "1";
   const grid = part("grid");
   const panel = part("panel");
-  const filters = part("filters");
   const summary = part("summary");
   const context = part("context");
   const canvas = part("panel-canvas");
@@ -528,7 +513,6 @@ export function mountTeacherGrid(root, options = {}) {
   const cursors = {};
   /** @type {any[]} */
   let tiles = [];
-  let filter = "all";
   let answerWith = "";
   let openKey = "";
   let session = 0;
@@ -923,7 +907,7 @@ export function mountTeacherGrid(root, options = {}) {
    * @param {any[]} rows
    */
   function paintGrid(rows) {
-    const visible = rows.filter((tile) => tileMatches(tile, filter));
+    const visible = Array.isArray(rows) ? rows : [];
     const keep = new Set();
     let previous = null;
     for (const tile of visible) {
@@ -956,7 +940,6 @@ export function mountTeacherGrid(root, options = {}) {
     if (typeof payload.answer_with === "string") answerWith = payload.answer_with;
     if (context) context.textContent = String(payload.context || "");
     if (summary) summary.textContent = String(payload.summary || "");
-    if (filters instanceof HTMLElement) paintFilters(payload.filters || []);
     for (const tile of tiles) {
       const key = String(tile.board_key || "");
       if (!key) continue;
@@ -1085,42 +1068,10 @@ export function mountTeacherGrid(root, options = {}) {
   }
 
   /**
-   * Paint filter chips once per label set. Later polls only move the selection.
-   *
-   * @param {any[]} chips
-   */
-  function paintFilters(chips) {
-    if (!(filters instanceof HTMLElement)) return;
-    const rows = Array.isArray(chips) ? chips : [];
-    const sig = rows.map((chip) => `${chip?.id ?? ""}\t${chip?.label ?? ""}`).join("\n");
-    if (filters.dataset.filterSig !== sig) {
-      filters.dataset.filterSig = sig;
-      filters.replaceChildren();
-      for (const chip of rows) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "wb-live-filter";
-        button.dataset.filterId = String(chip?.id || "all");
-        button.textContent = String(chip?.label || "");
-        button.addEventListener("click", () => {
-          filter = button.dataset.filterId || "all";
-          paintFilters(rows);
-          paintGrid(tiles);
-        });
-        filters.appendChild(button);
-      }
-    }
-    for (const button of filters.querySelectorAll(".wb-live-filter")) {
-      if (!(button instanceof HTMLButtonElement)) continue;
-      button.classList.toggle("is-on", (button.dataset.filterId || "all") === filter);
-    }
-  }
-
-  /**
    * @param {number} step
    */
   function stepPanel(step) {
-    const visible = tiles.filter((tile) => tileMatches(tile, filter));
+    const visible = tiles;
     if (!visible.length) return;
     const index = visible.findIndex((tile) => String(tile.board_key || "") === openKey);
     const next = visible[(index + step + visible.length) % visible.length];
