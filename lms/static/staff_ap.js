@@ -1490,14 +1490,13 @@ function adoptLifecycleChoiceTallies(tallies) {
 }
 
 /**
- * Hosts that can show a teacher question card (main stack or minimize dock).
+ * Host element for teacher question cards in the main list.
  *
  * @returns {HTMLElement[]}
  */
 function liveQuestionCardHosts() {
-  return [$("live-question-list"), $("teacher-minimized-list")].filter(
-    (row) => row instanceof HTMLElement
-  );
+  const host = $("live-question-list");
+  return host instanceof HTMLElement ? [host] : [];
 }
 
 /**
@@ -1759,7 +1758,6 @@ function applyHideKey() {
   const layout = $("live-questions-layout");
   layout?.classList.toggle("is-key-hidden", on);
   $("live-question-list")?.classList.toggle("is-key-hidden", on);
-  $("teacher-minimized-list")?.classList.toggle("is-key-hidden", on);
   const btn = $("live-hide-key-btn");
   if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
   // MCK-155 gate MED-1: the Responses dialog follows Hide key too. Marks
@@ -2549,7 +2547,7 @@ function adoptLightGroupResults(bag) {
  * Patch consensus cards and SubmitterLog without remounting the question list.
  */
 function paintGroupResultsInPlace(force = false) {
-  const roots = [$("live-question-list"), $("teacher-minimized-list")].filter(
+  const roots = [$("live-question-list")].filter(
     (row) => row instanceof HTMLElement
   );
   if (!roots.length) return;
@@ -6348,23 +6346,10 @@ function liveQuestionAddedThisClass(item, card, status) {
 }
 
 /**
- * True when a closed question is minimized for students and sits in the dock.
- *
- * @param {any} card Merged lifecycle row.
- * @returns {boolean}
- */
-function teacherQuestionInMinimizedPanel(card) {
-  const status = String(card?.status || "inactive").toLowerCase();
-  return status === "closed" && Boolean(card?.students_minimized);
-}
-
-/**
  * Render every question associated with the current stage as a vertical card.
  */
 function paintLiveQuestionCards() {
   const host = $("live-question-list");
-  const dockHost = $("teacher-minimized-list");
-  const dockPanel = $("teacher-minimized-panel");
   if (!host) return;
   const lifecycleById = new Map(
     lastLiveItems.map((row) => [Number(row.id), row])
@@ -6412,18 +6397,8 @@ function paintLiveQuestionCards() {
       deckTotal > 0
         ? `<p class="hint compact">No questions on this page yet. Use Add New or Import from bank to add one here.</p>`
         : `<p class="hint compact">No questions in this lesson deck yet.</p>`;
-    if (dockHost) dockHost.innerHTML = "";
-    if (dockPanel instanceof HTMLElement) dockPanel.hidden = true;
-    $("question-artifact-zone")?.classList.remove("has-teacher-minimized");
     return;
   }
-  const dockedCards = cards.filter((card) => teacherQuestionInMinimizedPanel(card));
-  const mainCards = cards.filter((card) => !teacherQuestionInMinimizedPanel(card));
-  if (dockPanel instanceof HTMLElement) dockPanel.hidden = !dockedCards.length;
-  $("question-artifact-zone")?.classList.toggle(
-    "has-teacher-minimized",
-    dockedCards.length > 0
-  );
   const cardHtml = (card, index) => {
       const item = card.item || card;
       const isRankCard = liveQuestionIsRank(item, card);
@@ -6790,19 +6765,12 @@ function paintLiveQuestionCards() {
         </div>
       </article>`;
   };
-  const mainHtml = mainCards.length
-    ? mainCards.map((card) => cardHtml(card, cards.indexOf(card))).join("")
-    : `<p class="hint compact">Minimized questions are in the panel on the right.</p>`;
-  writeQuestionCardsKeepingConfirms(host, mainHtml);
-  if (dockHost) {
-    writeQuestionCardsKeepingConfirms(
-      dockHost,
-      dockedCards.map((card) => cardHtml(card, cards.indexOf(card))).join("")
-    );
-  }
+  writeQuestionCardsKeepingConfirms(
+    host,
+    cards.map((card, index) => cardHtml(card, index)).join("")
+  );
   paintGroupResultsInPlace();
   void renderLiveQuestionMath(host);
-  if (dockHost) void renderLiveQuestionMath(dockHost);
   mountTeacherQuestionBoards(liveSessionId || readLiveSessionId());
 }
 
@@ -14474,7 +14442,7 @@ function focusTeamSetup() {
   if (stepper instanceof HTMLElement) stepper.focus();
 }
 
-for (const hostId of ["live-question-list", "teacher-minimized-list", "live-frames"]) {
+for (const hostId of ["live-question-list", "live-frames"]) {
   $(hostId)?.addEventListener("change", (event) => {
     void onGroupSetupChange(event);
   });

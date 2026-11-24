@@ -32,7 +32,7 @@ class ClassListRailTests(unittest.TestCase):
     """Drawer toggle copy and the per-teacher storage key."""
 
     def test_labels_and_storage_key(self) -> None:
-        """Class (N) when closed, Hide class list when open, key includes the teacher."""
+        """Class (N) on the button; Show/Hide in title and aria; key includes the teacher."""
         script = r"""
 import {
   classListStorageKey,
@@ -46,7 +46,7 @@ const store = { rows: {}, getItem(k) { return this.rows[k] ?? null; }, setItem(k
 if (classListToggleLabel(false, 3) !== "Class (3)") throw new Error("closed label");
 if (classListToggleLabel(false, 0) !== "Class (0)") throw new Error("zero label");
 if (classListToggleLabel(false, -2) !== "Class (0)") throw new Error("negative label");
-if (classListToggleLabel(true, 3) !== "Hide class list") throw new Error("open label");
+if (classListToggleLabel(true, 3) !== "Class (3)") throw new Error("open label");
 if (classListToggleTitle(false) !== "Show class list") throw new Error("closed tip");
 if (classListToggleTitle(true) !== "Hide class list") throw new Error("open tip");
 if (classListToggleAriaLabel(false) !== "Show class list") throw new Error("closed aria");
