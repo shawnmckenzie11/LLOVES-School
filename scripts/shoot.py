@@ -6143,10 +6143,8 @@ def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
                   document.body.classList.add("class-list-collapsed");
                   const pane = document.getElementById("class-list-pane");
                   const scrim = document.getElementById("class-list-scrim");
-                  const closeBtn = document.getElementById("class-list-close");
                   if (pane) pane.hidden = true;
                   if (scrim) scrim.hidden = true;
-                  if (closeBtn) closeBtn.hidden = true;
                 }"""
             )
             rail = page.evaluate(

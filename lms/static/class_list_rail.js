@@ -1,7 +1,7 @@
 /**
- * Teacher class-list drawer labels (MCK-500, MCK-503).
+ * Teacher class-list drawer labels (MCK-500, MCK-503, MCK-507).
  *
- * The live shell starts collapsed. One click opens an overlay drawer.
+ * The header chip shows Class (N). One click opens an overlay drawer.
  * The choice is stored per teacher so a slide change does not reset it.
  */
 
@@ -41,7 +41,7 @@ export function classListToggleTitle(open) {
 }
 
 /**
- * Accessible name for the toggle and close controls.
+ * Accessible name for the header toggle (Show/Hide class list).
  *
  * @param {boolean} open
  * @returns {string}
