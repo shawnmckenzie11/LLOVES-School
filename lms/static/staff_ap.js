@@ -6685,11 +6685,13 @@ function paintLiveQuestionCards() {
         active && groupChrome && result?.any_picking
           ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">${PICKS_COPY.moveOn}</button>`
           : "";
+      const groupMcFooter = groupChrome && liveGroupMcUsesIndividualFooter(item, card);
+      const mcCloseMinimizeFooter = !groupChrome || groupMcFooter;
       // MCK-274: projector lanes are not the open card, so the strip
       // Reveal stays. It closes the item; Score teams follows (MCK-185).
       const raceLanesShowing = false;
       const revealHtml =
-        active && groupChrome
+        active && groupChrome && !groupMcFooter
           ? raceLanesShowing
             ? moveOnHtml
             : `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
@@ -6697,11 +6699,11 @@ function paintLiveQuestionCards() {
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
       const minimizeHtml =
-        closed && liveItemId && !groupChrome
+        closed && liveItemId && mcCloseMinimizeFooter
           ? studentMinimizeButtonHtml(liveItemId, card.students_minimized)
           : "";
       const closeHtml =
-        active && liveItemId && !groupChrome
+        active && liveItemId && mcCloseMinimizeFooter
           ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
           : "";
       const resultGraph = splitMcResultsControls(resultHtml);
@@ -7706,6 +7708,18 @@ function paintQuestionResponses(responses, keepTicks) {
  */
 function liveGroupMcKeepsResponsePoints(item, card, hasAnswerKey) {
   return Boolean(hasAnswerKey) && liveQuestionIsMultipleChoice(item, card);
+}
+
+/**
+ * Group MC reuses the individual Close / Minimize footer. Group rank and
+ * consensus keep their own reveal controls.
+ *
+ * @param {any} item
+ * @param {any} card
+ * @returns {boolean}
+ */
+function liveGroupMcUsesIndividualFooter(item, card) {
+  return liveQuestionIsMultipleChoice(item, card) && !liveQuestionIsRank(item, card);
 }
 
 /**
@@ -11105,7 +11119,18 @@ function classListIsOpen() {
 }
 
 /**
- * Label and tooltip for the class-list rail. Does not change open/closed.
+ * Pin the drawer top edge under the live header bar.
+ */
+function syncClassListDrawerTop() {
+  const header = $("live-header");
+  const root = $("ap-root");
+  if (!(header instanceof HTMLElement) || !(root instanceof HTMLElement)) return;
+  const bottom = header.getBoundingClientRect().bottom;
+  root.style.setProperty("--class-list-drawer-top", `${Math.round(bottom)}px`);
+}
+
+/**
+ * Label and tooltip for the class-list header control. Does not change open/closed.
  */
 function paintClassListToggle() {
   const btn = $("class-list-toggle");
@@ -11118,15 +11143,11 @@ function paintClassListToggle() {
   btn.title = tip;
   btn.setAttribute("aria-label", aria);
   btn.setAttribute("aria-expanded", open ? "true" : "false");
-  const closeBtn = $("class-list-close");
-  if (closeBtn instanceof HTMLButtonElement) {
-    closeBtn.hidden = !open;
-    closeBtn.setAttribute("aria-label", "Hide class list");
-  }
   const scrim = $("class-list-scrim");
   if (scrim instanceof HTMLElement) {
     scrim.hidden = !open;
   }
+  syncClassListDrawerTop();
 }
 
 /**
@@ -11156,16 +11177,6 @@ function bindClassListToggle() {
   if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === "1") return;
   btn.dataset.bound = "1";
   btn.addEventListener("click", () => setClassListOpen(!classListIsOpen()));
-  const closeBtn = $("class-list-close");
-  if (closeBtn instanceof HTMLButtonElement && closeBtn.dataset.bound !== "1") {
-    closeBtn.dataset.bound = "1";
-    closeBtn.addEventListener("click", () => setClassListOpen(false));
-  }
-  const scrim = $("class-list-scrim");
-  if (scrim instanceof HTMLElement && scrim.dataset.bound !== "1") {
-    scrim.dataset.bound = "1";
-    scrim.addEventListener("click", () => setClassListOpen(false));
-  }
   if (classListEscBound !== "1") {
     classListEscBound = "1";
     document.addEventListener("keydown", (event) => {
@@ -11176,10 +11187,17 @@ function bindClassListToggle() {
     });
   }
   paintClassListToggle();
+  syncClassListDrawerTop();
+  if (classListLayoutBound !== "1") {
+    classListLayoutBound = "1";
+    window.addEventListener("resize", syncClassListDrawerTop, { passive: true });
+  }
 }
 
 /** @type {"0"|"1"} */
 let classListEscBound = "0";
+/** @type {"0"|"1"} */
+let classListLayoutBound = "0";
 
 /**
  * Live present count in the header and class-list pane.

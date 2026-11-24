@@ -850,7 +850,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("body.staff-shell .live-options-strip {\n  position: absolute;", css)
 
     def test_beat1_markup_keeps_class_list_outside_option_swap(self) -> None:
-        """ClassList stays in Left; TEAMS/ROUND/Results never full-bleed outside Right."""
+        """ClassList stays on the live root; TEAMS/ROUND/Results never full-bleed outside Right."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         header_i = html.index('id="live-header"')
@@ -867,13 +867,13 @@ class LiveShellTests(unittest.TestCase):
         play_i = html.index('id="play-option-card"')
         team_pane_i = html.index('id="team-assign-pane"')
         results_i = html.index('id="results-strip"')
-        self.assertLess(header_i, strip_i)
+        self.assertLess(header_i, list_i)
+        self.assertLess(list_i, strip_i)
         self.assertLess(strip_i, timer_i)
         self.assertLess(timer_i, body_i)
         self.assertLess(strip_i, body_i)
         self.assertLess(body_i, left_i)
-        self.assertLess(left_i, list_i)
-        self.assertLess(list_i, right_i)
+        self.assertLess(left_i, right_i)
         self.assertLess(right_i, active_i)
         self.assertLess(strip_i, teams_i)
         self.assertLess(teams_i, meet_i)
@@ -1128,7 +1128,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Division strength", strip_html)
         self.assertLess(strip_html.find('id="ap-n-teams-up"'), strip_html.find('id="ap-division-meter"'))
         self.assertLess(strip_html.find('id="ap-division-meter"'), strip_html.find('id="live-teams-assign"'))
-        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-shell-left"'))
+        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-header"'))
         self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
         left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
         self.assertNotIn('id="ap-division-meter"', left_html)
@@ -1727,7 +1727,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Start Round 1", strip_html)
         self.assertNotIn("live-team-keep", strip_html)
         self.assertLess(html.index('id="round-option-card"'), html.index('class="live-shell-body"'))
-        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-shell-left"'))
+        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-header"'))
         self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
         left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
         self.assertNotIn('id="live-round-set"', left_html)
@@ -1856,7 +1856,7 @@ class LiveShellTests(unittest.TestCase):
             f"/staff/class/{self.class_id}?tab=live"
         ).get_data(as_text=True)
         self.assertIn('id="session-timer"', html)
-        self.assertLess(html.index('id="session-timer"'), html.index('id="class-list-pane"'))
+        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-header"'))
         self.assertNotIn('id="meet-chain-skip-c"', html)
         self.assertNotIn('id="meet-chain-end"', html)
         self.assertNotIn("Skip C", html)
