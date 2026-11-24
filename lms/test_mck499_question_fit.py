@@ -316,8 +316,8 @@ class QuestionFitSourceTests(unittest.TestCase):
         self.assertIn("max-height: 40%", css)
         stack = css.split(".live-question-stack {")[1].split("}")[0]
         # MCK-504: question stack is edge-to-edge so the board can use full height.
-        self.assertIn("left: 0", stack)
-        self.assertIn("right: 0", stack)
+        self.assertIn("left: 0;", stack)
+        self.assertIn("right: 0;", stack)
         self.assertIn("width: auto", stack)
         self.assertNotIn("min(22rem", stack)
         self.assertIn("flex-direction: column", stack)

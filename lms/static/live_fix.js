@@ -273,23 +273,25 @@
     const button = document.getElementById("live-fix-student");
     const dialog = document.getElementById("live-fix-student-dialog");
     const form = document.getElementById("live-fix-student-form");
+    const input = document.getElementById("live-fix-student-note");
     const cancel = document.getElementById("live-fix-student-cancel");
-    const send = document.getElementById("live-fix-student-send");
     const status = document.getElementById("live-fix-student-status");
     if (!(button instanceof HTMLButtonElement) || !(dialog instanceof HTMLDialogElement)) return;
-    if (!(form instanceof HTMLFormElement)) return;
+    if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLInputElement)) return;
     button.addEventListener("click", function () {
       if (status) status.textContent = "";
       if (typeof dialog.showModal === "function") dialog.showModal();
-      if (send instanceof HTMLButtonElement) send.focus();
+      input.focus();
     });
     cancel?.addEventListener("click", function () {
       dialog.close();
     });
     form.addEventListener("submit", function (event) {
       event.preventDefault();
+      const note = input.value;
+      input.value = "";
       dialog.close();
-      sendNote("/api/student/flags", "", status);
+      sendNote("/api/student/flags", note, status);
     });
   }
 

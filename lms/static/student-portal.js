@@ -4624,15 +4624,6 @@ function questionKindLabel(kind) {
 }
 
 /**
- * True on a phone, where the question stack is not a side panel.
- * @returns {boolean}
- */
-function phoneHasNoSidePanel() {
-  if (typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(max-width: 719.98px)").matches;
-}
-
-/**
  * One slim bar: push-order label, question type, and title.
  * Tapping it reopens the card.
  * @param {any} item Lifecycle question.
@@ -4651,9 +4642,7 @@ function minimizedBarHtml(item, qLabel) {
 }
 
 /**
- * Park minimized questions in a bar, top to bottom in push order.
- * Phones pin it above the content.
- * Wider screens put the same bar at the top of the side panel.
+ * Park teacher-minimized questions in the side panel (chrome-top dock).
  * @param {any[]} items Questions the teacher minimized.
  * @param {any[]} [sessionItems] Every pushed question, used for Q numbers.
  */
@@ -4666,9 +4655,6 @@ function paintStudentMinimizedBars(items, sessionItems) {
   host.innerHTML = rows
     .map((item) => minimizedBarHtml(item, questionPushLabel(item, session)))
     .join("");
-  const phone = phoneHasNoSidePanel();
-  const offset = !phone && rows.length ? `${host.offsetHeight + 8}px` : "0px";
-  document.documentElement.style.setProperty("--student-minimized-offset", offset);
 }
 
 function paintLifecycleQuestionStack(payload) {

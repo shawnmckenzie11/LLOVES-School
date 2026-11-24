@@ -25,7 +25,6 @@ export function classListStorageKey(teacherId) {
  * @returns {string}
  */
 export function classListToggleLabel(open, presentCount) {
-  if (open) return "Hide class list";
   const count = Number(presentCount);
   const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
   return `Class (${n})`;

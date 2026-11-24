@@ -725,7 +725,6 @@
                 btn.setAttribute("aria-expanded", open ? "true" : "false");
                 btn.setAttribute("aria-label", open ? "Hide class list" : "Show class list");
                 if (open) {
-                  btn.textContent = "Hide class list";
                   btn.title = "Hide class list";
                 }
                 if (pane) pane.hidden = !open;
@@ -810,10 +809,6 @@
                 </p>
                 <div class="live-questions-layout" id="live-questions-layout">
                   <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
-                  <aside id="teacher-minimized-panel" class="teacher-minimized-panel" hidden aria-label="Minimized questions">
-                    <h3 class="teacher-minimized-heading">Minimized</h3>
-                    <div id="teacher-minimized-list" class="teacher-minimized-list"></div>
-                  </aside>
                 </div>
                 <p class="hint compact" id="live-mint-toast" hidden role="status"></p>
                 <p class="hint compact" id="question-artifact-status" hidden></p>

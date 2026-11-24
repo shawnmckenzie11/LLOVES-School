@@ -1527,8 +1527,8 @@ class StudentPortalTests(unittest.TestCase):
         stack_rule = css.split(".live-question-stack {")[1].split("}")[0]
         self.assertIn("position: absolute", stack_rule)
         # MCK-504: question stack is edge-to-edge so the board can use full height.
-        self.assertIn("left: 0", stack_rule)
-        self.assertIn("right: 0", stack_rule)
+        self.assertIn("left: 0;", stack_rule)
+        self.assertIn("right: 0;", stack_rule)
         self.assertIn("width: auto", stack_rule)
         self.assertNotIn("min(22rem", stack_rule)
         card_rule = css.split(".student-live-card.student-floating-pane {")[1].split("}")[0]
