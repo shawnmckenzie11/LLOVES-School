@@ -13,7 +13,7 @@
     <p class="kicker">{{ offering.ontario_code if offering else 'Course' }}</p>
     <h1>Choose your Avatar</h1>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="post" id="character-form">
+    <form method="post" id="character-form" class="character-form" data-char-advance-ms="300">
       <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">
       <div class="char-grid" role="radiogroup" aria-label="Avatars">
         {% for avatar in characters %}
@@ -33,13 +33,45 @@
       {% if reward and reward.grants %}
       <button type="button" class="rw-slot" data-reward-open>Pick your reward</button>
       {% endif %}
-      <div class="row-actions char-join">
-        <button type="submit">Join Class</button>
-      </div>
     </form>
   </div>
   <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
+  <script>
+    (function () {
+      var form = document.getElementById("character-form");
+      if (!form) return;
+      var grid = form.querySelector(".char-grid");
+      var wait = Number(form.getAttribute("data-char-advance-ms")) || 300;
+      var timer = 0;
+      var locked = false;
+      function lockTiles() {
+        locked = true;
+        if (grid) grid.classList.add("is-locked");
+      }
+      function unlockTiles() {
+        locked = false;
+        if (grid) grid.classList.remove("is-locked");
+      }
+      form.addEventListener("change", function (event) {
+        var input = event.target;
+        if (!input || input.name !== "character" || locked) return;
+        window.clearTimeout(timer);
+        lockTiles();
+        timer = window.setTimeout(function () {
+          if (typeof form.requestSubmit === "function") form.requestSubmit();
+          else form.submit();
+        }, wait);
+      });
+      form.addEventListener("submit", function () {
+        window.clearTimeout(timer);
+        lockTiles();
+      });
+      {% if error %}
+      unlockTiles();
+      {% endif %}
+    })();
+  </script>
   {% include "student/_avatar_reward.html" %}
 </body>
 </html>

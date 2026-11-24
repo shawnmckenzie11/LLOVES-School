@@ -177,6 +177,15 @@ body.student-portal .sub {
   border-color: #2dd4bf;
 }
 
+.char-grid.is-locked .char-card {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.char-grid.is-locked .char-card:has(input:checked) {
+  opacity: 1;
+}
+
 .char-join {
   margin-top: 1.1rem;
 }

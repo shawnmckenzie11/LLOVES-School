@@ -1810,6 +1810,11 @@ def register_live(app, school, shared):
         earned = earned_avatar_keys(school, class_id, student_id)
         if request.method == "POST":
             character = (request.form.get("character") or "").strip()
+            already = (
+                school.game.get_student(class_id, student_id).get("character_key") or ""
+            ).strip()
+            if already:
+                return _student_advance()
             try:
                 if character in EARNED_CHARACTERS and character not in earned:
                     raise ValueError("Choose an avatar.")
