@@ -30965,16 +30965,22 @@ class SchoolDB(LovesDB):
         items: list[dict[str, Any]],
         student_id: int | None,
         participant_uuid: str,
+        *,
+        session_id: int | None = None,
     ) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
         """Load every linked prompt and this student's answers in two queries.
 
         The student card loop used to select one prompt and one response
         per question. Parked questions made that N+1 on every poll.
+        When ``live_session_responses`` has no row yet, one batched read
+        on ``participation_answers`` (same poll build, no per-card query)
+        can still supply ``my_response``.
 
         Args:
             items: Lifecycle rows about to be painted.
             student_id: Roster id, or ``None`` for a guest.
             participant_uuid: Live-session person key.
+            session_id: Live session for participation fallback.
 
         Returns:
             Prompt id to prompt dict, and prompt id to this person's response.
@@ -31037,6 +31043,76 @@ class SchoolDB(LovesDB):
                 responses[int(payload["prompt_id"])] = payload
             except (TypeError, ValueError):
                 continue
+        missing: dict[str, int] = {}
+        if student_id not in (None, "") and items:
+            for item in items:
+                raw_pid = item.get("prompt_id")
+                if raw_pid in (None, ""):
+                    continue
+                try:
+                    pid = int(raw_pid)
+                except (TypeError, ValueError):
+                    continue
+                if pid in responses:
+                    continue
+                placement = str(item.get("placement_key") or "").strip()
+                if placement:
+                    missing[f"item:{placement}"] = pid
+        if (
+            missing
+            and session_id not in (None, "")
+            and student_id not in (None, "")
+        ):
+            session_row = self.get_live_session(int(session_id))
+            run_key = (
+                str(session_row.get("run_key") or "").strip()
+                if isinstance(session_row, dict)
+                else ""
+            )
+            class_id = (
+                int(session_row["class_id"])
+                if isinstance(session_row, dict)
+                and session_row.get("class_id") not in (None, "")
+                else None
+            )
+            if run_key and class_id is not None:
+                qmarks = ",".join("?" for _ in missing)
+                with self._lock:
+                    part_rows = self.conn.execute(
+                        f"""
+                        SELECT question_key, answer_json, answered_at
+                        FROM participation_answers
+                        WHERE class_id = ? AND run_key = ? AND student_id = ?
+                          AND question_key IN ({qmarks})
+                        """,
+                        (
+                            int(class_id),
+                            run_key,
+                            int(student_id),
+                            *missing.keys(),
+                        ),
+                    ).fetchall()
+                for row in part_rows:
+                    qkey = str(row["question_key"] or "")
+                    pid = missing.get(qkey)
+                    if pid is None:
+                        continue
+                    try:
+                        body = (
+                            json.loads(row["answer_json"])
+                            if isinstance(row["answer_json"], str)
+                            else (row["answer_json"] or {})
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        body = {}
+                    if not isinstance(body, dict) or not body:
+                        continue
+                    responses[pid] = {
+                        "prompt_id": pid,
+                        "response": body,
+                        "awarded_points": None,
+                        "updated_at": row["answered_at"],
+                    }
         return prompts, responses
 
     def student_live_items_payload(
@@ -31103,7 +31179,10 @@ class SchoolDB(LovesDB):
             items.append(row)
         public_items: list[dict[str, Any]] = []
         prompts_by_id, responses_by_prompt = self._preload_student_prompt_reads(
-            items, student_id, participant_uuid
+            items,
+            student_id,
+            participant_uuid,
+            session_id=session_id,
         )
         for item in items:
             raw_prompt_id = item.get("prompt_id")
@@ -31335,7 +31414,8 @@ class SchoolDB(LovesDB):
                     "can_submit": prompt is not None
                     and status == "active"
                     and stage_matches
-                    and item["response_mode"] == "individual",
+                    and item["response_mode"] == "individual"
+                    and my_response is None,
                     "results": results,
                     "results_phase": (
                         "final" if status == "closed" else "live"
