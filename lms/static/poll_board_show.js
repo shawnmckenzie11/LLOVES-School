@@ -12,6 +12,7 @@
  */
 
 import { drawFittedBoardBackground, loadBoardBackgroundImage } from "./board_background.js";
+import { textFontCss } from "./live_whiteboard.js";
 
 export const POLL_BOARD_OVERLAY_ID = "poll-board-overlay";
 
@@ -219,10 +220,10 @@ function drawBoard(canvas, view, image) {
     context.stroke();
   }
   const texts = Array.isArray(view && view.texts) ? view.texts : [];
-  context.font = "28px sans-serif";
   context.textBaseline = "top";
   for (const label of texts) {
     const point = place(xy(label) || { x: 0, y: 0 });
+    context.font = textFontCss(label && label.size, LOGICAL_H, Boolean(label && label.bold));
     context.fillStyle = String((label && label.color) || "#0f172a");
     context.fillText(String((label && label.text) || ""), point.x, point.y);
   }

@@ -73,6 +73,35 @@ export function newestOpenQuestionId(items) {
 }
 
 /**
+ * Decide whether a newly published question may move the panel scroll.
+ *
+ * A student who is typing or drawing keeps their place and gets a pill.
+ * A repaint of the same questions also keeps the place. The first paint
+ * does not invent a pill.
+ *
+ * @param {{busy?: boolean, scrollTop?: number, previousIds?: string[], nextIds?: string[]}} state
+ * @returns {{keepScroll: boolean, showPill: boolean, targetId: string, scrollTop: number}}
+ */
+export function newQuestionScrollPlan(state) {
+  const prev = (state?.previousIds || []).map((id) => String(id || "")).filter(Boolean);
+  const next = (state?.nextIds || []).map((id) => String(id || "")).filter(Boolean);
+  const held = Number(state?.scrollTop) || 0;
+  if (!prev.length) {
+    return { keepScroll: false, showPill: false, targetId: "", scrollTop: 0 };
+  }
+  const seen = new Set(prev);
+  const added = next.filter((id) => !seen.has(id));
+  if (!added.length) {
+    return { keepScroll: true, showPill: false, targetId: "", scrollTop: held };
+  }
+  const targetId = added[added.length - 1];
+  if (state?.busy) {
+    return { keepScroll: true, showPill: true, targetId, scrollTop: held };
+  }
+  return { keepScroll: false, showPill: false, targetId, scrollTop: held };
+}
+
+/**
  * One student figure: url, alt, and optional pixel size.
  * @param {any} body Question payload.
  * @returns {{url: string, alt: string, width: number, height: number}[]}

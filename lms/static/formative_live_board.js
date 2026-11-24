@@ -9,6 +9,7 @@ import {
   bindWhiteboard,
   createPresenceQueue,
   normalizeBoardPoint,
+  textFontCss,
 } from "./live_whiteboard.js";
 import {
   applyCanvasBoardBackground,
@@ -446,12 +447,13 @@ function paintTile(canvas, strokes, texts, fallbackColor, background = null) {
     });
     ctx.stroke();
   }
-  ctx.font = "12px sans-serif";
+  ctx.textBaseline = "top";
   for (const label of Object.values(texts)) {
     const body = String(label.text || "").trim();
     if (!body) continue;
+    ctx.font = textFontCss(label.size, h, Boolean(label.bold));
     ctx.fillStyle = String(label.color || fallbackColor);
-    ctx.fillText(body, Number(label.x) * w, Number(label.y) * h + 12);
+    ctx.fillText(body, Number(label.x) * w, Number(label.y) * h);
   }
 }
 

@@ -543,13 +543,14 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   gap: 0.12rem;
   margin: 0;
   padding: 0.15rem 0.1rem;
-  width: 2.75rem;
+  width: 52px;
   height: 100%;
   max-height: 100%;
   align-items: center;
-  justify-content: space-evenly;
+  justify-content: flex-start;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: 8px 0 0 8px;
   background: rgba(18, 32, 51, 0.94);
   border: 1px solid rgba(42, 70, 96, 0.85);
@@ -557,9 +558,12 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
 }
 
 .canvas-pane .live-canvas-toolbar-vertical button {
-  flex: 1 1 0;
-  max-height: 2.75rem;
-  min-height: 2rem;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  max-height: 44px;
 }
 
 .canvas-pane .live-canvas-stage {
@@ -608,13 +612,26 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
 .canvas-pane .live-canvas-toolbar-vertical button,
 .qboard-slot .live-canvas-toolbar-vertical button,
 .qboard-phone .live-canvas-toolbar-vertical button {
-  width: 2.75rem;
-  height: 2.75rem;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  flex: 0 0 44px;
   padding: 0;
+  color: #f4f7fb;
+  background: transparent;
+  border: 0;
   font-size: 0.62rem;
   line-height: 1.05;
+}
+
+.live-canvas-toolbar-vertical button svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  margin: 0 auto;
+  pointer-events: none;
 }
 
 .live-canvas-stage .wb-tool-eq {
@@ -655,12 +672,78 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   display: none !important;
 }
 
+.wb-equation-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .wb-equation-input {
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
   font: inherit;
   border: 1px solid rgba(42, 70, 96, 0.35);
   border-radius: 4px;
   padding: 0.25rem 0.35rem;
+}
+
+.wb-equation-help {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid rgba(42, 70, 96, 0.35);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #12202e;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wb-math-help {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 18rem;
+  color: #12202e;
+}
+
+.wb-math-help[hidden] {
+  display: none !important;
+}
+
+.wb-math-help-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.wb-math-help ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-math-help li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+}
+
+.wb-math-help-label {
+  font-weight: 650;
+}
+
+.wb-math-help code {
+  font-family: ui-monospace, monospace;
+}
+
+.wb-math-help-result .katex {
+  color: #12202e;
 }
 
 .wb-equation-preview {
@@ -749,6 +832,10 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   min-height: 10rem;
   border-radius: 8px;
   background: #f7fafc;
+  touch-action: pan-y;
+}
+
+.student-canvas.is-drawing-capture {
   touch-action: none;
 }
 
@@ -940,7 +1027,33 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.new-question-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  z-index: 12;
+  transform: translateX(-50%);
+  min-height: 44px;
+  padding: 0.35rem 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.35);
+}
+
+.new-question-pill[hidden] {
+  display: none !important;
 }
 
 .student-live-card {
@@ -1520,10 +1633,11 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   gap: 0.12rem;
   margin: 0;
   padding: 0.15rem 0.1rem;
-  width: 2.75rem;
-  justify-content: space-evenly;
+  width: 52px;
+  justify-content: flex-start;
   align-items: center;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: rgba(18, 32, 51, 0.94);
   border: 1px solid rgba(42, 70, 96, 0.85);
   border-right: 0;
@@ -1531,9 +1645,12 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 }
 
 .qboard-phone .live-canvas-toolbar-vertical button {
-  flex: 1 1 0;
-  max-height: 2.75rem;
-  min-height: 2rem;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  max-height: 44px;
 }
 
 .student-question-dock-copy {
@@ -2995,12 +3112,12 @@ body.student-home.is-game-show-welcome .prompt-ack {
 }
 .live-question-stack-body > .student-live-card.is-open-focus,
 .live-question-stack-body > .student-live-card.is-open-extra {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: min-content;
   max-height: none;
-  overflow: hidden;
+  overflow: visible;
 }
 .live-question-stack-body > .student-live-card.is-compact {
   flex: 0 0 auto;
@@ -3048,9 +3165,10 @@ body.student-home.is-game-show-welcome .prompt-ack {
 .student-live-card.is-open-focus > .qboard-slot,
 .student-live-card.is-open-extra > .qboard-slot {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
-  min-height: 0;
+  min-height: 12rem;
+  overflow: visible;
   margin: 0 0.65rem;
 }
 

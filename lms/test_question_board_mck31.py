@@ -681,7 +681,8 @@ class QuestionBoardTests(unittest.TestCase):
         self.assertIn(">Undo<", js)
         phone_toolbar = js.split("function toolBar()")[1].split("export function paintBoardFeedback")[0]
         self.assertNotIn(">Redo<", phone_toolbar)
-        self.assertIn(">Clear<", phone_toolbar)
+        self.assertIn('aria-label="Clear board"', phone_toolbar)
+        self.assertIn("WHITEBOARD_TOOL_SVG.clear", phone_toolbar)
         self.assertIn('data-wb-part="clear"', js)
         css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
         self.assertNotIn("qboard-filter", css)

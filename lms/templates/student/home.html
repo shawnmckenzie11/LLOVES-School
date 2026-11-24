@@ -76,12 +76,12 @@
       <div class="live-canvas-workspace">
         <div class="live-canvas-stage team-draw-stage">
         <div class="live-canvas-toolbar live-canvas-toolbar-vertical" role="toolbar" aria-label="Whiteboard tools">
-          <button type="button" id="student-canvas-pen" class="is-on" aria-pressed="true">Pen</button>
-          <button type="button" id="student-canvas-line" aria-pressed="false" title="Line">Line</button>
-          <button type="button" id="student-canvas-text" aria-pressed="false">Text</button>
-          <button type="button" id="student-canvas-equation" class="wb-tool-eq" aria-pressed="false" aria-label="Equation" title="Equation">√</button>
-          <button type="button" id="student-canvas-undo" title="Nothing to undo" disabled>Undo</button>
-          <button type="button" id="student-canvas-clear" title="Clear">Clear</button>
+          <button type="button" id="student-canvas-pen" class="is-on" aria-pressed="true" aria-label="Pen" title="Pen"><svg viewBox="0 0 24 24" data-icon="pencil" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+          <button type="button" id="student-canvas-line" aria-pressed="false" aria-label="Line" title="Line"><svg viewBox="0 0 24 24" data-icon="line" aria-hidden="true"><path d="M5 19 L19 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+          <button type="button" id="student-canvas-text" aria-pressed="false" aria-label="Text" title="Text"><svg viewBox="0 0 24 24" data-icon="text" aria-hidden="true"><path d="M5 6h14M12 6v13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+          <button type="button" id="student-canvas-equation" class="wb-tool-eq" aria-pressed="false" aria-label="Equation" title="Equation"><svg viewBox="0 0 24 24" data-icon="radical" aria-hidden="true"><text x="3" y="18" fill="currentColor" font-size="16" font-family="sans-serif">√</text></svg></button>
+          <button type="button" id="student-canvas-undo" aria-label="Undo" title="Undo" disabled><svg viewBox="0 0 24 24" data-icon="undo" aria-hidden="true"><path d="M8 7H4v-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 8a8 8 0 1 1-.8 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+          <button type="button" id="student-canvas-clear" aria-label="Clear board" title="Clear board"><svg viewBox="0 0 24 24" data-icon="trash" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
         {% if teacher_features.team_draw or teacher_features.group_draw %}
         <div id="team-draw-mystery" class="team-draw-mystery" hidden aria-label="Mystery rule steps"></div>
@@ -128,6 +128,7 @@
     <section id="gamification-winner" class="game-show-welcome gamification-winner" hidden aria-label="Winner"></section>
     <section id="live-question-stack" class="live-question-stack" aria-label="Active questions and results">
       <div id="live-question-stack-body" class="live-question-stack-body"></div>
+      <button type="button" id="new-question-pill" class="new-question-pill" hidden>New question ↓</button>
     </section>
     <div id="question-frame" class="question-frame">
       <button type="button" id="prompt-dismiss" class="prompt-dismiss" aria-label="Close submitted question" hidden>×</button>
