@@ -244,7 +244,8 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     if (root.parentElement !== slot) slot.appendChild(root);
     const typed = root.querySelector(".qboard-text");
     if (typed instanceof HTMLTextAreaElement) {
-      typed.hidden = slot.getAttribute("data-qboard-mode") !== "both";
+      // MCK-512: Show Your Work is whiteboard only; legacy "both" never shows typing.
+      typed.hidden = true;
     }
     const canvas = root.querySelector("canvas.student-canvas");
     if (canvas instanceof HTMLCanvasElement) {
@@ -264,7 +265,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   text.className = "qboard-text";
   text.maxLength = 500;
   text.rows = 2;
-  text.hidden = slot.getAttribute("data-qboard-mode") !== "both";
+  text.hidden = true;
   text.setAttribute("aria-label", "Typed answer");
   const feedbackSlot = document.createElement("div");
   feedbackSlot.className = "qboard-phone-feedback";

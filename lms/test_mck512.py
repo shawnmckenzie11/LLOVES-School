@@ -45,11 +45,14 @@ class LegacyBothPollTests(unittest.TestCase):
     """Legacy both polls stay both in storage and hide the typing box in the UI layer."""
 
     def test_both_maps_to_show_your_work_without_rewriting_on_load(self) -> None:
-        """Editor source maps both to Show Your Work and can preserve both on save."""
+        """Legacy both opens as Show Your Work (typing hidden) and is preserved on save."""
         js = (LMS_DIR / "static" / "question_editor.js").read_text(encoding="utf-8")
         self.assertIn('initialAnswerWith === "both" ? "both" : "board"', js)
         ui = (LMS_DIR / "static" / "question_board_ui.js").read_text(encoding="utf-8")
-        self.assertIn('slot.getAttribute("data-qboard-mode") !== "both"', ui)
+        # The typing box on the phone board is always hidden, including legacy "both".
+        self.assertNotIn('!== "both"', ui)
+        self.assertIn("typed.hidden = true;", ui)
+        self.assertIn("text.hidden = true;", ui)
 
     def test_participation_still_counts_board_and_both(self) -> None:
         """Participation weight keeps board and both poll opportunities."""
