@@ -132,7 +132,6 @@ const FIXTURE = `<!DOCTYPE html>
                       <span class="wb-live-pill">Live</span>
                     </div>
                   </header>
-                  <div id="wb-live-filters" class="wb-live-filters" role="tablist"></div>
                   <p id="wb-live-summary" class="wb-live-summary"></p>
                   <p id="wb-live-projected" class="wb-live-projected"></p>
                   <div class="wb-live-body">

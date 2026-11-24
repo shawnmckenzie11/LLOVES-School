@@ -117,7 +117,6 @@ const FIXTURE = `<!DOCTYPE html>
         <p id="wb-live-context" class="wb-live-context"></p>
       </div>
     </header>
-    <div id="wb-live-filters" class="wb-live-filters"></div>
     <p id="wb-live-summary" class="wb-live-summary"></p>
     <p id="wb-live-projected" class="wb-live-projected"></p>
     <div class="wb-live-body">

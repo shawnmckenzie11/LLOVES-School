@@ -40109,7 +40109,7 @@ class SchoolDB(LovesDB):
             Public gallery payload. ``visible`` is false before publish.
             ``ended`` when the session is not active.
         """
-        from formative_live_board import build_gallery_tile, public_board_payload, summary_line, team_filters
+        from formative_live_board import build_gallery_tile, public_board_payload, summary_line
 
         session_row = self.get_live_session(int(session_id))
         if session_row is None:
@@ -40166,7 +40166,6 @@ class SchoolDB(LovesDB):
                 "run_key": self.live_board_run_key(int(session_id)),
                 "context": context,
                 "summary": summary_line(tiles),
-                "filters": team_filters(tiles),
                 "projected_board": str(teacher.get("whiteboard_projected_board") or ""),
                 "tiles": tiles,
             }

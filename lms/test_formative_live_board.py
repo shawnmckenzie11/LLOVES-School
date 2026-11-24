@@ -825,14 +825,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
         )
         before_body = before.get_json()
-        self.assertIn(
-            "teacher_wrote",
-            [chip["id"] for chip in before_body["filters"]],
-        )
-        self.assertIn(
-            "Teacher wrote",
-            [chip["label"] for chip in before_body["filters"]],
-        )
+        self.assertNotIn("filters", before_body)
         tile = next(row for row in before_body["tiles"] if row["board_key"] == key)
         self.assertFalse(tile["teacher_wrote"])
         self.assertNotIn("status", tile)

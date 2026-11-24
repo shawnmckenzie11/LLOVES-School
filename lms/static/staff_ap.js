@@ -47,6 +47,7 @@ import {
 import { nameWithMood } from "/static/mood_faces.js";
 import {
   classListStorageKey,
+  classListToggleAriaLabel,
   classListToggleLabel,
   classListToggleTitle,
 } from "/static/class_list_rail.js";
@@ -1489,17 +1490,41 @@ function adoptLifecycleChoiceTallies(tallies) {
 }
 
 /**
+ * Hosts that can show a teacher question card (main stack or minimize dock).
+ *
+ * @returns {HTMLElement[]}
+ */
+function liveQuestionCardHosts() {
+  return [$("live-question-list"), $("teacher-minimized-list")].filter(
+    (row) => row instanceof HTMLElement
+  );
+}
+
+/**
+ * One teacher question card in the main list or minimize dock.
+ *
+ * @param {number} liveItemId
+ * @returns {HTMLElement|null}
+ */
+function liveQuestionCardForItem(liveItemId) {
+  if (!liveItemId) return null;
+  const token = `.live-question-card[data-live-item-id="${liveItemId}"]`;
+  for (const host of liveQuestionCardHosts()) {
+    const card = host.querySelector(token);
+    if (card instanceof HTMLElement) return card;
+  }
+  return null;
+}
+
+/**
  * Replace or insert the bar graph on one individual card.
  *
  * The teacher highlight stays on. Close is not required.
  * @param {number} liveItemId
  */
 function paintLifecycleBarsInPlace(liveItemId) {
-  const host = $("live-question-list");
-  if (!host || !liveItemId) return;
-  const card = host.querySelector(
-    `.live-question-card[data-live-item-id="${liveItemId}"]`
-  );
+  if (!liveItemId) return;
+  const card = liveQuestionCardForItem(liveItemId);
   if (!card) return;
   const result = lifecycleResults.get(liveItemId) || {};
   const tally = result.tally;
@@ -1545,11 +1570,8 @@ function paintLifecycleBarsInPlace(liveItemId) {
  * @param {number} liveItemId
  */
 function paintLifecycleProgressInPlace(liveItemId) {
-  const host = $("live-question-list");
-  if (!host || !liveItemId) return;
-  const card = host.querySelector(
-    `.live-question-card[data-live-item-id="${liveItemId}"]`
-  );
+  if (!liveItemId) return;
+  const card = liveQuestionCardForItem(liveItemId);
   if (!card) return;
   const progress = card.querySelector(".live-question-progress");
   if (!progress) return;
@@ -1734,7 +1756,10 @@ function hideKeyOn() {
  */
 function applyHideKey() {
   const on = hideKeyOn();
+  const layout = $("live-questions-layout");
+  layout?.classList.toggle("is-key-hidden", on);
   $("live-question-list")?.classList.toggle("is-key-hidden", on);
+  $("teacher-minimized-list")?.classList.toggle("is-key-hidden", on);
   const btn = $("live-hide-key-btn");
   if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
   // MCK-155 gate MED-1: the Responses dialog follows Hide key too. Marks
@@ -2524,8 +2549,11 @@ function adoptLightGroupResults(bag) {
  * Patch consensus cards and SubmitterLog without remounting the question list.
  */
 function paintGroupResultsInPlace(force = false) {
-  const host = $("live-question-list");
-  if (!host) return;
+  const roots = [$("live-question-list"), $("teacher-minimized-list")].filter(
+    (row) => row instanceof HTMLElement
+  );
+  if (!roots.length) return;
+  roots.forEach((host) => {
   host.querySelectorAll(".live-question-card[data-live-item-id]").forEach((card) => {
     const liveItemId = Number(card.getAttribute("data-live-item-id")) || 0;
     if (!liveItemId) return;
@@ -2575,6 +2603,7 @@ function paintGroupResultsInPlace(force = false) {
         progress.textContent = `${done} / ${board.length} groups`;
       }
     }
+  });
   });
 }
 
@@ -6319,10 +6348,23 @@ function liveQuestionAddedThisClass(item, card, status) {
 }
 
 /**
+ * True when a closed question is minimized for students and sits in the dock.
+ *
+ * @param {any} card Merged lifecycle row.
+ * @returns {boolean}
+ */
+function teacherQuestionInMinimizedPanel(card) {
+  const status = String(card?.status || "inactive").toLowerCase();
+  return status === "closed" && Boolean(card?.students_minimized);
+}
+
+/**
  * Render every question associated with the current stage as a vertical card.
  */
 function paintLiveQuestionCards() {
   const host = $("live-question-list");
+  const dockHost = $("teacher-minimized-list");
+  const dockPanel = $("teacher-minimized-panel");
   if (!host) return;
   const lifecycleById = new Map(
     lastLiveItems.map((row) => [Number(row.id), row])
@@ -6370,10 +6412,19 @@ function paintLiveQuestionCards() {
       deckTotal > 0
         ? `<p class="hint compact">No questions on this page yet. Use Add New or Import from bank to add one here.</p>`
         : `<p class="hint compact">No questions in this lesson deck yet.</p>`;
+    if (dockHost) dockHost.innerHTML = "";
+    if (dockPanel instanceof HTMLElement) dockPanel.hidden = true;
+    $("question-artifact-zone")?.classList.remove("has-teacher-minimized");
     return;
   }
-  writeQuestionCardsKeepingConfirms(host, cards
-    .map((card, index) => {
+  const dockedCards = cards.filter((card) => teacherQuestionInMinimizedPanel(card));
+  const mainCards = cards.filter((card) => !teacherQuestionInMinimizedPanel(card));
+  if (dockPanel instanceof HTMLElement) dockPanel.hidden = !dockedCards.length;
+  $("question-artifact-zone")?.classList.toggle(
+    "has-teacher-minimized",
+    dockedCards.length > 0
+  );
+  const cardHtml = (card, index) => {
       const item = card.item || card;
       const isRankCard = liveQuestionIsRank(item, card);
       const optionLabels = isRankCard ? rankAuthoredOptionLabels(item) : [];
@@ -6738,10 +6789,20 @@ function paintLiveQuestionCards() {
           ${controlStrip}
         </div>
       </article>`;
-    })
-    .join(""));
+  };
+  const mainHtml = mainCards.length
+    ? mainCards.map((card) => cardHtml(card, cards.indexOf(card))).join("")
+    : `<p class="hint compact">Minimized questions are in the panel on the right.</p>`;
+  writeQuestionCardsKeepingConfirms(host, mainHtml);
+  if (dockHost) {
+    writeQuestionCardsKeepingConfirms(
+      dockHost,
+      dockedCards.map((card) => cardHtml(card, cards.indexOf(card))).join("")
+    );
+  }
   paintGroupResultsInPlace();
   void renderLiveQuestionMath(host);
+  if (dockHost) void renderLiveQuestionMath(dockHost);
   mountTeacherQuestionBoards(liveSessionId || readLiveSessionId());
 }
 
@@ -11085,8 +11146,20 @@ function paintClassListToggle() {
   const open = classListIsOpen();
   const n = selectedPresent().length + sessionGuests.length;
   btn.textContent = classListToggleLabel(open, n);
-  btn.title = classListToggleTitle(open);
+  const tip = classListToggleTitle(open);
+  const aria = classListToggleAriaLabel(open);
+  btn.title = tip;
+  btn.setAttribute("aria-label", aria);
   btn.setAttribute("aria-expanded", open ? "true" : "false");
+  const closeBtn = $("class-list-close");
+  if (closeBtn instanceof HTMLButtonElement) {
+    closeBtn.hidden = !open;
+    closeBtn.setAttribute("aria-label", "Hide class list");
+  }
+  const scrim = $("class-list-scrim");
+  if (scrim instanceof HTMLElement) {
+    scrim.hidden = !open;
+  }
 }
 
 /**
@@ -11097,6 +11170,8 @@ function setClassListOpen(open) {
   const shown = Boolean(open);
   document.body.classList.toggle("class-list-open", shown);
   document.body.classList.toggle("class-list-collapsed", !shown);
+  const pane = $("class-list-pane");
+  if (pane instanceof HTMLElement) pane.hidden = !shown;
   const teacherId = document.body?.dataset?.userId || "";
   try {
     localStorage.setItem(classListStorageKey(teacherId), shown ? "open" : "closed");
@@ -11114,8 +11189,30 @@ function bindClassListToggle() {
   if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === "1") return;
   btn.dataset.bound = "1";
   btn.addEventListener("click", () => setClassListOpen(!classListIsOpen()));
+  const closeBtn = $("class-list-close");
+  if (closeBtn instanceof HTMLButtonElement && closeBtn.dataset.bound !== "1") {
+    closeBtn.dataset.bound = "1";
+    closeBtn.addEventListener("click", () => setClassListOpen(false));
+  }
+  const scrim = $("class-list-scrim");
+  if (scrim instanceof HTMLElement && scrim.dataset.bound !== "1") {
+    scrim.dataset.bound = "1";
+    scrim.addEventListener("click", () => setClassListOpen(false));
+  }
+  if (classListEscBound !== "1") {
+    classListEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !classListIsOpen()) return;
+      if (document.querySelector("dialog[open]") instanceof HTMLDialogElement) return;
+      setClassListOpen(false);
+      event.preventDefault();
+    });
+  }
   paintClassListToggle();
 }
+
+/** @type {"0"|"1"} */
+let classListEscBound = "0";
 
 /**
  * Live present count in the header and class-list pane.
@@ -14377,7 +14474,7 @@ function focusTeamSetup() {
   if (stepper instanceof HTMLElement) stepper.focus();
 }
 
-for (const hostId of ["live-question-list", "live-frames"]) {
+for (const hostId of ["live-question-list", "teacher-minimized-list", "live-frames"]) {
   $(hostId)?.addEventListener("change", (event) => {
     void onGroupSetupChange(event);
   });
@@ -14552,7 +14649,12 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
   });
 });
 
-$("live-question-list")?.addEventListener("click", async (event) => {
+/**
+ * Clicks on teacher question cards (main list and minimize dock).
+ *
+ * @param {MouseEvent} event
+ */
+async function handleLiveQuestionCardClick(event) {
   const graphControl = event.target.closest("[data-mc-order], [data-mc-key]");
   if (graphControl instanceof HTMLButtonElement) {
     event.preventDefault();
@@ -14707,7 +14809,18 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
-});
+}
+
+const liveQuestionsLayout = $("live-questions-layout");
+if (liveQuestionsLayout instanceof HTMLElement) {
+  liveQuestionsLayout.addEventListener("click", (event) => {
+    void handleLiveQuestionCardClick(event);
+  });
+} else {
+  $("live-question-list")?.addEventListener("click", (event) => {
+    void handleLiveQuestionCardClick(event);
+  });
+}
 
 {
   $("live-responses-dialog")?.addEventListener("close", () => {

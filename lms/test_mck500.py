@@ -29,7 +29,7 @@ class MoodReselectTests(unittest.TestCase):
 
 
 class ClassListRailTests(unittest.TestCase):
-    """Collapsed rail copy and the per-teacher storage key."""
+    """Drawer toggle copy and the per-teacher storage key."""
 
     def test_labels_and_storage_key(self) -> None:
         """Class (N) when closed, Hide class list when open, key includes the teacher."""
@@ -38,6 +38,7 @@ import {
   classListStorageKey,
   classListToggleLabel,
   classListToggleTitle,
+  classListToggleAriaLabel,
   classListStoredOpen,
 } from "./lms/static/class_list_rail.js";
 
@@ -48,6 +49,8 @@ if (classListToggleLabel(false, -2) !== "Class (0)") throw new Error("negative l
 if (classListToggleLabel(true, 3) !== "Hide class list") throw new Error("open label");
 if (classListToggleTitle(false) !== "Show class list") throw new Error("closed tip");
 if (classListToggleTitle(true) !== "Hide class list") throw new Error("open tip");
+if (classListToggleAriaLabel(false) !== "Show class list") throw new Error("closed aria");
+if (classListToggleAriaLabel(true) !== "Hide class list") throw new Error("open aria");
 if (classListStorageKey(9) !== "lloves-class-list:9") throw new Error("key");
 if (classListStoredOpen(store, 9)) throw new Error("missing should be closed");
 store.setItem(classListStorageKey(9), "open");
@@ -62,16 +65,20 @@ if (classListStoredOpen({ getItem() { throw new Error("blocked"); } }, 9)) throw
             check=True,
         )
 
-    def test_slide_changes_do_not_reset_the_rail(self) -> None:
+    def test_slide_changes_do_not_reset_the_drawer(self) -> None:
         """The open/closed write happens from the button, not from a poll."""
         js = (LMS / "static" / "staff_ap.js").read_text(encoding="utf-8")
         css = (LMS / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertEqual(js.count("setClassListOpen("), 2)
+        html = (LMS / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
+        self.assertGreaterEqual(js.count("setClassListOpen("), 3)
         self.assertIn("paintClassListToggle()", js)
         self.assertIn("classListStorageKey", js)
+        self.assertIn('event.key !== "Escape"', js)
+        self.assertIn("class-list-scrim", html)
+        self.assertIn("class-list-drawer", html)
         self.assertIn("body.staff-shell #class-list-pane .ap-att-row.has-team-color .ap-att-name", css)
-        self.assertIn("--live-left-width: 7.25rem;", css)
-        self.assertIn("class-list-collapsed #class-list-body", css)
+        self.assertIn("class-list-drawer", css)
+        self.assertNotIn("--live-left-width: 7.25rem;", css)
 
 
 class WhiteboardUndoTests(unittest.TestCase):

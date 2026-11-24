@@ -1,7 +1,7 @@
 /**
- * Teacher class-list rail labels (MCK-500).
+ * Teacher class-list drawer labels (MCK-500, MCK-503).
  *
- * The live shell starts collapsed. One click opens the list in place.
+ * The live shell starts collapsed. One click opens an overlay drawer.
  * The choice is stored per teacher so a slide change does not reset it.
  */
 
@@ -32,13 +32,23 @@ export function classListToggleLabel(open, presentCount) {
 }
 
 /**
- * Tooltip for the rail button.
+ * Tooltip for the class-list control.
  *
  * @param {boolean} open
  * @returns {string}
  */
 export function classListToggleTitle(open) {
   return open ? "Hide class list" : "Show class list";
+}
+
+/**
+ * Accessible name for the toggle and close controls.
+ *
+ * @param {boolean} open
+ * @returns {string}
+ */
+export function classListToggleAriaLabel(open) {
+  return classListToggleTitle(open);
 }
 
 /**

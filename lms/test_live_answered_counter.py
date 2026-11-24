@@ -41,6 +41,8 @@ def _function_source(js: str, name: str) -> str:
 HARNESS = r"""
 const vm = require("vm");
 const src = require("fs").readFileSync(0, "utf8");
+class HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
 class Node {
   constructor(attrs) { this.attrs = attrs || {}; this.children = []; this.textContent = ""; this.className = ""; }
   getAttribute(k) { return this.attrs[k] ?? null; }
@@ -59,6 +61,7 @@ class Node {
     return m[2] == null || this.attrs["data-live-item-id"] === m[2];
   }
 }
+Object.setPrototypeOf(Node.prototype, HTMLElement.prototype);
 function el(cls, attrs, text) { const n = new Node(attrs); n.className = cls; n.textContent = text || ""; return n; }
 const host = el("live-question-list");
 const card = el("live-question-card", { "data-live-item-id": "7" });
@@ -67,6 +70,7 @@ card.children.push(progress);
 host.children.push(card);
 let refreshed = 0;
 const ctx = {
+  HTMLElement,
   $: (id) => (id === "live-question-list" ? host : null),
   lifecycleResults: new Map([[7, { response_count: 3, eligible_count: 12, tally: { responded: 3, present: 12 } }]]),
   lastLiveItems: [{ id: 7, response_mode: "individual", item: { type: "numeric" } }],
@@ -92,6 +96,8 @@ class AnsweredCounterRepaintTests(unittest.TestCase):
         src = "\n".join(
             _function_source(js, name)
             for name in (
+                "liveQuestionCardHosts",
+                "liveQuestionCardForItem",
                 "lifecycleRowIsRank",
                 "adoptLifecycleResponseCounts",
                 "paintLifecycleProgressInPlace",

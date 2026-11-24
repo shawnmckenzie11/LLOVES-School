@@ -443,7 +443,7 @@ class LiveLifecycleBindingTests(unittest.TestCase):
         paint = staff.split("function paintLiveQuestionCards")[1].split(
             "function adoptLiveItem"
         )[0]
-        render = _brace_body(paint, ".map((card, index)")
+        render = _brace_body(paint, "const cardHtml = (card, index) =>")
         status_at = render.index("lifecycle?.status || card.status")
         declared = render.rfind("const lifecycle", 0, status_at)
         self.assertGreater(declared, -1)

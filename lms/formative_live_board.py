@@ -112,26 +112,6 @@ def summary_line(tiles: list[dict[str, Any]]) -> str:
     return f"{drawing} drawing · {submitted} submitted ✓ · {away} away"
 
 
-def team_filters(tiles: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Filter chips built from board pins.
-
-    Args:
-        tiles: Public tile dicts.
-    """
-    orders = sorted(
-        {
-            int(tile["team_sort_order"])
-            for tile in tiles
-            if tile.get("team_sort_order") is not None
-        }
-    )
-    chips = [{"id": "all", "label": f"All {len(tiles)}"}]
-    for order in orders:
-        chips.append({"id": f"team:{order}", "label": f"Team {order + 1}"})
-    chips.append({"id": "teacher_wrote", "label": "Teacher wrote"})
-    return chips
-
-
 def legend_entries(
     school: Any, session_id: int, card: dict[str, Any]
 ) -> list[dict[str, str]]:

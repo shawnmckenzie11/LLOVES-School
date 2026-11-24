@@ -39,6 +39,12 @@
       try { open = localStorage.getItem("lloves-class-list:" + id) === "open"; } catch (e) {}
       document.body.classList.toggle("class-list-open", open);
       document.body.classList.toggle("class-list-collapsed", !open);
+      var pane = document.getElementById("class-list-pane");
+      var scrim = document.getElementById("class-list-scrim");
+      var closeBtn = document.getElementById("class-list-close");
+      if (pane) pane.hidden = !open;
+      if (scrim) scrim.hidden = !open;
+      if (closeBtn) closeBtn.hidden = !open;
     })();
   </script>
   {% endif %}
@@ -669,14 +675,16 @@
         </dialog>
       </section>
 
+      <div id="class-list-scrim" class="class-list-scrim" hidden aria-hidden="true"></div>
       <div class="live-shell-body">
         <aside class="live-shell-left" id="live-shell-left">
-          <section id="class-list-pane" class="live-pane">
-            <button type="button" id="class-list-toggle" class="class-list-toggle" aria-controls="class-list-body" aria-expanded="false" title="Show class list">Class (0)</button>
+          <button type="button" id="class-list-toggle" class="class-list-toggle" aria-controls="class-list-body" aria-expanded="false" aria-label="Show class list" title="Show class list">Class (0)</button>
+          <section id="class-list-pane" class="live-pane class-list-drawer" role="dialog" aria-modal="true" aria-labelledby="class-list-title" hidden>
             <div id="class-list-body">
             <section id="ap-panel-att" class="ap-panel" data-step="att">
               <div class="class-list-head">
-                <h2 class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
+                <h2 id="class-list-title" class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
+                <button type="button" id="class-list-close" class="class-list-close secondary" aria-label="Hide class list" hidden>×</button>
                 {% include "staff/_show_test_students.html" %}
               </div>
               <div class="class-list-toggles">
@@ -705,19 +713,26 @@
               </div>
             </section>
             </div>
+          </section>
             <script>
               (function () {
                 var open = document.body.classList.contains("class-list-open");
                 var btn = document.getElementById("class-list-toggle");
+                var pane = document.getElementById("class-list-pane");
+                var scrim = document.getElementById("class-list-scrim");
+                var closeBtn = document.getElementById("class-list-close");
                 if (!btn) return;
                 btn.setAttribute("aria-expanded", open ? "true" : "false");
+                btn.setAttribute("aria-label", open ? "Hide class list" : "Show class list");
                 if (open) {
                   btn.textContent = "Hide class list";
                   btn.title = "Hide class list";
                 }
+                if (pane) pane.hidden = !open;
+                if (scrim) scrim.hidden = !open;
+                if (closeBtn) closeBtn.hidden = !open;
               })();
             </script>
-          </section>
         </aside>
 
         <main class="live-shell-right" id="live-shell-right">
@@ -786,14 +801,20 @@
                     <button type="button" id="live-add-question-btn" class="secondary live-q-btn">Add New</button>
                     <button type="button" id="live-import-mc-btn" class="secondary live-q-btn">Import from bank</button>
                     <button type="button" id="live-bank-bot-btn" class="secondary live-q-btn">Question bank</button>
-                    <button type="button" id="live-hide-key-btn" class="secondary live-q-btn live-hide-key-btn" aria-pressed="false" aria-controls="live-question-list">Hide key</button>
+                    <button type="button" id="live-hide-key-btn" class="secondary live-q-btn live-hide-key-btn" aria-pressed="false" aria-controls="live-questions-layout">Hide key</button>
                   </div>
                 </div>
                 <p id="live-group-poll-feel" class="live-group-poll-feel" hidden>
                   <span class="live-group-poll-feel-copy"></span>
                   <button type="button" id="live-group-poll-retry" hidden>Retry</button>
                 </p>
-                <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
+                <div class="live-questions-layout" id="live-questions-layout">
+                  <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
+                  <aside id="teacher-minimized-panel" class="teacher-minimized-panel" hidden aria-label="Minimized questions">
+                    <h3 class="teacher-minimized-heading">Minimized</h3>
+                    <div id="teacher-minimized-list" class="teacher-minimized-list"></div>
+                  </aside>
+                </div>
                 <p class="hint compact" id="live-mint-toast" hidden role="status"></p>
                 <p class="hint compact" id="question-artifact-status" hidden></p>
                 <div id="live-question-body" class="live-question-body" hidden>
@@ -909,7 +930,6 @@
                       {% endif %}
                     </div>
                   </header>
-                  <div id="wb-live-filters" class="wb-live-filters" role="tablist"></div>
                   <p id="wb-live-summary" class="wb-live-summary"></p>
                   <p id="wb-live-projected" class="wb-live-projected"></p>
                   <div class="wb-live-body">

@@ -381,9 +381,13 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="class-list-pane"', html)
         self.assertIn('id="class-list-toggle"', html)
         self.assertIn(">Class (0)<", html)
+        self.assertIn('aria-label="Show class list"', html)
         self.assertIn('title="Show class list"', html)
         self.assertIn("lloves-class-list:", html)
         self.assertIn("class-list-collapsed", html)
+        self.assertIn("class-list-drawer", html)
+        self.assertIn('id="teacher-minimized-panel"', html)
+        self.assertNotIn("wb-live-filters", html)
         self.assertIn("course-live", html)
         self.assertIn('id="team-assign-pane"', html)
         self.assertIn('id="live-active-content"', html)
@@ -3278,7 +3282,9 @@ class LiveShellTests(unittest.TestCase):
         paint = js.split("function paintLiveQuestionCards()")[1].split(
             "function individualLifecycleResultsHtml("
         )[0]
-        self.assertIn("writeQuestionCardsKeepingConfirms(host, cards", paint)
+        self.assertIn("writeQuestionCardsKeepingConfirms(host, mainHtml)", paint)
+        self.assertIn("writeQuestionCardsKeepingConfirms(", paint)
+        self.assertIn("dockHost", paint)
         self.assertNotIn("host.innerHTML = cards", paint)
         keep = js.split("function writeQuestionCardsKeepingConfirms(")[1].split(
             "function individualLifecycleResultsHtml("

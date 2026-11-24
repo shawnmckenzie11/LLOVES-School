@@ -198,24 +198,12 @@
   font-size: 0.8rem;
 }
 
-.wb-live-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0.75rem 0;
-}
-
-.wb-live-filter,
 .wb-live-team {
   border: 0;
   border-radius: 999px;
   background: #1e293b;
   color: #e2e8f0;
   padding: 0.25rem 0.65rem;
-}
-
-.wb-live-filter.is-on {
-  background: #0f766e;
 }
 
 .wb-live-body {

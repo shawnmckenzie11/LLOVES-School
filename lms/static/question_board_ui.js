@@ -558,7 +558,6 @@ function teacherGalleryHtml() {
         <span class="wb-live-pill">Live</span>
       </div>
     </header>
-    <div class="wb-live-filters" data-wb-part="filters" role="tablist"></div>
     <p class="wb-live-summary" data-wb-part="summary"></p>
     <p class="wb-live-projected" data-wb-part="projected"></p>
     <div class="wb-live-body">
