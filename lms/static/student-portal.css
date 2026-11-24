@@ -608,8 +608,20 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   line-height: 1.05;
 }
 
-.canvas-pane .wb-formative-legend {
+.canvas-pane .wb-formative-legend,
+#canvas-pane .wb-formative-legend,
+.canvas-pane .live-canvas-workspace > .wb-formative-legend,
+.qboard-phone .wb-formative-legend,
+.qboard-slot .wb-formative-legend,
+.qboard-phone .live-canvas-workspace > .wb-formative-legend,
+.student-live-card .live-canvas-workspace > .wb-formative-legend {
   display: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
 }
 
 .canvas-pane[hidden] {
@@ -1398,11 +1410,6 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   width: 100%;
   aspect-ratio: 2 / 1;
   min-height: 9.5rem;
-}
-
-.qboard-phone .wb-formative-legend,
-.qboard-slot .wb-formative-legend {
-  display: none !important;
 }
 
 .qboard-phone .qboard-text[hidden] {

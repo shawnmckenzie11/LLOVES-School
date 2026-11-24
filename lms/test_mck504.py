@@ -42,9 +42,11 @@ class StudentWhiteboardToolbarTests(unittest.TestCase):
         self.assertLess(home.index("live-canvas-toolbar-vertical"), home.index("id=\"student-canvas\""))
 
     def test_student_css_hides_legend_and_styles_vertical_tools(self) -> None:
-        """Colour chips stay off; tool buttons sit in a left column."""
+        """Phone boards and the floating canvas hide the formative legend band."""
         css = (LMS / "static" / "student-portal.css").read_text(encoding="utf-8")
         self.assertIn(".canvas-pane .wb-formative-legend", css)
+        self.assertIn(".qboard-phone .wb-formative-legend", css)
+        self.assertIn(".qboard-phone .live-canvas-workspace > .wb-formative-legend", css)
         self.assertIn("display: none !important", css)
         self.assertIn(".live-canvas-toolbar-vertical", css)
         self.assertIn("position: absolute", css)
@@ -61,6 +63,8 @@ class StudentWhiteboardToolbarTests(unittest.TestCase):
         self.assertNotIn('data-tool="erase"', js)
         self.assertNotIn('data-tool="redo"', js)
         self.assertNotIn('data-tool="clear"', js)
+        self.assertIn("enabled: true", js)
+        self.assertNotIn("enabled: false", js)
 
 
 class LineStrokeAndUndoTests(unittest.TestCase):

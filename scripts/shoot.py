@@ -5610,6 +5610,215 @@ def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
     return written
 
 
+
+def shoot_mck504_team_board_no_legend(out_dir: Path) -> list[Path]:
+    """MCK-504: team question board at 375px after collab poll — no legend band.
+
+    Two teammates on one shared board; after both draw, formative members load
+    but CSS must keep ``.wb-formative-legend`` off the phone layout.
+
+    Args:
+        out_dir: Directory for the PNG.
+
+    Returns:
+        PNG path written.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    sys.path.insert(0, str(ROOT))
+    os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
+    os.environ.pop("GOOGLE_CLIENT_ID", None)
+    import logging
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    logging.getLogger("auth").setLevel(logging.ERROR)
+    logging.getLogger("email_service").setLevel(logging.ERROR)
+    from app import create_app  # noqa: E402
+    from playwright.sync_api import sync_playwright
+
+    tmp = tempfile.TemporaryDirectory()
+    root = Path(tmp.name)
+    app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+    school = app.config["SCHOOL_DB"]
+    staff = app.test_client()
+    school.activate_from_semester_json()
+    teacher = school.register_staff("fixture-staff@example.com")
+    offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCR3U")
+    staff.get("/auth/google?portal=staff")
+    staff.get("/auth/google/callback?email=fixture-staff@example.com&name=T")
+    code = school.get_user_by_email("fixture-staff@example.com")["verification_code"]
+    staff.post("/verify-email", data={"code": code})
+    created = staff.post(
+        "/api/staff/classes",
+        json={
+            "offering_id": int(offering["id"]),
+            "days": "M/W/F",
+            "time": "2:00pm",
+            "codenames": ["P1", "P2", "P3"],
+        },
+    )
+    class_id = int(created.get_json()["class"]["id"])
+    live = school.start_live_class_session(class_id, int(teacher["id"]), is_test=True)
+    session_id = int(live["id"])
+    school.game.begin_game(class_id)
+    ids: list[int] = []
+    for codename in ("P1", "P2", "P3"):
+        row = school.game.find_student_by_codename(class_id, codename)
+        if row is None:
+            raise SystemExit("Synthetic roster missing")
+        ids.append(int(row["id"]))
+        school.join_live_class_session(session_id, int(row["id"]), codename=codename)
+    team_pair = ids[:2]
+    school.setup_live_session_groups(
+        session_id,
+        n_teams=2,
+        mode="manual",
+        present_ids=ids,
+        assignments=[
+            {"student_id": team_pair[0], "team_index": 0},
+            {"student_id": team_pair[1], "team_index": 0},
+            {"student_id": ids[2], "team_index": 1},
+        ],
+    )
+    school.set_live_session_teacher_state(
+        session_id,
+        live_module="M1",
+        live_slot="C2",
+        stage="round",
+        page_number=1,
+        student_view={"questions": "student"},
+        groups_configured=True,
+        run_as_group=True,
+    )
+    staff.post(
+        f"/api/live-sessions/{session_id}/teacher-state",
+        json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_number": 1},
+    )
+    posted = staff.post(
+        f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+        json={
+            "type": "poll",
+            "text": "Team sketch on the board.",
+            "page_number": 1,
+            "stage": "round",
+            "answer_with": "board",
+            "live_response_mode": "group",
+            "save_to_bank": False,
+        },
+    )
+    if posted.status_code >= 400:
+        raise SystemExit("could not add the team board question")
+    school.ensure_live_session_items(session_id)
+    board_row = next(
+        item
+        for item in school.list_live_session_items(session_id)
+        if str((item.get("item") or {}).get("text") or "") == "Team sketch on the board."
+    )
+    published = school.publish_live_session_item(
+        session_id, int(board_row["id"]), publish_mode="group_shared"
+    )
+    board_prompt = school._prompt_for_live_item(published)
+    if board_prompt is None:
+        raise SystemExit("Team board prompt missing")
+    prompt_id = int(board_prompt["id"])
+    # Second teammate ink so the next poll brings formative members
+    school.append_question_board_ops(
+        session_id, prompt_id, team_pair[0], [
+            {"type": "stroke_add", "id": "t1", "points": [[0.1, 0.2], [0.4, 0.5]]},
+            {"type": "stroke_end", "id": "t1"},
+        ]
+    )
+    school.append_question_board_ops(
+        session_id, prompt_id, team_pair[1], [
+            {"type": "stroke_add", "id": "t2", "points": [[0.5, 0.2], [0.8, 0.5]]},
+            {"type": "stroke_end", "id": "t2"},
+        ]
+    )
+    visit_row = school.conn.execute(
+        """
+        SELECT visit_token FROM live_session_attendees
+        WHERE live_session_id = ? AND student_id = ?
+        """,
+        (session_id, team_pair[0]),
+    ).fetchone()
+    visit = str(visit_row["visit_token"] if visit_row else "")
+    if not visit:
+        raise SystemExit("student seat missing")
+    port = 8796
+    origin = f"http://127.0.0.1:{port}"
+    assert_loopback(origin)
+
+    def run_server() -> None:
+        app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+    threading.Thread(target=run_server, daemon=True).start()
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(origin + "/health", timeout=0.4) as response:
+                if response.status == 200:
+                    break
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.15)
+    else:
+        raise SystemExit("local LMS for mck504 team board did not start")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    viewport = {"width": 375, "height": 667}
+    url = f"{origin}/student/s/{visit}"
+
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(viewport=viewport, is_mobile=True)
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded")
+        _mck215_reach_live_home(page)
+        _mck215_dismiss_catchup_pin(page)
+        page.locator(".student-live-card.is-open-focus .qboard-phone").wait_for(
+            state="visible", timeout=90000
+        )
+        page.wait_for_function(
+            """() => {
+              const legend = document.querySelector(
+                '.qboard-phone .wb-formative-legend, .qboard-phone .live-canvas-workspace > .wb-formative-legend'
+              );
+              if (!legend) return false;
+              const style = getComputedStyle(legend);
+              return style.display === 'none' && legend.offsetHeight === 0;
+            }""",
+            timeout=90000,
+        )
+        members_ready = page.wait_for_function(
+            """() => {
+              const card = document.querySelector('.student-live-card.is-open-focus .qboard-phone');
+              return card && card.querySelector('.wb-legend-chip, .wb-formative-chips .wb-cursor-chip');
+            }""",
+            timeout=90000,
+        )
+        del members_ready
+        card = page.locator(".student-live-card.is-open-focus").first
+        card.locator(".qboard-phone").first.wait_for(state="visible", timeout=30000)
+        _mask_demo_identity(page)
+        _refuse_private_text(page, [visit, str(live.get("session_code") or "")])
+        dest = out_dir / "mck504-phone-team-board-375.png"
+        box = card.bounding_box()
+        if not box:
+            raise SystemExit("team board card has no box")
+        page.screenshot(
+            path=str(dest),
+            clip={
+                "x": max(0, box["x"]),
+                "y": max(0, box["y"]),
+                "width": min(box["width"], viewport["width"] - max(0, box["x"])),
+                "height": min(box["height"], viewport["height"] - max(0, box["y"])),
+            },
+        )
+        written.append(dest)
+        context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck499(base: str, out_dir: Path, path: Path) -> list[Path]:
     """MCK-499: one open question with Submit in view and a capped image.
 
@@ -6154,6 +6363,7 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck499(args.base, out, path))
         if args.scenario == "mck504":
             written.extend(shoot_mck504(args.base, out, path))
+            written.extend(shoot_mck504_team_board_no_legend(out))
         if args.scenario == "mck497":
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":

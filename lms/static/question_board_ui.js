@@ -429,7 +429,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     color: "#12202e",
     fixedInkColor: true,
     formative: {
-      enabled: false,
+      enabled: true,
       members: [],
       isTeacher: false,
       isPhone: true,
