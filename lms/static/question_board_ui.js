@@ -121,7 +121,7 @@ function toolBar() {
     '<button type="button" data-tool="pen" class="is-on" aria-pressed="true">Pen</button>',
     '<button type="button" data-tool="text" aria-pressed="false">Text</button>',
     '<button type="button" data-tool="erase">Erase</button>',
-    '<button type="button" data-tool="undo">Undo</button>',
+    '<button type="button" data-tool="undo" title="Nothing to undo" disabled>Undo</button>',
     '<button type="button" data-tool="redo">Redo</button>',
     '<button type="button" data-tool="clear">Clear</button>',
   ].join("");
@@ -589,7 +589,7 @@ function teacherGalleryHtml() {
             </div>
             <div class="wb-live-panel-tools" role="toolbar" aria-label="Whiteboard tools">
               <button type="button" data-wb-part="pen" class="is-on wb-live-pen" aria-pressed="true">Pen</button>
-              <button type="button" data-wb-part="undo">Undo</button>
+              <button type="button" data-wb-part="undo" title="Nothing to undo" disabled>Undo</button>
               <button type="button" data-wb-part="clear">Clear my ink</button>
               <button type="button" data-wb-part="text" hidden aria-pressed="false">Text</button>
               <button type="button" data-wb-part="erase" hidden>Erase</button>

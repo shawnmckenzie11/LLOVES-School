@@ -4755,10 +4755,14 @@ def shoot_mck494(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
             context.close()
             browser.close()
             raise SystemExit("Refusing screenshot: Overview includes roster PIN cells")
-        if page.locator("#begin-mod-past").count():
+        if page.locator("#ap-panel-overview #begin-mod-past").count():
             context.close()
             browser.close()
-            raise SystemExit("Refusing screenshot: Past modules table is still on the page")
+            raise SystemExit("Refusing screenshot: Past modules table is on Overview")
+        if page.locator("#begin-mod-past").is_visible():
+            context.close()
+            browser.close()
+            raise SystemExit("Refusing screenshot: Past modules table is visible on Overview")
         overview = out_dir / "mck-494-ap-overview-1280.png"
         page.screenshot(path=str(overview), full_page=True)
         written.append(overview)
@@ -5602,6 +5606,176 @@ def shoot_mck499(base: str, out_dir: Path, path: Path) -> list[Path]:
     return written
 
 
+def _mck500_visible_text(page: object, selector: str) -> str:
+    """Visible text inside one element. Hidden nodes are omitted.
+
+    Args:
+        page: Playwright page.
+        selector: Element whose painted text is checked.
+
+    Returns:
+        The element's visible text.
+    """
+
+    return page.locator(selector).inner_text()  # type: ignore[attr-defined]
+
+
+def _mck500_refuse(text: str, secrets: list[str]) -> None:
+    """Stop when a crop contains an email or a known code.
+
+    Args:
+        text: Visible text from the crop.
+        secrets: Codes that must not appear. They are not included in the error.
+    """
+
+    if "@" in text:
+        raise SystemExit("Refusing screenshot: crop contains an email")
+    for secret in secrets:
+        token = str(secret or "").strip()
+        if token and token in text:
+            raise SystemExit("Refusing screenshot: crop contains a code")
+
+
+def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[Path]:
+    """MCK-500: collapsed class list at 1280 and the restored Past Modules table.
+
+    Crops to the rail and the past panel. Name cells are masked before the
+    past-table shot. A crop that shows an email or a known code is refused.
+
+    Args:
+        base: Loopback origin.
+        state_path: Staff storageState.
+        out_dir: Directory for PNG files.
+        db: LMS sqlite path.
+
+    Returns:
+        PNG paths written.
+    """
+
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    school = _mck208_school(db)
+    class_id = shawn_class_id(db)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    board = school.begin_module_board(class_id)
+    if not board.get("past"):
+        current = str(board.get("current_module") or "")
+        try:
+            school.begin_new_module(class_id, current, user_id=int(teacher["id"]))
+        except Exception:
+            board = school.begin_module_board(class_id)
+            if not board.get("past"):
+                raise SystemExit("Past modules table has no rows") from None
+    secrets = ["1234", "9999"]
+    live_row = school.get_active_live_session_for_class(class_id)
+    if live_row is not None:
+        secrets.append(str(live_row.get("session_code") or ""))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            context = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": 1280, "height": 900},
+            )
+            page = context.new_page()
+            page.goto(
+                f"{origin}/staff/class/{class_id}?tab=ap&view=past",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
+            past = page.locator("#ap-panel-past #begin-mod-past")
+            past.wait_for(state="visible", timeout=20000)
+            page.locator("#begin-mod-past-select").wait_for(state="visible", timeout=10000)
+            page.evaluate(
+                """() => {
+                  document.querySelectorAll("#ap-panel-past .begin-mod-table tbody td:first-child")
+                    .forEach((cell) => { cell.textContent = "Student"; });
+                }"""
+            )
+            past_text = _mck500_visible_text(page, "#ap-panel-past")
+            for heading in ("Past modules", "Name", "Attended", "Participation"):
+                if heading not in past_text:
+                    raise SystemExit("Past modules table is missing a column")
+            _mck500_refuse(past_text, secrets)
+            past_path = out_dir / "mck500-past-modules-1280.png"
+            past.screenshot(path=str(past_path))
+            written.append(past_path)
+
+            live = school.start_live_class_session(class_id, int(teacher["id"]))
+            secrets.append(str(live.get("session_code") or ""))
+            school.set_live_session_teacher_state(
+                int(live["id"]),
+                class_set=True,
+                live_module="M2",
+                live_slot="C1",
+                stage="round",
+            )
+            page.goto(
+                f"{origin}/staff/class/{class_id}?tab=live",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
+            toggle = page.locator("#class-list-toggle")
+            toggle.wait_for(state="visible", timeout=20000)
+            page.locator("#class-list-pane").wait_for(state="visible", timeout=10000)
+            rail = page.evaluate(
+                """() => {
+                  const body = document.body;
+                  const btn = document.getElementById("class-list-toggle");
+                  const pane = document.getElementById("class-list-pane");
+                  const box = pane ? pane.getBoundingClientRect() : { width: 0 };
+                  return {
+                    collapsed: body.classList.contains("class-list-collapsed"),
+                    open: body.classList.contains("class-list-open"),
+                    label: btn ? btn.textContent.trim() : "",
+                    title: btn ? btn.title : "",
+                    width: box.width,
+                    viewport: window.innerWidth
+                  };
+                }"""
+            )
+            if rail["viewport"] != 1280:
+                raise SystemExit("Class list shot is not 1280px wide")
+            if not rail["collapsed"] or rail["open"]:
+                raise SystemExit("Class list rail is not collapsed")
+            if not str(rail["label"]).startswith("Class ("):
+                raise SystemExit("Class list button label is wrong")
+            if rail["title"] != "Show class list":
+                raise SystemExit("Class list tooltip is wrong")
+            if float(rail["width"]) > 140:
+                raise SystemExit("Class list rail is wider than the collapsed column")
+            page.evaluate(
+                """() => {
+                  document.querySelectorAll("#class-list-pane .ap-att-name").forEach((el) => {
+                    el.textContent = "Student";
+                  });
+                }"""
+            )
+            rail_text = _mck500_visible_text(page, "#class-list-pane")
+            _mck500_refuse(rail_text, secrets)
+            rail_path = out_dir / "mck500-class-list-collapsed-1280.png"
+            page.locator("#class-list-pane").screenshot(path=str(rail_path))
+            written.append(rail_path)
+            context.close()
+            browser.close()
+    except SystemExit:
+        raise
+    except Exception as err:
+        message = str(err)
+        for secret in secrets:
+            token = str(secret or "")
+            if token:
+                message = message.replace(token, "[redacted]")
+        raise SystemExit(message) from None
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -5648,6 +5822,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck495",
             "mck496",
             "mck499",
+            "mck500",
         ),
         default="",
         help=(
@@ -5758,6 +5933,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
             written.extend(shoot_mck494(args.base, state, out, path))
+        if args.scenario == "mck500":
+            written.extend(shoot_mck500(args.base, state, out, path))
         if args.scenario == "mck496":
             written.extend(shoot_mck496(args.base, state, out, path))
         if args.url:
@@ -5777,7 +5954,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500."
             )
         for item in written:
             print(item)

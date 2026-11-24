@@ -9,7 +9,7 @@
   const root = document.getElementById("ap-root");
   if (!root) return;
 
-  const VIEWS = ["overview", "attendance", "participation", "feedback", "roster", "engagement"];
+  const VIEWS = ["overview", "past", "attendance", "participation", "feedback", "roster", "engagement"];
 
   /**
    * View token from a tab link or the current query.

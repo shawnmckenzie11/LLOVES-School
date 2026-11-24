@@ -15,7 +15,7 @@
   {% include "_sentry_browser.html" %}
   <script id="lloves-features" type="application/json">{{ teacher_features_json|safe }}</script>
 </head>
-<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'library', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}"
+<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'library', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live class-list-collapsed{% endif %}"
       data-user-id="{{ user.id }}"
       data-tour-offer="{{ '1' if tour_offer and not tour_block else '0' }}"
       data-tour-page="{{ tour_page }}"
@@ -31,6 +31,17 @@
       data-tour-ap="{{ tour_ap }}"
       data-tour-part="{{ tour_part }}"
       data-tour-live-href="{{ tour_live_href }}">
+  {% if tab == 'live' %}
+  <script>
+    (function () {
+      var id = document.body.getAttribute("data-user-id") || "";
+      var open = false;
+      try { open = localStorage.getItem("lloves-class-list:" + id) === "open"; } catch (e) {}
+      document.body.classList.toggle("class-list-open", open);
+      document.body.classList.toggle("class-list-collapsed", !open);
+    })();
+  </script>
+  {% endif %}
   <div class="wrap course-shell">
     <nav class="staff-top-menu" aria-label="Staff navigation">
       <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
@@ -661,6 +672,8 @@
       <div class="live-shell-body">
         <aside class="live-shell-left" id="live-shell-left">
           <section id="class-list-pane" class="live-pane">
+            <button type="button" id="class-list-toggle" class="class-list-toggle" aria-controls="class-list-body" aria-expanded="false" title="Show class list">Class (0)</button>
+            <div id="class-list-body">
             <section id="ap-panel-att" class="ap-panel" data-step="att">
               <div class="class-list-head">
                 <h2 class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
@@ -691,6 +704,19 @@
                 <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
               </div>
             </section>
+            </div>
+            <script>
+              (function () {
+                var open = document.body.classList.contains("class-list-open");
+                var btn = document.getElementById("class-list-toggle");
+                if (!btn) return;
+                btn.setAttribute("aria-expanded", open ? "true" : "false");
+                if (open) {
+                  btn.textContent = "Hide class list";
+                  btn.title = "Hide class list";
+                }
+              })();
+            </script>
           </section>
         </aside>
 
@@ -912,7 +938,7 @@
                           </div>
                           <div class="wb-live-panel-tools" role="toolbar" aria-label="Whiteboard tools">
                             <button type="button" id="wb-live-pen" class="is-on wb-live-pen" aria-pressed="true">Pen</button>
-                            <button type="button" id="wb-live-undo">Undo</button>
+                            <button type="button" id="wb-live-undo" title="Nothing to undo" disabled>Undo</button>
                             <button type="button" id="wb-live-clear">Clear my ink</button>
                             <button type="button" id="wb-live-text" hidden aria-pressed="false">Text</button>
                             <button type="button" id="wb-live-erase" hidden>Erase</button>
@@ -1138,6 +1164,9 @@
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='overview') }}"
            data-ap-tab="overview"
            class="{{ 'on' if ap_view == 'overview' else '' }}">Overview</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='past') }}"
+           data-ap-tab="past"
+           class="{{ 'on' if ap_view == 'past' else '' }}">Past Modules</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
            data-ap-tab="attendance"
            class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
@@ -1210,6 +1239,48 @@
         <h2>Class reports</h2>
         <ul id="live-fix-history-list"></ul>
       </section>
+      </section>
+
+      <section class="ap-panel" id="ap-panel-past" data-ap-panel="past"{% if ap_view != 'past' %} hidden{% endif %}>
+      {% if module_wrap %}
+      <section class="begin-mod-past-block" id="begin-mod-past"{% if not module_wrap.past %} hidden{% endif %}>
+        <div class="begin-mod-past-head">
+          <h3>Past modules</h3>
+          <select id="begin-mod-past-select" aria-label="Past modules">
+            {% for past in module_wrap.past %}
+            <option value="{{ past.module }}">{{ past.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% for past in module_wrap.past %}
+        <div class="begin-mod-past-panel" data-past-module="{{ past.module }}"{% if not loop.first %} hidden{% endif %}>
+          <p class="begin-mod-wrapped">{{ past.wrapped }}</p>
+          <div class="sheet-wrap begin-mod-wrap">
+            <table class="begin-mod-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Attended</th>
+                  <th>Participation</th>
+                  <th>%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in past.students %}
+                <tr>
+                  <td>{{ row.name }}</td>
+                  <td>{{ row.attended_text }}</td>
+                  <td>{{ row.participation_text }}</td>
+                  <td>{{ row.percent_text }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
       </section>
 
       <section class="ap-panel" id="ap-panel-attendance" data-ap-panel="attendance"{% if ap_view != 'attendance' %} hidden{% endif %}>

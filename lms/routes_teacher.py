@@ -2499,6 +2499,7 @@ def register_teacher(app, school, shared):
             ap_view = "participation"
         if ap_view not in {
             "overview",
+            "past",
             "attendance",
             "participation",
             "feedback",

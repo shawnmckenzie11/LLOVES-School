@@ -555,6 +555,82 @@ export function createPresenceQueue(opts) {
  *   importRemote: (view: any, options?: {collab?: boolean}) => void,
  * }}
  */
+const UNDO_TIP = "Undo last stroke or text (Ctrl/Cmd+Z)";
+const NOTHING_TIP = "Nothing to undo";
+
+/** @type {Set<{undo: () => boolean, canUndo: () => boolean, isShown: () => boolean, contains: (node: EventTarget | null) => boolean, mark: () => void}>} */
+const undoBoards = new Set();
+/** @type {{undo: () => boolean, canUndo: () => boolean, isShown: () => boolean, contains: (node: EventTarget | null) => boolean, mark: () => void} | null} */
+let lastUndoBoard = null;
+let undoShortcutInstalled = false;
+
+/**
+ * True when Ctrl/Cmd+Z should edit text instead of the board.
+ * @param {EventTarget | null} node
+ * @returns {boolean}
+ */
+function typingTarget(node) {
+  if (!node || typeof node !== "object") return false;
+  const tag = String(/** @type {{tagName?: string}} */ (node).tagName || "").toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return Boolean(/** @type {{isContentEditable?: boolean}} */ (node).isContentEditable);
+}
+
+/**
+ * True when the canvas is in the document and no ancestor is hidden.
+ * @param {HTMLElement | null | undefined} el
+ * @returns {boolean}
+ */
+function elementShown(el) {
+  if (!el) return false;
+  if (el.hidden) return false;
+  if (el.isConnected === false) return false;
+  let node = el.parentElement;
+  while (node) {
+    if (node.hidden) return false;
+    node = node.parentElement;
+  }
+  return true;
+}
+
+/**
+ * Board that should receive Ctrl/Cmd+Z.
+ * @param {EventTarget | null} target
+ * @returns {{undo: () => boolean, canUndo: () => boolean, isShown: () => boolean, contains: (node: EventTarget | null) => boolean, mark: () => void} | null}
+ */
+function boardForUndoShortcut(target) {
+  for (const board of undoBoards) {
+    if (board.contains(target) && board.isShown()) return board;
+  }
+  if (lastUndoBoard && lastUndoBoard.isShown()) return lastUndoBoard;
+  const shown = [];
+  for (const board of undoBoards) {
+    if (board.isShown()) shown.push(board);
+  }
+  return shown.length === 1 ? shown[0] : null;
+}
+
+/**
+ * One desktop listener for every board on the page.
+ */
+function installUndoShortcut() {
+  if (undoShortcutInstalled) return;
+  if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+  undoShortcutInstalled = true;
+  document.addEventListener("keydown", (event) => {
+    if (!event || event.defaultPrevented || event.repeat) return;
+    if (event.altKey || event.shiftKey) return;
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (String(event.key || "").toLowerCase() !== "z") return;
+    if (typingTarget(event.target)) return;
+    const board = boardForUndoShortcut(event.target);
+    if (!board || !board.canUndo()) return;
+    event.preventDefault();
+    board.mark();
+    board.undo();
+  });
+}
+
 export function bindWhiteboard(canvas, opts = {}) {
   const ctx = canvas.getContext("2d");
   const liveCanvas = document.createElement("canvas");
@@ -581,8 +657,101 @@ export function bindWhiteboard(canvas, opts = {}) {
 
   /** @type {{id: string, owner: string, points: {x: number, y: number}[], color: string, mine: boolean}[]} */
   let strokes = [];
-  /** @type {{id: string, owner: string, points: {x: number, y: number}[], color: string, mine: boolean}[]} */
+  /** @type {{kind: "stroke"|"text", item: any}[]} */
   let redoStack = [];
+  /** @type {{kind: "stroke"|"text", id: string}[]} */
+  let undoStack = [];
+  /** @type {{undo: () => boolean, canUndo: () => boolean, isShown: () => boolean, contains: (node: EventTarget | null) => boolean, mark: () => void} | null} */
+  let shortcutApi = null;
+
+  /**
+   * Drop one id from the undo stack.
+   * @param {"stroke"|"text"} kind
+   * @param {string} id
+   */
+  const dropUndo = (kind, id) => {
+    undoStack = undoStack.filter((row) => row.kind !== kind || row.id !== id);
+  };
+
+  /**
+   * Make this own item the newest undo step.
+   * @param {"stroke"|"text"} kind
+   * @param {string} id
+   */
+  const rememberUndo = (kind, id) => {
+    dropUndo(kind, id);
+    undoStack.push({ kind, id });
+    redoStack = [];
+  };
+
+  /**
+   * Newest own stroke or text box that is still on the board.
+   * @returns {{kind: "stroke"|"text", id: string} | null}
+   */
+  const undoTarget = () => {
+    for (let i = undoStack.length - 1; i >= 0; i -= 1) {
+      const row = undoStack[i];
+      if (row.kind === "stroke" && strokes.some((stroke) => stroke.id === row.id && stroke.mine)) {
+        return row;
+      }
+      if (row.kind === "text" && texts.some((label) => label.id === row.id && label.mine)) {
+        return row;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * Remove the newest own stroke or text box. One press, one item.
+   * @returns {boolean}
+   */
+  const performUndo = () => {
+    if (editingLocked) return false;
+    const row = undoTarget();
+    if (!row) return false;
+    dropUndo(row.kind, row.id);
+    if (row.kind === "stroke") {
+      const index = strokes.findIndex((stroke) => stroke.id === row.id && stroke.mine);
+      const last = index >= 0 ? strokes.splice(index, 1)[0] : null;
+      if (last) redoStack.push({ kind: "stroke", item: last });
+      if (last && last.mine && collab && typeof opts.onUndo === "function") opts.onUndo(last);
+    } else {
+      const index = texts.findIndex((label) => label.id === row.id && label.mine);
+      const last = index >= 0 ? texts.splice(index, 1)[0] : null;
+      if (last) redoStack.push({ kind: "text", item: last });
+      if (last && last.mine && collab && typeof opts.onText === "function") {
+        opts.onText({ id: last.id, x: last.x, y: last.y, text: "" });
+      }
+    }
+    replayCommitted();
+    syncButtons();
+    return true;
+  };
+
+  /**
+   * Put back the item the last undo removed.
+   */
+  const performRedo = () => {
+    if (editingLocked || !redoStack.length) return;
+    const next = redoStack.pop();
+    if (!next || !next.item) return;
+    if (next.kind === "text") {
+      texts = texts.filter((label) => label.id !== next.item.id);
+      texts.push(next.item);
+      dropUndo("text", next.item.id);
+      undoStack.push({ kind: "text", id: next.item.id });
+      if (next.item.mine && collab && typeof opts.onText === "function") opts.onText(next.item);
+    } else {
+      const stroke = next.item;
+      strokes = strokes.filter((row) => row.id !== stroke.id);
+      strokes.push(stroke);
+      dropUndo("stroke", stroke.id);
+      undoStack.push({ kind: "stroke", id: stroke.id });
+      if (stroke.mine && collab && typeof opts.onRedo === "function") opts.onRedo(stroke);
+    }
+    replayCommitted();
+    syncButtons();
+  };
   /** @type {{id: string, x: number, y: number, text: string, color: string, mine: boolean}[]} */
   let texts = [];
   /** @type {Set<string>} */
@@ -988,7 +1157,11 @@ export function bindWhiteboard(canvas, opts = {}) {
 
   const syncButtons = () => {
     const frozen = editingLocked;
-    if (opts.undoBtn instanceof HTMLButtonElement) opts.undoBtn.disabled = frozen || !strokes.length;
+    const canUndo = !frozen && Boolean(undoTarget());
+    if (opts.undoBtn instanceof HTMLButtonElement) {
+      opts.undoBtn.disabled = !canUndo;
+      opts.undoBtn.title = canUndo ? UNDO_TIP : NOTHING_TIP;
+    }
     if (opts.redoBtn instanceof HTMLButtonElement) opts.redoBtn.disabled = frozen || !redoStack.length;
     if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = frozen || !strokes.length;
     if (frozen && opts.penBtn instanceof HTMLButtonElement) opts.penBtn.disabled = true;
@@ -1058,6 +1231,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     hideEditor();
     if (!id) return;
     texts = texts.filter((label) => label.id !== id);
+    dropUndo("text", id);
     if (body) {
       texts.push({
         id,
@@ -1067,6 +1241,8 @@ export function bindWhiteboard(canvas, opts = {}) {
         color: strokeColor(ownerNow()),
         mine: true,
       });
+      ownIds.add(id);
+      rememberUndo("text", id);
     }
     replayCommitted();
     if (typeof opts.onText === "function") {
@@ -1220,9 +1396,14 @@ export function bindWhiteboard(canvas, opts = {}) {
         y: Number(label.y),
         text: String(label.text || ""),
         color: String(label.color || color),
-        mine: Boolean(label.mine),
+        mine:
+          Boolean(label.mine) ||
+          String(label.owner || "") === ownerNow() ||
+          ownIds.has(String(label.id || "")),
       }))
       .filter((label) => label.id && label.text && Number.isFinite(label.x) && Number.isFinite(label.y));
+    const liveTextIds = new Set(next.map((label) => label.id));
+    undoStack = undoStack.filter((row) => row.kind !== "text" || liveTextIds.has(row.id));
     const prevSig = texts.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
     const nextSig = next.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
     if (prevSig === nextSig) return false;
@@ -1261,6 +1442,7 @@ commitEditor();
   });
 
   canvas.addEventListener("pointerdown", (event) => {
+    shortcutApi?.mark();
     if (editingLocked || !enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
     if (tool === "text") {
       event.preventDefault();
@@ -1327,7 +1509,10 @@ commitEditor();
       color: strokeColor(strokeOwner),
       mine: true,
     };
-    if (finished.points.length) strokes.push(finished);
+    if (finished.points.length) {
+      strokes.push(finished);
+      rememberUndo("stroke", finished.id);
+    }
     const id = strokeId;
     drawing = false;
     // Pen-up often repeats the last sample, and pushPoint drops that
@@ -1346,24 +1531,12 @@ commitEditor();
   canvas.addEventListener("pointercancel", endStroke);
 
   opts.undoBtn?.addEventListener("click", () => {
-    if (editingLocked || !strokes.length) return;
-    const last = strokes.pop();
-    if (last) redoStack.push(last);
-    if (last && last.mine && collab && typeof opts.onUndo === "function") {
-      opts.onUndo(last);
-    }
-    replayCommitted();
-    syncButtons();
+    shortcutApi?.mark();
+    performUndo();
   });
   opts.redoBtn?.addEventListener("click", () => {
-    if (editingLocked || !redoStack.length) return;
-    const next = redoStack.pop();
-    if (next) strokes.push(next);
-    if (next && next.mine && collab && typeof opts.onRedo === "function") {
-      opts.onRedo(next);
-    }
-    replayCommitted();
-    syncButtons();
+    shortcutApi?.mark();
+    performRedo();
   });
   opts.penBtn?.addEventListener("click", () => {
     if (editingLocked) return;
@@ -1381,6 +1554,8 @@ commitEditor();
     strokes = isFormative()
       ? strokes.filter((stroke) => !stroke.mine)
       : [];
+    const goneIds = new Set(gone.map((stroke) => stroke.id));
+    undoStack = undoStack.filter((row) => row.kind !== "stroke" || !goneIds.has(row.id));
     redoStack = [];
     current = [];
     pending = [];
@@ -1438,6 +1613,7 @@ commitEditor();
       if (opKey) appliedOpKeys.add(opKey);
       if (op.x != null && op.y != null && op.owner) cursors.push(op);
       if (type === "stroke_remove" && id) {
+        dropUndo("stroke", id);
         const before = strokes.length;
         strokes = strokes.filter((stroke) => stroke.id !== id);
         if (strokes.length !== before) structural = true;
@@ -1546,6 +1722,7 @@ commitEditor();
       if (editingLocked) return;
       strokes = [];
       redoStack = [];
+      undoStack = [];
       texts = [];
       current = [];
       pending = [];
@@ -1586,6 +1763,18 @@ commitEditor();
         });
       }
       applyTexts({ texts: incoming.texts });
+      undoStack = [];
+      redoStack = [];
+      for (const stroke of strokes) {
+        if (!stroke.mine) continue;
+        ownIds.add(stroke.id);
+        undoStack.push({ kind: "stroke", id: stroke.id });
+      }
+      for (const label of texts) {
+        if (!label.mine) continue;
+        ownIds.add(label.id);
+        undoStack.push({ kind: "text", id: label.id });
+      }
       paintCursors(incoming.cursors || []);
       replayCommitted();
       paintLive();
@@ -1675,5 +1864,25 @@ commitEditor();
     boardApi.refreshFormative = () => formativeWire?.refresh();
     if (formativeActive) ensureFormativeWire();
   }
+  shortcutApi = {
+    undo: () => performUndo(),
+    canUndo: () => !editingLocked && Boolean(undoTarget()),
+    isShown: () => elementShown(canvas),
+    contains: (node) => {
+      if (!node) return false;
+      if (node === canvas || node === stage || node === opts.undoBtn || node === editor) return true;
+      let current = /** @type {{parentElement?: Element | null} | null} */ (node);
+      while (current) {
+        if (current === stage || current === canvas) return true;
+        current = current.parentElement || null;
+      }
+      return false;
+    },
+    mark: () => {
+      lastUndoBoard = shortcutApi;
+    },
+  };
+  undoBoards.add(shortcutApi);
+  installUndoShortcut();
   return boardApi;
 }
