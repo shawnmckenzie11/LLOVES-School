@@ -1131,8 +1131,7 @@ def _mck215_reach_live_home(page: object) -> None:
         page.wait_for_url("**/student/character**", timeout=30000)  # type: ignore[attr-defined]
     if "/student/character" in page.url:  # type: ignore[attr-defined]
         page.locator('label:has(input[value="fox"])').click()  # type: ignore[attr-defined]
-        page.locator('button[type="submit"]').click()  # type: ignore[attr-defined]
-    page.wait_for_url("**/student/home**", timeout=30000)  # type: ignore[attr-defined]
+        page.wait_for_url("**/student/home**", timeout=30000)  # type: ignore[attr-defined]
     page.locator(".student-home, .student-portal.student-home").first.wait_for(  # type: ignore[attr-defined]
         state="visible", timeout=30000
     )
@@ -1225,7 +1224,6 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int], *, onl
                 page.wait_for_url("**/student/character**", timeout=30000)
             if "/student/character" in page.url:
                 page.locator('label:has(input[value="fox"])').click()
-                page.locator('button[type="submit"]').click()
                 page.wait_for_url("**/student/home**", timeout=30000)
             page.locator(".student-home, .student-portal.student-home").first.wait_for(
                 state="visible", timeout=30000
@@ -2323,7 +2321,7 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
                 pick = student.locator('label:has(input[type="radio"])').first
                 if pick.count():
                     pick.click()
-                student.locator('button[type="submit"]').click()
+                    student.wait_for_url("**/student/home**", timeout=30000)
             student.wait_for_timeout(1000)
         _mck215_dismiss_catchup_pin(student)
         student.locator("#canvas-pane:not([hidden])").wait_for(state="visible", timeout=90000)
@@ -2359,7 +2357,7 @@ def _mck272_open_student(page: object, origin: str, visit_token: str) -> None:
             pick = page.locator('label:has(input[type="radio"])').first  # type: ignore[attr-defined]
             if pick.count():
                 pick.click()
-            page.locator('button[type="submit"]').click()  # type: ignore[attr-defined]
+                page.wait_for_url("**/student/home**", timeout=30000)  # type: ignore[attr-defined]
         page.wait_for_timeout(1000)  # type: ignore[attr-defined]
     _mck215_dismiss_catchup_pin(page)
     page.locator("#live-response").wait_for(state="visible", timeout=90000)  # type: ignore[attr-defined]
@@ -6143,10 +6141,8 @@ def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
                   document.body.classList.add("class-list-collapsed");
                   const pane = document.getElementById("class-list-pane");
                   const scrim = document.getElementById("class-list-scrim");
-                  const closeBtn = document.getElementById("class-list-close");
                   if (pane) pane.hidden = true;
                   if (scrim) scrim.hidden = true;
-                  if (closeBtn) closeBtn.hidden = true;
                 }"""
             )
             rail = page.evaluate(

@@ -16,13 +16,13 @@ class ClassListDrawerTests(unittest.TestCase):
     """Overlay drawer wiring and accessible labels."""
 
     def test_drawer_controls_and_storage(self) -> None:
-        """Toggle, scrim, close, and Esc share one open flag."""
+        """Toggle, scrim, and Esc share one open flag."""
         html = (LMS / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
         js = (LMS / "static" / "staff_ap.js").read_text(encoding="utf-8")
         css = (LMS / "static" / "staff-shell.css").read_text(encoding="utf-8")
         rail = (LMS / "static" / "class_list_rail.js").read_text(encoding="utf-8")
         self.assertIn('id="class-list-scrim"', html)
-        self.assertIn('id="class-list-close"', html)
+        self.assertNotIn('id="class-list-close"', html)
         self.assertIn('aria-label="Show class list"', html)
         self.assertIn("class-list-drawer", html)
         self.assertIn("classListToggleAriaLabel", js)

@@ -41,10 +41,8 @@
       document.body.classList.toggle("class-list-collapsed", !open);
       var pane = document.getElementById("class-list-pane");
       var scrim = document.getElementById("class-list-scrim");
-      var closeBtn = document.getElementById("class-list-close");
       if (pane) pane.hidden = !open;
       if (scrim) scrim.hidden = !open;
-      if (closeBtn) closeBtn.hidden = !open;
     })();
   </script>
   {% endif %}
@@ -306,6 +304,7 @@
 
       <header class="live-header" id="live-header">
         <div class="live-header-join">
+          <button type="button" id="class-list-toggle" class="class-list-toggle" aria-controls="class-list-body" aria-expanded="false" aria-label="Show class list" title="Show class list">Class (0)</button>
           <div id="ap-join-billboard"
                class="ap-join-billboard"
                {% if not live_session_code %}hidden{% endif %}>
@@ -355,6 +354,57 @@
           <span class="live-header-present" id="live-header-present">Present 0</span>
         </div>
       </header>
+      <div id="class-list-scrim" class="class-list-scrim" hidden aria-hidden="true"></div>
+      <section id="class-list-pane" class="live-pane class-list-drawer" role="dialog" aria-modal="true" aria-labelledby="class-list-title" hidden>
+        <div id="class-list-body">
+        <section id="ap-panel-att" class="ap-panel" data-step="att">
+          <div class="class-list-head">
+            <h2 id="class-list-title" class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
+            {% include "staff/_show_test_students.html" %}
+          </div>
+          <div class="class-list-toggles">
+            <label class="ap-guest-toggle" for="live-hide-absent">
+              <input type="checkbox" id="live-hide-absent">
+              <span>Hide Absent</span>
+            </label>
+            <label class="ap-guest-toggle" id="ap-guest-toggle">
+              <input type="checkbox" id="ap-allow-guests">
+              <span>Guests</span>
+            </label>
+          </div>
+          <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
+          <input type="hidden" id="ap-meeting-date" value="">
+          <div class="ap-att-cols" id="ap-att-cols" hidden data-show-team="0">
+            <span class="ap-att-col-mark"></span>
+            <span class="ap-att-col-name"></span>
+            <span class="ap-att-col-course" title="Prior course points">Course</span>
+            <span class="ap-att-col-game" title="This session">Game</span>
+          </div>
+          <div id="ap-att-list" class="check-list ap-att-readonly"></div>
+          <div class="live-pane-footer live-legacy-control">
+            <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+            <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
+            <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
+          </div>
+        </section>
+        </div>
+      </section>
+      <script>
+        (function () {
+          var open = document.body.classList.contains("class-list-open");
+          var btn = document.getElementById("class-list-toggle");
+          var pane = document.getElementById("class-list-pane");
+          var scrim = document.getElementById("class-list-scrim");
+          if (!btn) return;
+          btn.setAttribute("aria-expanded", open ? "true" : "false");
+          btn.setAttribute("aria-label", open ? "Hide class list" : "Show class list");
+          if (open) {
+            btn.title = "Hide class list";
+          }
+          if (pane) pane.hidden = !open;
+          if (scrim) scrim.hidden = !open;
+        })();
+      </script>
       <dialog id="live-fix-dialog" class="live-fix-dialog" aria-labelledby="live-fix-title">
         <form id="live-fix-form">
           <h2 id="live-fix-title">Flag</h2>
@@ -643,64 +693,8 @@
         </dialog>
       </section>
 
-      <div id="class-list-scrim" class="class-list-scrim" hidden aria-hidden="true"></div>
       <div class="live-shell-body">
-        <aside class="live-shell-left" id="live-shell-left">
-          <button type="button" id="class-list-toggle" class="class-list-toggle" aria-controls="class-list-body" aria-expanded="false" aria-label="Show class list" title="Show class list">Class (0)</button>
-          <section id="class-list-pane" class="live-pane class-list-drawer" role="dialog" aria-modal="true" aria-labelledby="class-list-title" hidden>
-            <div id="class-list-body">
-            <section id="ap-panel-att" class="ap-panel" data-step="att">
-              <div class="class-list-head">
-                <h2 id="class-list-title" class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
-                <button type="button" id="class-list-close" class="class-list-close secondary" aria-label="Hide class list" hidden>×</button>
-                {% include "staff/_show_test_students.html" %}
-              </div>
-              <div class="class-list-toggles">
-                <label class="ap-guest-toggle" for="live-hide-absent">
-                  <input type="checkbox" id="live-hide-absent">
-                  <span>Hide Absent</span>
-                </label>
-                <label class="ap-guest-toggle" id="ap-guest-toggle">
-                  <input type="checkbox" id="ap-allow-guests">
-                  <span>Guests</span>
-                </label>
-              </div>
-              <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
-              <input type="hidden" id="ap-meeting-date" value="">
-              <div class="ap-att-cols" id="ap-att-cols" hidden data-show-team="0">
-                <span class="ap-att-col-mark"></span>
-                <span class="ap-att-col-name"></span>
-                <span class="ap-att-col-course" title="Prior course points">Course</span>
-                <span class="ap-att-col-game" title="This session">Game</span>
-              </div>
-              <div id="ap-att-list" class="check-list ap-att-readonly"></div>
-              <div class="live-pane-footer live-legacy-control">
-                <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-                <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
-              </div>
-            </section>
-            </div>
-          </section>
-            <script>
-              (function () {
-                var open = document.body.classList.contains("class-list-open");
-                var btn = document.getElementById("class-list-toggle");
-                var pane = document.getElementById("class-list-pane");
-                var scrim = document.getElementById("class-list-scrim");
-                var closeBtn = document.getElementById("class-list-close");
-                if (!btn) return;
-                btn.setAttribute("aria-expanded", open ? "true" : "false");
-                btn.setAttribute("aria-label", open ? "Hide class list" : "Show class list");
-                if (open) {
-                  btn.title = "Hide class list";
-                }
-                if (pane) pane.hidden = !open;
-                if (scrim) scrim.hidden = !open;
-                if (closeBtn) closeBtn.hidden = !open;
-              })();
-            </script>
-        </aside>
+        <aside class="live-shell-left" id="live-shell-left"></aside>
 
         <main class="live-shell-right" id="live-shell-right">
           <section class="live-active-content" id="live-active-content">
