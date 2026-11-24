@@ -2,8 +2,9 @@
 """MCK-519: Show All on Board in the teacher whiteboard dashboard.
 
 The header button sits beside Tiles/row. Activating it projects every
-board, with the same image-under-marks rule as Show on Board. Student
-names stay on the projected cards. Ink rows are not rewritten, and the
+board, with the same image-under-marks rule as Show on Board. Names stay
+on the teacher gallery and the projector. Student phones receive the
+grid with those names removed. Ink rows are not rewritten, and the
 wipe path is not entered. One-board Show on Board stays as it was.
 
 Synthetic roster only. Assertions do not print names, emails, or join codes.
@@ -191,7 +192,7 @@ class ShowAllLiveTests(unittest.TestCase):
         return list(self.school.boards.load_keys(run, keys))
 
     def test_show_all_projects_every_board_with_one_image_and_a_name(self) -> None:
-        """The class receives every board, each with one image reference and a name."""
+        """The class receives every board and one image reference. Names stay off the phone."""
         prompt_id, _item_id = self._publish(
             "Show the row", image_url=IMAGE, image_as_board_background=True
         )
@@ -238,8 +239,8 @@ class ShowAllLiveTests(unittest.TestCase):
         boards = payload.get("class_boards") or []
         self.assertEqual(len(boards), len(self.ids))
         for board in boards:
-            key = str(board.get("board_key") or "")
-            self.assertEqual(board.get("name"), names[key])
+            self.assertNotIn("name", board)
+            self.assertNotIn("member_names", board)
             self.assertEqual(board.get("image_url"), IMAGE)
             image_keys = [field for field in board if "image" in str(field).lower()]
             self.assertEqual(image_keys, ["image_url"])
@@ -263,6 +264,147 @@ class ShowAllLiveTests(unittest.TestCase):
         self.assertFalse(
             any(row.get("type") == "state_seq" for row in tape.since(self.session_id, cursor))
         )
+
+    def _nested_keys(self, value: object) -> list[str]:
+        """Every object key in a JSON tree, lowercased.
+
+        Args:
+            value: Decoded JSON object, list, or scalar.
+        """
+        found: list[str] = []
+
+        def walk(node: object) -> None:
+            """Collect keys from one node."""
+            if isinstance(node, dict):
+                for key, item in node.items():
+                    found.append(str(key).lower())
+                    walk(item)
+                return
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(value)
+        return found
+
+    def _nested_strings(self, value: object) -> list[str]:
+        """Every string in a JSON tree, keys and values included.
+
+        Args:
+            value: Decoded JSON object, list, or scalar.
+        """
+        found: list[str] = []
+
+        def walk(node: object) -> None:
+            """Collect strings from one node."""
+            if isinstance(node, str):
+                found.append(node)
+                return
+            if isinstance(node, dict):
+                for key, item in node.items():
+                    walk(str(key))
+                    walk(item)
+                return
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(value)
+        return found
+
+    def test_show_all_strips_names_from_student_phones(self) -> None:
+        """Phones get no name or member_names. The teacher and projector still do."""
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=self.ids,
+            assignments=[
+                {"student_id": self.ids[0], "team_index": 0},
+                {"student_id": self.ids[1], "team_index": 1},
+            ],
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, groups_configured=True, run_as_group=True
+        )
+        body = {
+            "type": "poll",
+            "text": "Team grid",
+            "page_number": 1,
+            "stage": "round",
+            "answer_with": "board",
+            "save_to_bank": False,
+            "live_response_mode": "group",
+        }
+        posted = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C2/add-question",
+            json=body,
+        )
+        self.assertLess(posted.status_code, 400, posted.get_json())
+        self.school.ensure_live_session_items(self.session_id)
+        item = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str((row.get("item") or {}).get("text") or "") == "Team grid"
+        )
+        published = self.school.publish_live_session_item(
+            self.session_id, int(item["id"]), publish_mode="group_shared"
+        )
+        prompt_id = int(published["prompt_id"])
+        shown = self._show_all(prompt_id)
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        self.assertTrue(shown.get_json().get("projected_all"))
+
+        dash = self.school.question_dashboard(self.session_id, prompt_id)
+        tiles = dash.get("tiles") or []
+        self.assertTrue(tiles)
+        labels = [
+            str(tile.get("name") or "").strip()
+            for tile in tiles
+            if str(tile.get("name") or "").strip()
+        ]
+        members = [
+            str(name).strip()
+            for tile in tiles
+            for name in (tile.get("member_names") or [])
+            if str(name).strip()
+        ]
+        self.assertTrue(labels)
+        self.assertTrue(members)
+        panel = self.client.get(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/boards/team:0"
+        )
+        self.assertEqual(panel.status_code, 200, panel.get_json())
+        projector = panel.get_json()
+        self.assertTrue(str(projector.get("name") or "").strip())
+        self.assertTrue(
+            any(str(row.get("name") or "").strip() for row in projector.get("legend") or [])
+        )
+        source = self.school.whiteboard_class_boards(self.session_id) or []
+        self.assertTrue(any(str(card.get("name") or "").strip() for card in source))
+        self.assertTrue(
+            any(card.get("member_names") for card in source)
+        )
+
+        state = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, self.ids[0]
+        )
+        phone = self.school.read_board(
+            self.session_id,
+            "team:0",
+            0,
+            student_id=self.ids[0],
+        )
+        for payload in (state.get("class_boards"), phone.get("class_boards")):
+            self.assertIsInstance(payload, list)
+            self.assertTrue(payload)
+            keys = self._nested_keys(payload)
+            self.assertNotIn("name", keys)
+            self.assertNotIn("codename", keys)
+            self.assertNotIn("member_names", keys)
+            blob = "\n".join(self._nested_strings(payload)).casefold()
+            for label in labels + members:
+                self.assertNotIn(label.casefold(), blob)
 
     def test_unsafe_image_urls_are_left_off_the_grid(self) -> None:
         """javascript, data, http, and protocol-relative URLs are not sent."""

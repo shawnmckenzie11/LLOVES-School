@@ -225,7 +225,7 @@ def public_board_payload(value: Any) -> Any:
     return value
 
 
-_NAME_KEYS = frozenset({"name", "codename"})
+_NAME_KEYS = frozenset({"name", "codename", "member_names"})
 
 
 def projection_canvas(view: Any) -> dict[str, list[dict[str, Any]]]:
@@ -272,6 +272,7 @@ def strip_shown_board_names(value: Any) -> Any:
 
     The teacher gallery and the projector keep names. A student device
     that is being shown a board receives colours and geometry only.
+    ``member_names`` is a name list, so it is removed with ``name``.
 
     Args:
         value: Class-board payload about to be sent to a student.

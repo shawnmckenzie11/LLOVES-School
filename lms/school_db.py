@@ -20,6 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from formative_live_board import strip_shown_board_names
 from name_match import loose_name_key, name_key, same_name  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -39263,9 +39264,13 @@ class SchoolDB(LovesDB):
                     int(session_id),
                     teacher_state=teacher,
                 )
-                payload["class_boards"] = self.whiteboard_class_boards(
-                    int(session_id),
-                    teacher_state=teacher,
+                # MCK-338: phones get the grid without names. The teacher
+                # gallery and the projector still read the named cards.
+                payload["class_boards"] = strip_shown_board_names(
+                    self.whiteboard_class_boards(
+                        int(session_id),
+                        teacher_state=teacher,
+                    )
                 )
                 active_prompt = self._student_board_feedback_prompt(int(session_id))
                 note = self._student_board_feedback_text(
@@ -55639,12 +55644,15 @@ class SchoolDB(LovesDB):
             )
         else:
             payload["class_board"] = None
-        payload["class_boards"] = self.whiteboard_class_boards(
-            int(live_session_id),
-            teacher_state=payload["teacher_state"]
-            if isinstance(payload.get("teacher_state"), dict)
-            else None,
-            session_row=session_row if isinstance(session_row, dict) else None,
+        # MCK-338: the student snapshot carries the grid without names.
+        payload["class_boards"] = strip_shown_board_names(
+            self.whiteboard_class_boards(
+                int(live_session_id),
+                teacher_state=payload["teacher_state"]
+                if isinstance(payload.get("teacher_state"), dict)
+                else None,
+                session_row=session_row if isinstance(session_row, dict) else None,
+            )
         )
         if sid not in (None, "") and not payload.get("board_key"):
             try:
