@@ -5408,29 +5408,57 @@ def _mck499_png(path: Path) -> None:
 def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
     """MCK-504: board feedback strip, overlay toolbar, and MC card at 375px.
 
-    Uses the seeded demo class. Shots mask on-screen names and refuse to
-    save when an email or a demo code is visible.
+    Boots an isolated sqlite and local LMS on loopback port 8798 so the
+    student page matches the scripted board and MC rows. Shots mask roster
+  labels and refuse to save when a visit token or session code shows.
 
     Args:
-        base: Loopback origin.
+        base: Loopback base URL (host check only).
         out_dir: Directory for PNG files.
-        path: LMS sqlite path.
+        path: Unused (keeps ``--scenario`` signature stable).
 
     Returns:
         PNG paths written.
     """
+    del path  # isolated sqlite; do not write the shared dev file.
 
+    sys.path.insert(0, str(LMS_DIR))
+    sys.path.insert(0, str(ROOT))
+    os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
+    os.environ.pop("GOOGLE_CLIENT_ID", None)
+    import logging
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    logging.getLogger("auth").setLevel(logging.ERROR)
+    logging.getLogger("email_service").setLevel(logging.ERROR)
+    from app import create_app  # noqa: E402
     from playwright.sync_api import sync_playwright
 
-    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
-    school = _mck208_school(path)
-    class_id = shawn_class_id(path)
-    teacher = school.get_user_by_email(SHAWN_EMAIL)
-    if teacher is None:
-        raise SystemExit("Staff user missing. Run with --seed first.")
-    _mck208_end_active_live(school, class_id)
-    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    tmp = tempfile.TemporaryDirectory()
+    root = Path(tmp.name)
+    app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+    school = app.config["SCHOOL_DB"]
+    staff = app.test_client()
+    school.activate_from_semester_json()
+    teacher = school.register_staff("fixture-staff@example.com")
+    offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCR3U")
+    staff.get("/auth/google?portal=staff")
+    staff.get("/auth/google/callback?email=fixture-staff@example.com&name=T")
+    code = school.get_user_by_email("fixture-staff@example.com")["verification_code"]
+    staff.post("/verify-email", data={"code": code})
+    created = staff.post(
+        "/api/staff/classes",
+        json={
+            "offering_id": int(offering["id"]),
+            "days": "M/W/F",
+            "time": "2:00pm",
+            "codenames": ["P1"],
+        },
+    )
+    class_id = int(created.get_json()["class"]["id"])
+    live = school.start_live_class_session(class_id, int(teacher["id"]), is_test=True)
     session_id = int(live["id"])
+    school.game.begin_game(class_id)
     school.set_live_session_teacher_state(
         session_id,
         live_module="M1",
@@ -5440,21 +5468,28 @@ def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
         page_id="round_1",
         student_view={"questions": "student"},
     )
-    board = school.add_staff_question_to_class_playlist(
-        class_id,
-        "M1",
-        "C2",
-        page_number=4,
-        stage="round",
-        question_type="poll",
-        text="Sketch your answer on the board.",
-        extra_item={"answer_with": "board"},
+    staff.post(
+        f"/api/live-sessions/{session_id}/teacher-state",
+        json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_number": 1},
     )
+    posted = staff.post(
+        f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+        json={
+            "type": "poll",
+            "text": "Sketch your answer on the board.",
+            "page_number": 1,
+            "stage": "round",
+            "answer_with": "board",
+            "save_to_bank": False,
+        },
+    )
+    if posted.status_code >= 400:
+        raise SystemExit("could not add the board question")
     school.ensure_live_session_items(session_id)
     board_row = next(
         item
         for item in school.list_live_session_items(session_id)
-        if str(item.get("item_id") or "") == str(board.get("item_id") or "")
+        if str((item.get("item") or {}).get("text") or "") == "Sketch your answer on the board."
     )
     published_board = school.publish_live_session_item(
         session_id, int(board_row["id"]), publish_mode="individual"
@@ -5463,28 +5498,46 @@ def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
     if board_prompt is None:
         raise SystemExit("Board prompt missing")
     board_prompt_id = int(board_prompt["id"])
-    student = school.game.find_student_by_codename(class_id, "Maple")
+    student = school.game.find_student_by_codename(class_id, "P1")
     if student is None:
-        raise SystemExit("Demo student missing. Run with --seed first.")
+        raise SystemExit("Synthetic roster missing")
     student_id = int(student["id"])
-    school.join_live_class_session(session_id, student_id, codename="Maple")
-    school.append_question_board_ops(
-        session_id,
-        board_prompt_id,
-        student_id,
-        [
-            {"type": "stroke_add", "id": "s1", "points": [[0.2, 0.2], [0.6, 0.6]]},
-            {"type": "stroke_end", "id": "s1"},
-        ],
-    )
+    school.join_live_class_session(session_id, student_id, codename="P1")
     board_key = f"solo:{student_id}"
     school.save_question_board_feedback(
         session_id, board_prompt_id, board_key, "Strong triangle sketch."
     )
-    attendees = school.list_live_session_attendees(session_id)
-    visit = str(
-        next(item["visit_token"] for item in attendees if item.get("codename") == "Maple")
-    )
+    token_row = school.conn.execute(
+        """
+        SELECT visit_token FROM live_session_attendees
+        WHERE live_session_id = ? AND student_id = ?
+        """,
+        (session_id, student_id),
+    ).fetchone()
+    visit = str(token_row["visit_token"] if token_row else "")
+    if not visit:
+        raise SystemExit("student seat missing")
+    port = 8798
+    origin = f"http://127.0.0.1:{port}"
+    assert_loopback(origin)
+
+    def run_server() -> None:
+        app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+    threading.Thread(target=run_server, daemon=True).start()
+    deadline = time.time() + 25
+    up = False
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(origin + "/health", timeout=0.4) as response:
+                up = response.status == 200
+                if up:
+                    break
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.15)
+    if not up:
+        raise SystemExit("local LMS for mck504 did not start")
+
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     url = f"{origin}/student/s/{visit}"
@@ -5492,11 +5545,12 @@ def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
 
     def shot_card(page: object, wait: str, name: str) -> None:
         """Mask the demo name, then crop one live question card."""
-        page.locator(wait).first.wait_for(state="visible", timeout=60000)  # type: ignore[attr-defined]
+        card = page.locator(".student-live-card.is-open-focus").first  # type: ignore[attr-defined]
+        card.wait_for(state="visible", timeout=60000)  # type: ignore[attr-defined]
+        card.locator(wait).first.wait_for(state="visible", timeout=90000)  # type: ignore[attr-defined]
         _mask_demo_identity(page)
         _refuse_private_text(page, [visit, str(live.get("session_code") or "")])
         dest = out_dir / name
-        card = page.locator(".student-live-card").first  # type: ignore[attr-defined]
         box = card.bounding_box()
         if not box:
             raise SystemExit("student question card has no box")
@@ -5518,23 +5572,33 @@ def shoot_mck504(base: str, out_dir: Path, path: Path) -> list[Path]:
         page.goto(url, wait_until="domcontentloaded")
         _mck215_reach_live_home(page)
         _mck215_dismiss_catchup_pin(page)
-        shot_card(page, ".qboard-phone .student-board-feedback-strip", "mck504-phone-board-feedback-375.png")
-        mc = school.add_staff_question_to_class_playlist(
-            class_id,
-            "M1",
-            "C2",
-            page_number=4,
-            stage="round",
-            question_type="mc",
-            text="Which sum is 2 + 2?",
-            options=["3", "4", "5", "6"],
-            correct_index=1,
+        page.locator(".student-live-card.is-open-focus .qboard-phone").wait_for(  # type: ignore[attr-defined]
+            state="visible", timeout=90000
         )
+        page.get_by_text("Teacher feedback:", exact=False).first.wait_for(  # type: ignore[attr-defined]
+            state="visible", timeout=90000
+        )
+        shot_card(page, ".qboard-phone", "mck504-phone-board-feedback-375.png")
+        school.close_live_session_item(session_id, int(board_row["id"]))
+        mc_post = staff.post(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+            json={
+                "type": "mc",
+                "text": "Which sum is 2 + 2?",
+                "page_number": 1,
+                "stage": "round",
+                "options": ["3", "4", "5", "6"],
+                "correct_index": 1,
+                "save_to_bank": False,
+            },
+        )
+        if mc_post.status_code >= 400:
+            raise SystemExit("could not add the MC question")
         school.ensure_live_session_items(session_id)
         mc_row = next(
             item
             for item in school.list_live_session_items(session_id)
-            if str(item.get("item_id") or "") == str(mc.get("item_id") or "")
+            if str((item.get("item") or {}).get("text") or "") == "Which sum is 2 + 2?"
         )
         school.publish_live_session_item(session_id, int(mc_row["id"]), publish_mode="individual")
         page.reload(wait_until="domcontentloaded")

@@ -110,7 +110,7 @@ function boardUrls(kind, id, token) {
 }
 
 /**
- * Toolbar the live student board uses, plus Redo and Clear.
+ * Student phone toolbar: Pen, Line, Text, and Undo only (MCK-504).
  * @returns {HTMLElement}
  */
 function toolBar() {
@@ -123,8 +123,6 @@ function toolBar() {
     '<button type="button" data-tool="line" aria-pressed="false" title="Line">Line</button>',
     '<button type="button" data-tool="text" aria-pressed="false">Text</button>',
     '<button type="button" data-tool="undo" title="Nothing to undo" disabled>Undo</button>',
-    '<button type="button" data-tool="redo" hidden>Redo</button>',
-    '<button type="button" data-tool="clear" hidden>Clear</button>',
   ].join("");
   return tools;
 }
@@ -431,7 +429,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     color: "#12202e",
     fixedInkColor: true,
     formative: {
-      enabled: true,
+      enabled: false,
       members: [],
       isTeacher: false,
       isPhone: true,

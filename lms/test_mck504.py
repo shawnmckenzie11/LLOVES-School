@@ -59,6 +59,8 @@ class StudentWhiteboardToolbarTests(unittest.TestCase):
         self.assertIn("qboard-phone-feedback", js)
         self.assertIn("live-canvas-toolbar-vertical", js)
         self.assertNotIn('data-tool="erase"', js)
+        self.assertNotIn('data-tool="redo"', js)
+        self.assertNotIn('data-tool="clear"', js)
 
 
 class LineStrokeAndUndoTests(unittest.TestCase):
