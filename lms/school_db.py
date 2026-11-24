@@ -25367,17 +25367,14 @@ class SchoolDB(LovesDB):
         if proposed.get("kind") == "rank" or final.get("kind") == "rank":
             return self._group_rank_phase(row)
         choice = self._group_draft_choice(row)
-        why = str(row.get("why_text") or "").strip()
         matches = (
             int(row.get("submit_count") or 0) > 0
             and str(final.get("value") or "").strip() == choice
-            and str(final.get("why") or "").strip() == why
             and bool(choice)
-            and bool(why)
         )
         if matches:
             return "submitted"
-        if choice and why:
+        if choice:
             return "ready"
         return "drafting"
 
@@ -28210,18 +28207,18 @@ class SchoolDB(LovesDB):
         clear: bool = False,
         undo_last: bool = False,
     ) -> dict[str, Any]:
-        """Store the team's shared choice and why, or a shared rank order.
+        """Store the team's shared MC choice or shared rank order.
 
-        Ready for multiple choice is choice plus a non-empty why. Ready for
-        rank is a complete option order; why stays optional. A previous
-        submit stays submitted until the next explicit submit.
+        Ready for multiple choice is a non-empty choice. Ready for rank is a
+        complete option order. A previous submit stays submitted until the next
+        explicit submit. Client ``why`` is ignored (MCK-505).
 
         Args:
             session_id: ``live_class_sessions.id``.
             live_item_id: ``live_session_items.id``.
             student_id: Roster id of the editor.
             choice: Shared multiple-choice label.
-            why: Shared why line.
+            why: Ignored (MCK-505).
             order: Full rank order of option ids. Replaces the shared draft.
             tap: One option id to number or undo on the shared rank order.
             clear: When True, wipe the shared rank draft.
@@ -28243,8 +28240,9 @@ class SchoolDB(LovesDB):
                 undo_last=undo_last,
             )
         team_id = self._require_group_submit_member(item, student_id)
+        del why
         choice_text = str(choice or "").strip()[:500]
-        why_text = str(why or "").strip()[:500]
+        why_text = ""
         labels = self._mc_option_labels(item)
         if choice_text and labels and choice_text not in labels:
             raise ValueError("Choose one of the options.")
@@ -28404,7 +28402,6 @@ class SchoolDB(LovesDB):
         card = self.student_group_submit_state(item, student_id) or {}
         same = (
             str(final.get("value") or "").strip() == choice_text
-            and str(final.get("why") or "").strip() == why_text
             and row.get("last_submitter_student_id") not in (None, "")
             and int(row["last_submitter_student_id"]) == int(student_id)
         )
@@ -28549,19 +28546,17 @@ class SchoolDB(LovesDB):
         team_id = self._require_group_submit_member(item, student_id)
         row = self._group_response_row(int(item["id"]), team_id) or {}
         choice_text = self._group_draft_choice(row)
-        why_text = str(row.get("why_text") or "").strip()
-        if not choice_text or not why_text:
-            raise ValueError("Add a shared answer and a why before submitting.")
+        if not choice_text:
+            raise ValueError("Add a shared answer before submitting.")
         final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
         if (
             int(row.get("submit_count") or 0) > 0
             and str(final.get("value") or "").strip() == choice_text
-            and str(final.get("why") or "").strip() == why_text
         ):
             return self.student_group_submit_state(item, student_id) or {}
         ids = self._group_submitter_ids(row)
         ids.append(int(student_id))
-        final = {"kind": "choice", "value": choice_text, "why": why_text}
+        final = {"kind": "choice", "value": choice_text, "why": ""}
         now = _now()
         with self._lock:
             self.conn.execute(

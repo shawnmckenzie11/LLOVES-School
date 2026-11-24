@@ -2856,7 +2856,7 @@ def register_live(app, school, shared):
     )
     @student_required
     def api_student_group_submit(live_item_id: int):
-        """Submit the shared MC answer once choice and why are both present."""
+        """Submit the shared MC answer once the team's choice is ready."""
 
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:

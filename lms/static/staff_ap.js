@@ -6228,14 +6228,13 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
     !mask && reveal.length
       ? `<table class="group-reveal-board">
         <caption>Group answers</caption>
-        <thead><tr><th>Group</th><th>Answer</th><th>Why</th></tr></thead>
+        <thead><tr><th>Group</th><th>Answer</th></tr></thead>
         <tbody>${reveal
           .map((row, index) => {
             const missed = Boolean(row.missed);
             return `<tr class="${missed ? "is-missed" : ""}">
               <th>${escapeHtml(maskedGroupLabel(index, row.team_name))}</th>
               <td>${missed ? "" : `${escapeHtml(row.answer || "")} ${answerMarkHtml(row.correct)}`}</td>
-              <td>${missed ? "" : escapeHtml(row.why || "")}</td>
             </tr>`;
           })
           .join("")}</tbody>

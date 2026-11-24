@@ -34,8 +34,6 @@ function check(cond, msg) {
 // Wonder v2 copy, exact.
 check(GROUP_FLOW_COPY.pickButton === "Send my pick", "pick button");
 check(GROUP_FLOW_COPY.stillChoosing === "Still choosing: {names}", "still choosing");
-check(GROUP_FLOW_COPY.whyPlaceholder === "Why this answer?", "why placeholder");
-check(GROUP_FLOW_COPY.sendReason === "Add your why to send.", "send reason");
 check(GROUP_FLOW_COPY.locked === "Your group's answer is locked.", "locked");
 check(GROUP_FLOW_COPY.blocked === "You've placed one. Waiting for {names}.", "blocked");
 check(GROUP_FLOW_COPY.done === "Your group's order is in.", "done");
@@ -70,14 +68,14 @@ check(picks.includes("Ava") && picks.includes("You") && !picks.includes(">Cy<"),
 check(!picks.includes("✓") && !picks.includes("Correct"), "no marks for students");
 const agree = mcAgreeStepHtml(
   { ...flow, pick_step: false, member_picks: [{ name: "Ava", value: "2" }] },
-  { choices: ["2", "1"], choice: "2", why: "", itemId: 4 }
+  { choices: ["2", "1"], choice: "", itemId: 4 }
 );
-check(agree.includes('placeholder="Why this answer?"'), "why placeholder");
-check(agree.includes("Send group answer") && agree.includes('data-live-submit="group" aria-describedby="group-send-reason-4" disabled'), "send disabled");
-check(agree.includes("Add your why to send.") && !agree.includes("data-group-send-reason hidden"), "reason shown");
-const ready = mcAgreeStepHtml({ ...flow }, { choices: ["2"], choice: "2", why: "because", itemId: 4 });
-check(ready.includes("data-group-send-reason hidden"), "reason hidden when ready");
+check(!agree.includes("data-group-why"), "no why in agree step");
+check(agree.includes("Send group answer") && agree.includes("data-live-submit=\"group\" disabled"), "send disabled without choice");
+const ready = mcAgreeStepHtml({ ...flow }, { choices: ["2"], choice: "2", itemId: 4 });
+check(ready.includes("data-live-submit=\"group\"") && !ready.includes("disabled"), "send enabled with choice");
 const locked = mcLockedHtml({ last_submitter: "Cy", submitted_choice: "2", submitted_why: "Ava's idea" });
+check(!locked.includes("Ava&#39;s idea"), "locked omits stored why");
 check(locked.includes("Cy sent your group&#39;s answer.") && locked.includes("Your group&#39;s answer is locked."), "locked lines");
 check(!locked.includes("<button"), "no change button");
 const lockedSam2 = mcLockedHtml({ last_submitter: "Sam 2", submitted_choice: "2" });

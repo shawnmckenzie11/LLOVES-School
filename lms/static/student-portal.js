@@ -402,7 +402,6 @@ function hydrateServerSavedAnswers(payload) {
       if (!liveCardDrafts.has(groupKey)) {
         liveCardDrafts.set(groupKey, {
           choice: String(group.choice || group.submitted_choice || ""),
-          why: String(group.why || group.submitted_why || ""),
         });
       }
     }
@@ -4092,22 +4091,17 @@ function studentLiveCardBadge(item) {
  * Card beat inside Open: idle, drafting, ready, or submitted.
  * Submitted holds only while the draft still matches the last submit.
  * @param {string} choice
- * @param {string} why
- * @param {{submitted?: boolean, submittedChoice?: string, submittedWhy?: string}} snapshot
+ * @param {{submitted?: boolean, submittedChoice?: string}} snapshot
  * @returns {"idle"|"drafting"|"ready"|"submitted"}
  */
-function groupSubmitPhase(choice, why, snapshot) {
+function groupSubmitPhase(choice, snapshot) {
   const picked = String(choice || "").trim();
-  const reason = String(why || "").trim();
   const matches =
     Boolean(snapshot?.submitted) &&
     Boolean(picked) &&
-    Boolean(reason) &&
-    picked === String(snapshot.submittedChoice || "") &&
-    reason === String(snapshot.submittedWhy || "");
+    picked === String(snapshot.submittedChoice || "");
   if (matches) return "submitted";
-  if (picked && reason) return "ready";
-  if (picked || reason) return "drafting";
+  if (picked) return "ready";
   return "idle";
 }
 
@@ -4199,7 +4193,7 @@ function studentGroupCardBodyHtml(item) {
     if (!rows.length) return "";
     return `<table class="group-reveal-board">
       <caption>Group answers</caption>
-      <thead><tr><th>Group</th><th>Answer</th><th>Why</th></tr></thead>
+      <thead><tr><th>Group</th><th>Answer</th></tr></thead>
       <tbody>${rows
         .map((row) => {
           const missed = Boolean(row.missed);
@@ -4214,7 +4208,6 @@ function studentGroupCardBodyHtml(item) {
           return `<tr class="${missed ? "is-missed" : ""}">
             <th>${escapeText(row.team_name || "Group")}</th>
             <td>${missed ? "" : `${escapeText(row.answer || "")}${mark}`}</td>
-            <td>${missed ? "" : escapeText(row.why || "")}</td>
           </tr>`;
         })
         .join("")}</tbody>
@@ -4268,7 +4261,6 @@ function studentGroupCardBodyHtml(item) {
   const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
   const draft = liveCardDrafts.get(`${Number(item.id)}:group`) || {};
   const choice = draft.choice != null ? String(draft.choice) : String(group.choice || "");
-  const why = draft.why != null ? String(draft.why) : String(group.why || "");
   const flowStep = mcFlowStep(group);
   if (flowStep) {
     // MCK-155 PR C option B: pick alone, then agree; sending locks it.
@@ -4288,22 +4280,19 @@ function studentGroupCardBodyHtml(item) {
     const note = rankFlowNote(itemId, group);
     return `<div class="student-group-card" data-live-action="group" data-mc-flow="${escapeText(flowStep)}"
         data-group-submitted="${group.submitted ? "1" : "0"}"
-        data-submitted-choice="${escapeText(group.submitted_choice || "")}"
-        data-submitted-why="${escapeText(group.submitted_why || "")}">
+        data-submitted-choice="${escapeText(group.submitted_choice || "")}">
       ${body}
       ${note ? `<p class="rank-turn-note" role="status">${escapeText(note)}</p>` : ""}
     </div>`;
   }
-  const phase = groupSubmitPhase(choice, why, {
+  const phase = groupSubmitPhase(choice, {
     submitted: Boolean(group.submitted),
     submittedChoice: String(group.submitted_choice || ""),
-    submittedWhy: String(group.submitted_why || ""),
   });
   const last = String(group.last_submitter || "").trim();
   return `<div class="student-group-card" data-live-action="group"
       data-group-submitted="${group.submitted ? "1" : "0"}"
-      data-submitted-choice="${escapeText(group.submitted_choice || "")}"
-      data-submitted-why="${escapeText(group.submitted_why || "")}">
+      data-submitted-choice="${escapeText(group.submitted_choice || "")}">
     <p class="student-group-phase" data-group-phase>${groupSubmitPhaseLabel(phase)}</p>
     <div class="student-live-answer-controls" data-live-action="group">
       ${choices
@@ -4316,9 +4305,6 @@ function studentGroupCardBodyHtml(item) {
           }" data-live-choice="${escapeText(label)}">${optionBody}</button>`;
         })
         .join("")}
-      <label class="group-submit-why">Why
-        <textarea data-group-why rows="2" maxlength="500">${escapeText(why)}</textarea>
-      </label>
       <button type="button" class="prompt-submit" data-live-submit="group"${
         phase === "ready" ? "" : " disabled"
       }>Submit for team</button>
@@ -4335,24 +4321,18 @@ function studentGroupCardBodyHtml(item) {
 function syncGroupSubmitGate(card) {
   const shell = card.querySelector(".student-group-card") || card;
   const choice = card.querySelector("[data-live-choice].is-selected");
-  const why = card.querySelector("[data-group-why]");
   const choiceText =
     choice instanceof HTMLButtonElement
       ? choice.getAttribute("data-live-choice") || ""
       : "";
-  const whyText = why instanceof HTMLTextAreaElement ? why.value : "";
-  const phase = groupSubmitPhase(choiceText, whyText, {
+  const phase = groupSubmitPhase(choiceText, {
     submitted: shell.dataset.groupSubmitted === "1",
     submittedChoice: shell.dataset.submittedChoice || "",
-    submittedWhy: shell.dataset.submittedWhy || "",
   });
   const phaseEl = card.querySelector("[data-group-phase]");
   if (phaseEl) phaseEl.textContent = groupSubmitPhaseLabel(phase);
   const submit = card.querySelector('[data-live-submit="group"]');
   if (submit instanceof HTMLButtonElement) submit.disabled = phase !== "ready";
-  // MCK-155 option B: "Add your why to send." while Send is disabled.
-  const reason = card.querySelector("[data-group-send-reason]");
-  if (reason instanceof HTMLElement) reason.hidden = phase === "ready" || phase === "submitted";
 }
 
 /**
@@ -4477,7 +4457,6 @@ async function postGroupDraft(card) {
   const itemId = Number(card.dataset.liveCardId) || 0;
   if (!itemId) return;
   const selected = card.querySelector("[data-live-choice].is-selected");
-  const why = card.querySelector("[data-group-why]");
   let res = null;
   let data = {};
   try {
@@ -4489,7 +4468,6 @@ async function postGroupDraft(card) {
         credentials: "same-origin",
         body: JSON.stringify({
           choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
-          why: why instanceof HTMLTextAreaElement ? why.value : "",
         }),
       })
     );
@@ -5033,19 +5011,15 @@ async function submitLifecycleAnswer(card, action) {
       url = `/api/student/live-items/${itemId}/team-answer`;
       body = { response };
     } else if (action === "group") {
-      const whyEl = card.querySelector("[data-group-why]");
       url = `/api/student/live-items/${itemId}/group-submit`;
       if (turnsSend) {
         body = {};
       } else if (card.querySelector("[data-rank-input]")) {
         body = { order: response.order };
       } else if (matchSend) {
-        body = { choice: response?.choice || "", why: "" };
+        body = { choice: response?.choice || "" };
       } else {
-        body = {
-          choice: response.choice,
-          why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
-        };
+        body = { choice: response.choice };
       }
     }
     const promptId = Number(item.prompt?.id) || promptIdFromCard || 0;
@@ -7317,12 +7291,10 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     const card = choice.closest("[data-live-card-id]");
     const action = controls?.getAttribute("data-live-action") || "individual";
     if (card instanceof HTMLElement) {
-      const whyEl = card.querySelector("[data-group-why]");
       const next = {
         choice: choice.getAttribute("data-live-choice") || "",
       };
-      if (action === "group" && whyEl instanceof HTMLTextAreaElement) {
-        next.why = whyEl.value;
+      if (action === "group") {
         liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:group`, next);
         syncGroupSubmitGate(card);
         queueGroupDraft(card);
@@ -7422,16 +7394,6 @@ document.getElementById("live-response")?.addEventListener("input", (event) => {
   const key = `${Number(card.dataset.liveCardId)}:${
     controls.dataset.liveAction || "individual"
   }`;
-  if (field instanceof HTMLTextAreaElement && field.hasAttribute("data-group-why")) {
-    const selected = card.querySelector("[data-live-choice].is-selected");
-    liveCardDrafts.set(key, {
-      choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
-      why: field.value,
-    });
-    syncGroupSubmitGate(card);
-    queueGroupDraft(card);
-    return;
-  }
   if (field instanceof HTMLInputElement) {
     liveCardDrafts.set(key, { value: field.value });
   } else if (field instanceof HTMLTextAreaElement) {

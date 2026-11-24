@@ -50,7 +50,7 @@ check(
 check(GROUP_INSTRUCTION_COPY.rank_turns === undefined, "rank copy lives on the card");
 check(GROUP_INSTRUCTION_COPY.mc_pick === "Pick your own answer first.", "mc step 1 copy (Wonder v2)");
 check(
-  GROUP_INSTRUCTION_COPY.mc_agree === "Now agree on one answer. Whoever sends it writes why.",
+  GROUP_INSTRUCTION_COPY.mc_agree === "Now agree on one answer. One person sends it.",
   "mc step 2 copy (Wonder v2)"
 );
 
