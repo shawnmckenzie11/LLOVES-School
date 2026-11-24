@@ -284,14 +284,6 @@ def credit_live_participation_on_submit(
     pid = int(prompt_id) if prompt_id not in (None, "") else 0
     item_id = int(live_item_id) if live_item_id not in (None, "") else 0
     if sid and pid:
-        with school._lock:
-            test_row = school.conn.execute(
-                "SELECT is_test FROM live_class_sessions WHERE id = ?",
-                (int(session_id),),
-            ).fetchone()
-        if test_row is not None and bool(int(test_row["is_test"] or 0)):
-            _emit_engagement_self(school, int(session_id), sid)
-            return
         note_contribution(school, int(session_id), pid, sid, emit=False)
         _emit_engagement_self(school, int(session_id), sid)
         return
