@@ -2,7 +2,7 @@
  * MCK-516: MC bars ease from the width already painted, and an unchanged
  * whiteboard thumbnail is not redrawn or replaced.
  */
-import { inkContentStamp, syncWhiteboardGrid } from "./formative_live_board.js";
+import { foldGalleryInk, inkContentStamp, syncWhiteboardGrid } from "./formative_live_board.js";
 import { mcResultsGraphHtml, syncMcResultsBars } from "./mc_results_graph.js";
 
 const result = {};
@@ -506,6 +506,110 @@ syncWhiteboardGrid(grid, [tile(strokesA, "solo:1", "One"), tile(strokesBNext, "s
 check("onlyChangedBoardRepainted", painted.length === 1 && painted[0] === firstB);
 check("unchangedBoardNotRepainted", !painted.includes(firstA));
 check("changedCanvasNotReplaced", canvasFor("solo:2") === firstB && canvasFor("solo:1") === firstA);
+
+const plain = { id: "t", owner: "s1", text: "hi", x: 0.1, y: 0.2, color: "#111", size: 2, bold: false, underline: false, script: "" };
+const bold = { ...plain, bold: true };
+check(
+  "textStyleChangesStamp",
+  inkContentStamp({}, { t: plain }, {}) !== inkContentStamp({}, { t: bold }, {})
+);
+
+/**
+ * Paint one board and return how many times that canvas was drawn.
+ * @param {HTMLElement} host
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>}} bag
+ * @param {HTMLCanvasElement[]} draws
+ * @returns {number}
+ */
+function paintBag(host, bag, draws) {
+  const before = draws.length;
+  syncWhiteboardGrid(
+    host,
+    [
+      {
+        key: "solo:9",
+        name: "Nine",
+        away: false,
+        status: "Drawing",
+        text: "",
+        open: false,
+        stamp: inkContentStamp(bag.strokes, bag.texts, bag.equations),
+        strokes: bag.strokes,
+        texts: bag.texts,
+        equations: bag.equations,
+      },
+    ],
+    {
+      /**
+       * @param {HTMLCanvasElement} canvas
+       */
+      paint(canvas) {
+        draws.push(canvas);
+      },
+    }
+  );
+  return draws.length - before;
+}
+
+const ownerStroke = {
+  id: "ink",
+  owner: "s1",
+  color: "#2563eb",
+  points: [[0.2, 0.3], [0.4, 0.5]],
+};
+let bag = foldGalleryInk(null, {
+  snapshot: true,
+  canvas_view: { strokes: [ownerStroke], texts: [plain], equations: [] },
+});
+const tileDraws = [];
+const tileHost = createNode("div");
+const firstDraws = paintBag(tileHost, bag, tileDraws);
+const tileCanvas = tileHost.querySelector("canvas");
+bag = foldGalleryInk(bag, {
+  snapshot: false,
+  ops: [{ type: "board_wipe", id: "w1", owner: "s1" }],
+});
+const wipeDraws = paintBag(tileHost, bag, tileDraws);
+check("wipeChangesTile", wipeDraws === 1 && tileDraws[tileDraws.length - 1] === tileCanvas);
+check("wipeDropsOwnerInk", !bag.strokes.ink && !bag.texts.t && !bag.equations.e1);
+
+const bareUnwipe = foldGalleryInk(bag, {
+  snapshot: false,
+  ops: [{ type: "board_unwipe", id: "u1", owner: "s1", wipe_id: "w1" }],
+});
+check("unwipeWithoutArchiveAsksForSnapshot", bareUnwipe.pendingSnapshot === true);
+bag = foldGalleryInk(bareUnwipe, {
+  snapshot: false,
+  ops: [{ type: "board_unwipe", id: "u1", owner: "s1", wipe_id: "w1" }],
+  canvas_view: { strokes: [ownerStroke], texts: [plain], equations: [] },
+});
+const unwipeDraws = paintBag(tileHost, bag, tileDraws);
+check("unwipeChangesTile", unwipeDraws === 1 && tileDraws[tileDraws.length - 1] === tileCanvas);
+check("unwipeRestoresInk", Boolean(bag.strokes.ink) && bag.pendingSnapshot === false);
+
+bag = foldGalleryInk(bag, {
+  snapshot: false,
+  ops: [
+    {
+      type: "equation_upsert",
+      id: "e1",
+      owner: "s1",
+      latex: "y=x^2",
+      x: 0.4,
+      y: 0.4,
+      color: "#14532d",
+    },
+  ],
+});
+const equationDraws = paintBag(tileHost, bag, tileDraws);
+check("equationChangesTile", equationDraws === 1 && tileDraws[tileDraws.length - 1] === tileCanvas);
+check("equationIsStored", bag.equations.e1 && bag.equations.e1.latex === "y=x^2");
+bag = foldGalleryInk(bag, {
+  snapshot: false,
+  ops: [{ type: "equation_upsert", id: "e1", owner: "s1", latex: "" }],
+});
+check("emptyLatexDeletesEquation", !bag.equations.e1);
+check("firstTilePainted", firstDraws === 1);
 
 const failed = Object.entries(result).filter(([, ok]) => !ok).map(([name]) => name);
 console.log(JSON.stringify({ ok: failed.length === 0, failed, result }));

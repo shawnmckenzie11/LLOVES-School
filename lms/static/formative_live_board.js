@@ -110,10 +110,10 @@ function tileName(tile) {
 /**
  * Empty ink bag for one board key.
  *
- * @returns {{strokes: Record<string, any>, texts: Record<string, any>}}
+ * @returns {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>, pendingSnapshot: boolean}}
  */
 function emptyInk() {
-  return { strokes: {}, texts: {} };
+  return { strokes: {}, texts: {}, equations: {}, pendingSnapshot: false };
 }
 
 /**
@@ -357,31 +357,124 @@ export function foldGalleryInk(state, delta, fallbackColor) {
   const bag = state && typeof state === "object" ? state : emptyInk();
   if (!bag.strokes || typeof bag.strokes !== "object") bag.strokes = {};
   if (!bag.texts || typeof bag.texts !== "object") bag.texts = {};
+  if (!bag.equations || typeof bag.equations !== "object") bag.equations = {};
   foldDelta(bag, delta, fallbackColor || STUDENT_INK);
   return bag;
 }
 
-function foldDelta(state, delta, fallbackColor) {
-  if (!delta || typeof delta !== "object") return;
-  if (delta.snapshot) {
-    state.strokes = {};
-    state.texts = {};
-    const view = delta.canvas_view || {};
-    for (const stroke of view.strokes || []) {
-      if (!stroke?.id) continue;
-      state.strokes[String(stroke.id)] = stroke;
-    }
-    for (const label of view.texts || []) {
-      if (!label?.id) continue;
-      state.texts[String(label.id)] = label;
-    }
+/**
+ * Replace one bag with a folded canvas view.
+ *
+ * A missing equations list clears equations, the same way an empty
+ * stroke list clears ink.
+ *
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>, pendingSnapshot?: boolean}} state
+ * @param {any} view
+ */
+function loadCanvasView(state, view) {
+  const picture = view && typeof view === "object" ? view : {};
+  state.strokes = {};
+  state.texts = {};
+  state.equations = {};
+  state.pendingSnapshot = false;
+  for (const stroke of picture.strokes || []) {
+    if (!stroke?.id) continue;
+    state.strokes[String(stroke.id)] = stroke;
+  }
+  for (const label of picture.texts || []) {
+    if (!label?.id) continue;
+    state.texts[String(label.id)] = label;
+  }
+  for (const eq of picture.equations || []) {
+    if (!eq?.id || !String(eq.latex || "").trim()) continue;
+    state.equations[String(eq.id)] = eq;
+  }
+}
+
+/**
+ * Drop one writer's strokes, labels, and equations.
+ *
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>}} state
+ * @param {unknown} owner
+ */
+function dropOwnerInk(state, owner) {
+  const who = String(owner || "").trim();
+  if (!who) return;
+  for (const [id, stroke] of Object.entries(state.strokes || {})) {
+    if (String(stroke?.owner || "") === who) delete state.strokes[id];
+  }
+  for (const [id, label] of Object.entries(state.texts || {})) {
+    if (String(label?.owner || "") === who) delete state.texts[id];
+  }
+  for (const [id, eq] of Object.entries(state.equations || {})) {
+    if (String(eq?.owner || "") === who) delete state.equations[id];
+  }
+}
+
+/**
+ * Insert, replace, or delete one equation. Empty latex deletes it.
+ *
+ * @param {{equations: Record<string, any>}} state
+ * @param {any} op
+ * @param {string} fallbackColor
+ */
+function applyEquation(state, op, fallbackColor) {
+  const id = String(op?.id || "");
+  if (!id) return;
+  const latex = String(op.latex || "").trim();
+  if (!latex) {
+    delete state.equations[id];
     return;
   }
+  state.equations[id] = {
+    id,
+    owner: op.owner,
+    x: Number(op.x),
+    y: Number(op.y),
+    latex,
+    color: String(op.color || fallbackColor),
+  };
+}
+
+/**
+ * Fold one gallery delta into a tile bag.
+ *
+ * A snapshot replaces strokes, texts, and equations. ``board_wipe``
+ * drops that owner. ``equation_upsert`` with empty latex deletes the
+ * equation. ``board_unwipe`` has no archive on the public op: a
+ * ``canvas_view`` on the same delta is applied, otherwise
+ * ``pendingSnapshot`` asks the next poll for a full fold.
+ *
+ * @param {{strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>, pendingSnapshot?: boolean}} state
+ * @param {any} delta
+ * @param {string} fallbackColor
+ */
+function foldDelta(state, delta, fallbackColor) {
+  if (!state.equations || typeof state.equations !== "object") state.equations = {};
+  state.pendingSnapshot = false;
+  if (!delta || typeof delta !== "object") return;
+  if (delta.snapshot) {
+    loadCanvasView(state, delta.canvas_view);
+    return;
+  }
+  let unwipe = false;
   for (const op of delta.ops || []) {
     if (!op || typeof op !== "object") continue;
     const id = String(op.id || "");
     const type = String(op.type || "");
     if (!id) continue;
+    if (type === "board_wipe") {
+      dropOwnerInk(state, op.owner);
+      continue;
+    }
+    if (type === "board_unwipe") {
+      unwipe = true;
+      continue;
+    }
+    if (type === "equation_upsert") {
+      applyEquation(state, op, fallbackColor);
+      continue;
+    }
     if (type === "stroke_remove") {
       delete state.strokes[id];
       continue;
@@ -405,6 +498,12 @@ function foldDelta(state, delta, fallbackColor) {
     }
     existing.points = (existing.points || []).concat(points);
   }
+  if (!unwipe) return;
+  if (delta.canvas_view) {
+    loadCanvasView(state, delta.canvas_view);
+    return;
+  }
+  state.pendingSnapshot = true;
 }
 
 /**
@@ -416,9 +515,10 @@ function foldDelta(state, delta, fallbackColor) {
  *
  * @param {Record<string, any>|null|undefined} strokes
  * @param {Record<string, any>|null|undefined} texts
+ * @param {Record<string, any>|null|undefined} [equations]
  * @returns {string}
  */
-export function inkContentStamp(strokes, texts) {
+export function inkContentStamp(strokes, texts, equations) {
   let hash = 2166136261;
   /**
    * @param {unknown} value
@@ -457,6 +557,19 @@ export function inkContentStamp(strokes, texts) {
     mix(label?.x);
     mix(label?.y);
     mix(label?.color);
+    mix(label?.size);
+    mix(label?.bold ? 1 : 0);
+    mix(label?.underline ? 1 : 0);
+    mix(label?.script);
+  }
+  const eqs = Object.values(equations || {});
+  eqs.sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  for (const eq of eqs) {
+    mix(eq?.id);
+    mix(eq?.latex);
+    mix(eq?.x);
+    mix(eq?.y);
+    mix(eq?.color);
   }
   return (hash >>> 0).toString(16);
 }
@@ -478,9 +591,10 @@ export function inkContentStamp(strokes, texts) {
  *   stamp: string,
  *   strokes?: Record<string, any>,
  *   texts?: Record<string, any>,
+ *   equations?: Record<string, any>,
  * }>} tiles
  * @param {{
- *   paint: (canvas: HTMLCanvasElement, strokes: Record<string, any>, texts: Record<string, any>) => void,
+ *   paint: (canvas: HTMLCanvasElement, strokes: Record<string, any>, texts: Record<string, any>, equations: Record<string, any>) => void,
  *   onOpen?: (key: string) => void,
  * }} hooks
  * @returns {{painted: string[], kept: string[]}}
@@ -557,7 +671,7 @@ export function syncWhiteboardGrid(grid, tiles, hooks) {
       const stamp = String(tile.stamp || "");
       if (stage.dataset.inkStamp === stamp) kept.push(key);
       else {
-        hooks.paint(stage, tile.strokes || {}, tile.texts || {});
+        hooks.paint(stage, tile.strokes || {}, tile.texts || {}, tile.equations || {});
         stage.dataset.inkStamp = stamp;
         painted.push(key);
       }
@@ -588,8 +702,9 @@ export function syncWhiteboardGrid(grid, tiles, hooks) {
  * @param {Record<string, any>} texts
  * @param {string} fallbackColor
  * @param {HTMLImageElement | null} [background]
+ * @param {Record<string, any>} [equations]
  */
-function paintTile(canvas, strokes, texts, fallbackColor, background = null) {
+function paintTile(canvas, strokes, texts, fallbackColor, background = null, equations = {}) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const w = canvas.width;
@@ -611,12 +726,27 @@ function paintTile(canvas, strokes, texts, fallbackColor, background = null) {
     });
     ctx.stroke();
   }
-  ctx.font = "12px sans-serif";
   for (const label of Object.values(texts)) {
     const body = String(label.text || "").trim();
     if (!body) continue;
+    const px = Math.max(10, Math.round(8 + (Number(label.size) || 2) * 2));
+    ctx.font = `${label.bold ? "700" : "400"} ${px}px sans-serif`;
     ctx.fillStyle = String(label.color || fallbackColor);
-    ctx.fillText(body, Number(label.x) * w, Number(label.y) * h + 12);
+    let y = Number(label.y) * h + 12;
+    if (label.script === "super") y -= px * 0.45;
+    if (label.script === "sub") y += px * 0.2;
+    ctx.fillText(body, Number(label.x) * w, y);
+    if (label.underline) {
+      const width = ctx.measureText ? ctx.measureText(body).width : body.length * 6;
+      ctx.fillRect(Number(label.x) * w, y + 2, width, 1);
+    }
+  }
+  ctx.font = "12px sans-serif";
+  for (const eq of Object.values(equations || {})) {
+    const latex = String(eq?.latex || "").trim();
+    if (!latex) continue;
+    ctx.fillStyle = String(eq.color || fallbackColor);
+    ctx.fillText(latex, Number(eq.x) * w, Number(eq.y) * h + 12);
   }
 }
 
@@ -984,7 +1114,7 @@ export function mountTeacherGrid(root, options = {}) {
    */
   function tileInkStamp(key) {
     const bag = ink[key] || emptyInk();
-    return inkContentStamp(bag.strokes, bag.texts);
+    return inkContentStamp(bag.strokes, bag.texts, bag.equations);
   }
 
   /**
@@ -1013,6 +1143,7 @@ export function mountTeacherGrid(root, options = {}) {
           stamp: tileInkStamp(key),
           strokes: bag.strokes,
           texts: bag.texts,
+          equations: bag.equations,
         };
       }),
       {
@@ -1020,9 +1151,10 @@ export function mountTeacherGrid(root, options = {}) {
          * @param {HTMLCanvasElement} stage
          * @param {Record<string, any>} strokes
          * @param {Record<string, any>} texts
+         * @param {Record<string, any>} equations
          */
-        paint(stage, strokes, texts) {
-          paintTile(stage, strokes, texts, STUDENT_INK, boardBackgroundImage);
+        paint(stage, strokes, texts, equations) {
+          paintTile(stage, strokes, texts, STUDENT_INK, boardBackgroundImage, equations);
         },
         /**
          * @param {string} key
@@ -1048,7 +1180,9 @@ export function mountTeacherGrid(root, options = {}) {
     tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
     if (typeof payload.answer_with === "string") answerWith = payload.answer_with;
     const nextBg = String(payload.image_url || "").trim();
+    let backgroundCleared = false;
     if (nextBg !== boardBackgroundUrl) {
+      const hadBackground = Boolean(boardBackgroundUrl);
       boardBackgroundUrl = nextBg;
       boardBackgroundImage = null;
       if (boardBackgroundUrl) {
@@ -1067,6 +1201,9 @@ export function mountTeacherGrid(root, options = {}) {
             if (openTile) paintPanelCopy(openTile);
           }
         });
+      } else if (hadBackground) {
+        backgroundCleared = true;
+        applyCanvasBoardBackground(canvas, "");
       }
     }
     if (context) context.textContent = String(payload.context || "");
@@ -1076,8 +1213,21 @@ export function mountTeacherGrid(root, options = {}) {
       if (!key) continue;
       if (!ink[key]) ink[key] = emptyInk();
       foldDelta(ink[key], tile, STUDENT_INK);
-      if (tile.board_seq != null && Number.isFinite(Number(tile.board_seq))) {
+      if (ink[key].pendingSnapshot) {
+        // The public unwipe carries no archive. A cursor past the head
+        // is the existing snapshot signal, so the next poll sends the
+        // folded canvas instead of another empty undo.
+        ink[key].pendingSnapshot = false;
+        cursors[key] = Number.MAX_SAFE_INTEGER;
+      } else if (tile.board_seq != null && Number.isFinite(Number(tile.board_seq))) {
         cursors[key] = Number(tile.board_seq);
+      }
+    }
+    if (backgroundCleared) {
+      for (const button of grid.querySelectorAll(".wb-live-tile")) {
+        if (!(button instanceof HTMLButtonElement)) continue;
+        const tileCanvas = button.querySelector("canvas");
+        if (tileCanvas instanceof HTMLCanvasElement) delete tileCanvas.dataset.inkStamp;
       }
     }
     paintGrid(tiles);
