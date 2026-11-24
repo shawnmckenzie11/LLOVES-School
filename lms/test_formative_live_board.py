@@ -908,7 +908,8 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertIn('id="wb-live-show"', page)
         self.assertIn('id="wb-live-legend"', page)
         home = (LMS_DIR / "templates" / "student" / "home.html").read_text()
-        self.assertIn('id="class-board-legend"', home)
+        self.assertIn('id="student-canvas-feedback"', home)
+        self.assertIn('id="student-canvas-line"', home)
 
     def test_delete_test_run_drops_team_boards(self) -> None:
         """Delete-test removes solo ink, team ink, and assignment rows."""

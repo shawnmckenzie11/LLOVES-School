@@ -22,6 +22,16 @@ export function boardHasStroke(strokeCount, openPoints) {
 }
 
 /**
+ * Whether a committed stroke is a straight segment (two logical points).
+ *
+ * @param {{points?: {x: number, y: number}[]}} stroke
+ * @returns {boolean}
+ */
+export function isLineStroke(stroke) {
+  return Array.isArray(stroke?.points) && stroke.points.length === 2;
+}
+
+/**
  * How often a shared-board tab with no LiveNewsWire stream asks for
  * ink since the last sequence. One request at a time; 1.5–2s.
  */
@@ -543,8 +553,10 @@ export function createPresenceQueue(opts) {
  *   undoBtn?: HTMLElement | null,
  *   redoBtn?: HTMLElement | null,
  *   penBtn?: HTMLElement | null,
+ *   lineBtn?: HTMLElement | null,
  *   eraseBtn?: HTMLElement | null,
  *   textBtn?: HTMLElement | null,
+ *   fixedInkColor?: boolean,
  *   cursorLayer?: HTMLElement | null,
  *   onInkChange?: (hasStroke: boolean) => void,
  * }} [opts]
@@ -761,6 +773,11 @@ export function bindWhiteboard(canvas, opts = {}) {
   /** @type {{x: number, y: number}[]} */
   let pending = [];
   let drawing = false;
+  let lining = false;
+  /** @type {{x: number, y: number} | null} */
+  let lineStart = null;
+  /** @type {{x: number, y: number} | null} */
+  let linePreview = null;
   let strokeId = "";
   let strokeOwner = "";
   let enabled = true;
@@ -824,8 +841,12 @@ export function bindWhiteboard(canvas, opts = {}) {
     return map;
   };
   const strokeColor = (owner) => {
+    const who = String(owner || ownerNow());
+    if (opts.fixedInkColor && who === ownerNow()) {
+      return opts.color || "#12202e";
+    }
     if (isFormative()) {
-      return colorForOwner(memberLookup(), String(owner || ownerNow()));
+      return colorForOwner(memberLookup(), who);
     }
     return opts.color || "#12202e";
   };
@@ -852,6 +873,10 @@ export function bindWhiteboard(canvas, opts = {}) {
 
   const canDraw = () =>
     enabled && tool === "draw" && (typeof opts.canDraw !== "function" || opts.canDraw());
+
+  /** @returns {boolean} */
+  const canDrawLine = () =>
+    enabled && tool === "line" && (typeof opts.canDraw !== "function" || opts.canDraw());
 
   /**
    * Map a pointer event into logical board pixels.
@@ -1019,6 +1044,10 @@ export function bindWhiteboard(canvas, opts = {}) {
    */
   const paintLive = () => {
     clearLayer(liveCtx, liveCanvas);
+    if (lining && lineStart && linePreview) {
+      strokeSegment(liveCtx, [lineStart, linePreview], color, 0);
+      return;
+    }
     if (current.length) strokeSegment(liveCtx, current, color, 0);
   };
 
@@ -1176,6 +1205,11 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (opts.textBtn instanceof HTMLButtonElement) {
       opts.textBtn.setAttribute("aria-pressed", tool === "text" ? "true" : "false");
       opts.textBtn.classList.toggle("is-on", tool === "text");
+    }
+    if (opts.lineBtn instanceof HTMLButtonElement) {
+      opts.lineBtn.setAttribute("aria-pressed", tool === "line" ? "true" : "false");
+      opts.lineBtn.classList.toggle("is-on", tool === "line");
+      opts.lineBtn.disabled = frozen;
     }
   };
 
@@ -1441,6 +1475,39 @@ commitEditor();
     }, 0);
   });
 
+  /**
+   * Commit one straight segment as a normal two-point stroke.
+   *
+   * @param {{x: number, y: number}} start
+   * @param {{x: number, y: number}} end
+   */
+  const commitLine = (start, end) => {
+    if (editingLocked) return;
+    strokeOwner = ownerNow();
+    color = strokeColor(strokeOwner);
+    strokeId = makeStrokeId(strokeOwner);
+    ownIds.add(strokeId);
+    const points = [
+      { x: start.x, y: start.y },
+      { x: end.x, y: end.y },
+    ];
+    const finished = {
+      id: strokeId,
+      owner: strokeOwner,
+      points,
+      color: strokeColor(strokeOwner),
+      mine: true,
+    };
+    strokes.push(finished);
+    rememberUndo("stroke", finished.id);
+    pending = points.slice();
+    flushPending(true);
+    strokeSegment(ctx, finished.points, finished.color, 0);
+    paintLive();
+    syncButtons();
+    strokeId = "";
+  };
+
   canvas.addEventListener("pointerdown", (event) => {
     shortcutApi?.mark();
     if (editingLocked || !enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
@@ -1456,6 +1523,23 @@ commitEditor();
         return;
       }
       openEditor(next.nx, next.ny, next.hit);
+      return;
+    }
+    if (canDrawLine()) {
+      event.preventDefault();
+      redoStack = [];
+      lining = true;
+      lineStart = point(event);
+      linePreview = lineStart;
+      strokeOwner = ownerNow();
+      color = strokeColor(strokeOwner);
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch (_err) {
+        /* ignore */
+      }
+      requestPaint();
+      syncButtons();
       return;
     }
     if (!canDraw()) return;
@@ -1478,6 +1562,11 @@ commitEditor();
     syncButtons();
   });
   canvas.addEventListener("pointermove", (event) => {
+    if (lining && canDrawLine()) {
+      linePreview = point(event);
+      requestPaint();
+      return;
+    }
     if (!drawing || !canDraw()) return;
     let moved = false;
     for (const sample of samplesFrom(event)) {
@@ -1527,8 +1616,39 @@ commitEditor();
     paintLive();
     syncButtons();
   };
-  canvas.addEventListener("pointerup", endStroke);
-  canvas.addEventListener("pointercancel", endStroke);
+  /**
+   * Finish a line drag preview.
+   * @param {PointerEvent} event
+   */
+  const endLine = (event) => {
+    if (!lining) return;
+    const start = lineStart;
+    const end = linePreview || point(event);
+    lining = false;
+    lineStart = null;
+    linePreview = null;
+    if (start) commitLine(start, end);
+    else paintLive();
+    syncButtons();
+  };
+  canvas.addEventListener("pointerup", (event) => {
+    if (lining) {
+      endLine(event);
+      return;
+    }
+    endStroke(event);
+  });
+  canvas.addEventListener("pointercancel", (event) => {
+    if (lining) {
+      lining = false;
+      lineStart = null;
+      linePreview = null;
+      paintLive();
+      syncButtons();
+      return;
+    }
+    endStroke(event);
+  });
 
   opts.undoBtn?.addEventListener("click", () => {
     shortcutApi?.mark();
@@ -1541,6 +1661,13 @@ commitEditor();
   opts.penBtn?.addEventListener("click", () => {
     if (editingLocked) return;
     tool = "draw";
+    if (!editor.hidden) commitEditor();
+    canvas.style.cursor = "crosshair";
+    syncButtons();
+  });
+  opts.lineBtn?.addEventListener("click", () => {
+    if (editingLocked) return;
+    tool = "line";
     if (!editor.hidden) commitEditor();
     canvas.style.cursor = "crosshair";
     syncButtons();
@@ -1710,6 +1837,9 @@ commitEditor();
       editingLocked = true;
       enabled = false;
       drawing = false;
+      lining = false;
+      lineStart = null;
+      linePreview = null;
       current = [];
       pending = [];
       strokeId = "";

@@ -38813,6 +38813,76 @@ class SchoolDB(LovesDB):
             reply["canvas_sync"] = view
         return reply
 
+    def _student_board_feedback_prompt(
+        self, session_id: int
+    ) -> dict[str, Any] | None:
+        """Prompt for the board question the session is on, if any.
+
+        Prefer the slide-active prompt when its lifecycle row is a board
+        question. Otherwise scan for a lone active board item (legacy shells).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        active = self.get_active_live_prompt(int(session_id))
+        if active is not None:
+            item = self._lifecycle_item_for_prompt(int(session_id), active)
+            if item is not None and str(item.get("status") or "") == "active":
+                question = item.get("item") if isinstance(item.get("item"), dict) else {}
+                if uses_board(question):
+                    linked = self._prompt_for_live_item(item)
+                    return linked or active
+                return None
+        for item in self.list_live_session_items(int(session_id)):
+            if str(item.get("status") or "") != "active":
+                continue
+            question = item.get("item") if isinstance(item.get("item"), dict) else {}
+            if not uses_board(question):
+                continue
+            prompt = self._prompt_for_live_item(item)
+            if prompt is not None:
+                return prompt
+        return None
+
+    def _student_board_feedback_text(
+        self,
+        session_id: int,
+        student_id: int | None,
+        *,
+        active_prompt: dict[str, Any] | None = None,
+    ) -> str:
+        """Teacher note already on this student's board copy, if any.
+
+        Reads ``board_answer_copies.feedback_text`` for the active live
+        prompt that uses a board. No schema change.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id for the viewer.
+            active_prompt: Optional prompt from ``_student_board_feedback_prompt``
+                to avoid a second lifecycle scan during ``read_board``.
+        """
+        if student_id in (None, ""):
+            return ""
+        try:
+            from question_board import student_live_feedback
+        except ImportError:
+            from lms.question_board import student_live_feedback
+
+        prompt = active_prompt
+        if prompt is None:
+            prompt = self._student_board_feedback_prompt(int(session_id))
+        if prompt is None:
+            return ""
+        return student_live_feedback(
+            self, int(session_id), int(prompt["id"]), int(student_id)
+        )
+
     def read_board(
         self,
         session_id: int,
@@ -38885,6 +38955,14 @@ class SchoolDB(LovesDB):
                     int(session_id),
                     teacher_state=teacher,
                 )
+                active_prompt = self._student_board_feedback_prompt(int(session_id))
+                note = self._student_board_feedback_text(
+                    int(session_id),
+                    student_id,
+                    active_prompt=active_prompt,
+                )
+                # Always send feedback (even "") so the client hides a cleared note.
+                payload["feedback"] = note
             return payload
 
         if (

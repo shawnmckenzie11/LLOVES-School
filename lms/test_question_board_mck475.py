@@ -880,14 +880,14 @@ const canvas = makeEl(HTMLCanvasElement);
 stage.appendChild(canvas);
 const pen = makeEl(HTMLButtonElement);
 const textBtn = makeEl(HTMLButtonElement);
-const erase = makeEl(HTMLButtonElement);
+const line = makeEl(HTMLButtonElement);
 const undo = makeEl(HTMLButtonElement);
 const redo = makeEl(HTMLButtonElement);
 const clear = makeEl(HTMLButtonElement);
 const submit = makeEl(HTMLButtonElement);
 const typed = makeEl(HTMLTextAreaElement);
 const tools = {
-  querySelectorAll() { return [pen, textBtn, erase, undo, redo, clear]; },
+  querySelectorAll() { return [pen, line, textBtn, undo, redo, clear]; },
 };
 globalThis.document = {
   body: makeEl(HTMLElement),
@@ -906,8 +906,8 @@ globalThis.ResizeObserver = undefined;
 const calls = { points: 0, undo: 0, redo: 0, clear: 0, text: 0 };
 const board = bindWhiteboard(canvas, {
   penBtn: pen,
+  lineBtn: line,
   textBtn,
-  eraseBtn: erase,
   undoBtn: undo,
   redoBtn: redo,
   formative: { enabled: false, members: [] },
@@ -919,7 +919,6 @@ const board = bindWhiteboard(canvas, {
   onText() { calls.text += 1; },
 });
 board.setCollab(true);
-clear.addEventListener('click', () => erase.dispatch('click'));
 function draw(x1, y1, x2, y2) {
   canvas.dispatch('pointerdown', { clientX: x1, clientY: y1 });
   canvas.dispatch('pointermove', { clientX: x2, clientY: y2 });
@@ -953,7 +952,7 @@ if (!typed.readOnly) {
   console.error('typed answer stayed editable');
   process.exit(5);
 }
-for (const btn of [pen, textBtn, erase, undo, redo, clear]) {
+for (const btn of [pen, line, textBtn, undo, redo, clear]) {
   if (!btn.disabled) {
     console.error('control stayed enabled');
     process.exit(6);
@@ -962,7 +961,6 @@ for (const btn of [pen, textBtn, erase, undo, redo, clear]) {
 draw(80, 90, 220, 140);
 undo.dispatch('click');
 redo.dispatch('click');
-erase.dispatch('click');
 clear.dispatch('click');
 textBtn.dispatch('click');
 canvas.dispatch('pointerdown', { clientX: 90, clientY: 90 });
