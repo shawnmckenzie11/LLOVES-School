@@ -736,7 +736,7 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   flex-direction: column;
   gap: 0.35rem;
   width: 100%;
-  z-index: 9;
+  margin: 0.35rem 0 0;
   pointer-events: auto;
 }
 .student-minimized-host[hidden] {
@@ -773,22 +773,6 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   white-space: nowrap;
   font-weight: 700;
 }
-@media (max-width: 719.98px) {
-  .student-minimized-host:not([hidden]) {
-    position: sticky;
-    top: 0;
-    align-self: stretch;
-  }
-}
-@media (min-width: 720px) {
-  .student-minimized-host:not([hidden]) {
-    position: absolute;
-    top: 0.7rem;
-    right: 0.7rem;
-    width: min(22rem, calc(100% - 1.4rem));
-  }
-}
-
 .live-question-stack {
   display: flex;
   flex-direction: column;
@@ -805,11 +789,6 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 
 .live-question-stack[hidden] {
   display: none !important;
-}
-@media (min-width: 720px) {
-  body.student-home:has(#student-minimized-host:not([hidden])) .live-question-stack {
-    top: calc(0.7rem + var(--student-minimized-offset, 0px));
-  }
 }
 
 .live-question-stack-body {

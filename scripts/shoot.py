@@ -5793,6 +5793,148 @@ def shoot_mck500(base: str, state_path: Path, out_dir: Path, db: Path) -> list[P
     return written
 
 
+def shoot_mck503(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-503: teacher card stays put; students see minimized in the side panel.
+
+    Args:
+        base: Loopback origin.
+        state_path: Staff Playwright storage state.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths for teacher (1280) and student (phone).
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        live_module="M1",
+        live_slot="C2",
+        stage="round",
+        page_number=4,
+        page_id="round_1",
+        class_set=True,
+    )
+    placement = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C2",
+        question_type="mc",
+        text="Which sum is 10?",
+        page_number=4,
+        stage="round",
+        options=["8", "9", "10", "11"],
+        correct_index=2,
+    )
+    items = school.ensure_live_session_items(session_id)
+    row = next(item for item in items if item["item_id"] == placement["item_id"])
+    live_item_id = int(row["id"])
+    school.publish_live_session_item(session_id, live_item_id, publish_mode="individual")
+    school.close_live_session_item(session_id, live_item_id)
+    school.update_live_session_item_settings(
+        session_id, live_item_id, students_minimized=True
+    )
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        raise SystemExit("Maple student missing from demo class")
+    school.join_live_class_session(session_id, int(maple["id"]), codename="Maple")
+    attendees = school.list_live_session_attendees(session_id)
+    visit = str(next(row["visit_token"] for row in attendees if row.get("codename") == "Maple"))
+    secrets = [str(live.get("session_code") or ""), visit]
+    teacher_url = f"{origin}/staff/class/{class_id}?tab=live&live_session_id={session_id}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            staff_ctx = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": 1280, "height": 900},
+            )
+            staff = staff_ctx.new_page()
+            staff.goto(teacher_url, wait_until="domcontentloaded", timeout=60000)
+            staff.locator("body.staff-shell").wait_for(state="attached", timeout=30000)
+            staff.locator('.live-content-tab[data-tab="questions"]').click(timeout=10000)
+            card_sel = f'.live-question-card[data-live-item-id="{live_item_id}"]'
+            staff.locator(card_sel).wait_for(state="visible", timeout=20000)
+            if staff.locator("#teacher-minimized-panel").count():
+                raise SystemExit("teacher minimize dock should be gone")
+            docked = staff.locator("#teacher-minimized-list .live-question-card").count()
+            if docked:
+                raise SystemExit("teacher card should not sit in a minimize dock")
+            metrics = staff.evaluate(
+                """() => {
+                  const card = document.querySelector(".live-question-card");
+                  const list = document.getElementById("live-question-list");
+                  if (!card || !list) return null;
+                  return {
+                    inList: list.contains(card),
+                    restore: Boolean(document.querySelector('[aria-label="Restore for students"]')),
+                  };
+                }"""
+            )
+            if not metrics or not metrics["inList"] or not metrics["restore"]:
+                raise SystemExit("teacher card is not restored in the main list")
+            staff_text = _mck500_visible_text(staff, "#live-question-list")
+            _mck500_refuse(staff_text, secrets)
+            teacher_path = out_dir / "mck503-teacher-minimize-main-1280.png"
+            staff.locator("#question-artifact-zone").screenshot(path=str(teacher_path))
+            written.append(teacher_path)
+            staff_ctx.close()
+
+            phone = browser.new_context(viewport={"width": 390, "height": 844})
+            student = phone.new_page()
+            student.goto(f"{origin}/student/s/{visit}", wait_until="domcontentloaded")
+            _mck215_reach_live_home(student)
+            _mck215_dismiss_catchup_pin(student)
+            student.locator("#student-minimized-host .student-minimized-bar").wait_for(
+                state="visible", timeout=20000
+            )
+            chrome = student.evaluate(
+                """() => {
+                  const host = document.getElementById("student-minimized-host");
+                  const chromeTop = document.querySelector(".student-chrome-top");
+                  const main = document.getElementById("live-response");
+                  const stackCards = document.querySelectorAll("#live-question-stack-body .student-live-card").length;
+                  return {
+                    inChrome: Boolean(host && chromeTop && chromeTop.contains(host)),
+                    inMain: Boolean(host && main && main.contains(host)),
+                    minimized: host && !host.hidden,
+                    stackCards,
+                  };
+                }"""
+            )
+            if not chrome["inChrome"] or chrome["inMain"] or not chrome["minimized"]:
+                raise SystemExit("minimized host is not in the side panel")
+            _mask_demo_identity(student)
+            _refuse_private_text(student, secrets)
+            student_path = out_dir / "mck503-student-minimize-sidebar-390.png"
+            student.locator(".student-chrome-top").screenshot(path=str(student_path))
+            written.append(student_path)
+            phone.close()
+            browser.close()
+    except SystemExit:
+        raise
+    except Exception as err:
+        message = str(err)
+        for secret in secrets:
+            token = str(secret or "")
+            if token:
+                message = message.replace(token, "[redacted]")
+        raise SystemExit(message) from None
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -5840,6 +5982,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck496",
             "mck499",
             "mck500",
+            "mck503",
         ),
         default="",
         help=(
@@ -5952,6 +6095,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck494(args.base, state, out, path))
         if args.scenario == "mck500":
             written.extend(shoot_mck500(args.base, state, out, path))
+        if args.scenario == "mck503":
+            written.extend(shoot_mck503(args.base, state, out, path))
         if args.scenario == "mck496":
             written.extend(shoot_mck496(args.base, state, out, path))
         if args.url:
@@ -5971,7 +6116,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500|mck503."
             )
         for item in written:
             print(item)
