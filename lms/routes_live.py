@@ -2445,7 +2445,9 @@ def register_live(app, school, shared):
         team_id = school.student_team_id_for_class(int(class_id), int(student_id))
         name = str(ctx.get("codename") or body.get("name") or student_id).strip()
         text_id = str(body.get("text_id") or "").strip()
+        equation_id = str(body.get("equation_id") or "").strip()
         batch_id = str(body.get("client_batch_id") or "").strip() or None
+        op_kind = str(body.get("op") or body.get("type") or "").strip()
         try:
             if text_id:
                 school.apply_live_canvas_text(
@@ -2459,8 +2461,49 @@ def register_live(app, school, shared):
                     y=body.get("y"),
                     as_teacher=False,
                     claimed_run_key=str(body.get("run_key") or "").strip(),
+                    client_batch_id=batch_id,
+                    bold=bool(body.get("bold")) if "bold" in body else None,
+                    underline=bool(body.get("underline")) if "underline" in body else None,
+                    script=str(body.get("script") or "").strip() or None,
+                    size=body.get("size"),
                 )
-            elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+            elif equation_id:
+                school.apply_live_canvas_equation(
+                    live_session_id,
+                    owner=str(int(student_id)),
+                    name=name or str(student_id),
+                    equation_id=equation_id,
+                    latex=str(body.get("latex") if body.get("latex") is not None else ""),
+                    team_id=team_id,
+                    x=body.get("x"),
+                    y=body.get("y"),
+                    as_teacher=False,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
+                    client_batch_id=batch_id,
+                )
+            elif op_kind == "board_wipe":
+                school.apply_live_board_wipe(
+                    live_session_id,
+                    owner=str(int(student_id)),
+                    wipe_id=str(body.get("wipe_id") or body.get("id") or ""),
+                    team_id=team_id,
+                    as_teacher=False,
+                    client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
+                )
+            elif op_kind == "board_unwipe":
+                snapshot = body.get("snapshot") if isinstance(body.get("snapshot"), dict) else {}
+                school.apply_live_board_unwipe(
+                    live_session_id,
+                    owner=str(int(student_id)),
+                    unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
+                    snapshot=snapshot,
+                    team_id=team_id,
+                    as_teacher=False,
+                    client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
+                )
+            elif op_kind == "stroke_remove":
                 school.remove_live_board_stroke(
                     live_session_id,
                     owner=str(int(student_id)),
@@ -5197,7 +5240,9 @@ def register_live(app, school, shared):
                 int(session_row["class_id"]), int(student_id)
             )
         text_id = str(body.get("text_id") or "").strip()
+        equation_id = str(body.get("equation_id") or "").strip()
         batch_id = str(body.get("client_batch_id") or "").strip() or None
+        op_kind = str(body.get("op") or body.get("type") or "").strip()
         try:
             if text_id:
                 school.apply_live_canvas_text(
@@ -5211,8 +5256,49 @@ def register_live(app, school, shared):
                     y=body.get("y"),
                     as_teacher=as_teacher,
                     claimed_run_key=str(body.get("run_key") or "").strip(),
+                    client_batch_id=batch_id,
+                    bold=bool(body.get("bold")) if "bold" in body else None,
+                    underline=bool(body.get("underline")) if "underline" in body else None,
+                    script=str(body.get("script") or "").strip() or None,
+                    size=body.get("size"),
                 )
-            elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+            elif equation_id:
+                school.apply_live_canvas_equation(
+                    session_id,
+                    owner=owner,
+                    name=name,
+                    equation_id=equation_id,
+                    latex=str(body.get("latex") if body.get("latex") is not None else ""),
+                    team_id=team_id,
+                    x=body.get("x"),
+                    y=body.get("y"),
+                    as_teacher=as_teacher,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
+                    client_batch_id=batch_id,
+                )
+            elif op_kind == "board_wipe":
+                school.apply_live_board_wipe(
+                    session_id,
+                    owner=owner,
+                    wipe_id=str(body.get("wipe_id") or body.get("id") or ""),
+                    team_id=team_id,
+                    as_teacher=as_teacher,
+                    client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
+                )
+            elif op_kind == "board_unwipe":
+                snapshot = body.get("snapshot") if isinstance(body.get("snapshot"), dict) else {}
+                school.apply_live_board_unwipe(
+                    session_id,
+                    owner=owner,
+                    unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
+                    snapshot=snapshot,
+                    team_id=team_id,
+                    as_teacher=as_teacher,
+                    client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
+                )
+            elif op_kind == "stroke_remove":
                 school.remove_live_board_stroke(
                     session_id,
                     owner=owner,

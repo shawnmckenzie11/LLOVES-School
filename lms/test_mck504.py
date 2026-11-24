@@ -62,7 +62,9 @@ class StudentWhiteboardToolbarTests(unittest.TestCase):
         self.assertIn("live-canvas-toolbar-vertical", js)
         self.assertNotIn('data-tool="erase"', js)
         self.assertNotIn('data-tool="redo"', js)
-        self.assertNotIn('data-tool="clear"', js)
+        self.assertIn('data-tool="equation"', js)
+        self.assertIn('data-tool="clear"', js)
+        self.assertIn('aria-label="Equation"', js)
         self.assertIn("enabled: true", js)
         self.assertNotIn("enabled: false", js)
 

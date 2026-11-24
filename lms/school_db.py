@@ -38228,6 +38228,11 @@ class SchoolDB(LovesDB):
         y: Any = None,
         as_teacher: bool = False,
         claimed_run_key: str | None = None,
+        client_batch_id: str | None = None,
+        bold: bool | None = None,
+        underline: bool | None = None,
+        script: str | None = None,
+        size: int | None = None,
     ) -> dict[str, Any]:
         """Persist one whiteboard text label for this live session.
 
@@ -38285,10 +38290,154 @@ class SchoolDB(LovesDB):
             y=y,
             color=self.ink_color_for_new_stroke(int(session_id), key, writer),
             team_id=stored_team,
+            client_batch_id=str(client_batch_id or "").strip() or None,
+            bold=bold,
+            underline=underline,
+            script=script,
+            size=size,
         )
         # Callers (and the text test) expect the full session blob, the
         # same shape ``_write_canvas_sync`` used to return.
         return self.live_session_canvas_sync(session_id)
+
+    def apply_live_canvas_equation(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        name: str,
+        equation_id: str,
+        latex: str,
+        team_id: int | None = None,
+        x: Any = None,
+        y: Any = None,
+        as_teacher: bool = False,
+        claimed_run_key: str | None = None,
+        client_batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist one whiteboard equation for this live session."""
+        collab = self._whiteboard_collab_active(session_id)
+        if not collab:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            collab = str(teacher.get("canvas_align") or "") == "team"
+        writer = "teacher" if as_teacher else str(owner)
+        stored_team = None
+        if as_teacher:
+            key = "teacher"
+        elif collab and team_id not in (None, ""):
+            stored_team = int(team_id)
+            if str(writer).isdigit():
+                key = self.student_live_board_key(int(session_id), int(writer))
+            else:
+                sort_order = self._team_sort_order_for_team_id(
+                    int(self.get_live_session(int(session_id))["class_id"]),
+                    stored_team,
+                )
+                from live_board_assignments import board_key_for_sort_order
+
+                if sort_order is None:
+                    key = f"team:{int(stored_team)}"
+                else:
+                    key = board_key_for_sort_order(sort_order)
+        elif collab:
+            stored_team = 0
+            key = "shared"
+        else:
+            key = f"solo:{writer}"
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        self.boards.append_equation(
+            run_key,
+            key,
+            owner=writer,
+            name=name,
+            equation_id=equation_id,
+            latex=latex,
+            x=x,
+            y=y,
+            color=self.ink_color_for_new_stroke(int(session_id), key, writer),
+            team_id=stored_team,
+            client_batch_id=str(client_batch_id or "").strip() or None,
+        )
+        return self.live_session_canvas_sync(session_id)
+
+    def _live_writer_board_key(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        team_id: int | None,
+        as_teacher: bool,
+    ) -> str:
+        """Board key for one student's or teacher's live ink."""
+        who = "teacher" if as_teacher else str(owner)
+        if as_teacher:
+            return "teacher"
+        teacher = self.live_session_teacher_state_payload(session_id)
+        align = str(teacher.get("canvas_align") or "student")
+        if self._whiteboard_collab_active(session_id):
+            align = "team"
+        if align == "team":
+            if str(who).isdigit():
+                return self.student_live_board_key(int(session_id), int(who))
+            return self._ink_board_key(
+                as_teacher=False,
+                team_id=team_id,
+                bucket="team",
+                owner=who,
+            )
+        return f"solo:{who}"
+
+    def apply_live_board_wipe(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        wipe_id: str,
+        team_id: int | None = None,
+        as_teacher: bool = False,
+        client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ``board_wipe`` for this writer on the live session board."""
+        who = "teacher" if as_teacher else str(owner)
+        key = self._live_writer_board_key(
+            session_id, owner=who, team_id=team_id, as_teacher=as_teacher
+        )
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        return self.boards.append_wipe(
+            run_key,
+            key,
+            owner=who,
+            wipe_id=str(wipe_id or ""),
+            client_batch_id=str(client_batch_id or "").strip() or None,
+        )
+
+    def apply_live_board_unwipe(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        unwipe_id: str,
+        snapshot: dict[str, Any],
+        team_id: int | None = None,
+        as_teacher: bool = False,
+        client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ``board_unwipe`` with a capped snapshot for this writer."""
+        who = "teacher" if as_teacher else str(owner)
+        key = self._live_writer_board_key(
+            session_id, owner=who, team_id=team_id, as_teacher=as_teacher
+        )
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        return self.boards.append_unwipe(
+            run_key,
+            key,
+            owner=who,
+            unwipe_id=str(unwipe_id or ""),
+            snapshot=snapshot if isinstance(snapshot, dict) else {},
+            client_batch_id=str(client_batch_id or "").strip() or None,
+        )
 
     @staticmethod
     def staff_session_for_shell(session_row: dict[str, Any]) -> dict[str, Any]:

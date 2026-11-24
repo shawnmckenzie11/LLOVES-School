@@ -1341,11 +1341,43 @@ function postStudentCanvas(p, extra) {
   const text = extra.text;
   if (extra.cursorOnly) return;
   if (text) {
-    studentPresenceQueue().push({
+    const row = {
       text_id: text.id,
       text: text.text,
       x: text.x,
       y: text.y,
+    };
+    if (text.bold) row.bold = true;
+    if (text.underline) row.underline = true;
+    if (text.script === "super" || text.script === "sub") row.script = text.script;
+    if (text.size != null) row.size = Number(text.size) || 2;
+    studentPresenceQueue().push(row);
+    return;
+  }
+  if (extra.equation) {
+    const eq = extra.equation;
+    studentPresenceQueue().push({
+      equation_id: eq.id,
+      latex: eq.latex,
+      x: eq.x,
+      y: eq.y,
+    });
+    return;
+  }
+  if (extra.wipe) {
+    studentPresenceQueue().push({
+      op: "board_wipe",
+      wipe_id: extra.wipe.wipe_id,
+      id: extra.wipe.wipe_id,
+    });
+    return;
+  }
+  if (extra.unwipe) {
+    studentPresenceQueue().push({
+      op: "board_unwipe",
+      unwipe_id: extra.unwipe.unwipe_id,
+      id: extra.unwipe.unwipe_id,
+      snapshot: extra.unwipe.snapshot,
     });
     return;
   }
@@ -1461,6 +1493,8 @@ function bindStudentCanvas() {
   const board = bindWhiteboard(studentCanvas, {
     penBtn: document.getElementById("student-canvas-pen"),
     lineBtn: document.getElementById("student-canvas-line"),
+    equationBtn: document.getElementById("student-canvas-equation"),
+    clearBtn: document.getElementById("student-canvas-clear"),
     undoBtn: document.getElementById("student-canvas-undo"),
     textBtn: document.getElementById("student-canvas-text"),
     color: "#12202e",
@@ -1480,6 +1514,9 @@ function bindStudentCanvas() {
     },
     canDraw: () => lastAlign !== "teacher" && !(canvasLock && !canvasLock.hidden),
     onText: (label) => postStudentCanvas(label, { text: label, align: lastAlign }),
+    onEquation: (eq) => postStudentCanvas(eq, { equation: eq, align: lastAlign }),
+    onWipe: (payload) => postStudentCanvas(null, { wipe: payload, align: lastAlign }),
+    onUnwipe: (payload) => postStudentCanvas(null, { unwipe: payload, align: lastAlign }),
     onPoints: (points, ended, strokeId) => {
       if (studentReopenCue) clearStudentReopenCue();
       postStudentCanvas(points, { ended, strokeId, align: lastAlign });

@@ -2184,6 +2184,8 @@ def apply_question_presence(
     batch = str(body.get("client_batch_id") or "").strip() or None
     try:
         text_id = str(body.get("text_id") or "").strip()
+        equation_id = str(body.get("equation_id") or "").strip()
+        op_kind = str(body.get("op") or body.get("type") or "").strip()
         if text_id:
             boards.append_text(
                 run_key,
@@ -2197,8 +2199,44 @@ def apply_question_presence(
                 color=color,
                 team_id=None,
                 client_batch_id=batch,
+                bold=bool(body.get("bold")) if "bold" in body else None,
+                underline=bool(body.get("underline")) if "underline" in body else None,
+                script=str(body.get("script") or "").strip() or None,
+                size=body.get("size"),
             )
-        elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+        elif equation_id:
+            boards.append_equation(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                equation_id=equation_id,
+                latex=str(body.get("latex") if body.get("latex") is not None else ""),
+                x=body.get("x"),
+                y=body.get("y"),
+                color=color,
+                team_id=None,
+                client_batch_id=batch,
+            )
+        elif op_kind == "board_wipe":
+            boards.append_wipe(
+                run_key,
+                board_key,
+                owner=who,
+                wipe_id=str(body.get("wipe_id") or body.get("id") or ""),
+                client_batch_id=batch,
+            )
+        elif op_kind == "board_unwipe":
+            snapshot = body.get("snapshot") if isinstance(body.get("snapshot"), dict) else {}
+            boards.append_unwipe(
+                run_key,
+                board_key,
+                owner=who,
+                unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
+                snapshot=snapshot,
+                client_batch_id=batch,
+            )
+        elif op_kind == "stroke_remove":
             boards.append_remove(
                 run_key,
                 board_key,

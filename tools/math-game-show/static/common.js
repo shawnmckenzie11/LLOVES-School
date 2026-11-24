@@ -355,7 +355,7 @@ const KATEX_CDN = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist";
  * Prefers the vendored LMS copy, then the jsDelivr CDN.
  * @returns {Promise<unknown>}
  */
-function loadKatex() {
+export function loadKatex() {
   if (globalThis.katex) return Promise.resolve(globalThis.katex);
   if (globalThis.__llovesKatexPromise) return globalThis.__llovesKatexPromise;
   globalThis.__llovesKatexPromise = new Promise((resolve) => {
