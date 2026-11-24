@@ -31043,24 +31043,8 @@ class SchoolDB(LovesDB):
                 responses[int(payload["prompt_id"])] = payload
             except (TypeError, ValueError):
                 continue
-        if (
-            student_id not in (None, "")
-            and session_id not in (None, "")
-            and items
-        ):
-            session_row = self.get_live_session(int(session_id))
-            run_key = (
-                str(session_row.get("run_key") or "").strip()
-                if isinstance(session_row, dict)
-                else ""
-            )
-            class_id = (
-                int(session_row["class_id"])
-                if isinstance(session_row, dict)
-                and session_row.get("class_id") not in (None, "")
-                else None
-            )
-            missing: dict[str, int] = {}
+        missing: dict[str, int] = {}
+        if student_id not in (None, "") and items:
             for item in items:
                 raw_pid = item.get("prompt_id")
                 if raw_pid in (None, ""):
@@ -31074,7 +31058,24 @@ class SchoolDB(LovesDB):
                 placement = str(item.get("placement_key") or "").strip()
                 if placement:
                     missing[f"item:{placement}"] = pid
-            if missing and run_key and class_id is not None:
+        if (
+            missing
+            and session_id not in (None, "")
+            and student_id not in (None, "")
+        ):
+            session_row = self.get_live_session(int(session_id))
+            run_key = (
+                str(session_row.get("run_key") or "").strip()
+                if isinstance(session_row, dict)
+                else ""
+            )
+            class_id = (
+                int(session_row["class_id"])
+                if isinstance(session_row, dict)
+                and session_row.get("class_id") not in (None, "")
+                else None
+            )
+            if run_key and class_id is not None:
                 qmarks = ",".join("?" for _ in missing)
                 with self._lock:
                     part_rows = self.conn.execute(

@@ -398,28 +398,37 @@ function hydrateServerSavedAnswers(payload) {
           : mode === "group_submit"
             ? "group"
             : "individual";
-      liveCardDrafts.set(`${itemId}:${base}`, response);
+      const key = `${itemId}:${base}`;
+      if (!liveCardDrafts.has(key)) liveCardDrafts.set(key, response);
     }
     const group = item?.group_submit;
     if (group && typeof group === "object") {
-      if (group.my_pick) {
-        liveCardDrafts.set(`${itemId}:group-pick`, { choice: String(group.my_pick) });
+      const pickKey = `${itemId}:group-pick`;
+      if (group.my_pick && !liveCardDrafts.has(pickKey)) {
+        liveCardDrafts.set(pickKey, { choice: String(group.my_pick) });
       }
-      liveCardDrafts.set(`${itemId}:group`, {
-        choice: String(group.choice || group.submitted_choice || ""),
-        why: String(group.why || group.submitted_why || ""),
-      });
+      const groupKey = `${itemId}:group`;
+      if (!liveCardDrafts.has(groupKey)) {
+        liveCardDrafts.set(groupKey, {
+          choice: String(group.choice || group.submitted_choice || ""),
+          why: String(group.why || group.submitted_why || ""),
+        });
+      }
     }
     const vote = item?.group_consensus?.my_vote;
     if (vote && typeof vote === "object") {
-      liveCardDrafts.set(`${itemId}:vote`, vote);
+      const voteKey = `${itemId}:vote`;
+      if (!liveCardDrafts.has(voteKey)) liveCardDrafts.set(voteKey, vote);
     }
   });
   const top = payload.my_response?.response;
   const promptId = Number(payload.prompt?.id) || 0;
   if (top && typeof top === "object" && promptId) {
-  const itemId = itemIdForPrompt(promptId);
-    if (itemId) liveCardDrafts.set(`${itemId}:individual`, top);
+    const itemId = itemIdForPrompt(promptId);
+    if (itemId) {
+      const key = `${itemId}:individual`;
+      if (!liveCardDrafts.has(key)) liveCardDrafts.set(key, top);
+    }
   }
 }
 

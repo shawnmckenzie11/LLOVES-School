@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import unittest
+from pathlib import Path
 from typing import Any
 
 import test_live_class_backend_state as backend
+
+LMS_DIR = Path(__file__).resolve().parent
+PORTAL_JS = LMS_DIR / "static" / "student-portal.js"
 
 
 class Mck505StudentRefreshAnswersTests(backend.LiveBackendStateTests):
@@ -222,6 +227,191 @@ class Mck505StudentRefreshAnswersTests(backend.LiveBackendStateTests):
         self.assertFalse(card2.get("can_submit"), card2)
         self.assertEqual(self._engagement_answer_kinds(), kinds_after_submit)
         self.school.close_live_session_item(self.session_id, item_id)
+
+    def test_preload_skips_participation_when_live_rows_present(self) -> None:
+        """No ``get_live_session`` or participation read when live answers exist."""
+        self._begin_and_join(1)
+        _item_id, prompt_id = self._publish_q_one()
+        sid = self.student_ids[0]
+        self.school.submit_live_prompt_response(prompt_id, sid, {"choice": "A"})
+        calls: list[int] = []
+        real = self.school.get_live_session
+
+        def wrapped(session_id: int) -> dict[str, Any] | None:
+            calls.append(int(session_id))
+            return real(int(session_id))
+
+        items = self.school.ensure_live_session_items(self.session_id)
+        self.school.get_live_session = wrapped  # type: ignore[method-assign]
+        calls.clear()
+        self.school._preload_student_prompt_reads(
+            items, sid, "", session_id=self.session_id
+        )
+        self.assertEqual(calls, [])
+
+    def test_rank_reorder_after_answer_when_can_submit_false(self) -> None:
+        """Rank Change answer: resubmit updates the row though ``can_submit`` is false."""
+        meta = dict(backend.metadata_fixture())
+        rank_q = {
+            "id": "rank-one",
+            "ref": "test/question/rank-one",
+            "item_type": "question",
+            "stage": "round",
+            "page_number": 1,
+            "order": 3,
+            "type": "rank",
+            "text": "Order these",
+            "options": ["First", "Second"],
+            "rank_options": [
+                {"id": "o1", "label": "First"},
+                {"id": "o2", "label": "Second"},
+            ],
+            "default_status": "inactive",
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+        }
+        meta["questions"] = list(meta["questions"]) + [rank_q]
+        meta["items"] = list(meta["items"]) + [rank_q]
+        self.school.live_class_metadata_for_session = lambda _: meta
+        self._begin_and_join(1)
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="round", student_view={"questions": "student"}
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        row = next(item for item in items if item["item_id"] == "rank-one")
+        published = self.school.publish_live_session_item(
+            self.session_id, int(row["id"]), publish_mode="individual"
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        assert prompt is not None
+        prompt_id = int(prompt["id"])
+        sid = self.student_ids[0]
+        first_order = ["o1", "o2"]
+        second_order = ["o2", "o1"]
+        self.school.submit_live_prompt_response(
+            prompt_id, sid, {"order": first_order}
+        )
+        payload = self.school.student_live_items_payload(self.session_id, sid)
+        card = next(
+            item
+            for item in payload.get("active_questions") or []
+            if str(item.get("item_id") or "") == "rank-one"
+        )
+        self.assertFalse(card.get("can_submit"), card)
+        self.assertEqual(
+            (card.get("my_response") or {}).get("response", {}).get("order"),
+            first_order,
+        )
+        changed = self.school.submit_live_prompt_response(
+            prompt_id, sid, {"order": second_order}
+        )
+        self.assertNotIn("idempotent_replay", changed)
+        after = self.school.student_live_items_payload(self.session_id, sid)
+        card2 = next(
+            item
+            for item in after.get("active_questions") or []
+            if str(item.get("item_id") or "") == "rank-one"
+        )
+        self.assertEqual(
+            (card2.get("my_response") or {}).get("response", {}).get("order"),
+            second_order,
+        )
+        kinds = self._engagement_answer_kinds()
+        self.assertIn("answer.submit", kinds)
+        self.assertIn("answer.change", kinds)
+
+
+class Mck505ClientTests(unittest.TestCase):
+    """Browser draft map must survive a poll-time hydrate (MCK-505 QA)."""
+
+    def _node(self, script: str) -> None:
+        """Run an ES module snippet from ``lms/`` and expect it to print ok."""
+        done = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=LMS_DIR,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr or done.stdout)
+        self.assertIn("ok", done.stdout)
+
+    def test_hydrate_server_saved_answers_uses_has_guards(self) -> None:
+        """Source mirrors ``hydrateUnsentDrafts``: never overwrite an existing key."""
+        portal = PORTAL_JS.read_text(encoding="utf-8")
+        block = portal.split("function hydrateServerSavedAnswers", 1)[1].split(
+            "function holdUnsentLiveAnswer", 1
+        )[0]
+        self.assertGreaterEqual(block.count("if (!liveCardDrafts.has("), 4)
+
+    def test_poll_hydrate_does_not_clobber_in_progress_drafts(self) -> None:
+        """Half-typed group / vote drafts survive a second hydrate (one poll paint)."""
+        self._node(
+            r"""
+import { readFileSync } from "fs";
+const portal = readFileSync("./static/student-portal.js", "utf8");
+const start = portal.indexOf("function hydrateServerSavedAnswers");
+const end = portal.indexOf("function holdUnsentLiveAnswer", start);
+const src = portal.slice(start, end);
+const liveCardDrafts = new Map();
+const itemIdForPrompt = () => 0;
+const hydrateServerSavedAnswers = new Function(
+  "liveCardDrafts",
+  "itemIdForPrompt",
+  `${src}\nreturn hydrateServerSavedAnswers;`
+)(liveCardDrafts, itemIdForPrompt);
+const groupPayload = {
+  active_questions: [{
+    id: 9,
+    response_mode: "group_submit",
+    group_submit: { choice: "Server", why: "" },
+  }],
+};
+liveCardDrafts.set("9:group", { choice: "Half", why: "still typing" });
+hydrateServerSavedAnswers(groupPayload);
+if (liveCardDrafts.get("9:group").why !== "still typing") {
+  throw new Error("group draft clobbered");
+}
+liveCardDrafts.set("9:vote", { choice: "B" });
+hydrateServerSavedAnswers({
+  active_questions: [{
+    id: 9,
+    response_mode: "group_consensus",
+    group_consensus: { my_vote: { choice: "A" } },
+  }],
+});
+if (liveCardDrafts.get("9:vote").choice !== "B") {
+  throw new Error("vote draft clobbered");
+}
+console.log("ok");
+"""
+        )
+
+    def test_rank_change_answer_ui_still_opens_controls(self) -> None:
+        """``rankEdit`` keeps rank controls when ``can_submit`` is false after submit."""
+        portal = PORTAL_JS.read_text(encoding="utf-8")
+        self.assertIn(
+            "(rankKind && rankEdit)",
+            portal,
+        )
+        self.assertIn(
+            "!hasStoredIndividualAnswer(item)) || (rankKind && rankEdit)",
+            portal,
+        )
+
+
+def load_tests(loader: unittest.TestLoader, _tests: Any, _pattern: Any) -> unittest.TestSuite:
+    """Run MCK-505 tests only, not the inherited live-backend suite."""
+    suite = unittest.TestSuite()
+    names = [
+        name
+        for name, value in vars(Mck505StudentRefreshAnswersTests).items()
+        if name.startswith("test_") and callable(value)
+    ]
+    suite.addTests(Mck505StudentRefreshAnswersTests(name) for name in sorted(names))
+    suite.addTests(loader.loadTestsFromTestCase(Mck505ClientTests))
+    return suite
 
 
 if __name__ == "__main__":
