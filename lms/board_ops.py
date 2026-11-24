@@ -1571,6 +1571,43 @@ class _BoardStore:
 
         return set(self._read(work))
 
+    def head_seqs(
+        self, run_key: str, keys: list[str] | tuple[str, ...]
+    ) -> dict[str, int]:
+        """Read the latest counter for each board. One query, no stroke fold.
+
+        Args:
+            run_key: Key minted when this live run started.
+            keys: Board keys.
+
+        Returns:
+            Map from normalized board key to ``next_seq`` (0 when missing).
+        """
+        cleaned = [normalize_board_key(key) for key in keys if str(key or "").strip()]
+        if not cleaned:
+            return {}
+        run = _run_key(run_key)
+
+        def work(exec_: Exec) -> dict[str, int]:
+            """Select counters for the requested boards."""
+            marks = ",".join("?" for _ in cleaned)
+            cursor = exec_(
+                f"""
+                SELECT board_key, next_seq FROM board_counters
+                WHERE run_key = ? AND board_key IN ({marks})
+                """,
+                (run, *cleaned),
+            )
+            found: dict[str, int] = {}
+            for row in cursor.fetchall():
+                item = _row_dict(row)
+                key = str(item.get("board_key") or "")
+                if key:
+                    found[key] = int(item.get("next_seq") or 0)
+            return {key: found.get(key, 0) for key in cleaned}
+
+        return self._read(work)
+
     def load_keys(
         self, run_key: str, keys: list[str] | None
     ) -> list[dict[str, Any]]:
