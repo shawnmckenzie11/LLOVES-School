@@ -19,8 +19,6 @@ export const GROUP_FLOW_COPY = Object.freeze({
   yourPick: "Your pick: {value}", // NEW
   picksLabel: "Your group's picks", // NEW (list label, a11y + caption)
   you: "You",
-  whyPlaceholder: "Why this answer?",
-  sendReason: "Add your why to send.",
   send: "Send group answer",
   sent: "{name} sent your group's answer.",
   locked: "Your group's answer is locked.",
@@ -175,28 +173,23 @@ export function mcMemberPicksHtml(picks) {
 }
 
 /**
- * Step 2: picks, then the group's choice, the Why, and Send.
+ * Step 2: picks, then the group's choice and Send.
  * @param {any} group
- * @param {{choices: string[], optionsHtml?: string[], choice: string, why: string, itemId: number}} opts
+ * @param {{choices: string[], optionsHtml?: string[], choice: string, itemId: number}} opts
  * @returns {string}
  */
 export function mcAgreeStepHtml(group, opts) {
   const C = GROUP_FLOW_COPY;
-  const ready = Boolean(String(opts.choice || "").trim() && String(opts.why || "").trim());
-  const id = `group-send-reason-${Number(opts.itemId) || 0}`;
+  const ready = Boolean(String(opts.choice || "").trim());
   return `${mcMemberPicksHtml(group?.member_picks)}
     <div class="student-live-answer-controls" data-live-action="group" data-mc-step="agree">
       ${choiceButtons(opts.choices || [], opts.optionsHtml || [], String(opts.choice || ""))}
-      <label class="group-submit-why">Why
-        <textarea data-group-why rows="2" maxlength="500" placeholder="${esc(C.whyPlaceholder)}">${esc(opts.why || "")}</textarea>
-      </label>
-      <button type="button" class="prompt-submit" data-live-submit="group" aria-describedby="${id}"${ready ? "" : " disabled"}>${esc(C.send)}</button>
-      <p class="student-group-send-reason" id="${id}" data-group-send-reason${ready ? " hidden" : ""}>${esc(C.sendReason)}</p>
+      <button type="button" class="prompt-submit" data-live-submit="group"${ready ? "" : " disabled"}>${esc(C.send)}</button>
     </div>`;
 }
 
 /**
- * Locked: who sent it, the answer and why (read-only). No change button.
+ * Locked: who sent it and the answer (read-only). No change button.
  * @param {any} group
  * @returns {string}
  */
@@ -207,9 +200,7 @@ export function mcLockedHtml(group) {
   const who = String(group?.last_submitter || "").trim();
   return `<div class="student-group-locked" data-mc-step="locked" aria-live="polite">
     ${who ? `<p class="student-group-sent">${esc(C.sent.replace("{name}", who))}</p>` : ""}
-    <p class="student-group-final"><strong>${esc(group?.submitted_choice || "")}</strong>${
-      group?.submitted_why ? ` · ${esc(group.submitted_why)}` : ""
-    }</p>
+    <p class="student-group-final"><strong>${esc(group?.submitted_choice || "")}</strong></p>
     <p class="student-group-locked-note">${esc(C.locked)}</p>
   </div>`;
 }

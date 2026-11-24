@@ -1669,8 +1669,7 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
 
 .student-group-strip,
 .student-group-phase,
-.group-submit-last,
-.group-submit-why {
+.group-submit-last {
   margin: 0.35rem 0;
   font-size: 0.92rem;
 }
@@ -3420,7 +3419,7 @@ body.rw-open { overflow: hidden; }
   line-height: 1.35;
   color: #cbd5e1;
 }
-/* MCK-155 S5: disabled Send group answer + why, until everyone answered. */
+/* MCK-155 S5: disabled Send group answer until everyone answered. */
 .student-group-wait {
   display: grid;
   gap: 0.35rem;

@@ -365,12 +365,12 @@ const groupPayload = {
   active_questions: [{
     id: 9,
     response_mode: "group_submit",
-    group_submit: { choice: "Server", why: "" },
+    group_submit: { choice: "Server" },
   }],
 };
-liveCardDrafts.set("9:group", { choice: "Half", why: "still typing" });
+liveCardDrafts.set("9:group", { choice: "Half" });
 hydrateServerSavedAnswers(groupPayload);
-if (liveCardDrafts.get("9:group").why !== "still typing") {
+if (liveCardDrafts.get("9:group").choice !== "Half") {
   throw new Error("group draft clobbered");
 }
 liveCardDrafts.set("9:vote", { choice: "B" });
@@ -399,6 +399,21 @@ console.log("ok");
             "!hasStoredIndividualAnswer(item)) || (rankKind && rankEdit)",
             portal,
         )
+
+    def test_group_mc_ui_has_no_student_why_input(self) -> None:
+        """MCK-505: group cards do not render a shared why field or column."""
+        portal = PORTAL_JS.read_text(encoding="utf-8")
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertNotIn("data-group-why", portal)
+        self.assertNotIn("group-submit-why", portal)
+        block = portal.split("function studentGroupCardBodyHtml", 1)[1].split(
+            "function syncGroupSubmitGate", 1
+        )[0]
+        self.assertNotIn("<th>Why</th>", block)
+        staff_block = staff.split("function groupSubmitTeacherHtml", 1)[1].split(
+            "function splitMcResultsControls", 1
+        )[0]
+        self.assertNotIn("<th>Why</th>", staff_block)
 
 
 def load_tests(loader: unittest.TestLoader, _tests: Any, _pattern: Any) -> unittest.TestSuite:

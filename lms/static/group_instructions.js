@@ -13,9 +13,9 @@
 export const GROUP_INSTRUCTION_COPY = Object.freeze({
   open: "Everyone writes their own answer first. Then your group sends one answer together.",
   // Gate MED-2: an item published before option B keeps the one-step copy.
-  mc: "Talk it over. One person sends your group's answer and why.",
+  mc: "Talk it over. One person sends your group's answer.",
   mc_pick: "Pick your own answer first.",
-  mc_agree: "Now agree on one answer. Whoever sends it writes why.",
+  mc_agree: "Now agree on one answer. One person sends it.",
   waitingMany: "Waiting for {n} more teammates.",
   waitingOne: "Waiting for 1 more teammate.",
   stillWriting: "Still writing: {names}",
