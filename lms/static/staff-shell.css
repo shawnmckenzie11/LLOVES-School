@@ -3316,6 +3316,46 @@ body.staff-shell .live-rename-dialog-card #ap-teams-rename-done {
 body.staff-shell #class-list-pane .ap-att-row.has-team-color .ap-att-name {
   color: var(--team, inherit);
 }
+body.staff-shell.course-live.class-list-collapsed .live-shell-root {
+  --live-left-width: 7.25rem;
+  --live-left-min: 7.25rem;
+  --live-left-max: 7.25rem;
+}
+body.staff-shell.course-live #class-list-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+body.staff-shell.course-live.class-list-collapsed #class-list-body {
+  display: none;
+}
+body.staff-shell.course-live .class-list-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 2.25rem;
+  margin: 0 0 0.35rem;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid var(--live-border, #d5dde6);
+  border-radius: 8px;
+  background: #fff;
+  color: #12202e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+body.staff-shell.course-live.class-list-collapsed #class-list-pane {
+  padding: 0.35rem 0.25rem;
+}
+body.staff-shell #wb-live-undo:disabled,
+body.staff-shell button[data-wb-part="undo"]:disabled,
+body.staff-shell button[data-tool="undo"]:disabled {
+  opacity: 0.45;
+}
 body.staff-shell #class-list-pane .ap-att-team-sep {
   display: block;
   box-sizing: border-box;

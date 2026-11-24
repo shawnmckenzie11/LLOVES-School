@@ -139,7 +139,10 @@ class StudentPortalTests(unittest.TestCase):
         mood_page = self.student.get("/student/mood")
         self.assertEqual(mood_page.status_code, 200)
         mood_html = mood_page.get_data(as_text=True)
-        self.assertIn("Join Class", mood_html)
+        self.assertIn('data-mood-advance-ms="300"', mood_html)
+        self.assertIn("requestSubmit", mood_html)
+        self.assertNotIn(">Join Class<", mood_html)
+        self.assertIn(">Skip<", mood_html)
         self.assertNotIn("Choose your Avatar", mood_html)
         self.assertNotIn("Optional — pick a face", mood_html)
         self.assertNotIn("mood-label", mood_html)
@@ -232,6 +235,36 @@ class StudentPortalTests(unittest.TestCase):
 
         ranked = self.student.get("/api/student/state").get_json()
         self.assertTrue(ranked["show_rank"])
+
+    def test_mood_choice_saves_and_change_mood_returns(self) -> None:
+        """A mood post still saves, and Change mood opens the face screen again."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        saved = self.student.post(
+            "/student/mood",
+            data={"mood": "ok"},
+            follow_redirects=False,
+        )
+        self.assertEqual(saved.status_code, 302)
+        self.assertIn("/student/character", saved.headers.get("Location", ""))
+        self.assertEqual(self._maple_row().get("mood"), "ok")
+        char_html = self.student.get("/student/character").get_data(as_text=True)
+        self.assertIn(">Change mood<", char_html)
+        self.assertIn("change=1", char_html)
+        back = self.student.get("/student/mood?change=1")
+        self.assertEqual(back.status_code, 200)
+        self.assertIn("How are you feeling?", back.get_data(as_text=True))
+        self.assertIn('data-mood-advance-ms="300"', back.get_data(as_text=True))
+        again = self.student.post(
+            "/student/mood",
+            data={"mood": "low"},
+            follow_redirects=False,
+        )
+        self.assertIn("/student/character", again.headers.get("Location", ""))
+        self.assertEqual(self._maple_row().get("mood"), "low")
 
     def test_mood_skip_then_character_then_home(self) -> None:
         """Skip on mood still requires a character pick before home."""

@@ -45,6 +45,11 @@ import {
   syncOverlayPickers,
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
+import {
+  classListStorageKey,
+  classListToggleLabel,
+  classListToggleTitle,
+} from "/static/class_list_rail.js";
 import { bindStaffInfoPopovers } from "/static/staff_info_popover.js";
 import {
   bindWhiteboard,
@@ -11064,6 +11069,55 @@ function paintScoreboardPreviewTotals() {
 }
 
 /**
+ * True when the teacher has the class list open.
+ * @returns {boolean}
+ */
+function classListIsOpen() {
+  return document.body.classList.contains("class-list-open");
+}
+
+/**
+ * Label and tooltip for the class-list rail. Does not change open/closed.
+ */
+function paintClassListToggle() {
+  const btn = $("class-list-toggle");
+  if (!(btn instanceof HTMLButtonElement)) return;
+  const open = classListIsOpen();
+  const n = selectedPresent().length + sessionGuests.length;
+  btn.textContent = classListToggleLabel(open, n);
+  btn.title = classListToggleTitle(open);
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+/**
+ * Open or close the class list and remember it for this teacher.
+ * @param {boolean} open
+ */
+function setClassListOpen(open) {
+  const shown = Boolean(open);
+  document.body.classList.toggle("class-list-open", shown);
+  document.body.classList.toggle("class-list-collapsed", !shown);
+  const teacherId = document.body?.dataset?.userId || "";
+  try {
+    localStorage.setItem(classListStorageKey(teacherId), shown ? "open" : "closed");
+  } catch (_err) {
+    /* Private mode keeps the choice for this page only. */
+  }
+  paintClassListToggle();
+}
+
+/**
+ * One click opens or closes the class list. Slide changes do not call this.
+ */
+function bindClassListToggle() {
+  const btn = $("class-list-toggle");
+  if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", () => setClassListOpen(!classListIsOpen()));
+  paintClassListToggle();
+}
+
+/**
  * Live present count in the header and class-list pane.
  */
 function updateAttCount() {
@@ -11076,7 +11130,10 @@ function updateAttCount() {
   }
   const present = $("live-header-present");
   if (present) present.textContent = `Present ${n}`;
+  if (typeof paintClassListToggle === "function") paintClassListToggle();
 }
+
+bindClassListToggle();
 
 /**
  * True when a supplied round, or the active live round, is a break.

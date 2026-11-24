@@ -279,6 +279,7 @@ from student_portal import (  # noqa: E402
     clear_student_session_keys,
     earned_avatar_keys,
     mood_choices,
+    mood_reselect_requested,
     next_student_endpoint,
     rejoin_token_from_cookie,
     pop_dashboard_focus_catchup,

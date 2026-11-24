@@ -83,6 +83,7 @@ from app import (
     login_required,
     missing_live_session,
     mood_choices,
+    mood_reselect_requested,
     next_student_endpoint,
     normalize_board_key,
     prompt_event,
@@ -111,7 +112,6 @@ from app import (
     url_for,
     visit_token_from_request,
 )
-
 def register_live(app, school, shared):
     """Register live-class routes on the live blueprint.
 
@@ -1594,7 +1594,7 @@ def register_live(app, school, shared):
     @bp.route("/student/mood", methods=["GET", "POST"])
     @student_required
     def student_mood():
-        """Optional mood check-in; Join Class / Skip continue to character pick."""
+        """Optional mood check-in. A chosen face saves and continues; Skip does too."""
         denied = _require_active_live_attendee()
         if denied is not None:
             return denied
@@ -1629,15 +1629,16 @@ def register_live(app, school, shared):
             if not visit_token or visit_token == session.get("student_visit_token"):
                 session["student_mood_done"] = True
             return _student_advance()
-        nxt = next_student_endpoint(
-            school,
-            class_id,
-            student_id,
-            visit_token=visit_token,
-            unmatched=False,
-        )
-        if nxt != "student_mood":
-            return _student_advance()
+        if not mood_reselect_requested(request.args.get("change")):
+            nxt = next_student_endpoint(
+                school,
+                class_id,
+                student_id,
+                visit_token=visit_token,
+                unmatched=False,
+            )
+            if nxt != "student_mood":
+                return _student_advance()
         return render_template(
             "student/mood.html",
             offering=offering,
@@ -1807,6 +1808,7 @@ def register_live(app, school, shared):
         student_id = int(student_id)
         # MCK-116: reward avatars this student owns (claimed rewards, S1).
         earned = earned_avatar_keys(school, class_id, student_id)
+        change_mood_url = student_url_with_token("student_mood", visit_token, change=1)
         if request.method == "POST":
             character = (request.form.get("character") or "").strip()
             try:
@@ -1825,6 +1827,7 @@ def register_live(app, school, shared):
                     codename=str(ctx.get("codename") or ""),
                     reward=_avatar_reward_view(ctx, class_id, student_id),
                     reward_next_url=student_url_with_token("student_home", visit_token),
+                    change_mood_url=change_mood_url,
                 )
             return _student_advance()
         return render_template(
@@ -1837,6 +1840,7 @@ def register_live(app, school, shared):
             codename=str(ctx.get("codename") or ""),
             reward=_avatar_reward_view(ctx, class_id, student_id),
             reward_next_url=student_url_with_token("student_home", visit_token),
+            change_mood_url=change_mood_url,
         )
 
 

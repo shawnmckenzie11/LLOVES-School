@@ -518,6 +518,18 @@ def mood_choices() -> list[dict[str, str]]:
     return [{"key": key, "label": MOOD_LABELS[key]} for key in CHECKIN_MOODS]
 
 
+def mood_reselect_requested(value: str | None) -> bool:
+    """True when the avatar screen sent the student back to mood.
+
+    Args:
+        value: The ``change`` query parameter.
+
+    Returns:
+        True for ``1``, ``true``, or ``yes``.
+    """
+    return (value or "").strip().lower() in {"1", "true", "yes"}
+
+
 
 
 DASHBOARD_FOCUS_CATCHUP_KEY = "student_dashboard_focus_catchup"

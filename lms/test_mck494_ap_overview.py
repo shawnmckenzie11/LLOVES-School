@@ -86,11 +86,16 @@ class PageTests(Base):
         self.assertIn('data-ap-view="overview"', html)
         self.assertIn('data-ap-tab="overview"', html)
         self.assertIn(">Overview<", html)
+        self.assertIn('data-ap-tab="past"', html)
+        self.assertIn(">Past Modules<", html)
+        self.assertLess(html.index('data-ap-tab="overview"'), html.index('data-ap-tab="past"'))
+        self.assertLess(html.index('data-ap-tab="past"'), html.index('data-ap-tab="attendance"'))
         self.assertLess(html.index("ap-subtabs"), html.index("begin-mod-current-table"))
         self.assertIn('id="ap-panel-overview" data-ap-panel="overview">', html)
+        self.assertIn('id="ap-panel-past" data-ap-panel="past" hidden', html)
         self.assertIn('id="ap-panel-attendance" data-ap-panel="attendance" hidden', html)
-        self.assertNotIn("begin-mod-past", html)
-        self.assertNotIn(">Past modules<", html)
+        overview = html.split('id="ap-panel-overview"', 1)[1].split('id="ap-panel-past"', 1)[0]
+        self.assertNotIn("begin-mod-past", overview)
         self.assertIn('id="live-fix-history"', html)
         self.assertIn("End Class report", html)
         self.assertLess(html.index("begin-mod-current-table"), html.index("live-fix-history"))
@@ -108,7 +113,7 @@ class PageTests(Base):
         self.assertIn("padding: 0.28rem 0.55rem;", css)
 
     def test_past_table_is_display_only(self) -> None:
-        """Hiding past modules does not delete stored marks or scores."""
+        """The Past Modules tab shows the old table and does not delete rows."""
         _seed_held_class(self.school, self.class_id, self.students)
         self.school.begin_new_module(self.class_id, "M1", user_id=int(self.teacher["id"]))
         before_marks = int(
@@ -125,8 +130,24 @@ class PageTests(Base):
                 "SELECT COUNT(*) AS n FROM live_participation_credits"
             ).fetchone()["n"]
         )
-        html = self.client.get(f"/staff/class/{self.class_id}?tab=ap").get_data(as_text=True)
-        self.assertNotIn("begin-mod-past", html)
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=ap&view=past")
+        html = page.get_data(as_text=True)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="ap-panel-past" data-ap-panel="past">', html)
+        self.assertIn('id="begin-mod-past"', html)
+        self.assertIn("<h3>Past modules</h3>", html)
+        self.assertIn("1 / 1", html)
+        self.assertIn("<th>Name</th>", html)
+        self.assertIn("<th>Attended</th>", html)
+        self.assertIn("<th>Participation</th>", html)
+        self.assertIn("<th>%</th>", html)
+        past_html = html.split('id="ap-panel-past"', 1)[1].split(
+            'id="ap-panel-attendance"', 1
+        )[0]
+        self.assertNotIn("begin-mod-confirm", past_html)
+        anon = self.app.test_client()
+        locked = anon.get(f"/staff/class/{self.class_id}?tab=ap&view=past")
+        self.assertIn(locked.status_code, {401, 302, 403})
         self.assertTrue(self.school.module_complete(self.class_id, "M1"))
         after_marks = int(
             self.school.conn.execute(
