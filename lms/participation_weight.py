@@ -161,6 +161,11 @@ def board_poll_worth(prompt_kind: str, item_json: Any = None) -> int | None:
     the question was created wins, then ``points`` and ``points_possible``.
     A group board is not an individual poll.
 
+    MCK-514: a Show Your Work board is always worth at least 1. A stored
+    0 (or less) used to make the question worth 0, so a finished board
+    read "1/0". It now reads "1/1". Earned points still come only from a
+    completed board plus the teacher's steps.
+
     Args:
         prompt_kind: ``live_session_prompts.kind`` or the JSON type.
         item_json: Question JSON, text, or a mapping.
@@ -186,8 +191,8 @@ def board_poll_worth(prompt_kind: str, item_json: Any = None) -> int | None:
     except (TypeError, ValueError):
         return 1
     if value <= 0:
-        return 0
-    return int(value + 0.5)
+        return 1
+    return max(1, int(value + 0.5))
 
 
 def item_participation_weight(

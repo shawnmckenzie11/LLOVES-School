@@ -40545,6 +40545,9 @@ class SchoolDB(LovesDB):
             "read_only": True,
             "canvas_view": {"strokes": strokes, "texts": texts},
         }
+        image = str(board.get("image_url") or "")
+        if image:
+            card["image_url"] = image
         raw = json.dumps(card, separators=(",", ":"), default=str)
         if len(raw) > 7500:
             return None
@@ -40889,18 +40892,26 @@ class SchoolDB(LovesDB):
                 except Exception:
                     return None
                 view = fold_one_board(rows, include_feedback=True)
+                try:
+                    from question_board import question_board_image_url
+                except ImportError:
+                    from lms.question_board import question_board_image_url
                 # Poll projection is the drawing only. Names, legend chips,
-                # and roster ids stay off the student payload.
-                return strip_shown_board_names(
-                    public_board_payload(
-                        {
-                            "board_key": key,
-                            "poll": True,
-                            "read_only": True,
-                            "canvas_view": projection_canvas(view),
-                        }
-                    )
+                # and roster ids stay off the student payload. MCK-514: the
+                # question's background image goes as one reference, never
+                # as bytes, so it can sit under the marks like on the phone.
+                shown = {
+                    "board_key": key,
+                    "poll": True,
+                    "read_only": True,
+                    "canvas_view": projection_canvas(view),
+                }
+                image = question_board_image_url(
+                    self, int(session_id), int(parsed_run.n or 0)
                 )
+                if image:
+                    shown["image_url"] = image
+                return strip_shown_board_names(public_board_payload(shown))
         row = session_row if isinstance(session_row, dict) else None
         if row is None or int(row.get("id") or 0) != int(session_id):
             row = self.get_live_session(int(session_id))

@@ -5,13 +5,22 @@
  * drawing in a full-viewport dimmed overlay, centered and read-only.
  * Turning the toggle off hides the overlay immediately. The payload is
  * strokes and text only: no student name, email, or PIN is drawn.
+ *
+ * MCK-514: a Show Your Work background image is drawn first, scaled to
+ * fit the board and centred (the phone's rule), then the marks on top in
+ * the same 2:1 board space, so they line up with the image.
  */
+
+import { drawFittedBoardBackground, loadBoardBackgroundImage } from "./board_background.js";
 
 export const POLL_BOARD_OVERLAY_ID = "poll-board-overlay";
 
+/** Shown-board size. Ink is stored as 0–1 of this 2:1 board. */
+export const SHOWN_BOARD_SIZE = Object.freeze({ w: 720, h: 360 });
+
 const STYLE_ID = "poll-board-show-style";
-const LOGICAL_W = 720;
-const LOGICAL_H = 360;
+const LOGICAL_W = SHOWN_BOARD_SIZE.w;
+const LOGICAL_H = SHOWN_BOARD_SIZE.h;
 
 const CSS = `
 #${POLL_BOARD_OVERLAY_ID} {
@@ -95,7 +104,19 @@ export function dismissPollProjection(doc) {
 function paint(doc, board) {
   const overlay = ensureOverlay(doc);
   const canvas = overlay.querySelector("canvas");
-  if (canvas instanceof HTMLCanvasElement) drawBoard(canvas, board && board.canvas_view);
+  const imageUrl = String((board && board.image_url) || "").trim();
+  const view = board && board.canvas_view;
+  if (canvas instanceof HTMLCanvasElement) {
+    canvas.dataset.imageUrl = imageUrl;
+    drawBoard(canvas, view, null);
+    if (imageUrl) {
+      void loadBoardBackgroundImage(imageUrl).then((image) => {
+        // A newer board may have been shown while the image loaded.
+        if (!image || canvas.dataset.imageUrl !== imageUrl) return;
+        drawBoard(canvas, view, image);
+      });
+    }
+  }
   overlay.hidden = false;
 }
 
@@ -154,25 +175,32 @@ function xy(point) {
  * @param {{x: number, y: number}} point
  * @returns {{x: number, y: number}}
  */
-function place(point) {
+export function place(point) {
   const normalized = Math.abs(point.x) <= 1.5 && Math.abs(point.y) <= 1.5;
   if (!normalized) return point;
   return { x: point.x * LOGICAL_W, y: point.y * LOGICAL_H };
 }
 
 /**
+ * Paint the background image (when loaded), then the marks on top.
+ *
  * @param {HTMLCanvasElement} canvas
  * @param {any} view
+ * @param {HTMLImageElement | null} image Loaded background, or null.
  */
-function drawBoard(canvas, view) {
+function drawBoard(canvas, view, image) {
   const context = canvas.getContext("2d");
   if (!context) return;
   canvas.width = LOGICAL_W;
   canvas.height = LOGICAL_H;
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
-  context.fillStyle = "#f7fafc";
-  context.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+  if (image) {
+    drawFittedBoardBackground(context, LOGICAL_W, LOGICAL_H, image);
+  } else {
+    context.fillStyle = "#f7fafc";
+    context.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+  }
   const strokes = Array.isArray(view && view.strokes) ? view.strokes : [];
   context.lineWidth = 3;
   context.lineCap = "round";
