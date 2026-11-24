@@ -375,29 +375,10 @@ def _credit_group_send_participation(school: Any, session_id: int, live_item_id:
         ).fetchall()
         if not responses:
             return
-        school.conn.execute(
-            """
-            INSERT INTO group_engagement_items (
-                class_id, run_key, question_key, live_module, live_slot,
-                item_json, prompt_kind, offered_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(class_id, run_key, question_key) DO UPDATE SET
-                live_module = excluded.live_module,
-                live_slot = excluded.live_slot,
-                item_json = excluded.item_json,
-                prompt_kind = excluded.prompt_kind
-            """,
-            (
-                class_id,
-                run_key,
-                question_key,
-                module,
-                slot,
-                json.dumps(self_item),
-                kind,
-                now,
-            ),
-        )
+        try:
+            from group_engagement import GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
+        except ImportError:
+            from lms.group_engagement import GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
         credited: list[int] = []
         for response in responses:
             team_id = int(response["team_id"])
@@ -416,7 +397,7 @@ def _credit_group_send_participation(school: Any, session_id: int, live_item_id:
                     INSERT INTO group_engagement (
                         class_id, run_key, question_key, student_id,
                         earned, possible, source, recorded_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'live', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(class_id, run_key, question_key, student_id) DO NOTHING
                     """,
                     (
@@ -426,6 +407,7 @@ def _credit_group_send_participation(school: Any, session_id: int, live_item_id:
                         int(mid),
                         int(earned),
                         int(possible if possible else 1),
+                        GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT,
                         now,
                     ),
                 )

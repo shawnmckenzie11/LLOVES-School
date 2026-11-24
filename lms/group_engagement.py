@@ -30,6 +30,9 @@ RANK_DOUBLED_POSSIBLE = 2
 MC_POSSIBLE = 1
 MC_EARNED = 1
 
+GROUP_ENGAGEMENT_SOURCE_LIVE = "live"
+GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT = "live_submit"
+
 
 def format_fraction(earned: int, possible: int) -> str:
     """Return ``earned/possible``, including ``0/0``, ``1/1``, and ``2/1``.
@@ -185,3 +188,48 @@ def match_reason(matched: int, total: int) -> str:
         total: Present members.
     """
     return f"Everyone needs the same pick ({int(matched)} of {int(total)} match)"
+
+def prefer_persisted_group_rows(rows: list) -> list:
+    """Keep one row per student and question, preferring saved live over Submit staging.
+
+    Submit-time rows use ``live_submit`` until End promotes a ``live`` row.
+    A legacy or teacher ``live`` insert must win over staging for display totals.
+
+    Args:
+        rows: Query rows with ``student_id``, ``question_key``, and ``source``.
+
+    Returns:
+        Rows with at most one entry per ``(student_id, question_key)``.
+    """
+    priority = {
+        GROUP_ENGAGEMENT_SOURCE_LIVE: 3,
+        "catchup": 2,
+        GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT: 1,
+    }
+    best: dict[tuple[int, str], tuple[int, object]] = {}
+    for row in rows:
+        student_id = int(row["student_id"])
+        question_key = str(row["question_key"])
+        source = str(row["source"] if "source" in row.keys() else "live")
+        rank = priority.get(source, 0)
+        key = (student_id, question_key)
+        current = best.get(key)
+        if current is None or rank > current[0]:
+            best[key] = (rank, row)
+    kept = [pair[1] for pair in best.values()]
+    students_with_live = {
+        int(row["student_id"])
+        for row in kept
+        if str(row["source"] or "") == GROUP_ENGAGEMENT_SOURCE_LIVE
+    }
+    if not students_with_live:
+        return kept
+    return [
+        row
+        for row in kept
+        if not (
+            int(row["student_id"]) in students_with_live
+            and str(row["source"] or "") == GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
+        )
+    ]
+

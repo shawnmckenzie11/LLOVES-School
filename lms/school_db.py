@@ -3416,8 +3416,8 @@ class LovesDB:
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT g.student_id, g.earned, g.possible,
-                       COALESCE(i.prompt_kind, '') AS prompt_kind
+                SELECT g.student_id, g.question_key, g.earned, g.possible,
+                       g.source, COALESCE(i.prompt_kind, '') AS prompt_kind
                 FROM group_engagement g
                 LEFT JOIN group_engagement_items i
                     ON i.class_id = g.class_id AND i.run_key = g.run_key
@@ -3427,11 +3427,16 @@ class LovesDB:
                 WHERE g.class_id = ?
                   AND COALESCE(r.discarded, 0) = 0
                   AND (? = '' OR g.run_key = ?)
-                  AND (? = '' OR i.live_module = ?)
+                  AND (? = '' OR COALESCE(i.live_module, ?) = ?)
                   {self._sql_exclude_dismissed_run("g.class_id", "g.run_key")}
                 """,
-                (int(class_id), key, key, mod, mod),
+                (int(class_id), key, key, mod, mod, mod),
             ).fetchall()
+        try:
+            from group_engagement import prefer_persisted_group_rows
+        except ImportError:
+            from lms.group_engagement import prefer_persisted_group_rows
+        rows = prefer_persisted_group_rows(rows)
         totals: dict[int, list[int]] = {}
         for row in rows:
             shown_earned, shown_possible = display_points(
@@ -5788,6 +5793,18 @@ class LovesDB:
             );
             CREATE INDEX IF NOT EXISTS idx_group_engagement_student
                 ON group_engagement(class_id, student_id);
+            CREATE TRIGGER IF NOT EXISTS tr_group_engagement_live_replaces_submit
+            BEFORE INSERT ON group_engagement
+            FOR EACH ROW
+            WHEN NEW.source = 'live'
+            BEGIN
+                DELETE FROM group_engagement
+                WHERE class_id = NEW.class_id
+                  AND run_key = NEW.run_key
+                  AND question_key = NEW.question_key
+                  AND student_id = NEW.student_id
+                  AND source = 'live_submit';
+            END;
             CREATE TABLE IF NOT EXISTS group_engagement_items (
                 class_id INTEGER NOT NULL,
                 run_key TEXT NOT NULL,
@@ -42912,7 +42929,27 @@ class SchoolDB(LovesDB):
                             earned, possible, source, recorded_at
                         ) VALUES (?, ?, ?, ?, ?, ?, 'live', ?)
                         ON CONFLICT(class_id, run_key, question_key, student_id)
-                        DO NOTHING
+                        DO UPDATE SET
+                            earned = CASE
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN excluded.earned
+                                ELSE group_engagement.earned
+                            END,
+                            possible = CASE
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN excluded.possible
+                                ELSE group_engagement.possible
+                            END,
+                            source = CASE
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN 'live'
+                                ELSE group_engagement.source
+                            END,
+                            recorded_at = CASE
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN excluded.recorded_at
+                                ELSE group_engagement.recorded_at
+                            END
                         """,
                         (
                             class_id,
@@ -42943,6 +42980,7 @@ class SchoolDB(LovesDB):
             """,
             (class_id, run_key),
         ).fetchone()
+        self._delete_live_submit_group_engagement_unlocked(class_id, run_key)
         if existing is not None:
             return
         self._upsert_real_catchup_link_unlocked(
@@ -48861,6 +48899,23 @@ class SchoolDB(LovesDB):
             self.prune_live_result_snapshots()
         except Exception:  # noqa: BLE001 - retention must never fail End
             logger.exception("live result snapshot prune failed")
+
+    def _delete_live_submit_group_engagement_unlocked(
+        self, class_id: int, run_key: str
+    ) -> None:
+        """Drop Submit staging rows after End has written persistent live rows.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Live run uuid for one session.
+        """
+        self.conn.execute(
+            """
+            DELETE FROM group_engagement
+            WHERE class_id = ? AND run_key = ? AND source = 'live_submit'
+            """,
+            (int(class_id), str(run_key)),
+        )
 
     def _purge_live_submit_group_engagement(self, session_id: int) -> None:
         """Drop Submit-time group rows when a run quits or closes without End.
