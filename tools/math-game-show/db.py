@@ -2818,6 +2818,66 @@ class GameShowDB:
         except (TypeError, ValueError, sqlite3.Error):
             return False
 
+    def clear_named_teams(
+        self, class_id: int, *, skip_team_ids: frozenset[int] | None = None
+    ) -> None:
+        """Remove named teams and their memberships from the open game.
+
+        Non-Class teams are deleted unless their id is in ``skip_team_ids``.
+        Buckets and memberships for removed teams are cleared. The Class team
+        is never removed.
+
+        Args:
+            class_id: Classes primary key.
+            skip_team_ids: Team primary keys to leave unchanged.
+
+        Raises:
+            KeyError: No open game for this class.
+            ValueError: A skipped team id was not found among named teams.
+        """
+        skip = frozenset(int(value) for value in (skip_team_ids or ()))
+        with self._lock:
+            game = self._game_row(int(class_id))
+            game_id = int(game["id"])
+            rows = self.conn.execute(
+                """
+                SELECT id, name FROM game_teams
+                WHERE game_id = ? AND name != 'Class'
+                """,
+                (game_id,),
+            ).fetchall()
+            existing = {int(row["id"]) for row in rows}
+            missing = skip - existing
+            if missing:
+                raise ValueError(
+                    "Cannot clear teams: protected team ids are missing."
+                )
+            remove_ids = [int(row["id"]) for row in rows if int(row["id"]) not in skip]
+            if not remove_ids:
+                self.conn.commit()
+                return
+            placeholders = ",".join("?" * len(remove_ids))
+            self.conn.execute(
+                f"""
+                DELETE FROM game_memberships
+                WHERE game_id = ? AND team_id IN ({placeholders})
+                """,
+                (game_id, *remove_ids),
+            )
+            self.conn.execute(
+                f"""
+                DELETE FROM team_buckets
+                WHERE game_id = ? AND team_id IN ({placeholders})
+                """,
+                (game_id, *remove_ids),
+            )
+            self.conn.execute(
+                f"DELETE FROM game_teams WHERE game_id = ? AND id IN ({placeholders})",
+                (game_id, *remove_ids),
+            )
+            self._forget_team_index(class_id=int(class_id))
+            self.conn.commit()
+
     def _load_team_membership_index(self, class_id: int) -> dict[str, Any]:
         """Read team rows and memberships under one lock.
 

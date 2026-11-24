@@ -4407,6 +4407,26 @@ def register_live(app, school, shared):
         return jsonify(payload)
 
     @bp.route(
+        "/api/live-sessions/<int:session_id>/groups/redo",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_session_redo_groups(session_id: int):
+        """Staff: clear fixed groups so setup can run again before group Qs go out."""
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if session_row.get("status") != "active":
+            return jsonify({"ok": False, "error": "Session is not active"}), 409
+        try:
+            result = school.redo_live_session_groups(session_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @bp.route(
         "/api/live-sessions/<int:session_id>/questions/<question_id>/visibility",
         methods=["POST"],
     )

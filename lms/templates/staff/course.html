@@ -393,41 +393,9 @@
               <span>Close answers at 0:00</span>
             </label>
           </section>
-          <label class="live-unlock-toggle" id="join-scoreboard-wrap" for="ap-scoreboard-toggle">
-            <input type="checkbox" id="ap-scoreboard-toggle">
-            <span>Scoreboard</span>
-          </label>
-          <label class="live-unlock-toggle" id="join-gamification-wrap" for="ap-gamification-toggle">
-            <input type="checkbox" id="ap-gamification-toggle" data-copy-key="winner.toggle">
-            <span data-copy-key="winner.toggle">Winner page</span>
-          </label>
-          <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
-            <div class="scoreboard-preview" aria-hidden="true">
-              <div class="sb-preview-top">
-                <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
-                <span class="sb-preview-clock">19:16</span>
-              </div>
-              <div class="sb-preview-teams">
-                <div class="sb-preview-team sb-preview-team--1">
-                  <span class="sb-preview-name">TEAM 1</span>
-                  <span class="sb-preview-score">0</span>
-                </div>
-                <div class="sb-preview-team sb-preview-team--2">
-                  <span class="sb-preview-name">TEAM 2</span>
-                  <span class="sb-preview-score">0</span>
-                </div>
-                <div class="sb-preview-team sb-preview-team--3">
-                  <span class="sb-preview-name">TEAM 3</span>
-                  <span class="sb-preview-score">0</span>
-                </div>
-              </div>
-            </div>
-          </div>
           <div id="live-groups-configured" class="live-groups-configured" hidden>
-            <label class="live-unlock-toggle" for="live-run-as-group">
-              <input type="checkbox" id="live-run-as-group">
-              <span>Show teams to students</span>
-            </label>
+            <span class="live-teams-settings-label">Groups</span>
+            <button type="button" class="live-round-pick" id="live-redo-groups" hidden>Redo groups</button>
             <button type="button" class="live-round-pick" id="ap-teams-rename">Rename Teams</button>
           </div>
         </div>
