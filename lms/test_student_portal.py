@@ -170,6 +170,10 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(char_page.status_code, 200)
         char_html = char_page.get_data(as_text=True)
         self.assertIn("Choose your Avatar", char_html)
+        self.assertIn('data-char-advance-ms="300"', char_html)
+        self.assertIn("requestSubmit", char_html)
+        self.assertIn("is-locked", char_html)
+        self.assertNotIn(">Join Class<", char_html)
         self.assertIn("🦊", char_html)
         self.assertIn("🦄", char_html)
         self.assertIn('value="fox"', char_html)
@@ -265,6 +269,69 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertIn("/student/character", again.headers.get("Location", ""))
         self.assertEqual(self._maple_row().get("mood"), "low")
+
+    def test_character_auto_join_and_no_duplicate_checkin(self) -> None:
+        """Avatar tap auto-joins via POST; repeat pick must not log check-in again."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "good"}, follow_redirects=False)
+        char_html = self.student.get("/student/character").get_data(as_text=True)
+        self.assertNotIn(">Join Class<", char_html)
+        self.assertIn('data-char-advance-ms="300"', char_html)
+
+        before_attendees = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(before_attendees), 1)
+
+        def avatar_checkins() -> list[dict]:
+            return [
+                row
+                for row in self.school.list_engagement_events(self.class_id)
+                if row.get("kind") == "checkin.avatar"
+            ]
+
+        picked = self.student.post(
+            "/student/character",
+            data={"character": "fox"},
+            follow_redirects=False,
+        )
+        self.assertEqual(picked.status_code, 302)
+        self.assertIn("/student/home", picked.headers.get("Location", ""))
+        self.assertEqual(self._maple_row().get("character_key"), "fox")
+        self.assertEqual(len(avatar_checkins()), 1)
+
+        repeat = self.student.post(
+            "/student/character",
+            data={"character": "fox"},
+            follow_redirects=False,
+        )
+        self.assertEqual(repeat.status_code, 302)
+        self.assertIn("/student/home", repeat.headers.get("Location", ""))
+        self.assertEqual(len(avatar_checkins()), 1)
+
+        after_attendees = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(after_attendees), 1)
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in after_attendees
+                    if str(row.get("codename") or "") == "Maple"
+                ]
+            ),
+            1,
+        )
+
+        reload_char = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(reload_char.status_code, 302)
+        self.assertIn("/student/home", reload_char.headers.get("Location", ""))
+        self.assertEqual(len(avatar_checkins()), 1)
 
     def test_mood_skip_then_character_then_home(self) -> None:
         """Skip on mood still requires a character pick before home."""
