@@ -15,6 +15,7 @@ import {
   createPresenceQueue,
   normalizeBoardPoint,
 } from "./live_whiteboard.js";
+import { applyCanvasBoardBackground } from "./board_background.js";
 import { mountTeacherGrid } from "./formative_live_board.js";
 import { STUDENT_BOARD_FEEDBACK_LEAD } from "./live_question_card.js";
 import { studentShownMembers } from "./whiteboard_formative.js";
@@ -250,7 +251,12 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     if (root.parentElement !== slot) slot.appendChild(root);
     const typed = root.querySelector(".qboard-text");
     if (typed instanceof HTMLTextAreaElement) {
-      typed.hidden = slot.getAttribute("data-qboard-mode") !== "both";
+      // MCK-512: Show Your Work is whiteboard only; legacy "both" never shows typing.
+      typed.hidden = true;
+    }
+    const canvas = root.querySelector("canvas.student-canvas");
+    if (canvas instanceof HTMLCanvasElement) {
+      applyCanvasBoardBackground(canvas, slot.getAttribute("data-qboard-image") || "");
     }
     const initial = String(slot.getAttribute("data-qboard-initial-feedback") || "");
     if (initial) paintBoardFeedback(slot, initial);
@@ -266,7 +272,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   text.className = "qboard-text";
   text.maxLength = 500;
   text.rows = 2;
-  text.hidden = slot.getAttribute("data-qboard-mode") !== "both";
+  text.hidden = true;
   text.setAttribute("aria-label", "Typed answer");
   const feedbackSlot = document.createElement("div");
   feedbackSlot.className = "qboard-phone-feedback";
@@ -278,11 +284,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   canvas.height = 360;
   canvas.className = "student-canvas";
   canvas.setAttribute("aria-label", "Whiteboard");
-  const image = slot.getAttribute("data-qboard-image") || "";
-  if (image) canvas.style.backgroundImage = `url("${image.replace(/"/g, "")}")`;
-  canvas.style.backgroundSize = "contain";
-  canvas.style.backgroundRepeat = "no-repeat";
-  canvas.style.backgroundPosition = "center";
+  applyCanvasBoardBackground(canvas, slot.getAttribute("data-qboard-image") || "");
   const tools = toolBar();
   stage.append(tools, canvas);
   const workspace = document.createElement("div");
@@ -342,6 +344,10 @@ async function ensurePhoneBoard(slot, key, urls, options) {
           })
         );
       }
+    }
+    if (typeof data.image_url === "string") {
+      applyCanvasBoardBackground(canvas, data.image_url);
+      place.slot.setAttribute("data-qboard-image", data.image_url);
     }
     if (data.editing_locked) freezePhone();
     const locked = Boolean(data.read_only) || place.slot.getAttribute("data-qboard-readonly") === "1";

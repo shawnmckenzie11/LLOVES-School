@@ -108,8 +108,12 @@ export function catchupCardHtml(question, tag) {
   const kind = liveKind === "rank" || liveKind === "artifact" ? "text" : liveKind;
   const boardMode = String(content.answer_with || "");
   const board = boardMode === "board" || boardMode === "both";
+  const boardImage =
+    content?.image_as_board_background !== false && content?.image_url
+      ? String(content.image_url)
+      : "";
   const body = board
-    ? `<div class="qboard-slot" data-qboard-catchup="${escapeText(String(question?.item_id || ""))}" data-qboard-mode="${escapeText(boardMode)}" data-qboard-readonly="${question?.read_only ? "1" : "0"}"></div>`
+    ? `<div class="qboard-slot" data-qboard-catchup="${escapeText(String(question?.item_id || ""))}" data-qboard-mode="${escapeText(boardMode)}" data-qboard-readonly="${question?.read_only ? "1" : "0"}" data-qboard-image="${escapeText(boardImage)}"></div>`
     : question?.answered
     ? `<p class="student-live-own-answer">${escapeText(tag)}</p>`
     : question?.group_rank

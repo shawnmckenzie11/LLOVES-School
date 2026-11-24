@@ -1788,7 +1788,7 @@ def question_dashboard(
     counts = {"Not started": 0, "Drawing": 0, "Submitted": 0, "Teacher wrote": 0}
     for tile in tiles:
         counts[str(tile["status"])] = counts.get(str(tile["status"]), 0) + 1
-    label = "Typing and whiteboard" if mode == "both" else "Whiteboard"
+    label = "Show Your Work" if mode in {"board", "both"} else "Poll"
     stem = str(payload.get("text") or payload.get("prompt") or "").strip()
     submitted = counts["Submitted"] + counts["Teacher wrote"]
     teacher = school.live_session_teacher_state_payload(int(session_id))

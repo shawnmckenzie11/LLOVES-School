@@ -34,6 +34,29 @@ let navItems = [];
 let navIndex = 0;
 /** MCK-172: Answer order as rank row numbers (0–5), right order first. */
 let rankKeyRows = [];
+/** Stored poll answer mode on load so legacy ``both`` is not rewritten on save. */
+let initialAnswerWith = "text";
+
+const SHOW_YOUR_WORK_PICKER = "show_your_work";
+const SHOW_YOUR_WORK_STUDENT_PROMPT = "Show your work on the board.";
+
+/**
+ * Selected picker token, including Show Your Work.
+ * @returns {string}
+ */
+function selectedPickerType() {
+  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
+  return String(selected?.value || "mc").toLowerCase();
+}
+
+/**
+ * True when the picker chose Show Your Work (stored as a board poll).
+ * @param {string} [kind]
+ * @returns {boolean}
+ */
+function pickerIsShowYourWork(kind = selectedPickerType()) {
+  return String(kind).toLowerCase() === SHOW_YOUR_WORK_PICKER;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -76,33 +99,26 @@ function equationPreviewHtml(latex) {
  * Show MC, numeric, or rank fields for the selected type.
  */
 function syncTypeFields() {
-  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
-  const kind = String(selected?.value || "mc").toLowerCase();
+  const kind = selectedPickerType();
   const mc = $("live-add-q-mc-fields");
   const numeric = $("live-add-q-numeric-fields");
   const rank = $("live-add-q-rank-fields");
   if (mc instanceof HTMLElement) mc.hidden = kind !== "mc";
   if (numeric instanceof HTMLElement) numeric.hidden = kind !== "numeric";
   if (rank instanceof HTMLElement) rank.hidden = kind !== "rank";
-  syncAnswerWith();
+  syncBoardImageFields();
   syncRankOptionRows();
 }
 
 /**
- * Show Answer with only for a poll, and the image checkbox only with a board.
+ * Show the board image checkbox and poll live defaults for Show Your Work.
  */
-function syncAnswerWith() {
-  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
-  const kind = String(selected?.value || "mc").toLowerCase();
-  const answer = document.querySelector('input[name="live-add-q-answer-with"]:checked');
-  const mode = String(answer?.value || "text");
-  const host = $("live-add-q-answer-with");
-  if (host instanceof HTMLElement) host.hidden = kind !== "poll";
+function syncBoardImageFields() {
+  const board = pickerIsShowYourWork();
   const image = $("live-add-q-image");
   const hasImage =
     (image instanceof HTMLInputElement && Boolean(image.files && image.files.length)) ||
     Boolean(keptImageUrl);
-  const board = kind === "poll" && (mode === "board" || mode === "both");
   const bg = $("live-add-q-image-bg");
   const hint = $("live-add-q-image-bg-hint");
   if (bg instanceof HTMLElement) bg.hidden = !(board && hasImage);
@@ -113,6 +129,12 @@ function syncAnswerWith() {
   const show = $("live-add-q-show-results");
   if (showLabel instanceof HTMLElement) showLabel.hidden = board;
   if (show instanceof HTMLInputElement && board) show.checked = false;
+  if (board) {
+    const text = $("live-add-q-text");
+    if (text instanceof HTMLTextAreaElement && !String(text.value || "").trim()) {
+      text.value = SHOW_YOUR_WORK_STUDENT_PROMPT;
+    }
+  }
 }
 
 /**
@@ -290,8 +312,15 @@ function paintChrome() {
  */
 function fillQuestion(question) {
   currentQuestion = question;
-  const kind = String(question.type || question.question_type || "mc").toLowerCase();
-  const typeValue = ["mc", "numeric", "poll", "rank"].includes(kind) ? kind : "mc";
+  const payload =
+    question.payload && typeof question.payload === "object" ? question.payload : {};
+  const kind = String(question.type || question.question_type || payload.type || "mc").toLowerCase();
+  const storedWith = String(question.answer_with || payload.answer_with || "text").toLowerCase();
+  initialAnswerWith = storedWith === "board" || storedWith === "both" ? storedWith : "text";
+  let typeValue = ["mc", "numeric", "rank"].includes(kind) ? kind : "mc";
+  if (kind === "poll") {
+    typeValue = storedWith === "board" || storedWith === "both" ? SHOW_YOUR_WORK_PICKER : "poll";
+  }
   const typeInput = document.querySelector(`input[name="live-add-q-type"][value="${typeValue}"]`);
   if (typeInput instanceof HTMLInputElement) typeInput.checked = true;
   const text = $("live-add-q-text");
@@ -329,7 +358,7 @@ function fillQuestion(question) {
     toleranceKind.value = String(question.tolerance_kind || "absolute") === "percent" ? "percent" : "absolute";
   }
   fillRank(question, typeValue === "rank" ? options : []);
-  keptImageUrl = String(question.image_url || "");
+  keptImageUrl = String(question.image_url || payload.image_url || "");
   const image = $("live-add-q-image");
   if (image instanceof HTMLInputElement) image.value = "";
   const response = String(question.live_response_mode || "individual");
@@ -341,14 +370,10 @@ function fillQuestion(question) {
   if (show instanceof HTMLInputElement) {
     show.checked = question.live_show_results == null ? true : Boolean(question.live_show_results);
   }
-  const storedWith = String(question.answer_with || "text");
-  const withInput = document.querySelector(
-    `input[name="live-add-q-answer-with"][value="${storedWith === "board" || storedWith === "both" ? storedWith : "text"}"]`
-  );
-  if (withInput instanceof HTMLInputElement) withInput.checked = true;
   const bg = $("live-add-q-image-bg-check");
+  const storedBg = question.image_as_board_background ?? payload.image_as_board_background;
   if (bg instanceof HTMLInputElement) {
-    bg.checked = question.image_as_board_background == null ? true : Boolean(question.image_as_board_background);
+    bg.checked = storedBg == null ? true : Boolean(storedBg);
   }
   const points = $("live-add-q-points");
   if (points instanceof HTMLInputElement) {
@@ -409,6 +434,7 @@ function fillRank(question, options) {
 function fillBlank(scope) {
   currentQuestion = null;
   keptImageUrl = "";
+  initialAnswerWith = "text";
   const form = $("live-add-question-form");
   if (form instanceof HTMLFormElement) form.reset();
   rankKeyRows = [];
@@ -482,8 +508,8 @@ function stepQuestion(delta) {
  * @returns {Promise<Record<string, unknown>>}
  */
 async function collectBody() {
-  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
-  const kind = String(selected?.value || "mc").toLowerCase();
+  const picker = selectedPickerType();
+  const kind = picker === SHOW_YOUR_WORK_PICKER ? "poll" : picker;
   const text = String($("live-add-q-text")?.value || "").trim();
   if (!text) throw new Error("Question text required.");
   const equation = stripEquationLatex($("live-add-q-equation")?.value || "");
@@ -507,17 +533,19 @@ async function collectBody() {
     body.bank_scope = String(scope instanceof HTMLSelectElement && scope.value ? scope.value : initialScope || "M1");
   }
   if (kind === "poll") {
-    const answer = document.querySelector('input[name="live-add-q-answer-with"]:checked');
-    body.answer_with = String(answer?.value || "text");
-    const bg = $("live-add-q-image-bg-check");
-    body.image_as_board_background = Boolean(bg instanceof HTMLInputElement && bg.checked);
+    if (pickerIsShowYourWork(picker)) {
+      body.answer_with = initialAnswerWith === "both" ? "both" : "board";
+      const bg = $("live-add-q-image-bg-check");
+      body.image_as_board_background = Boolean(bg instanceof HTMLInputElement && bg.checked);
+    } else {
+      body.answer_with = "text";
+    }
   }
   if (defaultsDirty) {
     const response = document.querySelector('input[name="live-add-q-response"]:checked');
     body.live_response_mode = String(response?.value || "individual");
     const show = $("live-add-q-show-results");
-    const answer = document.querySelector('input[name="live-add-q-answer-with"]:checked');
-    const board = kind === "poll" && (answer?.value === "board" || answer?.value === "both");
+    const board = kind === "poll" && pickerIsShowYourWork(picker);
     body.live_show_results = board ? false : Boolean(show instanceof HTMLInputElement && show.checked);
     body.live_points = String($("live-add-q-points")?.value || "").trim();
   }
@@ -645,10 +673,7 @@ function bindEditor() {
   document.querySelectorAll('input[name="live-add-q-type"]').forEach((input) => {
     input.addEventListener("change", () => syncTypeFields());
   });
-  document.querySelectorAll('input[name="live-add-q-answer-with"]').forEach((input) => {
-    input.addEventListener("change", () => syncAnswerWith());
-  });
-  $("live-add-q-image")?.addEventListener("change", () => syncAnswerWith());
+  $("live-add-q-image")?.addEventListener("change", () => syncBoardImageFields());
   $("live-add-q-rank-add")?.addEventListener("click", () => {
     const hidden = document.querySelector("#live-add-q-rank-list .live-add-rank-row[hidden]");
     if (hidden instanceof HTMLElement) hidden.hidden = false;

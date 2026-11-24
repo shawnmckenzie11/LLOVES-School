@@ -237,12 +237,18 @@ export function liveQuestionHeadHtml(content, fallbackKind, formatQuestionHtml) 
   const body = content && typeof content === "object" ? content : {};
   const title = String(body.title || "").trim();
   const stem = String(body.stem || body.prompt || "").trim();
+  const mode = String(body.answer_with || "").toLowerCase();
+  const boardBg =
+  (mode === "board" || mode === "both") &&
+    Boolean(String(body.image_url || "").trim()) &&
+    body.image_as_board_background !== false;
+  const imageBody = boardBg ? { ...body, image_url: "", image_urls: [] } : body;
   return `<div class="student-live-card-head">
           <span class="student-live-card-kicker">${escapeText(
             String(body.type || fallbackKind || "Question").toUpperCase()
           )}</span>
         </div>
-        ${questionImageHtmlStudent(body)}
+        ${questionImageHtmlStudent(imageBody)}
         <h2>${lifecyclePromptHtml({
           ...body,
           text: body.title || body.text,

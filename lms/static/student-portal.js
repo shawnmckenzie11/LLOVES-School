@@ -6555,6 +6555,10 @@ function applyPushedQuestionCard(card) {
   if (answerWith === "board" || answerWith === "both") {
     content.answer_with = answerWith;
   }
+  if (card.image_url) content.image_url = String(card.image_url);
+  if (card.image_as_board_background != null) {
+    content.image_as_board_background = Boolean(card.image_as_board_background);
+  }
   if (kind === "rank") content.rank_options = options;
   const mode = String(card.mode || "individual");
   /** @type {any} */
