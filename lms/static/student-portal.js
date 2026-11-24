@@ -4093,6 +4093,7 @@ function studentOwnAnswerHtml(item) {
 function studentLiveCardBadge(item) {
   const status = String(item?.status || "active").toLowerCase();
   if (status === "closed") return "Results";
+  if (item?.my_response) return "Submitted";
   if (item?.parked) return "Saved";
   return "Active";
 }
@@ -4803,7 +4804,13 @@ function paintLifecycleQuestionStack(payload) {
       const dockKey = liveCardDockKey(item);
       const badge = studentLiveCardBadge(item);
       const shown =
-        badge === "Saved" ? "saved" : badge === "Results" ? "closed" : status;
+        badge === "Saved"
+          ? "saved"
+          : badge === "Results"
+          ? "closed"
+          : badge === "Submitted"
+          ? "submitted"
+          : status;
       const qLabel = questionPushLabel(item, all);
       const minimizeControl =
         status === "closed"

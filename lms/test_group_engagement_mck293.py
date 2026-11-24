@@ -267,13 +267,13 @@ class GroupEngagementTests(ChallengeHarness):
 
     def test_a_test_run_writes_nothing(self) -> None:
         item = self._open()
-        self._place(item, TEAM_A, KEY_IDS)
         with self.school._lock:
             self.school.conn.execute(
                 "UPDATE live_class_sessions SET is_test = 1, created_as_test = 1 WHERE id = ?",
                 (self.session_id,),
             )
             self.school.conn.commit()
+        self._place(item, TEAM_A, KEY_IDS)
         self._end()
         self.assertEqual(self._rows(), {})
 
@@ -287,7 +287,9 @@ class GroupEngagementTests(ChallengeHarness):
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
         self.school.cleanup_live_session_response_data(
-            self.session_id, record_participation=False
+            self.session_id,
+            record_participation=False,
+            purge_submit_group_engagement=True,
         )
         self.assertEqual(self._rows(), {})
 

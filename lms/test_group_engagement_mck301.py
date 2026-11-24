@@ -448,16 +448,16 @@ class LiveCardDuringClassTests(GroupEngagementTests):
     def test_card_shows_live_points_then_saved_rows(self) -> None:
         """During class a no-check send is 2/1 and a checked send adds 1/1.
 
-        Saved rows are still empty, so the card is not 0/0. After End
-        the card shows the saved total, 3/2.
+        Submit writes rows immediately; the dashboard stays quiet until
+        End. After End the card shows the saved total, 3/2.
         """
         ava = self.ids["Ava"]
         first = self._open()
         first_key = self._question_key(first)
         self._place(first, TEAM_A, KEY_IDS)
-        self.assertEqual(self._rows(), {})
+        self.assertEqual(self._rows().get((ava, first_key))[:2], (2, 1))
         dash = self.school.student_dashboard_payload(self.class_id, ava)
-        self.assertEqual(dash["group_engagement"], "0/0")
+        self.assertEqual(dash["group_engagement"], "2/1")
         self.assertEqual(self._live_card(ava), "2/1")
         second = self._open()
         second_key = self._question_key(second)
@@ -466,7 +466,7 @@ class LiveCardDuringClassTests(GroupEngagementTests):
         self.assertEqual(checked.status_code, 200, checked.get_data(as_text=True)[:180])
         self._place(second, TEAM_A, KEY_IDS[2:])
         dash = self.school.student_dashboard_payload(self.class_id, ava)
-        self.assertEqual(dash["group_engagement"], "0/0")
+        self.assertEqual(dash["group_engagement"], "3/2")
         self.assertEqual(self._live_card(ava), "3/2")
         self._end()
         rows = self._rows()

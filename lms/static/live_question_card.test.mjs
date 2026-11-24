@@ -32,7 +32,9 @@ const open = { id: 2, status: "active" };
 const answered = { id: 1, status: "active", my_response: { response: { value: 4 } } };
 const closed = { id: 3, status: "closed" };
 if (questionCardLayout(open, 2) !== "is-open-focus") fail("open card is not the focus");
-if (questionCardLayout(answered, 2) !== "is-compact") fail("answered card did not collapse");
+if (questionCardLayout(answered, 2) !== "is-open-extra") {
+  fail("answered card must stay open after submit (MCK-509)");
+}
 if (questionCardLayout(closed, 2) !== "is-compact") fail("closed card did not collapse");
 if (questionCardLayout({ id: 4, status: "active" }, 2) !== "is-open-extra") {
   fail("older open card took the focus");

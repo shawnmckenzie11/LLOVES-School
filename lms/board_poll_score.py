@@ -258,6 +258,169 @@ def note_contribution(
     )
 
 
+def credit_live_participation_on_submit(
+    school: Any,
+    session_id: int,
+    *,
+    student_id: int | None = None,
+    prompt_id: int | None = None,
+    live_item_id: int | None = None,
+) -> None:
+    """Record participation credit once at Submit and push ``engagement_self``.
+
+    This is the only live-session write path for participation rows. Close
+    and End do not award again; they reconcile only when Submit never landed.
+    Group whiteboard submits use ``credit_group_whiteboard``, which shares
+    the same ``group_engagement`` INSERT shape and also emits ``engagement_self``.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        student_id: Roster id for an individual submit.
+        prompt_id: ``live_session_prompts.id`` for individual questions.
+        live_item_id: ``live_session_items.id`` after a group send.
+    """
+    sid = int(student_id) if student_id not in (None, "") else 0
+    pid = int(prompt_id) if prompt_id not in (None, "") else 0
+    item_id = int(live_item_id) if live_item_id not in (None, "") else 0
+    if sid and pid:
+        with school._lock:
+            test_row = school.conn.execute(
+                "SELECT is_test FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if test_row is not None and bool(int(test_row["is_test"] or 0)):
+            _emit_engagement_self(school, int(session_id), sid)
+            return
+        note_contribution(school, int(session_id), pid, sid, emit=False)
+        _emit_engagement_self(school, int(session_id), sid)
+        return
+    if not item_id:
+        return
+    _credit_group_send_participation(school, int(session_id), item_id)
+
+
+def _credit_group_send_participation(school: Any, session_id: int, live_item_id: int) -> None:
+    """Persist group MC or rank credit for one item right after Submit.
+
+    Args:
+        school: Open school database.
+        session_id: ``live_class_sessions.id``.
+        live_item_id: ``live_session_items.id``.
+    """
+    from group_engagement import member_ids_from_json
+
+    with school._lock:
+        session = school.conn.execute(
+            "SELECT class_id, run_key, is_test FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if session is None:
+            return
+        if bool(int(session["is_test"] or 0)):
+            return
+        class_id = int(session["class_id"])
+        run_key = str(session["run_key"] or "")
+        if not run_key:
+            return
+        item = school.conn.execute(
+            """
+            SELECT i.id, i.placement_key, i.item_json, pr.payload
+            FROM live_session_items i
+            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+            WHERE i.id = ? AND i.live_session_id = ?
+            """,
+            (int(live_item_id), int(session_id)),
+        ).fetchone()
+        if item is None:
+            return
+        kind, stored = school._classify_group_engagement(item["item_json"], item["payload"])
+        if not kind:
+            return
+        placement = str(item["placement_key"] or "").strip() or str(item["id"])
+        question_key = f"item:{placement}"
+        module = ""
+        slot = ""
+        meta = school.conn.execute(
+            "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        if meta is not None:
+            try:
+                teacher = json.loads(meta["teacher_state_json"] or "{}")
+            except (TypeError, ValueError):
+                teacher = {}
+            if isinstance(teacher, dict):
+                module = str(teacher.get("live_module") or "")
+                slot = str(teacher.get("live_slot") or "")
+        now = _stamp()
+        self_item = dict(stored)
+        if placement and not self_item.get("placement_key"):
+            self_item["placement_key"] = placement
+        member_rows = school.conn.execute(
+            "SELECT team_id, student_id FROM live_group_members WHERE live_item_id = ?",
+            (int(live_item_id),),
+        ).fetchall()
+        live_members: dict[int, list[int]] = {}
+        for member in member_rows:
+            live_members.setdefault(int(member["team_id"]), []).append(int(member["student_id"]))
+        responses = school.conn.execute(
+            """
+            SELECT team_id, submit_count, final_answer_json,
+                   engagement_member_ids_json, rank_check_used
+            FROM live_group_responses
+            WHERE live_item_id = ? AND COALESCE(submit_count, 0) > 0
+            """,
+            (int(live_item_id),),
+        ).fetchall()
+        if not responses:
+            return
+        try:
+            from group_engagement import GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
+        except ImportError:
+            from lms.group_engagement import GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
+        credited: list[int] = []
+        for response in responses:
+            team_id = int(response["team_id"])
+            members = member_ids_from_json(response["engagement_member_ids_json"])
+            if not members:
+                skipped = school._skipped_ids_for_live_item(int(live_item_id))
+                members = [
+                    mid
+                    for mid in live_members.get(team_id, [])
+                    if int(mid) not in skipped
+                ]
+            earned, possible = school._group_engagement_points(kind, stored, response)
+            for mid in sorted({int(raw) for raw in members}):
+                cursor = school.conn.execute(
+                    """
+                    INSERT INTO group_engagement (
+                        class_id, run_key, question_key, student_id,
+                        earned, possible, source, recorded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(class_id, run_key, question_key, student_id) DO NOTHING
+                    """,
+                    (
+                        class_id,
+                        run_key,
+                        question_key,
+                        int(mid),
+                        int(earned),
+                        int(possible if possible else 1),
+                        GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT,
+                        now,
+                    ),
+                )
+                if int(cursor.rowcount or 0) > 0:
+                    credited.append(int(mid))
+        school.conn.commit()
+    forget = getattr(school, "forget_board_group_cache", None)
+    if callable(forget):
+        forget(class_id, run_key)
+    for mid in sorted(set(credited)):
+        _emit_engagement_self(school, int(session_id), int(mid))
+
+
 def adjust(
     school: Any,
     session_id: int,

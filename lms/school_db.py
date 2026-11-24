@@ -3416,8 +3416,8 @@ class LovesDB:
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT g.student_id, g.earned, g.possible,
-                       COALESCE(i.prompt_kind, '') AS prompt_kind
+                SELECT g.run_key, g.student_id, g.question_key, g.earned, g.possible,
+                       g.source, COALESCE(i.prompt_kind, '') AS prompt_kind
                 FROM group_engagement g
                 LEFT JOIN group_engagement_items i
                     ON i.class_id = g.class_id AND i.run_key = g.run_key
@@ -3427,11 +3427,16 @@ class LovesDB:
                 WHERE g.class_id = ?
                   AND COALESCE(r.discarded, 0) = 0
                   AND (? = '' OR g.run_key = ?)
-                  AND (? = '' OR i.live_module = ?)
+                  AND (? = '' OR COALESCE(i.live_module, ?) = ?)
                   {self._sql_exclude_dismissed_run("g.class_id", "g.run_key")}
                 """,
-                (int(class_id), key, key, mod, mod),
+                (int(class_id), key, key, mod, mod, mod),
             ).fetchall()
+        try:
+            from group_engagement import prefer_persisted_group_rows
+        except ImportError:
+            from lms.group_engagement import prefer_persisted_group_rows
+        rows = prefer_persisted_group_rows(rows)
         totals: dict[int, list[int]] = {}
         for row in rows:
             shown_earned, shown_possible = display_points(
@@ -3657,6 +3662,28 @@ class LovesDB:
             ]
             for item in stale:
                 cache.pop(item, None)
+
+    def _credit_participation_on_submit(
+        self,
+        session_id: int,
+        *,
+        student_id: int | None = None,
+        prompt_id: int | None = None,
+        live_item_id: int | None = None,
+    ) -> None:
+        """Delegate to the single Submit-time participation write."""
+        try:
+            from board_poll_score import credit_live_participation_on_submit
+        except ImportError:
+            from lms.board_poll_score import credit_live_participation_on_submit
+
+        credit_live_participation_on_submit(
+            self,
+            int(session_id),
+            student_id=student_id,
+            prompt_id=prompt_id,
+            live_item_id=live_item_id,
+        )
 
     def bump_live_card_cache(self) -> None:
         """Forget the shared live-card bundle.
@@ -5766,6 +5793,18 @@ class LovesDB:
             );
             CREATE INDEX IF NOT EXISTS idx_group_engagement_student
                 ON group_engagement(class_id, student_id);
+            CREATE TRIGGER IF NOT EXISTS tr_group_engagement_live_replaces_submit
+            BEFORE INSERT ON group_engagement
+            FOR EACH ROW
+            WHEN NEW.source = 'live'
+            BEGIN
+                DELETE FROM group_engagement
+                WHERE class_id = NEW.class_id
+                  AND run_key = NEW.run_key
+                  AND question_key = NEW.question_key
+                  AND student_id = NEW.student_id
+                  AND source = 'live_submit';
+            END;
             CREATE TABLE IF NOT EXISTS group_engagement_items (
                 class_id INTEGER NOT NULL,
                 run_key TEXT NOT NULL,
@@ -27173,6 +27212,9 @@ class SchoolDB(LovesDB):
                             int(session["live_session_id"]), int(team_id)
                         ),
                     )
+                    self._credit_participation_on_submit(
+                        int(session["live_session_id"]), live_item_id=int(live_item_id)
+                    )
         return cursor.rowcount == 1
 
     def _rank_race_maybe_lock(self, item: dict[str, Any], team_id: int) -> bool:
@@ -28490,6 +28532,9 @@ class SchoolDB(LovesDB):
                 )
         if cursor.rowcount != 1:
             return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
+        self._credit_participation_on_submit(
+            int(item["live_session_id"]), live_item_id=int(item["id"])
+        )
         return self.student_group_submit_state(item, student_id) or {}
 
     @emits("group.submit")
@@ -28580,6 +28625,7 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
+        self._credit_participation_on_submit(session_id, live_item_id=int(item["id"]))
         return self.student_group_submit_state(item, student_id) or {}
 
     def _submit_turns_ranking(
@@ -28683,6 +28729,7 @@ class SchoolDB(LovesDB):
                     int(team_id),
                     self._roster_team_member_ids(session_id, int(team_id)),
                 )
+                self._credit_participation_on_submit(session_id, live_item_id=int(item["id"]))
         return self.student_group_submit_state(item, student_id) or {}
 
     def _submit_group_rank_answer(
@@ -28767,6 +28814,7 @@ class SchoolDB(LovesDB):
                 int(team_id),
                 self._roster_team_member_ids(session_id, int(team_id)),
             )
+        self._credit_participation_on_submit(session_id, live_item_id=int(item["id"]))
         return self.student_group_submit_state(item, student_id) or {}
 
     def check_group_rank(
@@ -33561,13 +33609,10 @@ class SchoolDB(LovesDB):
                 response=response or {},
             )
             if not replay:
-                try:
-                    from board_poll_score import note_contribution
-                except ImportError:
-                    from lms.board_poll_score import note_contribution
-
-                note_contribution(
-                    self, session_id, int(prompt_id), sid, emit=False
+                self._credit_participation_on_submit(
+                    session_id,
+                    student_id=int(sid),
+                    prompt_id=int(prompt_id),
                 )
         return result or {}
 
@@ -42886,20 +42931,24 @@ class SchoolDB(LovesDB):
                         ON CONFLICT(class_id, run_key, question_key, student_id)
                         DO UPDATE SET
                             earned = CASE
-                                WHEN ? = 'rank' THEN group_engagement.earned
-                                ELSE excluded.earned
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN excluded.earned
+                                ELSE group_engagement.earned
                             END,
                             possible = CASE
-                                WHEN ? = 'rank' THEN group_engagement.possible
-                                ELSE excluded.possible
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN excluded.possible
+                                ELSE group_engagement.possible
                             END,
                             source = CASE
-                                WHEN ? = 'rank' THEN group_engagement.source
-                                ELSE 'live'
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN 'live'
+                                ELSE group_engagement.source
                             END,
                             recorded_at = CASE
-                                WHEN ? = 'rank' THEN group_engagement.recorded_at
-                                ELSE excluded.recorded_at
+                                WHEN group_engagement.source = 'live_submit'
+                                THEN excluded.recorded_at
+                                ELSE group_engagement.recorded_at
                             END
                         """,
                         (
@@ -42910,10 +42959,6 @@ class SchoolDB(LovesDB):
                             int(earned),
                             int(offered),
                             now,
-                            kind,
-                            kind,
-                            kind,
-                            kind,
                         ),
                     )
         if not wrote:
@@ -42935,6 +42980,7 @@ class SchoolDB(LovesDB):
             """,
             (class_id, run_key),
         ).fetchone()
+        self._delete_live_submit_group_engagement_unlocked(class_id, run_key)
         if existing is not None:
             return
         self._upsert_real_catchup_link_unlocked(
@@ -48730,6 +48776,7 @@ class SchoolDB(LovesDB):
         live_run: bool = True,
         discard: bool = False,
         record_participation: bool = True,
+        purge_submit_group_engagement: bool = False,
     ) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
@@ -48749,6 +48796,11 @@ class SchoolDB(LovesDB):
                 link, or Lesson Slides row. IT force-end, cancel, and
                 closing the attendance card use this. A real End leaves it
                 True.
+            purge_submit_group_engagement: When True, drop Submit-time
+                ``group_engagement`` rows for this run. Quit sets this via
+                ``discard``. A first close without recording participation
+                sets it from ``invalidate_live_session_code``. A second
+                close on an already-ended session must leave this False.
         """
 
         self.purge_board_ops(int(session_id))
@@ -48758,6 +48810,8 @@ class SchoolDB(LovesDB):
             from lms.question_board import purge_run_copies
 
         purge_run_copies(self, int(session_id), keep_submitted=not bool(discard))
+        if discard or purge_submit_group_engagement:
+            self._purge_live_submit_group_engagement(int(session_id))
         if discard:
             try:
                 _base, _gen = self._live_board_base_run_key(int(session_id))
@@ -48845,6 +48899,59 @@ class SchoolDB(LovesDB):
             self.prune_live_result_snapshots()
         except Exception:  # noqa: BLE001 - retention must never fail End
             logger.exception("live result snapshot prune failed")
+
+    def _delete_live_submit_group_engagement_unlocked(
+        self, class_id: int, run_key: str
+    ) -> None:
+        """Drop Submit staging rows after End has written persistent live rows.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Live run uuid for one session.
+        """
+        self.conn.execute(
+            """
+            DELETE FROM group_engagement
+            WHERE class_id = ? AND run_key = ? AND source = 'live_submit'
+            """,
+            (int(class_id), str(run_key)),
+        )
+
+    def _purge_live_submit_group_engagement(self, session_id: int) -> None:
+        """Drop Submit-time group rows when a run quits or closes without End.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT class_id, run_key FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+            if row is None:
+                return
+            run_key = str(row["run_key"] or "")
+            class_id = int(row["class_id"])
+            if not run_key:
+                return
+            self.conn.execute(
+                """
+                DELETE FROM group_engagement
+                WHERE class_id = ? AND run_key = ? AND source = 'live_submit'
+                """,
+                (class_id, run_key),
+            )
+            self.conn.execute(
+                """
+                DELETE FROM group_engagement_items
+                WHERE class_id = ? AND run_key = ? AND prompt_kind IN ('rank', 'mc')
+                """,
+                (class_id, run_key),
+            )
+            self.conn.commit()
+        forget = getattr(self, "forget_board_group_cache", None)
+        if callable(forget):
+            forget(class_id, run_key)
 
     def _delete_live_session_response_rows_unlocked(self, session_id: int) -> None:
         """Delete votes, group rows, and prompt responses for one session.
@@ -49033,7 +49140,9 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         self.cleanup_live_session_response_data(
-            session_id, record_participation=bool(record_participation)
+            session_id,
+            record_participation=bool(record_participation),
+            purge_submit_group_engagement=not record_participation,
         )
         if self.presence is not None:
             self.presence.mark_session_ended(int(session_id), ended_value)

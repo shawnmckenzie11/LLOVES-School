@@ -30,6 +30,9 @@ RANK_DOUBLED_POSSIBLE = 2
 MC_POSSIBLE = 1
 MC_EARNED = 1
 
+GROUP_ENGAGEMENT_SOURCE_LIVE = "live"
+GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT = "live_submit"
+
 
 def format_fraction(earned: int, possible: int) -> str:
     """Return ``earned/possible``, including ``0/0``, ``1/1``, and ``2/1``.
@@ -185,3 +188,50 @@ def match_reason(matched: int, total: int) -> str:
         total: Present members.
     """
     return f"Everyone needs the same pick ({int(matched)} of {int(total)} match)"
+
+def prefer_persisted_group_rows(rows: list) -> list:
+    """Keep one row per student and question, preferring saved live over Submit staging.
+
+    Submit-time rows use ``live_submit`` until End promotes a ``live`` row.
+    A legacy or teacher ``live`` insert must win over staging for display totals.
+
+    Args:
+        rows: Query rows with ``run_key``, ``student_id``, ``question_key``, and ``source``.
+
+    Returns:
+        Rows with at most one entry per ``(run_key, student_id, question_key)``.
+    """
+    priority = {
+        GROUP_ENGAGEMENT_SOURCE_LIVE: 3,
+        "catchup": 2,
+        GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT: 1,
+    }
+    best: dict[tuple[str, int, str], tuple[int, object]] = {}
+    for row in rows:
+        run_key = str(row["run_key"] if "run_key" in row.keys() else "")
+        student_id = int(row["student_id"])
+        question_key = str(row["question_key"])
+        source = str(row["source"] if "source" in row.keys() else "live")
+        rank = priority.get(source, 0)
+        dedupe_key = (run_key, student_id, question_key)
+        current = best.get(dedupe_key)
+        if current is None or rank > current[0]:
+            best[dedupe_key] = (rank, row)
+    kept = [pair[1] for pair in best.values()]
+    runs_with_live_for_student: set[tuple[str, int]] = {
+        (str(row["run_key"] if "run_key" in row.keys() else ""), int(row["student_id"]))
+        for row in kept
+        if str(row["source"] or "") == GROUP_ENGAGEMENT_SOURCE_LIVE
+    }
+    if not runs_with_live_for_student:
+        return kept
+    return [
+        row
+        for row in kept
+        if not (
+            (str(row["run_key"] if "run_key" in row.keys() else ""), int(row["student_id"]))
+            in runs_with_live_for_student
+            and str(row["source"] or "") == GROUP_ENGAGEMENT_SOURCE_LIVE_SUBMIT
+        )
+    ]
+
