@@ -1808,7 +1808,6 @@ def register_live(app, school, shared):
         student_id = int(student_id)
         # MCK-116: reward avatars this student owns (claimed rewards, S1).
         earned = earned_avatar_keys(school, class_id, student_id)
-        change_mood_url = student_url_with_token("student_mood", visit_token, change=1)
         if request.method == "POST":
             character = (request.form.get("character") or "").strip()
             try:
@@ -1827,7 +1826,6 @@ def register_live(app, school, shared):
                     codename=str(ctx.get("codename") or ""),
                     reward=_avatar_reward_view(ctx, class_id, student_id),
                     reward_next_url=student_url_with_token("student_home", visit_token),
-                    change_mood_url=change_mood_url,
                 )
             return _student_advance()
         return render_template(
@@ -1840,7 +1838,6 @@ def register_live(app, school, shared):
             codename=str(ctx.get("codename") or ""),
             reward=_avatar_reward_view(ctx, class_id, student_id),
             reward_next_url=student_url_with_token("student_home", visit_token),
-            change_mood_url=change_mood_url,
         )
 
 
