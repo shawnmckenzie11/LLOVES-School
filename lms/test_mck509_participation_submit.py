@@ -127,6 +127,20 @@ class GroupSubmitPersistTests(GroupEngagementTests):
         self.assertEqual(int(after["n"]), int(before["n"]))
         self.assertEqual(int(after["earned"] or 0), int(earned_before["earned"] or 0))
 
+    def test_second_invalidate_after_end_keeps_group_engagement(self) -> None:
+        """A repeat close must not purge rows the first End saved."""
+        item = self._open()
+        self._place(item, TEAM_A, KEY_IDS)
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        rows_after_end = dict(self._rows())
+        self.assertTrue(rows_after_end)
+        session = self.school.get_live_session(self.session_id)
+        self.assertEqual(str(session.get("status")), "ended")
+        self.school.invalidate_live_session_code(
+            self.session_id, record_participation=False
+        )
+        self.assertEqual(dict(self._rows()), rows_after_end)
+
 
 class PortalRegressionTests(unittest.TestCase):
     """Frontend helpers for Submitted badges and open answered cards."""

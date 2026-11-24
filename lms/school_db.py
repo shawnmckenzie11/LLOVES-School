@@ -48738,6 +48738,7 @@ class SchoolDB(LovesDB):
         live_run: bool = True,
         discard: bool = False,
         record_participation: bool = True,
+        purge_submit_group_engagement: bool = False,
     ) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
@@ -48757,6 +48758,11 @@ class SchoolDB(LovesDB):
                 link, or Lesson Slides row. IT force-end, cancel, and
                 closing the attendance card use this. A real End leaves it
                 True.
+            purge_submit_group_engagement: When True, drop Submit-time
+                ``group_engagement`` rows for this run. Quit sets this via
+                ``discard``. A first close without recording participation
+                sets it from ``invalidate_live_session_code``. A second
+                close on an already-ended session must leave this False.
         """
 
         self.purge_board_ops(int(session_id))
@@ -48766,7 +48772,7 @@ class SchoolDB(LovesDB):
             from lms.question_board import purge_run_copies
 
         purge_run_copies(self, int(session_id), keep_submitted=not bool(discard))
-        if discard or not record_participation:
+        if discard or purge_submit_group_engagement:
             self._purge_live_submit_group_engagement(int(session_id))
         if discard:
             try:
@@ -49076,7 +49082,9 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         self.cleanup_live_session_response_data(
-            session_id, record_participation=bool(record_participation)
+            session_id,
+            record_participation=bool(record_participation),
+            purge_submit_group_engagement=not record_participation,
         )
         if self.presence is not None:
             self.presence.mark_session_ended(int(session_id), ended_value)

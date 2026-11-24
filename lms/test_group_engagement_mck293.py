@@ -287,7 +287,9 @@ class GroupEngagementTests(ChallengeHarness):
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
         self.school.cleanup_live_session_response_data(
-            self.session_id, record_participation=False
+            self.session_id,
+            record_participation=False,
+            purge_submit_group_engagement=True,
         )
         self.assertEqual(self._rows(), {})
 
