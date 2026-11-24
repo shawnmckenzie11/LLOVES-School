@@ -18,11 +18,16 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from collections import OrderedDict
 from typing import Any, Callable, Iterator
 
+from formative_live_board import strip_shown_board_names
 from name_match import loose_name_key, name_key, same_name  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+#: Show All grids kept in this process. Older sessions are dropped.
+_SHOW_ALL_CACHE_SESSIONS = 8
 
 #: End waits this long for another End of the same run (double click) to
 #: finish before refusing with "End in progress, try again" (MCK-72).
@@ -39487,6 +39492,13 @@ class SchoolDB(LovesDB):
                     int(session_id),
                     teacher_state=teacher,
                 )
+                # MCK-338: phones get the grid without names. The teacher
+                # gallery and the projector still read the named cards.
+                payload["class_boards"] = self.whiteboard_class_boards(
+                    int(session_id),
+                    teacher_state=teacher,
+                    for_student=True,
+                )
                 active_prompt = self._student_board_feedback_prompt(int(session_id))
                 note = self._student_board_feedback_text(
                     int(session_id),
@@ -40699,6 +40711,9 @@ class SchoolDB(LovesDB):
                 "context": context,
                 "summary": summary_line(tiles),
                 "projected_board": str(teacher.get("whiteboard_projected_board") or ""),
+                "projected_all": self._gallery_show_all(
+                    int(session_id), teacher, self.live_board_run_key(int(session_id))
+                ),
                 "tiles": tiles,
             }
         )
@@ -40930,6 +40945,9 @@ class SchoolDB(LovesDB):
             payload["whiteboard_projected_run"] = str(run_key)[:80]
         else:
             payload.pop("whiteboard_projected_run", None)
+        # A single board replaces Show All. Stopping the single board
+        # also leaves the grid down.
+        payload["whiteboard_projected_all"] = False
         self._write_teacher_state(int(session_id), payload)
         event: dict[str, Any] = {"type": "board_show", "board_key": text[:80]}
         if text:
@@ -41135,6 +41153,490 @@ class SchoolDB(LovesDB):
         if released:
             body["feedback_view"] = view
         return public_board_payload(body)
+
+    def _gallery_show_all(
+        self, session_id: int, teacher: dict[str, Any], gallery_run: str
+    ) -> bool:
+        """True when Show All is up for this gallery's run.
+
+        A question grid and the session gallery do not share the flag.
+        The other gallery's button stays a show action.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            teacher: Public teacher state for this poll.
+            gallery_run: Run key this gallery paints.
+        """
+        if not bool(teacher.get("whiteboard_projected_all")):
+            return False
+        return self._projected_run_raw(int(session_id)) == str(gallery_run or "")
+
+    def show_all_whiteboards(
+        self, session_id: int, *, run_key: str | None = None
+    ) -> dict[str, Any]:
+        """Project every board in one gallery, or take that grid down.
+
+        The same press stops the grid. A single-board Show is cleared
+        so the class sees every board instead of one. No ink row is
+        written. Wipe and unwipe are not used. ``state_seq`` stays put.
+        The postcard is the key ``all`` (or empty when the grid stops).
+        Each phone loads the drawings on its own short delay.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            run_key: Question run to project. The session gallery run is
+                used when this is omitted.
+
+        Returns:
+            ``projected_all`` and the run key.
+
+        Raises:
+            KeyError: The live session is missing.
+            ValueError: The session is not active, or the run key is not
+                one this session owns.
+            QuestionBoardError: The question is missing or is not a board.
+        """
+        from live_news_wire import emit_session_news
+
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        if str(session_row.get("status") or "") != "active":
+            raise ValueError("Session is not active.")
+        target = str(run_key or "").strip() or self.live_board_run_key(int(session_id))
+        self._require_show_all_run(int(session_id), target)
+        teacher = self.live_session_teacher_state_payload(int(session_id))
+        current_run = self._projected_run_raw(int(session_id))
+        showing = bool(teacher.get("whiteboard_projected_all")) and current_run == target
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        raw = row["teacher_state_json"] if row is not None else ""
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["whiteboard_projected_board"] = None
+        if showing:
+            payload["whiteboard_projected_all"] = False
+            payload.pop("whiteboard_projected_run", None)
+            event_key = ""
+        else:
+            payload["whiteboard_projected_all"] = True
+            payload["whiteboard_projected_run"] = target[:80]
+            event_key = "all"
+        self._write_teacher_state(int(session_id), payload)
+        emit_session_news(
+            self, int(session_id), [{"type": "board_show", "board_key": event_key}]
+        )
+        return {
+            "ok": True,
+            "projected": not showing,
+            "projected_all": not showing,
+            "run_key": target,
+        }
+
+    def _require_show_all_run(self, session_id: int, run_key: str) -> None:
+        """Refuse a Show All run that is not this session's gallery.
+
+        A question run must belong to this live class and use a board.
+        The session gallery run is accepted as-is.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            run_key: Run the grid will read.
+
+        Raises:
+            ValueError: The run key is not this session's.
+            QuestionBoardError: The question is missing or is not a board.
+        """
+        try:
+            from question_board import (
+                QuestionBoardError,
+                _question_item,
+                parse_board_run_key,
+                uses_board,
+            )
+        except ImportError:
+            from lms.question_board import (
+                QuestionBoardError,
+                _question_item,
+                parse_board_run_key,
+                uses_board,
+            )
+
+        try:
+            parsed = parse_board_run_key(run_key)
+        except ValueError as exc:
+            raise ValueError("whiteboard run is not valid") from exc
+        base, _gen = self._live_board_base_run_key(int(session_id))
+        if str(parsed.base) != str(base):
+            raise ValueError("whiteboard run is not this class")
+        if parsed.kind != "question":
+            return
+        prompt, item = _question_item(self, int(session_id), int(parsed.n or 0))
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        if not uses_board(payload):
+            payload = item.get("item") if isinstance(item.get("item"), dict) else payload
+        if not uses_board(payload):
+            raise QuestionBoardError("This question does not use a board.", 400)
+
+    def whiteboard_class_boards(
+        self,
+        session_id: int,
+        *,
+        teacher_state: dict[str, Any] | None = None,
+        session_row: dict[str, Any] | None = None,
+        for_student: bool = False,
+    ) -> list[dict[str, Any]] | None:
+        """Every board Show All is projecting, or None.
+
+        Each card is the Show on Board drawing: strokes and text in the
+        board's coordinate space, and at most one image reference under
+        them. The reference is a site path or ``https`` URL. Image bytes
+        are not copied. The teacher copy keeps names (MCK-272). The
+        student copy is the same grid with names removed (MCK-338). The
+        two copies are cached apart, keyed by this session and the
+        boards' ink sequences, so a quiet poll does not fold the ink
+        again. Nothing is written, and the wipe path is not entered. An
+        idle poll with the flag off returns before the gallery is read.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            teacher_state: Teacher state already loaded for this poll.
+            session_row: Live session row already loaded for this poll.
+            for_student: True for the name-free copy sent to phones.
+
+        Returns:
+            A list of board cards, or None when Show All is off.
+        """
+        teacher = teacher_state if isinstance(teacher_state, dict) else None
+        if teacher is None:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
+        if not teacher.get("whiteboard_projected_all"):
+            return None
+        run = self._projected_run_raw(int(session_id))
+        if not run:
+            return None
+        try:
+            from question_board import parse_board_run_key
+        except ImportError:
+            from lms.question_board import parse_board_run_key
+
+        try:
+            parsed = parse_board_run_key(run)
+        except ValueError:
+            return None
+        audience = "student" if for_student else "teacher"
+        stamp = self._show_all_cache_stamp(
+            int(session_id),
+            run,
+            parsed,
+            session_row if isinstance(session_row, dict) else None,
+        )
+        cached = self._show_all_cache_get(int(session_id), stamp, audience)
+        if cached is not None:
+            return cached
+        if parsed.kind == "question":
+            named = self._question_show_all_cards(
+                int(session_id), int(parsed.n or 0), run
+            )
+        else:
+            named = self._session_show_all_cards(
+                int(session_id),
+                session_row if isinstance(session_row, dict) else None,
+            )
+        stripped = strip_shown_board_names(named)
+        self._show_all_cache_put(int(session_id), stamp, named, stripped)
+        return stripped if for_student else named
+
+    def _show_all_cache_stamp(
+        self,
+        session_id: int,
+        run_key: str,
+        parsed: Any,
+        session_row: dict[str, Any] | None,
+    ) -> tuple[Any, ...]:
+        """Identity of the grid that is up, without folding strokes.
+
+        The stamp is the run, each board's latest counter, and the image
+        reference. A new stroke moves one counter. A quiet poll does not.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            run_key: Projected run key.
+            parsed: Parsed run key.
+            session_row: Live session row already loaded for this poll.
+        """
+        _ = session_row
+        keys = self._show_all_board_keys(int(session_id), parsed)
+        seqs = self._show_all_seq_stamp(run_key, keys)
+        image = ""
+        if getattr(parsed, "kind", "") == "question":
+            try:
+                from question_board import question_board_image_url
+            except ImportError:
+                from lms.question_board import question_board_image_url
+
+            image = question_board_image_url(
+                self, int(session_id), int(getattr(parsed, "n", 0) or 0)
+            )
+        return (run_key, seqs, image)
+
+    def _show_all_board_keys(
+        self, session_id: int, parsed: Any
+    ) -> tuple[str, ...]:
+        """Board keys in the projected gallery, in a stable order.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            parsed: Parsed run key.
+        """
+        if getattr(parsed, "kind", "") == "question":
+            try:
+                from question_board import _cards_for_question, _question_item
+            except ImportError:
+                from lms.question_board import _cards_for_question, _question_item
+
+            try:
+                _prompt, item = _question_item(
+                    self, int(session_id), int(getattr(parsed, "n", 0) or 0)
+                )
+            except Exception:
+                return ()
+            cards = _cards_for_question(self, int(session_id), item)
+        else:
+            try:
+                cards = self._gallery_cards(int(session_id))
+            except (KeyError, ValueError):
+                return ()
+        keys = sorted(
+            {
+                str(card.get("board_key") or "")
+                for card in cards
+                if str(card.get("board_key") or "")
+            }
+        )
+        return tuple(keys)
+
+    def _show_all_seq_stamp(
+        self, run_key: str, keys: tuple[str, ...]
+    ) -> tuple[tuple[str, int], ...]:
+        """Latest ink counter for each board. One read, no stroke fold.
+
+        Args:
+            run_key: Projected run key.
+            keys: Board keys already sorted.
+        """
+        if not keys:
+            return ()
+        placeholders = ",".join("?" for _ in keys)
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT board_key, next_seq FROM board_counters
+                WHERE run_key = ? AND board_key IN ({placeholders})
+                """,
+                (run_key, *keys),
+            ).fetchall()
+        found = {
+            str(row["board_key"]): int(row["next_seq"] or 0) for row in rows
+        }
+        return tuple((key, found.get(key, 0)) for key in keys)
+
+    def _show_all_cache_get(
+        self, session_id: int, stamp: tuple[Any, ...], audience: str
+    ) -> list[dict[str, Any]] | None:
+        """Return a cached grid, or None on a miss.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stamp: Run, sequences, and image reference.
+            audience: ``teacher`` or ``student``.
+        """
+        with self._lock:
+            cache = getattr(self, "_show_all_grid_cache", None)
+            if not isinstance(cache, OrderedDict):
+                return None
+            found = cache.get((int(session_id), stamp, audience))
+            if not isinstance(found, list):
+                return None
+            return list(found)
+
+    def _show_all_cache_put(
+        self,
+        session_id: int,
+        stamp: tuple[Any, ...],
+        named: list[dict[str, Any]],
+        stripped: list[dict[str, Any]],
+    ) -> None:
+        """Store both grids and drop sessions that fell off the end.
+
+        The student list is a separate object from the teacher list.
+        Reads and writes share ``self._lock``. Dropping a session uses
+        ``pop`` so a second poll cannot raise if that session is already
+        gone. Callers must not mutate the stored cards.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stamp: Run, sequences, and image reference.
+            named: Teacher and projector copy.
+            stripped: Phone copy, with names already removed.
+        """
+        with self._lock:
+            cache = getattr(self, "_show_all_grid_cache", None)
+            if not isinstance(cache, OrderedDict):
+                cache = OrderedDict()
+                self._show_all_grid_cache = cache
+            sid = int(session_id)
+            for key in [item for item in cache if item[0] == sid]:
+                cache.pop(key, None)
+            cache[(sid, stamp, "teacher")] = named
+            cache[(sid, stamp, "student")] = stripped
+            cache.move_to_end((sid, stamp, "student"))
+            sessions: list[int] = []
+            for key in cache:
+                if key[0] not in sessions:
+                    sessions.append(key[0])
+            while len(sessions) > _SHOW_ALL_CACHE_SESSIONS:
+                old = sessions.pop(0)
+                for key in [item for item in cache if item[0] == old]:
+                    cache.pop(key, None)
+
+    def _show_all_card(
+        self,
+        board_key: str,
+        card: dict[str, Any],
+        view: dict[str, Any],
+        image_url: str,
+        *,
+        poll: bool,
+    ) -> dict[str, Any]:
+        """One projected board: name, marks, and a single image reference.
+
+        Args:
+            board_key: ``solo:`` or ``team:`` key.
+            card: Gallery tile. Only the display name is copied.
+            view: Folded canvas for this board.
+            image_url: Question image reference, or blank.
+            poll: True when this board belongs to a question.
+        """
+        from formative_live_board import projection_canvas
+
+        try:
+            from question_board import public_board_image_url
+        except ImportError:
+            from lms.question_board import public_board_image_url
+
+        shown: dict[str, Any] = {
+            "board_key": str(board_key)[:80],
+            "name": str(card.get("name") or ""),
+            "poll": bool(poll),
+            "read_only": True,
+            "canvas_view": projection_canvas(view),
+        }
+        members = [
+            str(name).strip()
+            for name in (card.get("member_names") or [])
+            if str(name or "").strip()
+        ]
+        if members:
+            shown["member_names"] = members
+        image = public_board_image_url(image_url)
+        if image:
+            shown["image_url"] = image
+        return shown
+
+    def _question_show_all_cards(
+        self, session_id: int, prompt_id: int, run_key: str
+    ) -> list[dict[str, Any]]:
+        """Question boards for the Show All grid.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            run_key: ``<base>~q<prompt id>``.
+        """
+        from board_ops import fold_one_board
+        from formative_live_board import public_board_payload
+
+        try:
+            from question_board import _cards_for_question, _question_item, question_board_image_url
+        except ImportError:
+            from lms.question_board import (
+                _cards_for_question,
+                _question_item,
+                question_board_image_url,
+            )
+
+        try:
+            _prompt, item = _question_item(self, int(session_id), int(prompt_id))
+        except Exception:
+            return []
+        cards = _cards_for_question(self, int(session_id), item)
+        image = question_board_image_url(self, int(session_id), int(prompt_id))
+        keys = [str(card.get("board_key") or "") for card in cards if card.get("board_key")]
+        by_key: dict[str, list[dict[str, Any]]] = {}
+        if keys:
+            try:
+                for row in self.boards.load_keys(run_key, keys):
+                    by_key.setdefault(str(row.get("board_key") or ""), []).append(row)
+            except Exception:
+                logger.warning("show all omitted the question drawings")
+                return []
+        out = []
+        for card in cards:
+            key = str(card.get("board_key") or "")
+            if not key:
+                continue
+            view = fold_one_board(by_key.get(key) or [], include_feedback=True)
+            out.append(self._show_all_card(key, card, view, image, poll=True))
+        return public_board_payload(out)
+
+    def _session_show_all_cards(
+        self, session_id: int, session_row: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
+        """Session-gallery boards for the Show All grid.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            session_row: Live session row already loaded for this poll.
+        """
+        from board_ops import feedback_released, fold_one_board
+        from formative_live_board import public_board_payload
+
+        row = session_row if isinstance(session_row, dict) else None
+        if row is None or int(row.get("id") or 0) != int(session_id):
+            row = self.get_live_session(int(session_id))
+        if row is None or str(row.get("status") or "") != "active":
+            return []
+        try:
+            cards = self._gallery_cards(int(session_id))
+            run_key = self.live_board_run_key(int(session_id))
+        except (KeyError, ValueError):
+            return []
+        keys = [str(card.get("board_key") or "") for card in cards if card.get("board_key")]
+        by_key: dict[str, list[dict[str, Any]]] = {}
+        if keys:
+            try:
+                for stored in self.boards.load_keys(run_key, keys):
+                    by_key.setdefault(str(stored.get("board_key") or ""), []).append(stored)
+            except Exception:
+                logger.warning("show all omitted the gallery drawings")
+                return []
+        out = []
+        for card in cards:
+            key = str(card.get("board_key") or "")
+            if not key:
+                continue
+            rows = by_key.get(key) or []
+            view = fold_one_board(rows, include_feedback=feedback_released(rows))
+            out.append(self._show_all_card(key, card, view, "", poll=False))
+        return public_board_payload(out)
 
     def _projected_run_raw(self, session_id: int) -> str:
         """Question-board run stored beside the projected board key.
@@ -55550,6 +56052,16 @@ class SchoolDB(LovesDB):
             )
         else:
             payload["class_board"] = None
+        # MCK-338: the student snapshot carries the stripped grid, not the
+        # named teacher copy.
+        payload["class_boards"] = self.whiteboard_class_boards(
+            int(live_session_id),
+            teacher_state=payload["teacher_state"]
+            if isinstance(payload.get("teacher_state"), dict)
+            else None,
+            session_row=session_row if isinstance(session_row, dict) else None,
+            for_student=True,
+        )
         if sid not in (None, "") and not payload.get("board_key"):
             try:
                 key = self._board_key_from_open_session(

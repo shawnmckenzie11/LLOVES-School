@@ -537,12 +537,13 @@ export function mountTeacherGrid(root, options = {}) {
   let panelRun = "";
   let runKey = "";
   let projectedKey = "";
+  let projectedAll = false;
   const openStrokes = new Set();
   const cols = part("cols");
 
   const readOnly = Boolean(options.readOnly);
   if (readOnly) {
-    for (const name of ["pen", "text", "erase", "undo", "redo", "clear", "show"]) {
+    for (const name of ["pen", "text", "erase", "undo", "redo", "clear", "show", "show-all"]) {
       const node = part(name);
       if (node instanceof HTMLElement) {
         node.hidden = true;
@@ -997,17 +998,27 @@ export function mountTeacherGrid(root, options = {}) {
       }
     }
     const showButton = part("show");
-    if (!(showButton instanceof HTMLButtonElement) || showButton.dataset.pending !== "1") {
+    const showAllButton = part("show-all");
+    const showBusy =
+      (showButton instanceof HTMLButtonElement && showButton.dataset.pending === "1") ||
+      (showAllButton instanceof HTMLButtonElement && showAllButton.dataset.pending === "1");
+    if (!showBusy) {
       projectedKey = String(payload.projected_board || "");
+      projectedAll = Boolean(payload.projected_all);
     }
     const status = part("projected");
     if (status) {
-      const projected = tiles.find(
-        (tile) => String(tile.board_key || "") === projectedKey
-      );
-      status.textContent = projected ? `On the board · ${tileName(projected)}` : "";
+      if (projectedAll) {
+        status.textContent = "On the board · All boards";
+      } else {
+        const projected = tiles.find(
+          (tile) => String(tile.board_key || "") === projectedKey
+        );
+        status.textContent = projected ? `On the board · ${tileName(projected)}` : "";
+      }
     }
     paintShowButton();
+    paintShowAllButton();
   }
 
   /**
@@ -1020,6 +1031,31 @@ export function mountTeacherGrid(root, options = {}) {
     button.textContent = state.label;
     button.setAttribute("aria-pressed", state.pressed ? "true" : "false");
     button.classList.toggle("is-on", state.showing);
+  }
+
+  /**
+   * Show All on Board, or Stop showing when the grid is up.
+   */
+  function paintShowAllButton() {
+    const button = part("show-all");
+    if (!(button instanceof HTMLButtonElement)) return;
+    if (readOnly) {
+      button.hidden = true;
+      return;
+    }
+    button.hidden = false;
+    button.textContent = projectedAll ? "Stop showing" : "Show All on Board";
+    button.setAttribute("aria-pressed", projectedAll ? "true" : "false");
+    button.classList.toggle("is-on", projectedAll);
+  }
+
+  /**
+   * @param {string} id
+   * @returns {string}
+   */
+  function showAllUrl(id) {
+    if (typeof options.showAllUrl === "function") return options.showAllUrl(id);
+    return `/api/live-sessions/${id}/whiteboard-gallery/show-all`;
   }
 
   /**
@@ -1241,8 +1277,11 @@ export function mountTeacherGrid(root, options = {}) {
     if (!id || !key || !(button instanceof HTMLButtonElement)) return;
     if (button.dataset.pending === "1") return;
     const previous = projectedKey;
+    const previousAll = projectedAll;
     projectedKey = previous === key ? "" : key;
+    projectedAll = false;
     paintShowButton();
+    paintShowAllButton();
     button.dataset.pending = "1";
     const error = part("show-error");
     if (error instanceof HTMLElement) {
@@ -1251,7 +1290,9 @@ export function mountTeacherGrid(root, options = {}) {
     }
     const showFailure = () => {
       projectedKey = previous;
+      projectedAll = previousAll;
       paintShowButton();
+      paintShowAllButton();
       if (error instanceof HTMLElement) {
         error.hidden = false;
         error.textContent = "Couldn't update the board.";
@@ -1273,7 +1314,64 @@ export function mountTeacherGrid(root, options = {}) {
           return;
         }
         projectedKey = data.projected === false ? "" : key;
+        projectedAll = false;
         paintShowButton();
+        paintShowAllButton();
+        return pollTiles();
+      })
+      .catch(() => {
+        showFailure();
+      })
+      .finally(() => {
+        button.dataset.pending = "";
+      });
+  });
+  part("show-all")?.addEventListener("click", () => {
+    const button = part("show-all");
+    const id = sessionId();
+    if (!id || readOnly || !(button instanceof HTMLButtonElement)) return;
+    if (button.dataset.pending === "1") return;
+    const previous = projectedKey;
+    const previousAll = projectedAll;
+    projectedAll = !previousAll;
+    projectedKey = "";
+    paintShowButton();
+    paintShowAllButton();
+    button.dataset.pending = "1";
+    const error = part("show-error");
+    if (error instanceof HTMLElement) {
+      error.hidden = true;
+      error.textContent = "";
+    }
+    const showFailure = () => {
+      projectedKey = previous;
+      projectedAll = previousAll;
+      paintShowButton();
+      paintShowAllButton();
+      if (error instanceof HTMLElement) {
+        error.hidden = false;
+        error.textContent = "Couldn't update the board.";
+      }
+    };
+    fetch(showAllUrl(id), {
+      method: "POST",
+      credentials: "same-origin",
+    })
+      .then(async (res) => {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (!res.ok || !data) {
+          showFailure();
+          return;
+        }
+        projectedAll = Boolean(data.projected_all);
+        projectedKey = "";
+        paintShowButton();
+        paintShowAllButton();
         return pollTiles();
       })
       .catch(() => {

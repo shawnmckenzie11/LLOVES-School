@@ -5,6 +5,31 @@
 /** @type {Map<string, Promise<HTMLImageElement | null>>} */
 const loaded = new Map();
 
+/** Longest image reference kept on a board. Matches the server cap. */
+const MAX_BOARD_IMAGE_URL = 500;
+
+/**
+ * A background image reference safe to paint under ink.
+ *
+ * A site path or an ``https`` link is kept. ``javascript:``, ``data:``,
+ * ``http:``, and protocol-relative URLs are dropped so image bytes and
+ * script URLs never ride on a board.
+ *
+ * @param {unknown} raw Stored ``image_url``.
+ * @returns {string} The reference, or an empty string.
+ */
+export function safeBoardImageUrl(raw) {
+  const url = String(raw || "").trim();
+  if (!url || url.length > MAX_BOARD_IMAGE_URL) return "";
+  const lower = url.toLowerCase();
+  if (lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("http:")) {
+    return "";
+  }
+  if (url.startsWith("//")) return "";
+  if (url.startsWith("/") || lower.startsWith("https://")) return url;
+  return "";
+}
+
 /**
  * CSS background for a live board canvas (student or teacher panel).
  *
@@ -32,7 +57,7 @@ export function applyCanvasBoardBackground(canvas, imageUrl) {
  * @returns {Promise<HTMLImageElement | null>}
  */
 export function loadBoardBackgroundImage(imageUrl) {
-  const url = String(imageUrl || "").trim();
+  const url = safeBoardImageUrl(imageUrl);
   if (!url) return Promise.resolve(null);
   const existing = loaded.get(url);
   if (existing) return existing;

@@ -20,7 +20,7 @@ import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_
 import { compareQuestionPushOrder, questionPushLabel } from "/static/student_question_order.js";
 import { cardOwnsLivePrompt } from "/static/live_prompt_once.js";
 import { paintEyesUp } from "/static/eyes_up.js";
-import { noteBoardShow, syncPollFromPayload } from "/static/poll_board_show.js";
+import { noteBoardShow, noteBoardShowAll, syncPollFromPayload, syncShownBoards } from "/static/poll_board_show.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -1447,7 +1447,16 @@ function viewerBoardKey(data) {
  * @returns {"show-class" | "show-own" | "keep-class" | "clear-class" | "own"}
  */
 function syncClassBoard(data) {
+  const gridOn = syncShownBoards(document, data);
   syncPollFromPayload(document, data);
+  if (gridOn) {
+    if (classBoardHeld) {
+      classBoardHeld = false;
+      document.getElementById("canvas-pane")?.classList.remove("is-class-board");
+      return "clear-class";
+    }
+    return "own";
+  }
   if (!data || !Object.prototype.hasOwnProperty.call(data, "class_board")) {
     return classBoardHeld ? "keep-class" : "own";
   }
@@ -6783,11 +6792,19 @@ function ensureStudentNewsWire(sessionId) {
       }
       if (event && (event.type === "board_ink" || event.type === "board_show")) {
         if (event.type === "board_show") {
-          noteBoardShow(String(event.board_key || ""));
+          const shownKey = String(event.board_key || "");
+          if (shownKey === "all") {
+            noteBoardShow("");
+            noteBoardShowAll(true);
+            scheduleBoardShowFetch();
+            return;
+          }
+          noteBoardShowAll(false);
+          noteBoardShow(shownKey);
           if (Object.prototype.hasOwnProperty.call(event, "board")) {
             syncPollFromPayload(document, { class_board: event.board });
             syncClassBoard({ class_board: event.board });
-          } else if (event.board_key) {
+          } else if (shownKey) {
             scheduleBoardShowFetch();
           }
           return;

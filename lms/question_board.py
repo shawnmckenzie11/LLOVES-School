@@ -1847,6 +1847,9 @@ def question_dashboard(
         run = school._projected_run_raw(int(session_id))
     if run == run_key:
         projected = str(teacher.get("whiteboard_projected_board") or "")
+    projected_all = bool(teacher.get("whiteboard_projected_all")) and run == run_key
+    if projected_all:
+        projected = ""
     from board_poll_score import attach_participation
 
     attach_participation(school, int(session_id), int(prompt_id), tiles)
@@ -1864,6 +1867,7 @@ def question_dashboard(
         "drawing": counts["Drawing"],
         "summary": f"{submitted} of {len(tiles)} submitted · {counts['Drawing']} drawing",
         "projected_board": projected,
+        "projected_all": projected_all,
         "tiles": tiles,
         "image_url": str(payload.get("image_url") or "") if image_is_background(payload) else "",
     }
@@ -3536,6 +3540,7 @@ def lesson_submission_gallery(
         "summary": f"{len(tiles)} submitted",
         "tiles": tiles,
         "projected_board": "",
+        "projected_all": False,
     }
 
 
