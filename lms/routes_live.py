@@ -2334,28 +2334,6 @@ def register_live(app, school, shared):
             )
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
-        active_q = payload.get("active_questions") or []
-        if not active_q:
-            dismiss_key = f"catchup_pin_later:{class_id}:{student_id}"
-            prompt = school.catchup_pin_prompt_for_student(int(class_id), int(student_id))
-            if prompt and prompt.get("forced"):
-                session.pop(dismiss_key, None)
-            elif prompt and session.get(dismiss_key):
-                prompt = None
-            if prompt:
-                try:
-                    portal_url = school.open_catchup_portal_url_for_class(int(class_id))
-                except Exception:
-                    logger.exception(
-                        "catch-up portal URL failed class=%s student=%s",
-                        class_id,
-                        student_id,
-                    )
-                    portal_url = None
-                payload["catchup_pin_prompt"] = {
-                    **prompt,
-                    "catchup_url": portal_url,
-                }
         payload = _redact_tester_payload(payload, _offering, int(class_id), student_id)
         return jsonify(payload)
 

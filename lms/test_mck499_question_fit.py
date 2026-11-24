@@ -297,6 +297,15 @@ class QuestionFitSourceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("ok", result.stdout)
 
+    def test_question_lightbox_has_close_only(self) -> None:
+        """Enlarged image view keeps Close; Fit and paging controls are gone."""
+        js = (LMS_DIR / "static" / "live_question_card.js").read_text(encoding="utf-8")
+        block = js.split("function ensureQuestionLightbox")[1].split("export function mountQuestionLightbox")[0]
+        self.assertIn("data-live-q-close", block)
+        self.assertNotIn("data-live-q-zoom", block)
+        self.assertNotIn("data-live-q-prev", block)
+        self.assertNotIn("data-live-q-next", block)
+
     def test_student_css_caps_the_image_and_stacks_in_flow(self) -> None:
         """Desktop and phone caps, compact thumbs, and the dialog are in the sheet."""
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")

@@ -94,7 +94,7 @@ class StudentStateCatchupPinTests(Base):
             sess["student_live_session_id"] = sid
             sess["student_participant_uuid"] = "test-uuid"
 
-    def test_student_state_survives_catchup_url_failure(self) -> None:
+    def test_student_state_omits_live_catchup_pin_prompt(self) -> None:
         stamp_payload = {
             "active_questions": [],
             "teacher_state": {"state_seq": 1},
@@ -110,21 +110,11 @@ class StudentStateCatchupPinTests(Base):
             self.school, "live_student_poll_stamp", return_value="s1"
         ), patch.object(
             self.school, "assemble_student_live_payload", side_effect=_payload
-        ), patch.object(
-            self.school,
-            "catchup_pin_prompt_for_student",
-            return_value={"show": True, "forced": False},
-        ), patch.object(
-            self.school,
-            "open_catchup_portal_url_for_class",
-            side_effect=KeyError("class_id"),
         ):
             resp = self.client.get("/api/student/state")
         self.assertEqual(resp.status_code, 200)
         body = resp.get_json() or {}
-        prompt = body.get("catchup_pin_prompt") or {}
-        self.assertTrue(prompt.get("show"))
-        self.assertIsNone(prompt.get("catchup_url"))
+        self.assertNotIn("catchup_pin_prompt", body)
 
     def test_student_state_missing_class_id_key_is_not_500(self) -> None:
         """Poll stays JSON when context and the catch-up link omit class_id."""

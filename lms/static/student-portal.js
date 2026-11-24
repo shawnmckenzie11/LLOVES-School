@@ -1,13 +1,4 @@
 
-async function paintCatchupPinPromptSafe(payload) {
-  try {
-    const mod = await import("./catchup_pin_prompt.js");
-    mod.paintCatchupPinPrompt(payload);
-  } catch (err) {
-    console.warn("catch-up PIN prompt unavailable", err);
-  }
-}
-
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
@@ -4735,16 +4726,14 @@ function paintLifecycleQuestionStack(payload) {
           ? `<button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Minimize">×</button>`
           : "";
       const layout = questionCardLayout(item, focusId);
-      return `<article class="student-live-card student-floating-pane ${layout} is-${escapeText(shown)}" data-live-card-id="${Number(
+      return `<article class="student-live-card ${layout} is-${escapeText(shown)}" data-live-card-id="${Number(
         item.id
       )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(shown)}" data-live-card-key="${escapeText(dockKey)}" data-q-label="${escapeText(qLabel)}">
-        <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
+        <div class="student-pane-bar">
           <span class="student-live-qnum">${escapeText(qLabel)}</span>
           <span class="student-live-card-status">${badge}</span>
-          <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
           ${minimizeControl}
         </div>
-        <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
         ${questionBoardSlot(item, content)}
         ${boardFeedbackHtml(item.board_feedback)}
@@ -4782,7 +4771,6 @@ function paintLifecycleQuestionStack(payload) {
       );
     if (card instanceof HTMLElement) {
       card.style.setProperty("--live-card-offset", String(index));
-      bindFloatingPane(card);
     }
   });
   liveQuestionStack.hidden = openCards.length === 0;
@@ -6909,8 +6897,6 @@ async function tick() {
     maybeScorePops(data);
     paintCelebrate(data);
     paintGamificationWinner(data);
-    void paintCatchupPinPromptSafe(data);
-
     paintRoundBanner(data);
     paintMedia(data);
     paintMeetCue(data);
@@ -7457,14 +7443,3 @@ document.getElementById("gamification-winner")?.addEventListener("click", (event
   void submitMvpVote(codename);
 });
 
-window.addEventListener("catchup-pin-saved", (ev) => {
-  const line = String((ev.detail && ev.detail.toast) || "PIN saved. You're set for catch-up.");
-  if (mediaToast) {
-    mediaToast.textContent = line;
-    mediaToast.hidden = false;
-    window.clearTimeout(toastHideTimer);
-    toastHideTimer = window.setTimeout(() => {
-      mediaToast.hidden = true;
-    }, 3200);
-  }
-});

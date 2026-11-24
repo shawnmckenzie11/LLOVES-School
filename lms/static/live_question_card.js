@@ -334,7 +334,7 @@ function finePointerNow() {
  * Build the one page-level image dialog, if it is not already there.
  *
  * The dialog sits on document.body, outside the question stack, so a
- * stacked card cannot clip it. Close, Fit, and the arrows are real buttons.
+ * stacked card cannot clip it. Close is a real button.
  * @param {Document} doc
  * @returns {HTMLDialogElement | null}
  */
@@ -347,10 +347,6 @@ function ensureQuestionLightbox(doc) {
   dialog.className = "live-q-lightbox";
   dialog.setAttribute("aria-label", "Question image, enlarged");
   dialog.innerHTML = `<div class="live-q-lightbox-bar">
-      <button type="button" data-live-q-zoom>Fit</button>
-      <button type="button" data-live-q-prev hidden>Prev</button>
-      <span data-live-q-count></span>
-      <button type="button" data-live-q-next hidden>Next</button>
       <button type="button" class="live-q-lightbox-close" data-live-q-close>Close</button>
     </div>
     <div class="live-q-lightbox-stage"><img alt=""></div>`;
@@ -361,8 +357,8 @@ function ensureQuestionLightbox(doc) {
 /**
  * Open, zoom, and page one question's images in the shared dialog.
  *
- * Fit and 2x share one toggle. A desktop click or double-click flips it.
- * A phone double-tap flips it and leaves pinch-zoom to the browser.
+ * A desktop double-click or phone double-tap flips fit vs 2x.
+ * Pinch-zoom stays with the browser.
  * The dialog closes when that question leaves the open stack.
  * @param {Document} doc
  */
@@ -374,11 +370,7 @@ export function mountQuestionLightbox(doc) {
   root.documentElement.dataset.liveQLightbox = "1";
   const image = dialog.querySelector("img");
   const stage = dialog.querySelector(".live-q-lightbox-stage");
-  const zoom = dialog.querySelector("[data-live-q-zoom]");
-  const prev = dialog.querySelector("[data-live-q-prev]");
-  const next = dialog.querySelector("[data-live-q-next]");
   const close = dialog.querySelector("[data-live-q-close]");
-  const count = dialog.querySelector("[data-live-q-count]");
   /** @type {{src: string, alt: string}[]} */
   let figures = [];
   let index = 0;
@@ -387,22 +379,13 @@ export function mountQuestionLightbox(doc) {
   let lastTap = 0;
 
   /**
-   * Paint the current figure and the Fit / 2x label.
+   * Paint the current figure in the lightbox.
    */
   function paint() {
     const figure = figures[index];
     if (!(image instanceof HTMLImageElement) || !figure) return;
     image.src = figure.src;
     image.alt = figure.alt;
-    const doubled = dialog.classList.contains("is-2x");
-    if (zoom instanceof HTMLButtonElement) {
-      zoom.textContent = doubled ? "2x" : "Fit";
-      zoom.setAttribute("aria-pressed", doubled ? "true" : "false");
-    }
-    const many = figures.length > 1;
-    if (prev instanceof HTMLButtonElement) prev.hidden = !many;
-    if (next instanceof HTMLButtonElement) next.hidden = !many;
-    if (count) count.textContent = many ? `${index + 1} / ${figures.length}` : "";
   }
 
   /**
@@ -411,16 +394,6 @@ export function mountQuestionLightbox(doc) {
   function toggleZoom() {
     dialog.classList.toggle("is-2x");
     if (stage instanceof HTMLElement) stage.scrollTop = 0;
-    paint();
-  }
-
-  /**
-   * Show one index, wrapping inside this question only.
-   * @param {number} step
-   */
-  function move(step) {
-    if (figures.length < 2) return;
-    index = (index + step + figures.length) % figures.length;
     paint();
   }
 
@@ -433,18 +406,6 @@ export function mountQuestionLightbox(doc) {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
   });
-  dialog.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      move(-1);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      move(1);
-    }
-  });
-  zoom?.addEventListener("click", () => toggleZoom());
-  prev?.addEventListener("click", () => move(-1));
-  next?.addEventListener("click", () => move(1));
   close?.addEventListener("click", () => dialog.close());
   image?.addEventListener("dblclick", (event) => {
     event.preventDefault();

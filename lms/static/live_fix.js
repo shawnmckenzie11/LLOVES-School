@@ -17,7 +17,6 @@
     "exit-feedback-skip",
     "live-add-page",
     "live-advance",
-    "live-catchup-pin-later",
     "live-delete-page",
     "live-end-class",
     "live-eyes-up",
@@ -274,32 +273,23 @@
     const button = document.getElementById("live-fix-student");
     const dialog = document.getElementById("live-fix-student-dialog");
     const form = document.getElementById("live-fix-student-form");
-    const input = document.getElementById("live-fix-student-note");
     const cancel = document.getElementById("live-fix-student-cancel");
-    const mic = document.getElementById("live-fix-student-mic");
+    const send = document.getElementById("live-fix-student-send");
     const status = document.getElementById("live-fix-student-status");
     if (!(button instanceof HTMLButtonElement) || !(dialog instanceof HTMLDialogElement)) return;
-    if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLInputElement)) return;
+    if (!(form instanceof HTMLFormElement)) return;
     button.addEventListener("click", function () {
       if (status) status.textContent = "";
       if (typeof dialog.showModal === "function") dialog.showModal();
-      input.focus();
+      if (send instanceof HTMLButtonElement) send.focus();
     });
     cancel?.addEventListener("click", function () {
       dialog.close();
     });
-    if (mic instanceof HTMLButtonElement && dictationSupported()) {
-      mic.hidden = false;
-      mic.addEventListener("click", function () {
-        startDictation(input, mic);
-      });
-    }
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      const note = input.value;
-      input.value = "";
       dialog.close();
-      sendNote("/api/student/flags", note, status);
+      sendNote("/api/student/flags", "", status);
     });
   }
 

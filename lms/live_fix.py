@@ -65,7 +65,6 @@ ACTION_IDS = frozenset(
         "exit-feedback-skip",
         "live-add-page",
         "live-advance",
-        "live-catchup-pin-later",
         "live-delete-page",
         "live-end-class",
         "live-eyes-up",

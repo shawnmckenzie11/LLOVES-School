@@ -177,8 +177,8 @@ class Mck207CatchupFlowTest(Base):
         self.assertTrue(check_pin("2468", stored))
         self.assertFalse(check_pin("1357", stored))
 
-    def test_live_popup_saves_pin_with_current_pin(self) -> None:
-        """Live catch-up PIN dialog can save when current_pin is sent."""
+    def test_live_session_pin_api_accepts_current_pin(self) -> None:
+        """During live class the PIN API still saves when current_pin is sent."""
         sid = self.students[0]
         self.school.set_student_pin(self.class_id, sid, "5678", pin_set_by="default")
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
@@ -202,17 +202,6 @@ class Mck207CatchupFlowTest(Base):
         ).fetchone()
         self.assertEqual(stored[1], "student")
         self.assertTrue(check_pin("2468", stored[0]))
-
-    def test_live_prompt_js_sends_current_pin(self) -> None:
-        """Live pop-up must POST current_pin with the new PIN."""
-        from pathlib import Path
-
-        js = (Path(__file__).resolve().parent / "static" / "catchup_pin_prompt.js").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("current_pin: current", js)
-        self.assertIn('id="live-catchup-pin-current"', js)
-
 
 if __name__ == "__main__":
     unittest.main()
