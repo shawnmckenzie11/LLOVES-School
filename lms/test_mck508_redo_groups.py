@@ -31,11 +31,11 @@ class Mck508RedoGroupsTests(LiveBackendStateTests):
     def test_groups_redo_allowed_only_before_first_group_publish(self) -> None:
         """``groups_redo_allowed`` is true after setup and false after a group Q."""
         self._begin_and_join(4)
-        before = self.school.live_session_teacher_state_payload(self.session_id)
+        before = self.school.staff_teacher_state_view(self.session_id)
         self.assertFalse(before.get("groups_redo_allowed"))
 
         self._setup_groups()
-        mid = self.school.live_session_teacher_state_payload(self.session_id)
+        mid = self.school.staff_teacher_state_view(self.session_id)
         self.assertTrue(mid.get("groups_configured"))
         self.assertTrue(mid.get("groups_redo_allowed"))
 
@@ -48,8 +48,15 @@ class Mck508RedoGroupsTests(LiveBackendStateTests):
             int(group_item["id"]),
             publish_mode="group_consensus",
         )
-        after = self.school.live_session_teacher_state_payload(self.session_id)
+        after = self.school.staff_teacher_state_view(self.session_id)
         self.assertFalse(after.get("groups_redo_allowed"))
+
+    def test_student_teacher_state_payload_omits_groups_redo(self) -> None:
+        """``/state`` reads must not compute redo gating SQL."""
+        self._begin_and_join(4)
+        self._setup_groups()
+        bare = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertNotIn("groups_redo_allowed", bare)
 
     def test_redo_clears_teams_and_reopens_setup(self) -> None:
         """Redo removes named teams and clears ``groups_configured``."""

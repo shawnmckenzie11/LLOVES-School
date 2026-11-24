@@ -37515,11 +37515,20 @@ class SchoolDB(LovesDB):
         state["teams_mode"] = (
             "teams" if state.get("run_as_group") else "individual"
         )
-        state["groups_redo_allowed"] = bool(
-            state.get("groups_configured")
-            and not self._live_session_has_published_group_question(int(session_id))
-            and not self._team_ids_with_group_responses(int(session_id))
-        )
+        return state
+
+    def staff_teacher_state_view(self, session_id: int) -> dict[str, Any]:
+        """Teacher-state for staff APIs, including ephemeral UI flags.
+
+        Student ``/state`` reads use ``live_session_teacher_state_payload``
+        without the extra SQL this adds for Redo groups.
+        """
+        state = dict(self.live_session_teacher_state_payload(int(session_id)))
+        if not state.get("groups_configured"):
+            state["groups_redo_allowed"] = False
+            return state
+        blocked = self._live_session_groups_redo_blocked(int(session_id))
+        state["groups_redo_allowed"] = not blocked
         return state
 
     def live_class_roster_projection(
@@ -41566,6 +41575,36 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return frozenset(int(row["team_id"]) for row in rows)
 
+    def _live_session_groups_redo_blocked(self, session_id: int) -> bool:
+        """True when redo must be refused (published group Q or team responses)."""
+        tokens = tuple(sorted(LESSON_SLIDE_GROUP_MODES))
+        placeholders = ",".join("?" * len(tokens))
+        clause = (
+            f"LOWER(COALESCE(publish_mode, '')) IN ({placeholders}) "
+            f"OR LOWER(COALESCE(response_mode, '')) IN ({placeholders})"
+        )
+        args: list[Any] = [int(session_id), *tokens, *tokens, int(session_id)]
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT 1
+                WHERE EXISTS (
+                    SELECT 1 FROM live_session_items
+                    WHERE live_session_id = ?
+                      AND published_at IS NOT NULL
+                      AND ({clause})
+                )
+                OR EXISTS (
+                    SELECT 1 FROM live_group_responses r
+                    JOIN live_session_items i ON i.id = r.live_item_id
+                    WHERE i.live_session_id = ?
+                )
+                LIMIT 1
+                """,
+                args,
+            ).fetchone()
+        return row is not None
+
     def redo_live_session_groups(self, session_id: int) -> dict[str, Any]:
         """Clear fixed memberships so the teacher can run group setup again.
 
@@ -41588,12 +41627,11 @@ class SchoolDB(LovesDB):
         current = self.live_session_teacher_state_payload(session_id)
         if not current.get("groups_configured"):
             raise ValueError("Set up groups before using Redo groups.")
-        if self._live_session_has_published_group_question(session_id):
-            raise ValueError(
-                "Cannot redo groups after a group question is published."
-            )
-        protected = self._team_ids_with_group_responses(session_id)
-        if protected:
+        if self._live_session_groups_redo_blocked(session_id):
+            if self._live_session_has_published_group_question(session_id):
+                raise ValueError(
+                    "Cannot redo groups after a group question is published."
+                )
             raise ValueError(
                 "Cannot redo groups while a team has linked group responses."
             )
@@ -41607,10 +41645,9 @@ class SchoolDB(LovesDB):
         )
         teacher = self._write_teacher_state(session_id, teacher)
         self.sync_live_board_assignments_for_session(int(session_id))
-        payload = self.live_session_teacher_state_payload(session_id)
         return {
             "game": self.game.game_state(class_id),
-            "teacher_state": payload,
+            "teacher_state": self.staff_teacher_state_view(session_id),
         }
 
     def record_meet_chain_pick(
