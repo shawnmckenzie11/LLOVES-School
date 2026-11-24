@@ -14010,6 +14010,18 @@ class SchoolDB(LovesDB):
             from lms.live_defaults import defaults_from_row, scope_visible
 
         viewing_scope = "course" if policy == "course_only" else module_token
+        try:
+            from curriculum_bank_images import module_number_from_token
+        except ImportError:
+            from lms.curriculum_bank_images import module_number_from_token
+
+        figure_module = module_number_from_token(module_token)
+        with self._lock:
+            library_row = self.conn.execute(
+                "SELECT ontario_code FROM content_libraries WHERE id = ?",
+                (int(library_id),),
+            ).fetchone()
+        figure_course = str(library_row["ontario_code"] or "") if library_row else ""
 
         def _accept(normalized: dict[str, Any] | None) -> None:
             """Attach live defaults and keep the row when it belongs on this tab."""
@@ -14054,6 +14066,12 @@ class SchoolDB(LovesDB):
                 from lms.question_math import scrub_choice_images_from_stem
 
             scrub_choice_images_from_stem(normalized)
+            normalized = self._present_question_images(
+                normalized,
+                course_code=figure_course,
+                module_number=figure_module,
+                source=payload if isinstance(payload, dict) else None,
+            )
             if payload.get("tolerance") is not None and "tolerance" not in normalized:
                 normalized["tolerance"] = payload.get("tolerance")
                 normalized["tolerance_kind"] = payload.get("tolerance_kind") or "absolute"
@@ -15871,6 +15889,118 @@ class SchoolDB(LovesDB):
                 offering.get("section_index"),
             )
         )
+
+    def _question_payload_for_images(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the saved question block for one card, without writing it.
+
+        Args:
+            payload: Playlist card or session copy. ``source_question_id``
+                or ``question_id`` selects the row.
+        """
+        raw_id = payload.get("source_question_id") or payload.get("question_id")
+        try:
+            question_id = int(raw_id)
+        except (TypeError, ValueError):
+            return None
+        if question_id <= 0:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT payload_json FROM questions WHERE id = ?",
+                (question_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            parsed = json.loads(row["payload_json"] or "{}")
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _module_number_for_images(self, module: str, payload: dict[str, Any]) -> int:
+        """Return the module number for one image lookup.
+
+        The deck module wins. A question import key is the fallback when
+        the deck token is empty.
+
+        Args:
+            module: Deck token such as ``M6``.
+            payload: Card that may point at a saved question.
+        """
+        try:
+            from curriculum_bank_images import module_number_from_token
+        except ImportError:
+            from lms.curriculum_bank_images import module_number_from_token
+
+        number = module_number_from_token(module)
+        if number:
+            return number
+        raw_id = payload.get("source_question_id") or payload.get("question_id")
+        try:
+            question_id = int(raw_id)
+        except (TypeError, ValueError):
+            return 0
+        if question_id <= 0:
+            return 0
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT q.import_key AS question_key, b.import_key AS bank_key
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE q.id = ?
+                """,
+                (question_id,),
+            ).fetchone()
+        if row is None:
+            return 0
+        return module_number_from_token(str(row["question_key"] or "")) or module_number_from_token(
+            str(row["bank_key"] or "")
+        )
+
+    def _present_question_images(
+        self,
+        payload: dict[str, Any],
+        *,
+        course_code: str,
+        module_number: int,
+        source: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return a display copy with stem and option images resolved.
+
+        The stored payload is not written. A card that omitted an image
+        field borrows it from ``source`` for this copy only.
+
+        Args:
+            payload: Question, playlist card, or session copy.
+            course_code: Ontario code or a section label such as ``MCR3U-2``.
+            module_number: One-based module index.
+            source: Saved question payload when the card is a copy.
+        """
+        if not isinstance(payload, dict):
+            return {}
+        try:
+            from curriculum_bank_images import (
+                borrow_missing_image_fields,
+                describe_question_images,
+                question_images_in_scope,
+            )
+        except ImportError:
+            from lms.curriculum_bank_images import (
+                borrow_missing_image_fields,
+                describe_question_images,
+                question_images_in_scope,
+            )
+
+        if not question_images_in_scope(course_code, module_number):
+            return payload
+        base = payload
+        if isinstance(source, dict):
+            base = borrow_missing_image_fields(payload, source)
+        shown, _missing = describe_question_images(
+            course_code, module_number, base
+        )
+        return shown
 
     def _same_course_section_classes(
         self,
@@ -18662,7 +18792,13 @@ class SchoolDB(LovesDB):
             # Rehydrate scrubs on every return. A class with no library
             # never gets that far, so scrub the stored card here too.
             scrub_choice_images_from_stem(payload)
-            item["item"] = payload
+            source = self._question_payload_for_images(payload)
+            item["item"] = self._present_question_images(
+                payload,
+                course_code=self._section_code_for_class(int(class_id)),
+                module_number=self._module_number_for_images(module, payload),
+                source=source,
+            )
         return out
 
     @staticmethod
@@ -30960,6 +31096,17 @@ class SchoolDB(LovesDB):
 
             return find_library_blob(self.conn, int(library_id), relpath) is not None
 
+        if isinstance(cleaned, dict):
+            source = self._question_payload_for_images(cleaned)
+            course = self._section_code_for_class(viewing) if viewing is not None else ""
+            if not course and isinstance(source, dict):
+                course = str(source.get("course_code") or "")
+            cleaned = self._present_question_images(
+                cleaned,
+                course_code=course,
+                module_number=self._module_number_for_images("", cleaned),
+                source=source,
+            )
         return rewrite_student_prompt_images(
             cleaned, class_id=viewing, library_has=library_has
         )
