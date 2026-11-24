@@ -408,6 +408,171 @@ function foldDelta(state, delta, fallbackColor) {
 }
 
 /**
+ * Stable stamp for one board's ink.
+ *
+ * A gallery poll often repeats the same strokes under a new sequence
+ * number. Sequence is not part of the stamp, so that poll does not
+ * clear the thumbnail.
+ *
+ * @param {Record<string, any>|null|undefined} strokes
+ * @param {Record<string, any>|null|undefined} texts
+ * @returns {string}
+ */
+export function inkContentStamp(strokes, texts) {
+  let hash = 2166136261;
+  /**
+   * @param {unknown} value
+   */
+  const mix = (value) => {
+    const text = String(value ?? "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    hash ^= 124;
+    hash = Math.imul(hash, 16777619);
+  };
+  const strokeRows = Object.values(strokes || {});
+  strokeRows.sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  for (const stroke of strokeRows) {
+    mix(stroke?.id);
+    mix(stroke?.color);
+    const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    mix(points.length);
+    for (const point of points) {
+      if (Array.isArray(point)) {
+        mix(point[0]);
+        mix(point[1]);
+      } else {
+        mix(point?.x);
+        mix(point?.y);
+      }
+    }
+  }
+  const labels = Object.values(texts || {});
+  labels.sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  for (const label of labels) {
+    mix(label?.id);
+    mix(label?.text);
+    mix(label?.x);
+    mix(label?.y);
+    mix(label?.color);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
+ * Keep one button and one canvas per board.
+ *
+ * A canvas is cleared only when its ink stamp changed. An unchanged
+ * thumbnail stays the same node and is not redrawn.
+ *
+ * @param {HTMLElement} grid
+ * @param {Array<{
+ *   key: string,
+ *   name?: string,
+ *   away?: boolean,
+ *   status?: string,
+ *   text?: string,
+ *   open?: boolean,
+ *   stamp: string,
+ *   strokes?: Record<string, any>,
+ *   texts?: Record<string, any>,
+ * }>} tiles
+ * @param {{
+ *   paint: (canvas: HTMLCanvasElement, strokes: Record<string, any>, texts: Record<string, any>) => void,
+ *   onOpen?: (key: string) => void,
+ * }} hooks
+ * @returns {{painted: string[], kept: string[]}}
+ */
+export function syncWhiteboardGrid(grid, tiles, hooks) {
+  const visible = Array.isArray(tiles) ? tiles : [];
+  const keep = new Set();
+  /** @type {string[]} */
+  const painted = [];
+  /** @type {string[]} */
+  const kept = [];
+  let previous = null;
+  for (const tile of visible) {
+    const key = String(tile?.key || "");
+    keep.add(key);
+    let button = null;
+    for (const candidate of grid.querySelectorAll(".wb-live-tile")) {
+      if (candidate instanceof HTMLButtonElement && candidate.dataset.boardKey === key) {
+        button = candidate;
+        break;
+      }
+    }
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "wb-live-tile";
+      button.dataset.boardKey = key;
+      const stage = document.createElement("canvas");
+      const bitmap = tileBitmapSize(320);
+      stage.width = bitmap.width;
+      stage.height = bitmap.height;
+      stage.className = "wb-live-tile-canvas";
+      const meta = document.createElement("span");
+      meta.className = "wb-live-tile-meta";
+      const dot = document.createElement("span");
+      dot.className = "wb-live-dot";
+      const name = document.createElement("span");
+      name.className = "wb-live-name";
+      const team = document.createElement("span");
+      team.className = "wb-live-team";
+      meta.append(dot, name, team);
+      button.append(stage, meta);
+      button.addEventListener("click", () => {
+        if (typeof hooks.onOpen === "function") hooks.onOpen(key);
+      });
+    }
+    button.classList.toggle("is-open", Boolean(tile.open));
+    const dot = button.querySelector(".wb-live-dot");
+    if (dot) dot.classList.toggle("is-away", Boolean(tile.away));
+    const name = button.querySelector(".wb-live-name");
+    const label = String(tile.name || "");
+    if (name && name.textContent !== label) name.textContent = label;
+    const meta = button.querySelector(".wb-live-tile-meta");
+    if (meta instanceof HTMLElement) {
+      const wanted = [];
+      if (tile.text) wanted.push(String(tile.text));
+      if (tile.status) wanted.push(String(tile.status));
+      const nodes = [...meta.querySelectorAll(".wb-live-status")];
+      const same =
+        nodes.length === wanted.length &&
+        wanted.every((text, index) => nodes[index].textContent === text);
+      if (!same) {
+        for (const node of nodes) node.remove();
+        for (const text of wanted) {
+          const span = document.createElement("span");
+          span.className = "wb-live-status";
+          span.textContent = text;
+          meta.appendChild(span);
+        }
+      }
+    }
+    const stage = button.querySelector("canvas");
+    if (stage instanceof HTMLCanvasElement) {
+      const stamp = String(tile.stamp || "");
+      if (stage.dataset.inkStamp === stamp) kept.push(key);
+      else {
+        hooks.paint(stage, tile.strokes || {}, tile.texts || {});
+        stage.dataset.inkStamp = stamp;
+        painted.push(key);
+      }
+    }
+    const at = previous ? previous.nextSibling : grid.firstChild;
+    if (button !== at) grid.insertBefore(button, at);
+    previous = button;
+  }
+  for (const button of [...grid.querySelectorAll(".wb-live-tile")]) {
+    if (!keep.has(button.dataset.boardKey || "")) button.remove();
+  }
+  return { painted, kept };
+}
+
+/**
  * Paint 0–1 strokes onto a small tile canvas.
  *
  * @param {HTMLCanvasElement} canvas
@@ -811,133 +976,62 @@ export function mountTeacherGrid(root, options = {}) {
   /**
    * Stamp for one tile's ink so a poll can skip repainting an unchanged canvas.
    *
-   * Sequence alone misses a point appended under the same seq. Point count
-   * catches that without rebuilding the tile button.
+   * The stamp is the ink itself. A new sequence with the same strokes
+   * does not clear the thumbnail.
    *
    * @param {string} key
-   * @param {number} seq
    * @returns {string}
    */
-  function tileInkStamp(key, seq) {
+  function tileInkStamp(key) {
     const bag = ink[key] || emptyInk();
-    let points = 0;
-    for (const stroke of Object.values(bag.strokes || {})) {
-      points += Array.isArray(stroke?.points) ? stroke.points.length : 0;
-    }
-    const texts = Object.keys(bag.texts || {}).length;
-    return `${Number(seq) || 0}:${points}:${texts}`;
-  }
-
-  /**
-   * Find the tile button already on the grid for this board.
-   *
-   * @param {string} key
-   * @returns {HTMLButtonElement | null}
-   */
-  function tileButton(key) {
-    for (const button of grid.querySelectorAll(".wb-live-tile")) {
-      if (button instanceof HTMLButtonElement && button.dataset.boardKey === key) return button;
-    }
-    return null;
-  }
-
-  /**
-   * Create one tile button and its canvas. The node stays for later polls.
-   *
-   * @param {string} key
-   * @returns {HTMLButtonElement}
-   */
-  function createTileButton(key) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "wb-live-tile";
-    button.dataset.boardKey = key;
-    const stage = document.createElement("canvas");
-    const bitmap = tileBitmapSize(320);
-    stage.width = bitmap.width;
-    stage.height = bitmap.height;
-    stage.className = "wb-live-tile-canvas";
-    const meta = document.createElement("span");
-    meta.className = "wb-live-tile-meta";
-    const dot = document.createElement("span");
-    dot.className = "wb-live-dot";
-    const name = document.createElement("span");
-    name.className = "wb-live-name";
-    const team = document.createElement("span");
-    team.className = "wb-live-team";
-    meta.append(dot, name, team);
-    button.append(stage, meta);
-    button.addEventListener("click", () => openBoard(key));
-    return button;
-  }
-
-  /**
-   * Refresh the label and, when the ink changed, the existing canvas.
-   *
-   * @param {HTMLButtonElement} button
-   * @param {any} tile
-   */
-  function updateTileButton(button, tile) {
-    const key = String(tile.board_key || "");
-    button.classList.toggle("is-open", Boolean(key) && key === openKey);
-    const dot = button.querySelector(".wb-live-dot");
-    if (dot) dot.classList.toggle("is-away", Boolean(tile.away));
-    const name = button.querySelector(".wb-live-name");
-    const label = tileName(tile);
-    if (name && name.textContent !== label) name.textContent = label;
-    const meta = button.querySelector(".wb-live-tile-meta");
-    if (meta instanceof HTMLElement) {
-      const wanted = [];
-      if (tile.text) wanted.push(String(tile.text));
-      if (tile.status) wanted.push(String(tile.status));
-      const nodes = meta.querySelectorAll(".wb-live-status");
-      const same =
-        nodes.length === wanted.length &&
-        wanted.every((text, index) => nodes[index].textContent === text);
-      if (!same) {
-        for (const node of nodes) node.remove();
-        for (const text of wanted) {
-          const span = document.createElement("span");
-          span.className = "wb-live-status";
-          span.textContent = text;
-          meta.appendChild(span);
-        }
-      }
-    }
-    const stage = button.querySelector("canvas");
-    if (!(stage instanceof HTMLCanvasElement)) return;
-    const stamp = tileInkStamp(key, Number(tile.board_seq));
-    if (stage.dataset.inkStamp === stamp) return;
-    const bag = ink[key] || emptyInk();
-    paintTile(stage, bag.strokes, bag.texts, STUDENT_INK, boardBackgroundImage);
-    stage.dataset.inkStamp = stamp;
+    return inkContentStamp(bag.strokes, bag.texts);
   }
 
   /**
    * Paint the visible tiles without replacing buttons that are already there.
    *
    * A poll used to rebuild every canvas. That flashed the row and, with the
-   * open board's resize observer, fed another layout pass.
+   * open board's resize observer, fed another layout pass. Only a board
+   * whose ink changed is redrawn.
    *
    * @param {any[]} rows
    */
   function paintGrid(rows) {
     const visible = Array.isArray(rows) ? rows : [];
-    const keep = new Set();
-    let previous = null;
-    for (const tile of visible) {
-      const key = String(tile.board_key || "");
-      keep.add(key);
-      let button = tileButton(key);
-      if (!button) button = createTileButton(key);
-      updateTileButton(button, tile);
-      const at = previous ? previous.nextSibling : grid.firstChild;
-      if (button !== at) grid.insertBefore(button, at);
-      previous = button;
-    }
-    for (const button of [...grid.querySelectorAll(".wb-live-tile")]) {
-      if (!keep.has(button.dataset.boardKey || "")) button.remove();
-    }
+    syncWhiteboardGrid(
+      grid,
+      visible.map((tile) => {
+        const key = String(tile.board_key || "");
+        const bag = ink[key] || emptyInk();
+        return {
+          key,
+          name: tileName(tile),
+          away: Boolean(tile.away),
+          status: tile.status ? String(tile.status) : "",
+          text: tile.text ? String(tile.text) : "",
+          open: Boolean(key) && key === openKey,
+          stamp: tileInkStamp(key),
+          strokes: bag.strokes,
+          texts: bag.texts,
+        };
+      }),
+      {
+        /**
+         * @param {HTMLCanvasElement} stage
+         * @param {Record<string, any>} strokes
+         * @param {Record<string, any>} texts
+         */
+        paint(stage, strokes, texts) {
+          paintTile(stage, strokes, texts, STUDENT_INK, boardBackgroundImage);
+        },
+        /**
+         * @param {string} key
+         */
+        onOpen(key) {
+          openBoard(key);
+        },
+      }
+    );
     layoutGallery();
   }
 
@@ -963,13 +1057,11 @@ export function mountTeacherGrid(root, options = {}) {
           applyCanvasBoardBackground(canvas, boardBackgroundUrl);
           for (const button of grid.querySelectorAll(".wb-live-tile")) {
             if (!(button instanceof HTMLButtonElement)) continue;
-            const canvas = button.querySelector("canvas");
-            if (!(canvas instanceof HTMLCanvasElement)) continue;
-            delete canvas.dataset.inkStamp;
-            const key = button.dataset.boardKey || "";
-            const tile = tiles.find((row) => String(row.board_key || "") === key);
-            if (tile) updateTileButton(button, tile);
+            const tileCanvas = button.querySelector("canvas");
+            if (!(tileCanvas instanceof HTMLCanvasElement)) continue;
+            delete tileCanvas.dataset.inkStamp;
           }
+          paintGrid(tiles);
           if (openKey) {
             const openTile = tiles.find((row) => String(row.board_key || "") === openKey);
             if (openTile) paintPanelCopy(openTile);

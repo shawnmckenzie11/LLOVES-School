@@ -433,6 +433,7 @@ class ResultsViewTests(unittest.TestCase):
                 "lifecycleRowIsRank",
                 "adoptLifecycleResponseCounts",
                 "adoptLifecycleChoiceTallies",
+                "mcLiveBarOpts",
                 "paintLifecycleBarsInPlace",
                 "paintLifecycleProgressInPlace",
             )
