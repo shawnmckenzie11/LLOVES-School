@@ -679,8 +679,10 @@ class QuestionBoardTests(unittest.TestCase):
         self.assertNotIn("paintBoardThumb", js)
         self.assertIn(">Text<", js)
         self.assertIn(">Undo<", js)
-        self.assertIn(">Redo<", js)
-        self.assertIn(">Clear<", js)
+        phone_toolbar = js.split("function toolBar()")[1].split("export function paintBoardFeedback")[0]
+        self.assertNotIn(">Redo<", phone_toolbar)
+        self.assertNotIn(">Clear<", phone_toolbar)
+        self.assertIn('data-wb-part="clear"', js)
         css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
         self.assertNotIn("qboard-filter", css)
         self.assertNotIn("wb-live-filter", css)
