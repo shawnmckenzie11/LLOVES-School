@@ -111,7 +111,7 @@ const after = await page.evaluate(() => ({
   buttonDisabled: document.getElementById("begin-new-module").disabled,
 }));
 step("in-flight", disabledInFlight);
-step("after", after.current === spec.afterCurrent && after.toast === spec.toast && after.past === "" && after.wrapped.trim() === "" && after.zeros && after.percents.every((text) => text === "—") && after.buttonDisabled && after.reason.includes(spec.emptyReason), after);
+step("after", after.current === spec.afterCurrent && after.toast === spec.toast && after.past === spec.pastLabel && after.wrapped.trim().startsWith("Wrapped up ") && after.zeros && after.percents.every((text) => text === "—") && after.buttonDisabled && after.reason.includes(spec.emptyReason), after);
 
 await page.screenshot({ path: spec.shot, fullPage: false });
 await browser.close();
