@@ -114,16 +114,16 @@ function boardUrls(kind, id, token) {
  */
 function toolBar() {
   const tools = document.createElement("div");
-  tools.className = "live-canvas-toolbar";
+  tools.className = "live-canvas-toolbar live-canvas-toolbar-vertical";
   tools.setAttribute("role", "toolbar");
   tools.setAttribute("aria-label", "Whiteboard tools");
   tools.innerHTML = [
     '<button type="button" data-tool="pen" class="is-on" aria-pressed="true">Pen</button>',
+    '<button type="button" data-tool="line" aria-pressed="false">Line</button>',
     '<button type="button" data-tool="text" aria-pressed="false">Text</button>',
-    '<button type="button" data-tool="erase">Erase</button>',
     '<button type="button" data-tool="undo" title="Nothing to undo" disabled>Undo</button>',
-    '<button type="button" data-tool="redo">Redo</button>',
-    '<button type="button" data-tool="clear">Clear</button>',
+    '<button type="button" data-tool="redo" hidden>Redo</button>',
+    '<button type="button" data-tool="clear" hidden>Clear</button>',
   ].join("");
   return tools;
 }
@@ -242,6 +242,9 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   canvas.style.backgroundPosition = "center";
   stage.appendChild(canvas);
   const tools = toolBar();
+  const workspace = document.createElement("div");
+  workspace.className = "live-canvas-workspace";
+  workspace.append(tools, stage);
   const submit = document.createElement("button");
   submit.type = "button";
   submit.className = "prompt-submit";
@@ -250,7 +253,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   const submitRow = document.createElement("div");
   submitRow.className = "qboard-tools";
   submitRow.appendChild(submit);
-  root.append(text, tools, stage, submitRow);
+  root.append(text, workspace, submitRow);
   /** Current card. Live sync swaps the slot; the poll and notes follow it. */
   const place = { slot };
   root._place = place;
@@ -260,12 +263,6 @@ async function ensurePhoneBoard(slot, key, urls, options) {
   let since = 0;
   let runKey = "";
   let viewer = "";
-  const clearBtn = tools.querySelector('[data-tool="clear"]');
-  const eraseBtn = tools.querySelector('[data-tool="erase"]');
-  if (clearBtn instanceof HTMLButtonElement && eraseBtn instanceof HTMLButtonElement) {
-    clearBtn.addEventListener("click", () => eraseBtn.click());
-  }
-
   /**
    * Paint a presence reply or a since-seq poll.
    * @param {any} data
@@ -388,10 +385,11 @@ async function ensurePhoneBoard(slot, key, urls, options) {
 
   const board = bindWhiteboard(canvas, {
     penBtn: tools.querySelector('[data-tool="pen"]'),
+    lineBtn: tools.querySelector('[data-tool="line"]'),
     textBtn: tools.querySelector('[data-tool="text"]'),
-    eraseBtn,
     undoBtn: tools.querySelector('[data-tool="undo"]'),
-    redoBtn: tools.querySelector('[data-tool="redo"]'),
+    color: "#12202e",
+    fixedInkColor: true,
     formative: {
       enabled: true,
       members: [],

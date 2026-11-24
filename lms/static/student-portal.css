@@ -508,12 +508,53 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   display: none;
 }
 
+.canvas-pane .live-canvas-workspace {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.45rem;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.canvas-pane .live-canvas-workspace > .live-canvas-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.canvas-pane .live-canvas-toolbar-vertical {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  margin: 0;
+  flex: 0 0 auto;
+  align-self: stretch;
+  justify-content: flex-start;
+  padding: 0.15rem 0;
+}
+
+.student-canvas-feedback {
+  margin: 0 0 0.45rem;
+}
+
+.student-canvas-feedback .prompt-feedback {
+  margin: 0;
+}
+
 .canvas-pane .live-canvas-toolbar,
 .qboard-slot .live-canvas-toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
   margin: 0 0 0.5rem;
+}
+
+.qboard-slot .live-canvas-toolbar-vertical {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  margin: 0;
 }
 
 .canvas-pane .student-pane-bar {
@@ -530,6 +571,19 @@ body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([h
   padding: 0.2rem 0.65rem;
   font-size: 0.78rem;
   font-weight: 650;
+}
+
+.canvas-pane .live-canvas-toolbar-vertical button,
+.qboard-slot .live-canvas-toolbar-vertical button {
+  width: 2.65rem;
+  min-width: 2.65rem;
+  padding: 0.2rem 0.25rem;
+  font-size: 0.7rem;
+  line-height: 1.1;
+}
+
+.canvas-pane .wb-formative-legend {
+  display: none !important;
 }
 
 .canvas-pane[hidden] {

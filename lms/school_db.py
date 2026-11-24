@@ -38733,6 +38733,36 @@ class SchoolDB(LovesDB):
             reply["canvas_sync"] = view
         return reply
 
+    def _student_board_feedback_text(
+        self, session_id: int, student_id: int | None
+    ) -> str:
+        """Teacher note already on this student's board copy, if any.
+
+        Reads ``board_answer_copies.feedback_text`` for the active live
+        prompt that uses a board. No schema change.
+        """
+        if student_id in (None, ""):
+            return ""
+        try:
+            from question_board import student_live_feedback, uses_board
+        except ImportError:
+            from lms.question_board import student_live_feedback, uses_board
+
+        prompt = self.get_active_live_prompt(int(session_id))
+        if prompt is None:
+            return ""
+        payload = prompt.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                payload = {}
+        if not isinstance(payload, dict) or not uses_board(payload):
+            return ""
+        return student_live_feedback(
+            self, int(session_id), int(prompt["id"]), int(student_id)
+        )
+
     def read_board(
         self,
         session_id: int,
@@ -38805,6 +38835,9 @@ class SchoolDB(LovesDB):
                     int(session_id),
                     teacher_state=teacher,
                 )
+                note = self._student_board_feedback_text(int(session_id), student_id)
+                if note:
+                    payload["feedback"] = note
             return payload
 
         if (

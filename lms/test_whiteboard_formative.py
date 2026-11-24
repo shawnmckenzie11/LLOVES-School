@@ -798,10 +798,11 @@ class FormativeIntegrationTests(unittest.TestCase):
         staff = (REPO_ROOT / "lms" / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
         for token in (
             "student-canvas-pen",
+            "student-canvas-line",
             "student-canvas-text",
-            "student-canvas-erase",
         ):
             self.assertIn(token, home)
+        self.assertNotIn("student-canvas-erase", home)
         for page in (home, staff):
             self.assertNotIn("Name your masterpiece", page)
             self.assertNotIn("Submit our art", page)

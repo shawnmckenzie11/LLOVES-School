@@ -2833,8 +2833,8 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
             student.wait_for_timeout(300)
             for selector in (
                 "#student-canvas-pen",
+                "#student-canvas-line",
                 "#student-canvas-text",
-                "#student-canvas-erase",
                 "#student-canvas-undo",
             ):
                 _mck272_box_in_view(student, selector)

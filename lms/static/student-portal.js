@@ -1233,6 +1233,7 @@ function studentPresenceQueue() {
       if (data.snapshot) {
         applyStudentBoardSnapshot(data);
         if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
+        applyStudentBoardFeedback(data);
         return;
       }
       const teamOps = opsAboveCursor(data.ops_since, studentBoardSince);
@@ -1245,9 +1246,11 @@ function studentPresenceQueue() {
       ) {
         bindStudentCanvas.applyDelta({ ops_since: teamOps, teacher_ops: teacherOps });
         if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
+        applyStudentBoardFeedback(data);
         return;
       }
       if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
+      applyStudentBoardFeedback(data);
       const view = data?.canvas_view || data?.canvas_sync;
       if (view && typeof bindStudentCanvas.importRemote === "function") {
         bindStudentCanvas.importRemote(view, studentPresenceCollab);
@@ -1312,6 +1315,13 @@ function applyStudentBoardFormative(meta) {
 }
 
 /**
+ * @param {any} data Board poll or presence body.
+ */
+function applyStudentBoardFeedback(data) {
+  if (data && typeof data.feedback === "string") paintStudentCanvasFeedback(data.feedback);
+}
+
+/**
  * Board this student is drawing on.
  *
  * A projected copy of that board must not replace the open stroke.
@@ -1334,7 +1344,7 @@ function viewerBoardKey(data) {
  *
  * A missing ``class_board`` key keeps the current board. ``null`` clears
  * it. The owner's own board keeps the open stroke and leaves Pen, Text,
- * and Erase usable. Another team's board is view only.
+ * Pen, Line, and Text stay usable. Another team's board is view only.
  * @param {any} data
  * @returns {"show-class" | "show-own" | "keep-class" | "clear-class" | "own"}
  */
@@ -1384,9 +1394,11 @@ function bindStudentCanvas() {
   let lastAlign = "student";
   const board = bindWhiteboard(studentCanvas, {
     penBtn: document.getElementById("student-canvas-pen"),
+    lineBtn: document.getElementById("student-canvas-line"),
     undoBtn: document.getElementById("student-canvas-undo"),
-    eraseBtn: document.getElementById("student-canvas-erase"),
     textBtn: document.getElementById("student-canvas-text"),
+    color: "#12202e",
+    fixedInkColor: true,
     cursorLayer: canvasCursors,
     formative: {
       enabled: false,
@@ -1554,6 +1566,7 @@ function refreshStudentBoard() {
     studentBoardSince = Number(data.board_seq) || 0;
     studentTeacherSince = Number(data.teacher_board_seq) || 0;
     if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
+    applyStudentBoardFeedback(data);
     if (studentCanvas instanceof HTMLCanvasElement && !isQuestionBoardRunKey(data.run_key)) {
       // MCK-174: a Fresh board reopen also changes the run key. Keep the
       // reopen line instead of the new-class line.
@@ -1732,6 +1745,7 @@ function ensureStudentBoardPoll() {
       if (data.snapshot) {
         applyStudentBoardSnapshot(data);
         if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
+        applyStudentBoardFeedback(data);
         return;
       }
       const teamOps = opsAboveCursor(data.ops || data.ops_since, studentBoardSince);
@@ -1746,6 +1760,7 @@ function ensureStudentBoardPoll() {
         });
       }
       if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
+      applyStudentBoardFeedback(data);
     },
   });
 }
@@ -3655,6 +3670,27 @@ function boardFeedbackHtml(text) {
     <p class="prompt-feedback-lead">Feedback</p>
     <p class="prompt-feedback-why">${escapeText(note)}</p>
   </div>`;
+}
+
+/**
+ * Show or hide teacher feedback above the live whiteboard pane.
+ *
+ * @param {string} text Already-stored note. Blank hides the slot.
+ */
+function paintStudentCanvasFeedback(text) {
+  const slot = document.getElementById("student-canvas-feedback");
+  if (!(slot instanceof HTMLElement)) return;
+  const note = String(text || "").trim();
+  if (!note) {
+    slot.hidden = true;
+    slot.replaceChildren();
+    return;
+  }
+  const html = boardFeedbackHtml(note);
+  if (slot.innerHTML !== html) {
+    slot.innerHTML = html;
+  }
+  slot.hidden = false;
 }
 
 /**

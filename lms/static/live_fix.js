@@ -34,7 +34,7 @@
     "save-work",
     "set-class-saved-override",
     "set-class-start",
-    "student-canvas-erase",
+    "student-canvas-line",
     "student-canvas-pen",
     "student-canvas-text",
     "student-canvas-undo",
