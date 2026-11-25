@@ -2251,6 +2251,7 @@ def register_live(app, school, shared):
                 request.args.get("seq"),
                 request.args.get("stamp"),
                 poll_student,
+                request.args.get("tally_touch"),
             )
             if unchanged is not None:
                 if unchanged.get("status") == "ended" and not unchanged.get(

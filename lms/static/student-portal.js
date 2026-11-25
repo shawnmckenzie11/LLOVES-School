@@ -581,6 +581,7 @@ const liveSubmitInFlight = new Set();
 /** @type {number} */
 let lastStateSeq = -1;
 let lastPollStamp = "";
+let lastTallyTouch = "";
 let lastSlideRev = null;
 /** One student /state at a time. A second tick waits until it finishes. */
 let studentPollInFlight = false;
@@ -4503,6 +4504,7 @@ let groupFlowResyncTimer = 0;
  */
 function queueGroupFlowResync() {
   lastPollStamp = "";
+  lastTallyTouch = "";
   if (groupFlowResyncTimer) window.clearTimeout(groupFlowResyncTimer);
   groupFlowResyncTimer = window.setTimeout(() => {
     groupFlowResyncTimer = 0;
@@ -5036,6 +5038,34 @@ function lifecycleAnswerFromCard(card) {
  * @param {any} data
  * @returns {any}
  */
+/**
+ * Merge thin tally-only patches from an unchanged poll.
+ * @param {any} payload
+ * @param {any[]} patches
+ * @returns {any}
+ */
+function mergeActiveTallyPatches(payload, patches) {
+  if (!payload || !Array.isArray(patches) || !patches.length) return payload;
+  const byId = new Map(
+    patches.map((row) => [Number(row?.id) || 0, row]).filter(([id]) => id > 0),
+  );
+  if (!byId.size) return payload;
+  const touch = (rows) =>
+  (Array.isArray(rows) ? rows : []).map((row) => {
+    const patch = byId.get(Number(row?.id) || 0);
+    if (!patch) return row;
+    return {
+      ...row,
+      results: patch.results ?? row.results,
+      results_phase: patch.results_phase ?? row.results_phase,
+    };
+  });
+  return {
+    ...payload,
+    active_questions: touch(payload.active_questions),
+  };
+}
+
 function mergeLifecycleSubmitResponse(payload, item, data) {
   if (!payload || !item || !data) return payload;
   const promptId = Number(item.prompt?.id) || 0;
@@ -7034,6 +7064,7 @@ async function tick() {
     const params = new URLSearchParams();
     if (lastStateSeq >= 0) params.set("seq", String(lastStateSeq));
     if (lastPollStamp) params.set("stamp", lastPollStamp);
+    if (lastTallyTouch) params.set("tally_touch", lastTallyTouch);
     if (lastSlideRev != null) params.set("slide_rev", String(lastSlideRev));
     const qs = params.toString() ? `?${params}` : "";
     const res = await fetch(`/api/student/state${qs}`, visitFetchInit());
@@ -7067,6 +7098,24 @@ async function tick() {
       studentNewsTries = 0;
       if (data.stamp) lastPollStamp = String(data.stamp);
       if (data.state_seq != null) lastStateSeq = Number(data.state_seq);
+      const nextTally = data.tally_touch ? String(data.tally_touch) : lastTallyTouch;
+      if (
+        nextTally &&
+        nextTally !== lastTallyTouch &&
+        Array.isArray(data.active_questions) &&
+        data.active_questions.length &&
+        lastStudentPayload
+      ) {
+        lastTallyTouch = nextTally;
+        lastStudentPayload = mergeActiveTallyPatches(
+          lastStudentPayload,
+          data.active_questions,
+        );
+        paintPollTotalsBelowFeedback(lastStudentPayload);
+        paintLifecycleQuestionStack(lastStudentPayload);
+      } else if (data.tally_touch) {
+        lastTallyTouch = String(data.tally_touch);
+      }
       if (data.google_slide) applyStudentGoogleSlide(data.google_slide);
       if (data.live_session_id && data.status !== "ended") {
         ensureStudentNewsWire(data.live_session_id);
@@ -7076,6 +7125,7 @@ async function tick() {
       return;
     }
     if (data.stamp) lastPollStamp = String(data.stamp);
+    if (data.tally_touch != null) lastTallyTouch = String(data.tally_touch);
     studentNewsTries = 0;
     studentSessionIsOver = studentSessionOver(data);
     if (data.live_session_id && data.status !== "ended") {

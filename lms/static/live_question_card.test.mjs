@@ -26,6 +26,10 @@ if (!html.includes('alt="First graph"')) fail("bank alt was dropped");
 if (!html.includes('alt="Question image 2"')) fail("missing alt fallback");
 if (!html.includes("Tap to enlarge")) fail("badge copy");
 if (!html.includes('width="4"') || !html.includes('height="3"')) fail("size attributes");
+if (html.includes('loading="lazy"')) fail("live question images must load eagerly");
+if (!html.includes('loading="eager"') || !html.includes('decoding="async"')) {
+  fail("eager async image attributes");
+}
 if (html.includes("live-question-card-options")) fail("image html picked up options");
 
 const open = { id: 2, status: "active" };

@@ -3962,7 +3962,13 @@ def register_teacher(app, school, shared):
         target = library_file_path(school, school.data_dir, int(library_id), rel)
         if target is None:
             abort(404)
-        return _send_module_file(target, rel)
+        try:
+            from sentry_wire import live_trace_span
+        except ImportError:
+            from lms.sentry_wire import live_trace_span
+
+        with live_trace_span("http", "student.module_file"):
+            return _send_module_file(target, rel)
 
     @bp.route("/curriculum-bank-images/<course>/<path:rel>")
     def serve_curriculum_bank_image(course: str, rel: str):
@@ -3997,15 +4003,30 @@ def register_teacher(app, school, shared):
         import mimetypes
 
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        response = Response(path.read_bytes(), mimetype=mime)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        if path.suffix.lower() == ".svg":
-            try:
-                from bank_image_mirror import SVG_SANDBOX_CSP
-            except ImportError:
-                from lms.bank_image_mirror import SVG_SANDBOX_CSP
-            response.headers["Content-Security-Policy"] = SVG_SANDBOX_CSP
-        return response
+        from flask import send_file
+
+        try:
+            from sentry_wire import live_trace_span
+        except ImportError:
+            from lms.sentry_wire import live_trace_span
+
+        with live_trace_span("http", "student.curriculum_bank_image"):
+            response = send_file(
+                path,
+                mimetype=mime,
+                conditional=True,
+                etag=True,
+            )
+            response.cache_control.private = True
+            response.cache_control.max_age = 3600
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            if path.suffix.lower() == ".svg":
+                try:
+                    from bank_image_mirror import SVG_SANDBOX_CSP
+                except ImportError:
+                    from lms.bank_image_mirror import SVG_SANDBOX_CSP
+                response.headers["Content-Security-Policy"] = SVG_SANDBOX_CSP
+            return response
 
     @bp.route("/student/dashboard")
     @student_required

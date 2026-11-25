@@ -71,6 +71,7 @@ from flask import (  # noqa: E402
     redirect,
     render_template,
     request,
+    send_file,
     send_from_directory,
     session,
     url_for,
@@ -1400,15 +1401,22 @@ def _send_module_file(target: Path, rel: str) -> Response:
     kwargs: dict[str, str] = {}
     if svg_name:
         kwargs["mimetype"] = "image/svg+xml"
-    response = send_from_directory(
-        target.parent, target.name, download_name=Path(rel).name, **kwargs
+    response = send_file(
+        target,
+        mimetype=kwargs.get("mimetype"),
+        download_name=Path(rel).name,
+        conditional=True,
+        etag=True,
     )
     if gzip_name:
         if _svgz_is_gzip(target):
             response.headers["Content-Encoding"] = "gzip"
         else:
             response.headers.pop("Content-Encoding", None)
-    return apply_module_file_headers(response, rel)
+    response = apply_module_file_headers(response, rel)
+    response.cache_control.private = True
+    response.cache_control.max_age = 3600
+    return response
 
 
 def create_app(

@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 #: Show All grids kept in this process. Older sessions are dropped.
 _SHOW_ALL_CACHE_SESSIONS = 8
 
+#: Student-safe image-resolved cards shared across phones in one process.
+
 #: End waits this long for another End of the same run (double click) to
 #: finish before refusing with "End in progress, try again" (MCK-72).
 LIVE_END_BUSY_WAIT_SECONDS = 3.0
@@ -54881,6 +54883,119 @@ class SchoolDB(LovesDB):
         sql += " ORDER BY c.run_key, c.board_key"
         return list(self.conn.execute(sql, params))
 
+    def _live_tally_poll_stamp(
+        self, session_id: int, student_id: int | None
+    ) -> str:
+        """Class-wide MC response rev for students who see live tallies.
+
+        A scoped ``response_max`` moves only when this student answers.
+        While live results are on, peers' writes must still bump the stamp
+        so early answerers rebuild tallies without widening fan-out for
+        everyone else.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id. ``None`` returns empty.
+        """
+        if student_id in (None, ""):
+            return ""
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return ""
+        if not self._is_session_attendee(sid, student):
+            return ""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT p.id AS prompt_id,
+                       COUNT(r.id) AS response_n,
+                       COALESCE(MAX(r.id), 0) AS response_max
+                FROM live_session_items AS i
+                INNER JOIN live_session_prompts AS p ON p.id = i.prompt_id
+                LEFT JOIN live_session_responses AS r ON r.prompt_id = p.id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND i.show_live_results = 1
+                  AND i.response_mode = 'individual'
+                  AND EXISTS (
+                    SELECT 1 FROM live_session_responses AS mine
+                    WHERE mine.prompt_id = p.id AND mine.student_id = ?
+                  )
+                GROUP BY p.id
+                ORDER BY p.id
+                """,
+                (sid, student),
+            ).fetchall()
+        if not rows:
+            return ""
+        return "|".join(
+            f"{int(row['prompt_id'])}:{int(row['response_n'])}:{int(row['response_max'])}"
+            for row in rows
+        )
+
+
+    def _student_live_tally_patches(
+        self, session_id: int, class_id: int, student_id: int
+    ) -> list[dict[str, Any]]:
+        """Thin MC tally slices for unchanged polls (MCK-521).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id.
+            student_id: Roster id.
+
+        Returns:
+            Lifecycle rows with only ``id``, ``results``, and ``results_phase``.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+            int(class_id)
+        except (TypeError, ValueError):
+            return []
+        teacher = self.live_session_teacher_state_payload(sid)
+        prompts = {
+            int(row["id"]): row for row in self._list_live_session_prompts(sid)
+        }
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT i.id, i.prompt_id
+                FROM live_session_items AS i
+                INNER JOIN live_session_prompts AS p ON p.id = i.prompt_id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND i.show_live_results = 1
+                  AND i.response_mode = 'individual'
+                  AND EXISTS (
+                    SELECT 1 FROM live_session_responses AS mine
+                    WHERE mine.prompt_id = p.id AND mine.student_id = ?
+                  )
+                ORDER BY i.id
+                """,
+                (sid, student),
+            ).fetchall()
+        patches: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                prompt = prompts.get(int(row["prompt_id"]))
+            except (TypeError, ValueError):
+                continue
+            if prompt is None:
+                continue
+            tally = self._tally_for_prompt(sid, prompt, teacher)
+            results = self.student_safe_tally(sid, prompt, tally, teacher)
+            patches.append(
+                {
+                    "id": int(row["id"]),
+                    "results": results,
+                    "results_phase": "live",
+                }
+            )
+        return patches
+
     def live_student_poll_stamp(
         self,
         session_id: int,
@@ -55288,6 +55403,7 @@ class SchoolDB(LovesDB):
         seq: Any,
         stamp: Any,
         student_id: int | None = None,
+        tally_touch: Any = None,
     ) -> dict[str, Any] | None:
         """Return a tiny payload when the student's seq and stamp still match.
 
@@ -55300,6 +55416,7 @@ class SchoolDB(LovesDB):
             class_id: Game-show class id.
             seq: Client ``state_seq`` from the last full payload.
             stamp: Client ``live_student_poll_stamp`` from the last full payload.
+            tally_touch: Client ``tally_touch`` from the last payload.
             student_id: Roster id, so the group part of the stamp is that
                 student's teams. ``None`` keeps the class-wide group token.
 
@@ -55324,12 +55441,28 @@ class SchoolDB(LovesDB):
             return self._student_live_gone_payload(session_id)
         if requested != current_seq or str(stamp) != current_stamp:
             return None
-        return {
+        body: dict[str, Any] = {
             "ok": True,
             "unchanged": True,
             "state_seq": current_seq,
             "stamp": current_stamp,
         }
+        # MCK-521: tally refresh is opt-in via ``tally_touch`` query param so
+        # slide-forward unchanged polls stay O(1) (seq + stamp only).
+        if (
+            tally_touch is not None
+            and student_id not in (None, "")
+        ):
+            current_tally = self._live_tally_poll_stamp(int(session_id), student_id)
+            if current_tally:
+                body["tally_touch"] = current_tally
+                if str(tally_touch or "") != current_tally:
+                    patches = self._student_live_tally_patches(
+                        int(session_id), int(class_id), int(student_id)
+                    )
+                    if patches:
+                        body["active_questions"] = patches
+        return body
 
     def get_live_session_state(
         self, session_id: int, *, light: bool = False

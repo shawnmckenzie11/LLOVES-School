@@ -1542,6 +1542,9 @@ def apply_module_file_headers(response: Any, rel: str) -> Any:
     """
     kind = module_file_kind(rel)
     if kind == "raster":
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.cache_control.private = True
+        response.cache_control.max_age = 3600
         return response
     response.headers["Content-Security-Policy"] = SVG_SANDBOX_CSP
     response.headers["X-Content-Type-Options"] = "nosniff"
