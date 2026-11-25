@@ -612,21 +612,66 @@ _DROPPED_KEYS = _IDENTITY_KEYS | frozenset(
 # ``[redacted]``. Relay then rejected every transaction as
 # ``invalid_transaction``, and a mangled ``event_id`` in the envelope header
 # made it answer HTTP 400 (the SDK counts that as ``network_error``).
-_WIRE_KEYS = frozenset(
+#
+# The exemption is path-scoped. A nested ``timestamp``, ``release`` or
+# ``type`` key in ``extra``, ``tags``, span ``data`` or breadcrumb ``data``
+# is still text-scrubbed; only the paths below are skipped.
+# Event / log record root (logs also carry trace and span ids here).
+_WIRE_ROOT_KEYS = frozenset(
     {
         "event_id",
+        "timestamp",
+        "start_timestamp",
+        "type",
+        "platform",
+        "release",
         "trace_id",
         "span_id",
         "parent_span_id",
         "segment_id",
-        "timestamp",
-        "start_timestamp",
         "sample_rand",
-        "release",
-        "type",
-        "platform",
     }
 )
+# ``contexts.trace`` ids only, not other keys on that object.
+_WIRE_TRACE_ID_KEYS = frozenset(
+    {"trace_id", "span_id", "parent_span_id", "segment_id"}
+)
+# Each span's own ids and timestamps at the span root, not under ``data``.
+_WIRE_SPAN_KEYS = frozenset(
+    {
+        "span_id",
+        "parent_span_id",
+        "trace_id",
+        "timestamp",
+        "start_timestamp",
+    }
+)
+
+
+def _is_wire_field(path: tuple[Any, ...], key: Any) -> bool:
+    """True when ``key`` at ``path`` is a Sentry wire field, not a nested alias.
+
+    Args:
+        path: Keys from the payload root to the parent of ``key``.
+        key: The child key on that parent.
+
+    Returns:
+        Whether the string under this key must be left unscrubbed.
+    """
+    if not isinstance(key, str):
+        return False
+    if path == ():
+        return key in _WIRE_ROOT_KEYS
+    if path == ("contexts", "trace"):
+        return key in _WIRE_TRACE_ID_KEYS
+    # The SDK copies root release and trace_id into this bag, then lifts it
+    # into the envelope header. A mangled release here is still on the wire.
+    if path == ("contexts", "trace", "dynamic_sampling_context"):
+        return key in _WIRE_ROOT_KEYS or key in _WIRE_TRACE_ID_KEYS
+    if len(path) == 2 and path[0] == "spans" and isinstance(path[1], int):
+        return key in _WIRE_SPAN_KEYS
+    return False
+
 _EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # "PIN 4321" / "pin=4321". A bare 4-digit year or status is left alone.
 _PIN_TEXT_RE = re.compile(r"(?i)\b(pin)\b(\s*[:=]?\s*)\d{4}\b")
@@ -1228,16 +1273,18 @@ def _scrub_identity(value: Any) -> Any:
         clone[key] = child
 
     clones: dict[int, Any] = {id(value): fresh(value)}
-    stack: list[tuple[Any, Any]] = [(value, iter(children(value)))]
+    stack: list[tuple[Any, tuple[Any, ...], Any]] = [
+        (value, (), iter(children(value)))
+    ]
     while stack:
-        node, pending = stack[-1]
+        node, path, pending = stack[-1]
         try:
             key, child = next(pending)
         except StopIteration:
             stack.pop()
             continue
         if isinstance(child, str):
-            if isinstance(node, dict) and key in _WIRE_KEYS:
+            if isinstance(node, dict) and _is_wire_field(path, key):
                 put(clones[id(node)], key, child)
                 continue
             put(clones[id(node)], key, _scrub_text(child))
@@ -1248,7 +1295,7 @@ def _scrub_identity(value: Any) -> Any:
                 raise ValueError("cyclic sentry payload")
             clones[child_id] = fresh(child)
             put(clones[id(node)], key, clones[child_id])
-            stack.append((child, iter(children(child))))
+            stack.append((child, path + (key,), iter(children(child))))
             continue
         put(clones[id(node)], key, child)
     return clones[id(value)]

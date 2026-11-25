@@ -160,6 +160,7 @@ def _event(**over) -> dict:
         },
         "contexts": {
             "runtime": {"name": "CPython", "version": "3.12.0"},
+            "os": {"name": "Linux", "version": "6.8.0"},
             "trace": {
                 "trace_id": "1234ab5678cd9012ef3456ab7890cd12",
                 "span_id": "1234abcd5678ef90",
@@ -196,6 +197,8 @@ class WireFieldsSurviveScrubTests(unittest.TestCase):
             self.assertEqual(scrubbed[key], before[key], key)
         self.assertEqual(scrubbed["sdk"], before["sdk"])
         self.assertEqual(scrubbed["contexts"]["runtime"], before["contexts"]["runtime"])
+        self.assertEqual(scrubbed["contexts"]["os"], before["contexts"]["os"])
+        self.assertEqual(scrubbed["contexts"]["os"]["name"], "Linux")
         self.assertEqual(scrubbed["contexts"]["trace"], before["contexts"]["trace"])
         self.assertEqual(scrubbed["spans"], before["spans"])
         validate_transaction_envelope(_envelope_bytes(scrubbed))
@@ -263,6 +266,66 @@ class WireFieldsSurviveScrubTests(unittest.TestCase):
             self.assertNotIn(secret, text, secret)
         self.assertNotIn("data", scrubbed["request"])
         self.assertNotIn("name", scrubbed["extra"])
+
+    def test_nested_wire_key_names_are_still_scrubbed(self) -> None:
+        """Secrets under timestamp/release/type outside wire paths are scrubbed.
+
+        Those key names are exempt only at the event root, on
+        ``contexts.trace`` ids, at each span root, and at the log record
+        root. A nested copy in extra, tags, span data or breadcrumb data
+        still goes through the text scrub. Root wire fields stay intact.
+        """
+        secret = f"student {STUDENT_NAME} typed PIN 4321 join code Q7Z9K"
+        nested = {"timestamp": secret, "release": secret, "type": secret}
+        event = _event(
+            extra=dict(nested),
+            tags=dict(nested),
+            breadcrumbs={"values": [{"category": "http", "data": dict(nested)}]},
+        )
+        event["spans"][0]["data"] = {"server_ms": 3, **nested}
+        root = {
+            "event_id": event["event_id"],
+            "timestamp": event["timestamp"],
+            "start_timestamp": event["start_timestamp"],
+            "type": event["type"],
+            "platform": event["platform"],
+            "release": event["release"],
+            "trace": dict(event["contexts"]["trace"]),
+            "os": dict(event["contexts"]["os"]),
+            "span_id": event["spans"][0]["span_id"],
+            "span_trace_id": event["spans"][0]["trace_id"],
+            "span_parent": event["spans"][0]["parent_span_id"],
+            "span_start": event["spans"][0]["start_timestamp"],
+            "span_end": event["spans"][0]["timestamp"],
+        }
+        scrubbed = sentry_wire.before_send_transaction(event)
+        for key in ("event_id", "timestamp", "start_timestamp", "type", "platform", "release"):
+            self.assertEqual(scrubbed[key], root[key], key)
+        self.assertEqual(scrubbed["contexts"]["trace"], root["trace"])
+        self.assertEqual(scrubbed["contexts"]["os"], root["os"])
+        span = scrubbed["spans"][0]
+        self.assertEqual(span["span_id"], root["span_id"])
+        self.assertEqual(span["trace_id"], root["span_trace_id"])
+        self.assertEqual(span["parent_span_id"], root["span_parent"])
+        self.assertEqual(span["start_timestamp"], root["span_start"])
+        self.assertEqual(span["timestamp"], root["span_end"])
+
+        locations = [
+            scrubbed["extra"],
+            scrubbed["tags"],
+            span["data"],
+            scrubbed["breadcrumbs"]["values"][0]["data"],
+        ]
+        for blob in locations:
+            for key in ("timestamp", "release", "type"):
+                self.assertIn(key, blob, key)
+                value = blob[key]
+                self.assertIsInstance(value, str)
+                self.assertNotIn(STUDENT_NAME, value, (key, value))
+                self.assertNotIn("4321", value, (key, value))
+                self.assertNotIn("Q7Z9K", value, (key, value))
+                self.assertIn("[redacted]", value, (key, value))
+        self.assertEqual(span["data"]["server_ms"], 3)
 
 
 def _envelope_bytes(event: dict) -> bytes:
