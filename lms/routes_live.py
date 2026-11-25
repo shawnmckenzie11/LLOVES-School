@@ -2251,6 +2251,7 @@ def register_live(app, school, shared):
                 request.args.get("seq"),
                 request.args.get("stamp"),
                 poll_student,
+                request.args.get("tally_touch"),
             )
             if unchanged is not None:
                 if unchanged.get("status") == "ended" and not unchanged.get(
@@ -2303,6 +2304,10 @@ def register_live(app, school, shared):
                 )
             payload["display_time"] = school.live_session_display_time(int(class_id))
             payload["stamp"] = stamp
+            if poll_student not in (None, ""):
+                payload["tally_touch"] = school._live_tally_poll_stamp(
+                    live_session_id, poll_student
+                )
             payload["state_seq"] = int(
                 (payload.get("teacher_state") or {}).get("state_seq") or 0
             )

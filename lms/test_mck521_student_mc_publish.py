@@ -127,7 +127,7 @@ class Mck521StudentMcPublishTests(unittest.TestCase):
         }
 
     def test_early_answerer_stamp_and_tally_refresh(self) -> None:
-        """After B answers, A's stamp moves and /state would rebuild."""
+        """After B answers, A stays unchanged but tally patches refresh bars."""
 
         _item, prompt = self._add_mc()
         seat_a, seat_b, seat_c = self.ids[0], self.ids[1], self.ids[2]
@@ -143,34 +143,39 @@ class Mck521StudentMcPublishTests(unittest.TestCase):
             )
             or 0
         )
+        tally_a = self.school._live_tally_poll_stamp(self.session_id, seat_a)
         stamp_c = self.school.live_student_poll_stamp(
             self.session_id, self.class_id, seat_c
         )
         self.school.submit_live_prompt_response(
             int(prompt["id"]), seat_b, {"choice": "B"}
         )
-        self.assertNotEqual(
+        self.assertEqual(
             stamp_a,
             self.school.live_student_poll_stamp(
                 self.session_id, self.class_id, seat_a
             ),
         )
-        self.assertIsNone(
-            self.school.student_live_poll_unchanged(
-                self.session_id, self.class_id, seq, stamp_a, seat_a
-            )
+        body = self.school.student_live_poll_unchanged(
+            self.session_id,
+            self.class_id,
+            seq,
+            stamp_a,
+            seat_a,
+            tally_a,
         )
+        self.assertIsNotNone(body)
+        self.assertTrue(body.get("unchanged"))
+        patch = (body.get("active_questions") or [])[0]
+        counts = self._counts(patch.get("results"))
+        self.assertEqual(counts.get("kite"), 1)
+        self.assertEqual(counts.get("moth"), 1)
         self.assertEqual(
             stamp_c,
             self.school.live_student_poll_stamp(
                 self.session_id, self.class_id, seat_c
             ),
         )
-        payload = self.school.student_live_items_payload(self.session_id, seat_a)
-        row = (payload.get("active_questions") or [])[0]
-        counts = self._counts(row.get("results"))
-        self.assertEqual(counts.get("kite"), 1)
-        self.assertEqual(counts.get("moth"), 1)
 
     def test_student_card_cache_and_invalidation(self) -> None:
         """Second seat hits cache; prompt update busts it; copies stay isolated."""

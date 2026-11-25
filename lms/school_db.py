@@ -31068,43 +31068,44 @@ class SchoolDB(LovesDB):
             "tally": tally,
         }
 
-    def _student_public_item_payload(
+    @staticmethod
+    def _student_public_card_cache_eligible(payload: dict[str, Any]) -> bool:
+        """True when a prompt body may be cached without student-specific bits.
+
+        Rank shuffles, aliases, Meet rotations, and artifacts are applied on
+        a deep copy after the cache (MCK-521 / MCK-176).
+
+        Args:
+            payload: Raw prompt or item JSON.
+        """
+        if not isinstance(payload, dict) or not payload:
+            return False
+        kind = str(payload.get("type") or payload.get("kind") or "").strip().lower()
+        if kind == "rank" or payload.get("rank_key"):
+            return False
+        if is_artifact_payload(payload):
+            return False
+        if is_meet_team_payload(payload) or is_teams_spark_payload(payload):
+            return False
+        return True
+
+    def _build_student_public_card_shared(
         self,
         raw_payload: Any,
         *,
         class_id: int | None = None,
         module: str = "",
         course_code: str = "",
-        live_prompt_id: int | None = None,
-        live_item_rev: str = "",
-        live_prompt_rev: str = "",
     ) -> dict[str, Any]:
-        """Strip teacher keys, remirror bank graphs, and rewrite image URLs.
+        """Student-safe stem, bank rehydrate, strip, and image URLs.
 
-        Staff cards rehydrate leftover Canvas/Instructure ``<img>`` srcs onto
-        ``/staff/class/{id}/module-files/...``. The student portal CSP is
-        ``img-src 'self'``, so remote Canvas URLs never paint. This applies
-        the same remirror, then rewrites staff paths to the student twin
-        ``/api/classes/{id}/module-files/...``. A URL for another class is
-        rebased onto ``class_id`` only when this class's library already
-        has that file. Otherwise the other class id stays, and that route
-        still refuses the student.
-
-        When ``live_prompt_id`` and revision strings are set, the
-        image-resolved body is cached in-process per class and invalidated
-        by prompt or item updates. Returned dicts are deep copies.
+        Does not run rank shuffle, aliases, or any per-student transforms.
 
         Args:
             raw_payload: Stored prompt or playlist item JSON.
             class_id: Owning class, used to remirror and resolve pack files.
-            module: Deck token such as ``M8``. When this course and module
-                do not show figures, the question row is not read and no
-                image file is stat'd.
+            module: Deck token such as ``M8``.
             course_code: Section label when the caller already has it.
-                Omit to read it from ``class_id``.
-            live_prompt_id: Lifecycle prompt id for the cache key.
-            live_item_rev: ``live_session_items.updated_at`` for the key.
-            live_prompt_rev: ``live_session_prompts.updated_at`` for the key.
         """
         try:
             from question_math import (
@@ -31123,21 +31124,6 @@ class SchoolDB(LovesDB):
             viewing = int(class_id) if class_id not in (None, "") else None
         except (TypeError, ValueError):
             viewing = None
-        cache_key: tuple[int, int, str, str] | None = None
-        if viewing is not None and live_prompt_id not in (None, ""):
-            try:
-                cache_key = (
-                    viewing,
-                    int(live_prompt_id),
-                    str(live_item_rev or ""),
-                    str(live_prompt_rev or ""),
-                )
-            except (TypeError, ValueError):
-                cache_key = None
-            if cache_key is not None:
-                cached = self._student_public_card_cache_get(cache_key)
-                if cached is not None:
-                    return deepcopy(cached)
         if payload:
             payload = clean_question_stem_fields(dict(payload))
         item_token = str(payload.get("id") or payload.get("item_id") or "")
@@ -31152,16 +31138,11 @@ class SchoolDB(LovesDB):
                 payload = self.rehydrate_module_bank_item(
                     int(class_id), int(library_id), payload
                 )
-        # MCK-176: an answer-order rank is never shown in key order (stored
-        # order first; a stable shuffle for any copy without one). Must run
-        # before the strip below removes ``rank_key``.
-        payload = self._student_rank_display(payload)
         if is_artifact_payload(payload):
             cleaned = student_artifact_payload(payload)
         else:
             cleaned = strip_teacher_prompt_fields(payload)
         if isinstance(cleaned, dict):
-            # MCK-154 S2 / MCK-163: the "New" chip is teacher-only.
             cleaned.pop("added_live_session_id", None)
             cleaned.pop("added_live_run_key", None)
             cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
@@ -31191,9 +31172,116 @@ class SchoolDB(LovesDB):
         result = rewrite_student_prompt_images(
             cleaned, class_id=viewing, library_has=library_has
         )
-        if cache_key is not None and isinstance(result, dict):
-            self._student_public_card_cache_put(cache_key, result)
-        return result
+        return result if isinstance(result, dict) else {}
+
+    def _student_public_item_payload(
+        self,
+        raw_payload: Any,
+        *,
+        class_id: int | None = None,
+        module: str = "",
+        course_code: str = "",
+        live_prompt_id: int | None = None,
+        live_item_rev: str = "",
+        live_prompt_rev: str = "",
+        stored_rank_orders: dict[str, list[str]] | None = None,
+        rank_scope: Any = None,
+    ) -> dict[str, Any]:
+        """Strip teacher keys, remirror bank graphs, and rewrite image URLs.
+
+        Staff cards rehydrate leftover Canvas/Instructure ``<img>`` srcs onto
+        ``/staff/class/{id}/module-files/...``. The student portal CSP is
+        ``img-src 'self'``, so remote Canvas URLs never paint. This applies
+        the same remirror, then rewrites staff paths to the student twin
+        ``/api/classes/{id}/module-files/...``. A URL for another class is
+        rebased onto ``class_id`` only when this class's library already
+        has that file. Otherwise the other class id stays, and that route
+        still refuses the student.
+
+        When ``live_prompt_id`` and revision strings are set, only the shared
+        student-independent slice is cached (stem, images, unshuffled MC).
+        Rank shuffles, aliases, and Meet-specific bodies run on a deep copy
+        after the cache.
+
+        Args:
+            raw_payload: Stored prompt or playlist item JSON.
+            class_id: Owning class, used to remirror and resolve pack files.
+            module: Deck token such as ``M8``. When this course and module
+                do not show figures, the question row is not read and no
+                image file is stat'd.
+            course_code: Section label when the caller already has it.
+                Omit to read it from ``class_id``.
+            live_prompt_id: Lifecycle prompt id for the cache key.
+            live_item_rev: ``live_session_items.updated_at`` for the key.
+            live_prompt_rev: ``live_session_prompts.updated_at`` for the key.
+            stored_rank_orders: MCK-176 orders by placement or item ref.
+            rank_scope: Lifecycle scope for option aliases.
+        """
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        viewing: int | None
+        try:
+            viewing = int(class_id) if class_id not in (None, "") else None
+        except (TypeError, ValueError):
+            viewing = None
+        cache_key: tuple[int, int, str, str] | None = None
+        cache_eligible = self._student_public_card_cache_eligible(payload)
+        if viewing is not None and live_prompt_id not in (None, "") and cache_eligible:
+            try:
+                cache_key = (
+                    viewing,
+                    int(live_prompt_id),
+                    str(live_item_rev or ""),
+                    str(live_prompt_rev or ""),
+                )
+            except (TypeError, ValueError):
+                cache_key = None
+        shared: dict[str, Any] | None = None
+        if cache_key is not None:
+            shared = self._student_public_card_cache_get(cache_key)
+        if shared is None:
+            shared = self._build_student_public_card_shared(
+                payload,
+                class_id=class_id,
+                module=module,
+                course_code=course_code,
+            )
+            if cache_key is not None and isinstance(shared, dict):
+                self._student_public_card_cache_put(cache_key, shared)
+        result = deepcopy(shared) if isinstance(shared, dict) else {}
+        if rank_scope not in (None, ""):
+            token = str(rank_scope).strip()
+            if token:
+                result.setdefault("placement_key", token)
+                result.setdefault("item_id", token)
+        if isinstance(payload, dict) and (
+            str(payload.get("type") or payload.get("kind") or "").strip().lower()
+            == "rank"
+            or payload.get("rank_key")
+        ):
+            for field in (
+                "rank_key",
+                "rank_options",
+                "options",
+                "choices",
+                "type",
+                "kind",
+                "placement_key",
+                "item_id",
+            ):
+                if field in payload:
+                    result[field] = deepcopy(payload[field])
+        shown = self._student_rank_display(
+            result,
+            stored_rank_orders,
+            scope=rank_scope,
+        )
+        if isinstance(shown, dict):
+            shown.pop("rank_key", None)
+            shown.pop(RANK_DISPLAY_ORDER_FIELD, None)
+            shown.pop(RANK_DISPLAY_PENDING_FIELD, None)
+            shown.pop("import_group_preset", None)
+            shown.pop("group_rank_mode", None)
+        return shown
 
     def _student_public_card_cache_get(
         self, cache_key: tuple[int, int, str, str]
@@ -31361,7 +31449,15 @@ class SchoolDB(LovesDB):
             return None
         _stamp, prompt_id, prompt, prior = found
         payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
-        public = self._student_public_item_payload(payload, class_id=class_id)
+        stored_rank_orders = self._rank_display_orders_by_ref(int(session_id))
+        public = self._student_public_item_payload(
+            payload,
+            class_id=class_id,
+            stored_rank_orders=stored_rank_orders,
+            rank_scope=self.rank_alias_scope(payload),
+            live_prompt_id=prompt_id,
+            live_prompt_rev=str(prompt.get("updated_at") or "") if isinstance(prompt, dict) else "",
+        )
         return {
             "content": public,
             "prompt": {
@@ -31599,6 +31695,8 @@ class SchoolDB(LovesDB):
             if self._session_playlist_item_removed(session_id, item_id_raw):
                 continue
             items.append(row)
+        items = self._with_rank_display_claims(items)
+        stored_rank_orders = self._rank_display_orders_by_ref(session_id)
         public_items: list[dict[str, Any]] = []
         prompts_by_id, responses_by_prompt = self._preload_student_prompt_reads(
             items,
@@ -31810,6 +31908,10 @@ class SchoolDB(LovesDB):
                     str(prompt.get("updated_at") or "")
                     if prompt is not None
                     else ""
+                ),
+                stored_rank_orders=stored_rank_orders,
+                rank_scope=str(
+                    item.get("placement_key") or item.get("item_id") or ""
                 ),
             )
             public_items.append(
@@ -36787,6 +36889,7 @@ class SchoolDB(LovesDB):
             if fragment:
                 my_response["feedback"] = fragment
         prompt_session = self.get_live_session(session_id)
+        stored_rank_orders = self._rank_display_orders_by_ref(session_id)
         cleaned = self._student_public_item_payload(
             raw_payload,
             class_id=(prompt_session or {}).get("class_id"),
@@ -36796,6 +36899,10 @@ class SchoolDB(LovesDB):
                 if prompt_session and prompt_session.get("class_id") not in (None, "")
                 else ""
             ),
+            live_prompt_id=int(prompt["id"]),
+            live_prompt_rev=str(prompt.get("updated_at") or ""),
+            stored_rank_orders=stored_rank_orders,
+            rank_scope=self.rank_alias_scope(raw_payload),
         )
         if is_teams_spark_payload(raw_payload):
             ui = teacher.get("mc_ui") if isinstance((teacher or {}).get("mc_ui"), dict) else {}
@@ -55026,6 +55133,67 @@ class SchoolDB(LovesDB):
             for row in rows
         )
 
+
+    def _student_live_tally_patches(
+        self, session_id: int, class_id: int, student_id: int
+    ) -> list[dict[str, Any]]:
+        """Thin MC tally slices for unchanged polls (MCK-521).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id.
+            student_id: Roster id.
+
+        Returns:
+            Lifecycle rows with only ``id``, ``results``, and ``results_phase``.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+            int(class_id)
+        except (TypeError, ValueError):
+            return []
+        teacher = self.live_session_teacher_state_payload(sid)
+        prompts = {
+            int(row["id"]): row for row in self._list_live_session_prompts(sid)
+        }
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT i.id, i.prompt_id
+                FROM live_session_items AS i
+                INNER JOIN live_session_prompts AS p ON p.id = i.prompt_id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND i.show_live_results = 1
+                  AND i.response_mode = 'individual'
+                  AND EXISTS (
+                    SELECT 1 FROM live_session_responses AS mine
+                    WHERE mine.prompt_id = p.id AND mine.student_id = ?
+                  )
+                ORDER BY i.id
+                """,
+                (sid, student),
+            ).fetchall()
+        patches: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                prompt = prompts.get(int(row["prompt_id"]))
+            except (TypeError, ValueError):
+                continue
+            if prompt is None:
+                continue
+            tally = self._tally_for_prompt(sid, prompt, teacher)
+            results = self.student_safe_tally(sid, prompt, tally, teacher)
+            patches.append(
+                {
+                    "id": int(row["id"]),
+                    "results": results,
+                    "results_phase": "live",
+                }
+            )
+        return patches
+
     def live_student_poll_stamp(
         self,
         session_id: int,
@@ -55231,7 +55399,6 @@ class SchoolDB(LovesDB):
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:"
-            f"{self._live_tally_poll_stamp(int(session_id), student_id)}:"
             f"{self._session_timer_stamp_token(int(class_id))}:"
             f"{self._google_slides_stamp_token(int(session_id))}:"
             f"{self._rendered_card_revision(int(session_id), student_id)}:"
@@ -55434,6 +55601,7 @@ class SchoolDB(LovesDB):
         seq: Any,
         stamp: Any,
         student_id: int | None = None,
+        tally_touch: Any = None,
     ) -> dict[str, Any] | None:
         """Return a tiny payload when the student's seq and stamp still match.
 
@@ -55446,6 +55614,7 @@ class SchoolDB(LovesDB):
             class_id: Game-show class id.
             seq: Client ``state_seq`` from the last full payload.
             stamp: Client ``live_student_poll_stamp`` from the last full payload.
+            tally_touch: Client ``tally_touch`` from the last payload.
             student_id: Roster id, so the group part of the stamp is that
                 student's teams. ``None`` keeps the class-wide group token.
 
@@ -55470,12 +55639,24 @@ class SchoolDB(LovesDB):
             return self._student_live_gone_payload(session_id)
         if requested != current_seq or str(stamp) != current_stamp:
             return None
-        return {
+        body: dict[str, Any] = {
             "ok": True,
             "unchanged": True,
             "state_seq": current_seq,
             "stamp": current_stamp,
         }
+        current_tally = ""
+        if student_id not in (None, ""):
+            current_tally = self._live_tally_poll_stamp(int(session_id), student_id)
+        if current_tally:
+            body["tally_touch"] = current_tally
+            if str(tally_touch or "") != current_tally:
+                patches = self._student_live_tally_patches(
+                    int(session_id), int(class_id), int(student_id)
+                )
+                if patches:
+                    body["active_questions"] = patches
+        return body
 
     def get_live_session_state(
         self, session_id: int, *, light: bool = False
