@@ -31299,7 +31299,7 @@ class SchoolDB(LovesDB):
             if not isinstance(found, dict):
                 return None
             cache.move_to_end(cache_key)
-            return deepcopy(found)
+            return found
 
     def _student_public_card_cache_put(
         self, cache_key: tuple[int, int, str, str], payload: dict[str, Any]
@@ -55645,17 +55645,21 @@ class SchoolDB(LovesDB):
             "state_seq": current_seq,
             "stamp": current_stamp,
         }
-        current_tally = ""
-        if student_id not in (None, ""):
+        # MCK-521: tally refresh is opt-in via ``tally_touch`` query param so
+        # slide-forward unchanged polls stay O(1) (seq + stamp only).
+        if (
+            tally_touch is not None
+            and student_id not in (None, "")
+        ):
             current_tally = self._live_tally_poll_stamp(int(session_id), student_id)
-        if current_tally:
-            body["tally_touch"] = current_tally
-            if str(tally_touch or "") != current_tally:
-                patches = self._student_live_tally_patches(
-                    int(session_id), int(class_id), int(student_id)
-                )
-                if patches:
-                    body["active_questions"] = patches
+            if current_tally:
+                body["tally_touch"] = current_tally
+                if str(tally_touch or "") != current_tally:
+                    patches = self._student_live_tally_patches(
+                        int(session_id), int(class_id), int(student_id)
+                    )
+                    if patches:
+                        body["active_questions"] = patches
         return body
 
     def get_live_session_state(
