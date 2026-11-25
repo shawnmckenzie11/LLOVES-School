@@ -11,6 +11,7 @@ static JavaScript.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import json
@@ -602,6 +603,28 @@ _DROPPED_KEYS = _IDENTITY_KEYS | frozenset(
         "codename",
         "last_display",
         "username",
+    }
+)
+# Wire-format fields the Sentry ingest parses and validates. They hold ids,
+# timestamps and fixed labels, never a person's data. The text scrub must not
+# touch them: ``2026-11-25T19:00:01Z`` contains a join-shaped ``25T19`` and a
+# 32-hex id can hold an isolated 4-digit run, so the scrub rewrote them to
+# ``[redacted]``. Relay then rejected every transaction as
+# ``invalid_transaction``, and a mangled ``event_id`` in the envelope header
+# made it answer HTTP 400 (the SDK counts that as ``network_error``).
+_WIRE_KEYS = frozenset(
+    {
+        "event_id",
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "segment_id",
+        "timestamp",
+        "start_timestamp",
+        "sample_rand",
+        "release",
+        "type",
+        "platform",
     }
 )
 _EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -1214,6 +1237,9 @@ def _scrub_identity(value: Any) -> Any:
             stack.pop()
             continue
         if isinstance(child, str):
+            if isinstance(node, dict) and key in _WIRE_KEYS:
+                put(clones[id(node)], key, child)
+                continue
             put(clones[id(node)], key, _scrub_text(child))
             continue
         if isinstance(child, (dict, list)):
@@ -1228,6 +1254,36 @@ def _scrub_identity(value: Any) -> Any:
     return clones[id(value)]
 
 
+def _fixed_sdk_fields(event: dict[str, Any]) -> dict[str, Any]:
+    """Copy the SDK, runtime and OS descriptors, which hold only fixed labels.
+
+    ``name`` is a dropped key (it can be a student's name), but ``sdk.name``
+    and ``sdk.packages[].name`` are required by Relay and ``runtime.name`` is
+    ``CPython``. They are put back after the scrub.
+    """
+    fixed: dict[str, Any] = {}
+    sdk = event.get("sdk")
+    if isinstance(sdk, dict):
+        fixed["sdk"] = copy.deepcopy(sdk)
+    contexts = event.get("contexts")
+    if isinstance(contexts, dict):
+        for key in ("runtime", "os"):
+            if isinstance(contexts.get(key), dict):
+                fixed[key] = copy.deepcopy(contexts[key])
+    return fixed
+
+
+def _restore_sdk_fields(event: dict[str, Any], fixed: dict[str, Any]) -> None:
+    """Put the descriptors from :func:`_fixed_sdk_fields` back unscrubbed."""
+    if "sdk" in fixed:
+        event["sdk"] = fixed["sdk"]
+    contexts = event.get("contexts")
+    if isinstance(contexts, dict):
+        for key in ("runtime", "os"):
+            if key in fixed:
+                contexts[key] = fixed[key]
+
+
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
     """Remove request bodies, query strings, addresses, and invite tokens.
 
@@ -1235,10 +1291,12 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
     secret; ``?v=`` carries a student visit token and ``login_hint`` an
     invited email. ``confirm_email`` is the permanent-delete confirmation.
     """
+    fixed = _fixed_sdk_fields(event)
     cleaned = _scrub_identity(event)
     if isinstance(cleaned, dict):
         event.clear()
         event.update(cleaned)
+        _restore_sdk_fields(event, fixed)
     request = event.get("request")
     if isinstance(request, dict):
         request.pop("data", None)

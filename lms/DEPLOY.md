@@ -292,6 +292,10 @@ Confirm `lloves-lms` and `lloves-live` show those messages, environment `tip`, a
 
 Busy, 503, reconnect, and heartbeat failures stay on the soft strip. They are not fatal Sentry events. A script exception while the page is up still reports, including when the message mentions 500, unavailable, or busy. Traces sample at 5% (`SENTRY_LIVE_TRACES_SAMPLE_RATE` changes the live-class share). `/health` and `/api/student/heartbeat` are not sampled. Student `/api/student/state` and staff `/api/live-sessions/<id>/state` sample at the live rate. Request bodies and local variables are not sent.
 
+### Server ingest check (MCK-527)
+
+The privacy scrub once rewrote `timestamp`, `trace_id`, `span_id` and `event_id`, so Relay rejected server transactions (`invalid_transaction`) and the SDK counted the HTTP 400 on a mangled envelope id as `network_error`. After any change to `sentry_wire.py` scrubbing, or on the first deploy that touches it, confirm the wire is clean in Sentry: project `lloves-lms`, dataset spans, `find_dropped_events` outcome `invalid` should be 0 and `network_error` near 0, and a search for `transaction:student_state` returns rows (set `SENTRY_LIVE_TRACES_SAMPLE_RATE=0.25` for one class, or hit `/api/student/state` a few dozen times as a joined test seat). `lms/test_sentry_ingest_mck527.py` pins the envelope shape and, when `sentry-relay` is installed (`pip install sentry-relay`), runs Relay's own normalizer.
+
 ### Live-class timing (MCK-522)
 
 Measurement only. It answers "where does the time go between a teacher publish and the question on a phone". No caching, prefetch, or payload change rides with it. The only additions to a payload are `server_ms` (server clock, on every student `/state` reply), `published_ms` on the publish postcard and on each active item, and `tally_at_ms` on a thin results patch. All are bare numbers.
