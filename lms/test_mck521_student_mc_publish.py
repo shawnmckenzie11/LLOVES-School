@@ -177,66 +177,6 @@ class Mck521StudentMcPublishTests(unittest.TestCase):
             ),
         )
 
-    def test_student_card_cache_and_invalidation(self) -> None:
-        """Second seat hits cache; prompt update busts it; copies stay isolated."""
-
-        item, prompt = self._add_mc()
-        session_row = self.school.get_live_session(self.session_id)
-        assert session_row is not None
-        class_id = int(session_row["class_id"])
-        raw = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
-        key_kwargs = {
-            "class_id": class_id,
-            "module": "M1",
-            "live_prompt_id": int(prompt["id"]),
-            "live_item_rev": str(item.get("updated_at") or ""),
-            "live_prompt_rev": str(prompt.get("updated_at") or ""),
-        }
-        try:
-            from question_math import clean_question_stem_fields
-        except ImportError:
-            from lms.question_math import clean_question_stem_fields
-
-        with mock.patch(
-            "question_math.clean_question_stem_fields",
-            wraps=clean_question_stem_fields,
-        ) as clean_fields:
-            first = self.school._student_public_item_payload(raw, **key_kwargs)
-            after_first = clean_fields.call_count
-            self.school._student_public_item_payload(raw, **key_kwargs)
-            self.assertEqual(clean_fields.call_count, after_first)
-        first["text"] = "mutated"
-        third = self.school._student_public_item_payload(raw, **key_kwargs)
-        self.assertNotEqual(third.get("text"), "mutated")
-        busted_kwargs = {
-            **key_kwargs,
-            "live_prompt_rev": "2099-01-01T00:00:00",
-        }
-        with mock.patch(
-            "question_math.clean_question_stem_fields",
-            wraps=clean_question_stem_fields,
-        ) as clean_fields:
-            self.school._student_public_item_payload(raw, **busted_kwargs)
-            clean_fields.assert_called()
-
-    def test_publish_build_uses_card_cache(self) -> None:
-        """Full item payload for two students shares one card build."""
-
-        try:
-            from question_math import clean_question_stem_fields
-        except ImportError:
-            from lms.question_math import clean_question_stem_fields
-
-        self._add_mc()
-        with mock.patch(
-            "question_math.clean_question_stem_fields",
-            wraps=clean_question_stem_fields,
-        ) as clean_fields:
-            self.school.student_live_items_payload(self.session_id, self.ids[0])
-            after_first = clean_fields.call_count
-            self.school.student_live_items_payload(self.session_id, self.ids[1])
-            self.assertEqual(clean_fields.call_count, after_first)
-
     def test_image_routes_cache_and_conditional(self) -> None:
         """Module and curriculum images send private cache headers and ETags."""
 
