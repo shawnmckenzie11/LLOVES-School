@@ -457,10 +457,17 @@ class LiveMetadataCacheBoundTests(unittest.TestCase):
         self.addCleanup(school.close)
         school._live_metadata_cache.clear()
         for rev in range(5):
-            school._store_live_metadata_cache((1, "MCF3M", "M1", "C2", f"r{rev}"), {"rev": rev})
-        self.assertEqual(list(school._live_metadata_cache), [(1, "MCF3M", "M1", "C2", "r4")])
+            school._store_live_metadata_cache(
+                (1, "MCF3M", "M1", "C2", f"r{rev}", True), {"rev": rev}
+            )
+        self.assertEqual(
+            list(school._live_metadata_cache),
+            [(1, "MCF3M", "M1", "C2", "r4", True)],
+        )
         for cid in range(school.LIVE_METADATA_CACHE_MAX + 10):
-            school._store_live_metadata_cache((cid + 10, "MCF3M", "M1", "C2", "r"), {})
+            school._store_live_metadata_cache(
+                (cid + 10, "MCF3M", "M1", "C2", "r", True), {}
+            )
         self.assertEqual(len(school._live_metadata_cache), school.LIVE_METADATA_CACHE_MAX)
 
     def test_artifact_slider_previews_are_bounded(self) -> None:

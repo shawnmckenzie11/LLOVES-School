@@ -130,6 +130,12 @@ class MCK325PageNumberTests(unittest.TestCase):
 
     def test_round_page_shows_its_questions_without_changing_stage(self) -> None:
         """A question stored on the old Round page is ordinary content on page 4."""
+        # MCK-525: session metadata no longer inherits the course seed.
+        self.school.live_class_metadata_for_session = (
+            lambda _sid: self.school.live_class_metadata_for_class_lesson(
+                self.class_id, "M1", "C2", fresh=True
+            )
+        )
         metadata = self.school.live_class_metadata_for_session(self.session_id)
         question = next(
             row

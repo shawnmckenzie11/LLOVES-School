@@ -19,6 +19,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from test_live_deck_helpers import install_authored_seed  # noqa: E402
 from meet_team import (  # noqa: E402
     CUE_MEET_CLEAR,
     CUE_MEET_OPEN,
@@ -231,6 +232,15 @@ class MeetTeamLivePromptTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.student.post("/student/mood", data={"mood": "good"})
+        # MCK-525: the default Use current deck no longer auto-seeds Meet.
+        install_authored_seed(
+            self.school,
+            self.class_id,
+            "M1",
+            "C1",
+            include_rides=True,
+            session_id=self.live_session_id,
+        )
 
     def tearDown(self) -> None:
         """Close db and temp dir."""

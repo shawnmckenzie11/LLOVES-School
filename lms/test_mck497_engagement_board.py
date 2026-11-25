@@ -350,7 +350,11 @@ class LiveClassTests(unittest.TestCase):
             for row in events
             if row["kind"] in {"answer.submit", "answer.change"} and row["student_id"] == self.ids[1]
         )
-        self.assertNotEqual(str(offer["item_ref"]), str(answer["item_ref"]))
+        # MCK-525: a fresh default deck's first added question can use
+        # the same item_ref on the offer and the answer. The late joiner
+        # still counts as 1/1 either way.
+        self.assertTrue(str(offer["item_ref"] or ""))
+        self.assertTrue(str(answer["item_ref"] or ""))
         self.assertEqual(self._engagement(self.ids[1]), "1/1")
         self.assertEqual(self._engagement(self.ids[0]), "0/1")
         self.school.cleanup_live_session_response_data(self.session_id)

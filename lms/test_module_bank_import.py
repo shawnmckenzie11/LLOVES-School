@@ -1516,7 +1516,12 @@ class ModuleBankImportMergeTests(unittest.TestCase):
 
     def test_remove_seed_question_hides_from_metadata(self) -> None:
         """Seed questions persist a hide override instead of editing git JSON."""
-        metadata = self.school.live_class_metadata_for_session(self.session_id)
+        # MCK-525: session metadata no longer inherits the seed. These
+        # hide rows are class overlays, so the class-lesson merge still
+        # shows the authored questions.
+        metadata = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True
+        )
         join_questions = [
             row
             for row in metadata.get("questions") or []
@@ -1527,7 +1532,9 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.school.remove_class_playlist_item(
             self.class_id, "M1", "C2", item_id
         )
-        after = self.school.live_class_metadata_for_session(self.session_id)
+        after = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True
+        )
         remaining = [
             row
             for row in after.get("questions") or []
@@ -1537,7 +1544,9 @@ class ModuleBankImportMergeTests(unittest.TestCase):
 
     def test_move_seed_question_changes_stage(self) -> None:
         """Seed questions can move to another page via sqlite override."""
-        metadata = self.school.live_class_metadata_for_session(self.session_id)
+        metadata = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True
+        )
         join_questions = [
             row
             for row in metadata.get("questions") or []
@@ -1551,7 +1560,9 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             item_id,
             target_page_index=3,
         )
-        after = self.school.live_class_metadata_for_session(self.session_id)
+        after = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True
+        )
         moved = [
             row
             for row in after.get("questions") or []
