@@ -192,6 +192,28 @@ class SqliteBoardOpsTests(unittest.TestCase):
         self.assertEqual(len(tail["ops"]), 1)
         self.assertEqual(tail["ops"][0]["board_seq"], int(gap["board_seq"]))
 
+    def test_head_seqs_reads_each_counter_in_one_query(self) -> None:
+        """``head_seqs`` returns the latest sequence per board without loading ink."""
+        self.store.append_ops(
+            77,
+            "solo:1",
+            owner="1",
+            ops=[{"type": "stroke_add", "id": "a", "points": [[0.1, 0.1]]}],
+        )
+        self.store.append_ops(
+            77,
+            "solo:2",
+            owner="2",
+            ops=[
+                {"type": "stroke_add", "id": "b1", "points": [[0.2, 0.2]]},
+                {"type": "stroke_end", "id": "b1"},
+            ],
+        )
+        found = self.store.head_seqs("77", ["solo:1", "solo:2", "solo:9"])
+        self.assertEqual(found["solo:1"], 1)
+        self.assertEqual(found["solo:2"], 2)
+        self.assertEqual(found["solo:9"], 0)
+
     def test_client_batch_id_does_not_append_twice(self) -> None:
         """A repeated client batch id returns the original sequence."""
         body = [
@@ -2298,6 +2320,61 @@ process.exit(0);
             )
 
 
+
+
+class PostgresHeadSeqsTests(unittest.TestCase):
+    """``head_seqs`` on the Postgres board store."""
+
+    def test_head_seqs_on_postgres(self) -> None:
+        """Counters round-trip on a throwaway Postgres database."""
+        import uuid
+        from urllib.parse import urlsplit, urlunsplit
+
+        admin = (os.environ.get("LIVE_PRESENCE_TEST_URL") or "").strip()
+        if not admin:
+            self.skipTest("LIVE_PRESENCE_TEST_URL is not set")
+        import psycopg
+
+        from board_ops import PostgresBoardOps
+        from live_presence import LivePresenceStore
+
+        db_name = f"lloves_mck520_{uuid.uuid4().hex[:8]}"
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f'CREATE DATABASE "{db_name}"')
+        parts = urlsplit(admin)
+        dsn = urlunsplit((parts.scheme, parts.netloc, f"/{db_name}", parts.query, ""))
+
+        def drop() -> None:
+            """Remove the throwaway database."""
+            with psycopg.connect(admin, autocommit=True) as conn:
+                conn.execute(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
+
+        self.addCleanup(drop)
+        presence = LivePresenceStore(dsn, pool_size=2)
+        try:
+            store = PostgresBoardOps(presence)
+            store.ensure_schema()
+            store.append_ops(
+                88,
+                "solo:3",
+                owner="3",
+                ops=[{"type": "stroke_add", "id": "pg-a", "points": [[0.3, 0.3]]}],
+            )
+            store.append_ops(
+                88,
+                "solo:4",
+                owner="4",
+                ops=[
+                    {"type": "stroke_add", "id": "pg-b", "points": [[0.4, 0.4]]},
+                    {"type": "stroke_end", "id": "pg-b"},
+                ],
+            )
+            found = store.head_seqs("88", ["solo:3", "solo:4", "solo:0"])
+            self.assertEqual(found["solo:3"], 1)
+            self.assertEqual(found["solo:4"], 2)
+            self.assertEqual(found["solo:0"], 0)
+        finally:
+            presence.close()
 
 
 class BareLovesDbTests(unittest.TestCase):

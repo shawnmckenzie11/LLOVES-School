@@ -41437,19 +41437,8 @@ class SchoolDB(LovesDB):
         """
         if not keys:
             return ()
-        placeholders = ",".join("?" for _ in keys)
-        with self._lock:
-            rows = self.conn.execute(
-                f"""
-                SELECT board_key, next_seq FROM board_counters
-                WHERE run_key = ? AND board_key IN ({placeholders})
-                """,
-                (run_key, *keys),
-            ).fetchall()
-        found = {
-            str(row["board_key"]): int(row["next_seq"] or 0) for row in rows
-        }
-        return tuple((key, found.get(key, 0)) for key in keys)
+        found = self.boards.head_seqs(run_key, list(keys))
+        return tuple((key, int(found.get(key, 0))) for key in keys)
 
     def _show_all_cache_get(
         self, session_id: int, stamp: tuple[Any, ...], audience: str
