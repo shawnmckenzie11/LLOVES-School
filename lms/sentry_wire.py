@@ -11,6 +11,7 @@ static JavaScript.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import json
@@ -209,6 +210,9 @@ def before_send(
         if event.get("transaction"):
             paths.append(str(event.get("transaction")))
         _drop_request_body(event)
+        if "transaction" in event:
+            event["transaction"] = _strip_url_query(event["transaction"])
+        _scrub_dynamic_sampling_context(event)
         if not any(is_quiet_telemetry_path(path) for path in paths):
             return event
         if _exception_type_names(hint, event) & _DISCONNECT_TYPES:
@@ -604,6 +608,73 @@ _DROPPED_KEYS = _IDENTITY_KEYS | frozenset(
         "username",
     }
 )
+# Wire-format fields the Sentry ingest parses and validates. They hold ids,
+# timestamps and fixed labels, never a person's data. The text scrub must not
+# touch them: ``2026-11-25T19:00:01Z`` contains a join-shaped ``25T19`` and a
+# 32-hex id can hold an isolated 4-digit run, so the scrub rewrote them to
+# ``[redacted]``. Relay then rejected every transaction as
+# ``invalid_transaction``, and a mangled ``event_id`` in the envelope header
+# made it answer HTTP 400 (the SDK counts that as ``network_error``).
+#
+# The exemption is path-scoped. A nested ``timestamp``, ``release`` or
+# ``type`` key in ``extra``, ``tags``, span ``data`` or breadcrumb ``data``
+# is still text-scrubbed; only the paths below are skipped.
+# Event / log record root (logs also carry trace and span ids here).
+_WIRE_ROOT_KEYS = frozenset(
+    {
+        "event_id",
+        "timestamp",
+        "start_timestamp",
+        "type",
+        "platform",
+        "release",
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "segment_id",
+        "sample_rand",
+    }
+)
+# ``contexts.trace`` ids only, not other keys on that object.
+_WIRE_TRACE_ID_KEYS = frozenset(
+    {"trace_id", "span_id", "parent_span_id", "segment_id"}
+)
+# Each span's own ids and timestamps at the span root, not under ``data``.
+_WIRE_SPAN_KEYS = frozenset(
+    {
+        "span_id",
+        "parent_span_id",
+        "trace_id",
+        "timestamp",
+        "start_timestamp",
+    }
+)
+
+
+def _is_wire_field(path: tuple[Any, ...], key: Any) -> bool:
+    """True when ``key`` at ``path`` is a Sentry wire field, not a nested alias.
+
+    Args:
+        path: Keys from the payload root to the parent of ``key``.
+        key: The child key on that parent.
+
+    Returns:
+        Whether the string under this key must be left unscrubbed.
+    """
+    if not isinstance(key, str):
+        return False
+    if path == ():
+        return key in _WIRE_ROOT_KEYS
+    if path == ("contexts", "trace"):
+        return key in _WIRE_TRACE_ID_KEYS
+    # The SDK copies root release and trace_id into this bag, then lifts it
+    # into the envelope header. A mangled release here is still on the wire.
+    if path == ("contexts", "trace", "dynamic_sampling_context"):
+        return key in _WIRE_ROOT_KEYS or key in _WIRE_TRACE_ID_KEYS
+    if len(path) == 2 and path[0] == "spans" and isinstance(path[1], int):
+        return key in _WIRE_SPAN_KEYS
+    return False
+
 _EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # "PIN 4321" / "pin=4321". A bare 4-digit year or status is left alone.
 _PIN_TEXT_RE = re.compile(r"(?i)\b(pin)\b(\s*[:=]?\s*)\d{4}\b")
@@ -1205,15 +1276,20 @@ def _scrub_identity(value: Any) -> Any:
         clone[key] = child
 
     clones: dict[int, Any] = {id(value): fresh(value)}
-    stack: list[tuple[Any, Any]] = [(value, iter(children(value)))]
+    stack: list[tuple[Any, tuple[Any, ...], Any]] = [
+        (value, (), iter(children(value)))
+    ]
     while stack:
-        node, pending = stack[-1]
+        node, path, pending = stack[-1]
         try:
             key, child = next(pending)
         except StopIteration:
             stack.pop()
             continue
         if isinstance(child, str):
+            if isinstance(node, dict) and _is_wire_field(path, key):
+                put(clones[id(node)], key, child)
+                continue
             put(clones[id(node)], key, _scrub_text(child))
             continue
         if isinstance(child, (dict, list)):
@@ -1222,10 +1298,40 @@ def _scrub_identity(value: Any) -> Any:
                 raise ValueError("cyclic sentry payload")
             clones[child_id] = fresh(child)
             put(clones[id(node)], key, clones[child_id])
-            stack.append((child, iter(children(child))))
+            stack.append((child, path + (key,), iter(children(child))))
             continue
         put(clones[id(node)], key, child)
     return clones[id(value)]
+
+
+def _fixed_sdk_fields(event: dict[str, Any]) -> dict[str, Any]:
+    """Copy the SDK, runtime and OS descriptors, which hold only fixed labels.
+
+    ``name`` is a dropped key (it can be a student's name), but ``sdk.name``
+    and ``sdk.packages[].name`` are required by Relay and ``runtime.name`` is
+    ``CPython``. They are put back after the scrub.
+    """
+    fixed: dict[str, Any] = {}
+    sdk = event.get("sdk")
+    if isinstance(sdk, dict):
+        fixed["sdk"] = copy.deepcopy(sdk)
+    contexts = event.get("contexts")
+    if isinstance(contexts, dict):
+        for key in ("runtime", "os"):
+            if isinstance(contexts.get(key), dict):
+                fixed[key] = copy.deepcopy(contexts[key])
+    return fixed
+
+
+def _restore_sdk_fields(event: dict[str, Any], fixed: dict[str, Any]) -> None:
+    """Put the descriptors from :func:`_fixed_sdk_fields` back unscrubbed."""
+    if "sdk" in fixed:
+        event["sdk"] = fixed["sdk"]
+    contexts = event.get("contexts")
+    if isinstance(contexts, dict):
+        for key in ("runtime", "os"):
+            if key in fixed:
+                contexts[key] = fixed[key]
 
 
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
@@ -1235,10 +1341,12 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
     secret; ``?v=`` carries a student visit token and ``login_hint`` an
     invited email. ``confirm_email`` is the permanent-delete confirmation.
     """
+    fixed = _fixed_sdk_fields(event)
     cleaned = _scrub_identity(event)
     if isinstance(cleaned, dict):
         event.clear()
         event.update(cleaned)
+        _restore_sdk_fields(event, fixed)
     request = event.get("request")
     if isinstance(request, dict):
         request.pop("data", None)
@@ -1371,6 +1479,35 @@ def _strip_span_queries(span: dict[str, Any]) -> None:
                 data[key] = [_strip_urlish(v) for v in value]
 
 
+def _scrub_dynamic_sampling_context(event: dict[str, Any]) -> None:
+    """Pin the DSC transaction to the scrubbed event name and drop identity.
+
+    Incoming browser baggage can put a query string (the student visit
+    token) on ``transaction`` and a name on ``user_id`` / ``user_segment``.
+    The SDK copies this bag into the envelope header ``trace`` after
+    ``before_send`` and ``before_send_transaction`` (sentry-sdk 2.76,
+    ``client.py``), so it has to be clean here. ``transaction`` is set to the already
+    query-stripped event name when one exists; otherwise it is
+    query-stripped in place. ``user_id`` and ``user_segment`` are dropped
+    entirely, not text-scrubbed.
+    """
+    contexts = event.get("contexts")
+    if not isinstance(contexts, dict):
+        return
+    trace = contexts.get("trace")
+    if not isinstance(trace, dict):
+        return
+    dsc = trace.get("dynamic_sampling_context")
+    if not isinstance(dsc, dict):
+        return
+    dsc.pop("user_id", None)
+    dsc.pop("user_segment", None)
+    if "transaction" in event:
+        dsc["transaction"] = event["transaction"]
+    elif "transaction" in dsc:
+        dsc["transaction"] = _strip_url_query(dsc["transaction"])
+
+
 def before_send_transaction(
     event: dict[str, Any], _hint: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
@@ -1388,6 +1525,7 @@ def before_send_transaction(
             request.pop("query_string", None)
         if "transaction" in event:
             event["transaction"] = _strip_url_query(event["transaction"])
+        _scrub_dynamic_sampling_context(event)
         trace = ((event.get("contexts") or {}).get("trace")) or {}
         _strip_span_queries(trace)
         for span in event.get("spans") or []:
