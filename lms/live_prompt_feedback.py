@@ -40,6 +40,48 @@ TEACHER_ONLY_FIELDS = (
     "correct_index",
 )
 
+# Display fields a student choice or option dict may keep. Anything else
+# on those rows (especially ``correct`` / ``is_correct``) is teacher-only.
+STUDENT_CHOICE_FIELDS = (
+    "id",
+    "text",
+    "label",
+    "choice",
+    "html",
+    "image_url",
+    "image",
+    "src",
+    "alt",
+    "image_alt",
+    "value",
+    "figure",
+)
+
+
+def _public_student_choice(raw: Any) -> Any:
+    """Keep only student-display fields on a choice or option dict.
+
+    Args:
+        raw: One entry from ``choices`` or ``options``.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    return {key: raw[key] for key in STUDENT_CHOICE_FIELDS if key in raw}
+
+
+def _public_student_choice_lists(row: dict[str, Any]) -> dict[str, Any]:
+    """Allowlist ``choices`` and ``options`` entries on one payload row.
+
+    Args:
+        row: Prompt or nested item dict already copied.
+    """
+    for list_key in ("choices", "options"):
+        raw = row.get(list_key)
+        if isinstance(raw, list):
+            row[list_key] = [_public_student_choice(item) for item in raw]
+    return row
+
+
 # Student-facing one-beat leads. Never “Wrong.” Never teacher-stage talk.
 LEAD_MATCH = "Good work."
 LEAD_MISS = "Not quite. Check your choice against the graph or table."
@@ -408,7 +450,9 @@ def public_feedback_fragment(
 def strip_teacher_prompt_fields(payload: Any) -> dict[str, Any]:
     """Copy a prompt payload without keys, cement, or feedback maps.
 
-    Strips the same teacher-only fields from nested ``items`` rows.
+    Strips the same teacher-only fields from nested ``items`` rows, and
+    allowlists fields on ``choices`` and ``options`` dicts so per-choice
+    correctness never reaches a student payload.
 
     Args:
         payload: Prompt JSON object.
@@ -418,6 +462,14 @@ def strip_teacher_prompt_fields(payload: Any) -> dict[str, Any]:
     out = dict(payload)
     for key in TEACHER_ONLY_FIELDS:
         out.pop(key, None)
+    _public_student_choice_lists(out)
+    nested = out.get("item")
+    if isinstance(nested, dict):
+        row = dict(nested)
+        for key in TEACHER_ONLY_FIELDS:
+            row.pop(key, None)
+        _public_student_choice_lists(row)
+        out["item"] = row
     items = out.get("items")
     if isinstance(items, list):
         stripped: list[Any] = []
@@ -426,6 +478,7 @@ def strip_teacher_prompt_fields(payload: Any) -> dict[str, Any]:
                 row = dict(item)
                 for key in TEACHER_ONLY_FIELDS:
                     row.pop(key, None)
+                _public_student_choice_lists(row)
                 stripped.append(row)
             else:
                 stripped.append(item)

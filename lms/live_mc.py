@@ -83,6 +83,36 @@ def _raw_has_text(raw: list[Any]) -> bool:
     return any(_choice_text_and_id(item)[0] for item in raw)
 
 
+def authored_answer_key(payload: Any) -> str:
+    """Return one authored key, matching teacher MC tally precedence.
+
+    Prefers ``key``, then the first ``correct_ids`` entry, then
+    ``correct_answer``. A list-valued ``key`` or ``correct_answer`` is
+    singular only when it has exactly one non-empty value.
+
+    Args:
+        payload: Catalogue item or live-prompt payload.
+    """
+    if not isinstance(payload, dict):
+        return ""
+
+    def _one(raw: Any) -> str:
+        if isinstance(raw, list):
+            values = [str(item).strip() for item in raw if str(item).strip()]
+            return values[0] if len(values) == 1 else ""
+        return str(raw or "").strip() if raw not in (None, "") else ""
+
+    key = _one(payload.get("key"))
+    if key:
+        return key
+    ids = payload.get("correct_ids")
+    if isinstance(ids, list) and ids:
+        token = str(ids[0] or "").strip()
+        if token:
+            return token
+    return _one(payload.get("correct_answer"))
+
+
 def extract_choice_labels(payload: Any) -> list[str]:
     """Return student-facing choice labels, including image-only slots.
 
@@ -217,13 +247,7 @@ def build_mc_tally(
         return None
     payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
     labels = extract_choice_labels(payload)
-    key = str(payload.get("key") or "").strip().upper()
-    if not key:
-        correct_ids = payload.get("correct_ids") or []
-        if isinstance(correct_ids, list) and correct_ids:
-            key = str(correct_ids[0] or "").strip().upper()
-    if not key:
-        key = str(payload.get("correct_answer") or "").strip().upper()
+    key = str(authored_answer_key(payload) or "").strip().upper()
     source = "live_prompt"
     raw_values: list[Any] = []
     for row in responses or []:

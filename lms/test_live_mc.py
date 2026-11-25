@@ -19,6 +19,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from live_mc import (  # noqa: E402
+    authored_answer_key,
     build_mc_tally,
     build_numeric_tally,
     extract_choice_labels,
@@ -32,6 +33,31 @@ from test_live_deck_helpers import add_waiting_room_minds_on  # noqa: E402
 
 class LiveMcHelperTests(unittest.TestCase):
     """Pure tally helpers (no Flask)."""
+
+    def test_authored_key_prefers_key_then_correct_ids(self) -> None:
+        """Teacher tally and the shared resolver both prefer key, then correct_ids."""
+        payload = {
+            "item_id": "parabola-a",
+            "prompt": "Which graph opens upward?",
+            "choices": ["down", "up", "sideways"],
+            "key": "B",
+            "correct_ids": ["A"],
+            "correct_answer": "C",
+        }
+        self.assertEqual(authored_answer_key(payload), "B")
+        tally = build_mc_tally(
+            {"id": 3, "kind": "mc", "payload": payload},
+            responses=[],
+            present=1,
+        )
+        assert tally is not None
+        marked = [row["id"] for row in tally["choices"] if row.get("correct")]
+        self.assertEqual(marked, ["B"])
+        self.assertEqual(
+            authored_answer_key({"correct_ids": ["C"], "correct_answer": "A"}),
+            "C",
+        )
+        self.assertEqual(authored_answer_key({"correct_answer": "A"}), "A")
 
     def test_tally_uses_correct_answer_when_key_is_missing(self) -> None:
         """A deck prompt that only stored correct_answer still marks that choice."""

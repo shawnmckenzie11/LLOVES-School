@@ -130,6 +130,7 @@ try:
         type_counts as bank_type_counts,
     )
     from live_mc import (
+        authored_answer_key,
         build_live_tally,
         build_mc_tally,
         extract_choice_labels,
@@ -22747,22 +22748,17 @@ class SchoolDB(LovesDB):
     def _singular_question_key(question: Any) -> str:
         """Return one authored answer key, or empty when unkeyed or ambiguous.
 
-        Numeric and MC items may store the key as ``correct_answer`` or
-        ``key``. A list counts as singular only when it has exactly one
-        non-empty value. Polls and multi-key items stay unkeyed.
+        Prefers ``key``, then ``correct_ids``, then ``correct_answer``,
+        matching teacher MC tallies. A list-valued ``key`` or
+        ``correct_answer`` is singular only when it has exactly one
+        non-empty value. Polls and multi-key items stay unkeyed except
+        that a non-empty ``correct_ids`` list uses its first entry, as
+        the tally does.
 
         Args:
             question: Catalogue item or prompt payload.
         """
-        if not isinstance(question, dict):
-            return ""
-        raw = question.get("correct_answer")
-        if raw in (None, ""):
-            raw = question.get("key")
-        if isinstance(raw, list):
-            values = [str(item).strip() for item in raw if str(item).strip()]
-            return values[0] if len(values) == 1 else ""
-        return str(raw or "").strip()
+        return authored_answer_key(question)
 
     def _attach_singular_answer_key(
         self, payload: dict[str, Any], question: dict[str, Any]
@@ -25619,11 +25615,7 @@ class SchoolDB(LovesDB):
         if self._question_answer_kind(item) != "mc":
             return ""
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
-        raw = self._singular_question_key(question)
-        if not raw:
-            ids = question.get("correct_ids")
-            if isinstance(ids, list) and len(ids) == 1:
-                raw = str(ids[0] or "").strip()
+        raw = authored_answer_key(question)
         letter = str(raw or "").strip().upper()
         labels = self._mc_option_labels(item)
         if len(letter) == 1 and "A" <= letter <= "H":

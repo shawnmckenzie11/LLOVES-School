@@ -189,6 +189,10 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 "chips": ["A2.1"],
                 "curriculum_chips": ["A2.1"],
                 "expectation_codes": ["A2.1"],
+                "choices": [
+                    {"id": "a", "html": "<p>down</p>", "correct": False},
+                    {"id": "b", "html": "<p>up</p>", "correct": True},
+                ],
                 "items": [
                     {
                         "item_id": "minds_on",
@@ -196,6 +200,9 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                         "cement": "hidden",
                         "prompt": "stem",
                         "chips": ["A2.1"],
+                        "choices": [
+                            {"id": "a", "text": "First", "correct": True, "is_correct": True}
+                        ],
                     }
                 ],
             }
@@ -218,6 +225,11 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
         self.assertNotIn("cement", cleaned["items"][0])
         self.assertNotIn("chips", cleaned["items"][0])
         self.assertEqual(cleaned["items"][0]["prompt"], "stem")
+        self.assertEqual(
+            cleaned["choices"],
+            [{"id": "a", "html": "<p>down</p>"}, {"id": "b", "html": "<p>up</p>"}],
+        )
+        self.assertEqual(cleaned["items"][0]["choices"], [{"id": "a", "text": "First"}])
 
     def test_keys_brief_lists_soft_keys(self) -> None:
         """Authoring brief stays in lockstep with the runtime table."""

@@ -563,6 +563,123 @@ class McFirstPaintSubmitTests(unittest.TestCase):
             self.assertNotIn(field, out["items"][0])
         self.assertEqual(out["text"], "Which graph?")
 
+    def _assert_no_per_choice_correctness(self, blob: object, label: str) -> None:
+        """Fail if a choices or options dict carries a correctness field."""
+        leaked_keys = (
+            "correct",
+            "is_correct",
+            "correct_answer",
+            "correct_ids",
+            "correct_index",
+            "key",
+            "soft_key",
+            "teacher_key",
+        )
+
+        def walk(node: object, path: str) -> None:
+            if isinstance(node, dict):
+                for field, value in node.items():
+                    child = f"{path}.{field}" if path else field
+                    if field in {"choices", "options"} and isinstance(value, list):
+                        for index, entry in enumerate(value):
+                            if isinstance(entry, dict):
+                                leaked = [key for key in leaked_keys if key in entry]
+                                self.assertFalse(
+                                    leaked,
+                                    f"{label} {child}[{index}] leaked {leaked}",
+                                )
+                    walk(value, child)
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    walk(value, f"{path}[{index}]")
+
+        walk(blob, "")
+
+    def test_student_payloads_omit_per_choice_correctness(self) -> None:
+        """Bank-style choices[].correct must not reach students.
+
+        Predates this PR: popping only top-level teacher fields left
+        ``choices[].correct`` on student /state content and metadata.
+        """
+        item = self._publish(self._image_only_card(), mode="individual")
+        teacher_meta = self.school.live_class_metadata_for_session(self.session_id)
+        teacher_row = next(
+            row
+            for row in (teacher_meta.get("questions") or [])
+            if isinstance(row, dict)
+            and any(
+                isinstance(choice, dict) and choice.get("correct") is True
+                for choice in row.get("choices") or []
+            )
+        )
+        # Reconstruct the pre-allowlist strip: top-level fields only.
+        leaked = dict(teacher_row)
+        for field in TEACHER_ONLY_FIELDS:
+            leaked.pop(field, None)
+        self.assertTrue(
+            any(
+                isinstance(row, dict) and row.get("correct") is True
+                for row in leaked.get("choices") or []
+            ),
+            "teacher metadata no longer models the pre-existing leak",
+        )
+
+        postcard = self.school.public_push_card(item)
+        self.assertIsNotNone(postcard)
+        items = self.school.student_live_items_payload(self.session_id, self.ids[0])
+        content = next(
+            entry.get("content") or {}
+            for entry in items.get("live_items") or []
+            if int(entry["id"]) == int(item["id"])
+        )
+        metadata = self.school.student_live_class_metadata_for_session(self.session_id)
+        state = self.school.assemble_student_live_payload(
+            self.session_id,
+            self.class_id,
+            self.ids[0],
+        )
+        student_row = next(
+            row
+            for row in (metadata.get("questions") or [])
+            if isinstance(row, dict)
+            and any(isinstance(choice, dict) and choice.get("id") == "a" for choice in row.get("choices") or [])
+        )
+        self.assertTrue(
+            any(isinstance(choice, dict) and choice.get("id") == "a" for choice in student_row.get("choices") or []),
+            "student metadata dropped choice dicts, so the allowlist was not exercised",
+        )
+        self._assert_no_per_choice_correctness(postcard, "postcard")
+        self._assert_no_per_choice_correctness(content, "student /state content")
+        self._assert_no_per_choice_correctness(metadata, "student metadata")
+        self._assert_no_per_choice_correctness(
+            state.get("live_metadata"), "student /state live_metadata"
+        )
+        self._assert_no_per_choice_correctness(
+            [
+                entry.get("content")
+                for entry in (state.get("live_items") or [])
+                if isinstance(entry, dict)
+            ],
+            "student /state live_items content",
+        )
+
+    def test_mc_key_letter_prefers_key_over_correct_answer(self) -> None:
+        """Scoring uses the same key-first resolver as the teacher tally."""
+        item = {
+            "item": {
+                "type": "mc",
+                "options": ["2", "1", "-2", "0"],
+                "key": "B",
+                "correct_answer": "A",
+                "correct_ids": ["A"],
+            }
+        }
+        self.assertEqual(self.school._mc_key_letter(item), "B")
+        self.assertTrue(self.school._group_mc_answer_correct(item, "B"))
+        self.assertTrue(self.school._group_mc_answer_correct(item, "1"))
+        self.assertFalse(self.school._group_mc_answer_correct(item, "A"))
+        self.assertFalse(self.school._group_mc_answer_correct(item, "2"))
+
     def test_text_only_labels_stay_the_option_text(self) -> None:
         """Existing text decks still score and pick by the written labels."""
         item = {
