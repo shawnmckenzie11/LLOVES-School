@@ -34,6 +34,10 @@ TEACHER_ONLY_FIELDS = (
     # turns from the published group card (``rank_mode``) instead.
     "import_group_preset",
     "group_rank_mode",
+    # MCK-526: bank image MC keys that were still on the student payload.
+    "correct",
+    "correct_ids",
+    "correct_index",
 )
 
 # Student-facing one-beat leads. Never “Wrong.” Never teacher-stage talk.

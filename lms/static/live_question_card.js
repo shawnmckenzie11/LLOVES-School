@@ -203,21 +203,33 @@ export function lifecycleEquationHtml(content) {
 
 /**
  * Flatten catalogue options or prompt choices into student-facing labels.
+ * Image-only slots keep their id or the letter A, B, C so the submit
+ * value matches server scoring and group pick.
  * @param {any} content
  * @returns {string[]}
  */
 export function liveChoiceLabels(content) {
   const body = content && typeof content === "object" ? content : {};
-  const raw =
-    Array.isArray(body.choices) && body.choices.length
-      ? body.choices
-      : Array.isArray(body.options)
-        ? body.options
-        : [];
+  const options = Array.isArray(body.options) ? body.options : [];
+  const listed = Array.isArray(body.choices) ? body.choices : [];
   const optionsHtml = Array.isArray(body.options_html) ? body.options_html : [];
   const optionImages = Array.isArray(body.options_image_urls)
     ? body.options_image_urls
     : [];
+  const hasText = (raw) =>
+    raw.some((choice) => {
+      if (choice && typeof choice === "object") {
+        return Boolean(String(choice.label || choice.text || choice.choice || "").trim());
+      }
+      return Boolean(String(choice || "").trim());
+    });
+  const hasFigures =
+    optionsHtml.some((row) => String(row || "").trim()) ||
+    optionImages.some((row) => String(row || "").trim());
+  const raw =
+    options.length && (hasText(options) || hasFigures || !listed.length)
+      ? options
+      : listed;
   const count = Math.max(raw.length, optionsHtml.length, optionImages.length);
   const labels = [];
   for (let index = 0; index < count; index += 1) {

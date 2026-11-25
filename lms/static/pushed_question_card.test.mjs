@@ -106,4 +106,50 @@ if ((urlControls.match(/class="prompt-choice/g) || []).length !== 2) {
 }
 if (!urlControls.includes(`src="${optA}"`)) fail("option image URL was not used as a figure");
 
+const postcardLabels = liveChoiceLabels(content);
+const stateShaped = {
+  type: "mc",
+  text: "Which graph?",
+  options: ["", ""],
+  choices: [
+    { id: "b", html: `<img src="${optA}" alt="">`, correct: false },
+    { id: "a", html: `<img src="${optB}" alt="">`, correct: true },
+  ],
+  options_html: [`<img src="${optA}" alt="">`, `<img src="${optB}" alt="">`],
+  options_image_urls: [optA, optB],
+};
+const stateLabels = liveChoiceLabels(stateShaped);
+if (JSON.stringify(postcardLabels) !== JSON.stringify(["A", "B"])) {
+  fail(`postcard letters should be A,B got ${postcardLabels}`);
+}
+if (JSON.stringify(stateLabels) !== JSON.stringify(postcardLabels)) {
+  fail(` /state labels ${stateLabels} must match postcard ${postcardLabels}`);
+}
+if (stateLabels.includes("a") || stateLabels.includes("b")) {
+  fail("image-only buttons must use slot letters, not catalogue ids");
+}
+
+const mixed = liveChoiceLabels({
+  type: "mc",
+  options: ["Constant rate", "", "A curve"],
+  choices: [
+    { id: "a", text: "Constant rate" },
+    { id: "b", html: `<img src="${optA}" alt="">` },
+    { id: "c", text: "A curve" },
+  ],
+  options_html: ["", `<img src="${optA}" alt="">`, ""],
+  options_image_urls: ["", optA, ""],
+});
+if (JSON.stringify(mixed) !== JSON.stringify(["Constant rate", "B", "A curve"])) {
+  fail(`mixed list should keep text and letter the image-only slot, got ${mixed}`);
+}
+
+const textOnly = liveChoiceLabels({
+  type: "mc",
+  options: ["kite", "moth", "wren", "lark"],
+});
+if (JSON.stringify(textOnly) !== JSON.stringify(["kite", "moth", "wren", "lark"])) {
+  fail(`text-only labels changed, got ${textOnly}`);
+}
+
 console.log("ok");

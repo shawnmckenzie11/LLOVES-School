@@ -22,7 +22,12 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_mc import extract_choice_labels  # noqa: E402
 from live_news_wire import PROMPT_CARD_MAX_BYTES, _public_card  # noqa: E402
+from live_prompt_feedback import (  # noqa: E402
+    TEACHER_ONLY_FIELDS,
+    strip_teacher_prompt_fields,
+)
 
 NODE = shutil.which("node")
 
@@ -337,6 +342,346 @@ class McFirstPaintPostcardTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("ok", result.stdout)
+
+
+class McFirstPaintSubmitTests(unittest.TestCase):
+    """Postcard and /state submits share letters, including image-only slots."""
+
+    def setUp(self) -> None:
+        """Live MCF3M class, four seats, and groups for pick-then-agree."""
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.planted = _plant((_STEM, _FIELD, _OPT_A, _OPT_B))
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root / "data",
+            testing=True,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.school.activate_from_semester_json()
+        teacher = self.school.register_staff("teacher@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(teacher["id"]),
+            ontario_code="MCF3M",
+        )
+        library = self.school.create_library("MCF3M", origin="upload")
+        self.school.attach_library(int(offering["id"]), int(library["id"]))
+        created = self.school.game.create_class(
+            year="2026/27",
+            semester="Semester 1",
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="2:00pm",
+            codenames=["P1", "P2", "P3", "P4"],
+            offering_id=int(offering["id"]),
+            teacher_user_id=int(teacher["id"]),
+        )
+        self.class_id = int(created["id"])
+        self.teacher_id = int(teacher["id"])
+        self.session_id = int(
+            self.school.start_live_class_session(self.class_id, self.teacher_id)["id"]
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M8",
+            live_slot="C1",
+            stage="round",
+            page_number=1,
+        )
+        self.school.game.begin_game(self.class_id)
+        with self.school.game._lock:
+            rows = self.school.game.conn.execute(
+                "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id",
+                (self.class_id,),
+            ).fetchall()
+        self.ids = [int(row["id"]) for row in rows]
+        for row in rows:
+            self.school.join_live_class_session(
+                self.session_id, int(row["id"]), codename=str(row["codename"])
+            )
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=self.ids,
+            assignments=[
+                {"student_id": sid, "team_index": i % 2} for i, sid in enumerate(self.ids)
+            ],
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        self._tokens = 0
+
+    def tearDown(self) -> None:
+        """Close sqlite and delete planted figures."""
+        self.school.close()
+        self.tmp.cleanup()
+        if self.planted.is_dir():
+            for path in self.planted.glob("mck526/*.png"):
+                path.unlink(missing_ok=True)
+            folder = self.planted / "mck526"
+            if folder.is_dir():
+                folder.rmdir()
+
+    def _image_only_card(self) -> dict:
+        """MCF3M-style image MC with the key on slot B, not A."""
+        htmls = [
+            f"<img src='{_OPT_B}' alt=''>",
+            f"<img src='{_OPT_A}' alt=''>",
+            f"<img src='{_FIELD}' alt=''>",
+        ]
+        return {
+            "type": "mc",
+            "text": "Which graph?",
+            "options": ["", "", ""],
+            "choices": [
+                {"id": "x", "html": htmls[0], "correct": False},
+                {"id": "a", "html": htmls[1], "correct": True},
+                {"id": "z", "html": htmls[2], "correct": False},
+            ],
+            "options_html": htmls,
+            "image_url": _FIELD,
+            "key": "B",
+            "correct_answer": "B",
+            "correct_index": 1,
+            "import_source": "module_bank",
+        }
+
+    def _mixed_card(self) -> dict:
+        """Text options around one image-only slot, keyed on B."""
+        return {
+            "type": "mc",
+            "text": "Which graph?",
+            "options": ["Constant rate", "", "A curve"],
+            "choices": [
+                {"id": "a", "text": "Constant rate"},
+                {"id": "b", "html": f"<img src='{_OPT_A}' alt=''>"},
+                {"id": "c", "text": "A curve"},
+            ],
+            "options_html": ["", f"<img src='{_OPT_A}' alt=''>", ""],
+            "options_image_urls": ["", _OPT_A, ""],
+            "key": "B",
+            "correct_answer": "B",
+            "correct_index": 1,
+            "import_source": "module_bank",
+        }
+
+    def _publish(self, card: dict, *, mode: str) -> dict:
+        """Insert one playlist row and publish it."""
+        self._tokens += 1
+        token = f"bank-import-mck526-s{self._tokens}"
+        now = "2026-11-25T00:00:00+00:00"
+        placed = dict(card)
+        placed["item_id"] = token
+        self.school.conn.execute(
+            """
+            INSERT INTO class_live_playlist_placements (
+                class_id, module, slot, page_number, stage, sort_order,
+                placement_key, item_id, item_json, created_at
+            ) VALUES (?, 'M8', 'C1', 1, 'round', ?, ?, ?, ?, ?)
+            """,
+            (
+                self.class_id,
+                self._tokens,
+                f"mck526-s{self._tokens}",
+                token,
+                json.dumps(placed),
+                now,
+            ),
+        )
+        self.school.conn.commit()
+        self.school.ensure_live_session_items(self.session_id)
+        item = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str(row.get("item_id") or "") == token
+        )
+        return self.school.publish_live_session_item(
+            self.session_id, int(item["id"]), publish_mode=mode
+        )
+
+    def _render_letters(self, item: dict) -> tuple[list[str], list[str]]:
+        """Return postcard labels and /state labels for one published item."""
+        card = self.school.public_push_card(item)
+        self.assertIsNotNone(card)
+        assert card is not None
+        postcard = list(card.get("options") or [])
+        payload = self.school.student_live_items_payload(self.session_id, self.ids[0])
+        row = next(
+            entry
+            for entry in payload.get("live_items") or []
+            if int(entry["id"]) == int(item["id"])
+        )
+        content = row.get("content") or {}
+        state = extract_choice_labels(content)
+        blob = json.dumps(content)
+        for token in ('"correct_ids"', '"correct_index"', '"correct_answer"', '"key":'):
+            self.assertNotIn(token, blob, token)
+        return postcard, state
+
+    def _tally_by_id(self, item: dict) -> dict[str, dict]:
+        """Map teacher tally letters to rows."""
+        prompt = self.school._prompt_for_live_item(item)
+        assert prompt is not None
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        tally = self.school._tally_for_prompt(self.session_id, prompt, teacher)
+        return {str(row.get("id")): row for row in (tally or {}).get("choices") or []}
+
+    def _assert_keyed_and_same_letters(self, item: dict, expected: list[str]) -> str:
+        """Assert scoring and both renders share ``expected``; return the key letter."""
+        postcard, state = self._render_letters(item)
+        self.assertEqual(postcard, expected)
+        self.assertEqual(state, expected)
+        self.assertEqual(self.school._mc_option_labels(item), expected)
+        self.assertEqual(self.school._mc_key_letter(item), "B")
+        self.assertTrue(self.school._group_mc_answer_correct(item, "B"))
+        self.assertFalse(self.school._group_mc_answer_correct(item, "A"))
+        return "B"
+
+    def test_teacher_only_key_fields_are_stripped(self) -> None:
+        """correct, correct_ids, and correct_index stay off the student payload."""
+        for field in ("correct", "correct_ids", "correct_index"):
+            self.assertIn(field, TEACHER_ONLY_FIELDS)
+        out = strip_teacher_prompt_fields(
+            {
+                "type": "mc",
+                "text": "Which graph?",
+                "correct": True,
+                "correct_ids": ["a"],
+                "correct_index": 1,
+                "items": [
+                    {
+                        "correct": True,
+                        "correct_ids": ["a"],
+                        "correct_index": 1,
+                        "text": "x",
+                    }
+                ],
+            }
+        )
+        for field in ("correct", "correct_ids", "correct_index"):
+            self.assertNotIn(field, out)
+            self.assertNotIn(field, out["items"][0])
+        self.assertEqual(out["text"], "Which graph?")
+
+    def test_text_only_labels_stay_the_option_text(self) -> None:
+        """Existing text decks still score and pick by the written labels."""
+        item = {
+            "item": {
+                "type": "mc",
+                "options": ["2", "1", "-2", "0"],
+                "key": "A",
+            }
+        }
+        self.assertEqual(self.school._mc_option_labels(item), ["2", "1", "-2", "0"])
+        self.assertEqual(self.school._mc_key_letter(item), "A")
+        self.assertTrue(self.school._group_mc_answer_correct(item, "2"))
+        self.assertFalse(self.school._group_mc_answer_correct(item, "1"))
+
+    def test_individual_image_only_submits_tally_together(self) -> None:
+        """Postcard and /state both send B; the keyed bar counts both."""
+        item = self._publish(self._image_only_card(), mode="individual")
+        key = self._assert_keyed_and_same_letters(item, ["A", "B", "C"])
+        prompt = self.school._prompt_for_live_item(item)
+        assert prompt is not None
+        postcard, state = self._render_letters(item)
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.ids[0], {"choice": postcard[1]}
+        )
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.ids[1], {"choice": state[1]}
+        )
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.ids[2], {"choice": "A"}
+        )
+        bars = self._tally_by_id(item)
+        self.assertEqual(bars[key]["count"], 2)
+        self.assertTrue(bars[key]["correct"])
+        self.assertEqual(bars["A"]["count"], 1)
+        self.assertFalse(bars["A"]["correct"])
+        tiers = [
+            self.school.student_live_engagement_fields(
+                self.class_id, self.session_id, sid
+            )["tier1"]
+            for sid in self.ids[:3]
+        ]
+        self.assertEqual(len(set(tiers)), 1, tiers)
+        self.assertNotEqual(tiers[0], "0/0")
+        for sid in self.ids[:3]:
+            row = self.school.get_live_prompt_response(int(prompt["id"]), sid)
+            self.assertIsNone((row or {}).get("awarded_points"))
+
+    def test_individual_mixed_list_submits_tally_together(self) -> None:
+        """A mixed text and image list still accepts B from both renders."""
+        item = self._publish(self._mixed_card(), mode="individual")
+        key = self._assert_keyed_and_same_letters(
+            item, ["Constant rate", "B", "A curve"]
+        )
+        prompt = self.school._prompt_for_live_item(item)
+        assert prompt is not None
+        postcard, state = self._render_letters(item)
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.ids[0], {"choice": postcard[1]}
+        )
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), self.ids[1], {"choice": state[1]}
+        )
+        bars = self._tally_by_id(item)
+        self.assertEqual(bars[key]["count"], 2)
+        self.assertTrue(bars[key]["correct"])
+        tiers = [
+            self.school.student_live_engagement_fields(
+                self.class_id, self.session_id, sid
+            )["tier1"]
+            for sid in self.ids[:2]
+        ]
+        self.assertEqual(tiers[0], tiers[1])
+        self.assertNotEqual(tiers[0], "0/0")
+
+    def _send_group(self, item: dict, student_index: int, choices: list[str]) -> None:
+        """Teammates pick the given values, then the first sends the shared answer."""
+        team = student_index % 2
+        members = [index for index, _sid in enumerate(self.ids) if index % 2 == team]
+        for index, choice in zip(members, choices):
+            self.school.submit_group_mc_pick(
+                self.session_id,
+                int(item["id"]),
+                self.ids[index],
+                choice=choice,
+            )
+        self.school.submit_group_mc_answer(
+            self.session_id,
+            int(item["id"]),
+            self.ids[student_index],
+            choice=choices[0],
+            why="because",
+        )
+
+    def test_group_image_only_picks_and_sends_the_letter(self) -> None:
+        """Group pick accepts the image-only letter from both render paths."""
+        item = self._publish(self._image_only_card(), mode="group_submit")
+        self._assert_keyed_and_same_letters(item, ["A", "B", "C"])
+        postcard, state = self._render_letters(item)
+        self._send_group(item, 0, [postcard[1], state[1]])
+        self.assertTrue(self.school._group_mc_answer_correct(item, "B"))
+        view = self.school.live_session_item_results(self.session_id, int(item["id"]))
+        self.assertEqual(view["answer_key"], "B")
+        marks = [row.get("correct") for row in view["status_board"] if "correct" in row]
+        self.assertIn(True, marks)
+        self.assertNotIn(False, marks)
+
+    def test_group_mixed_list_accepts_the_image_only_letter(self) -> None:
+        """A mixed list does not reject an image-only B pick."""
+        item = self._publish(self._mixed_card(), mode="group_submit")
+        self._assert_keyed_and_same_letters(item, ["Constant rate", "B", "A curve"])
+        postcard, state = self._render_letters(item)
+        self._send_group(item, 0, [postcard[1], state[1]])
+        self.assertTrue(self.school._group_mc_answer_correct(item, "B"))
+        view = self.school.live_session_item_results(self.session_id, int(item["id"]))
+        self.assertEqual(view["answer_key"], "B")
+        marks = [row.get("correct") for row in view["status_board"] if "correct" in row]
+        self.assertEqual(marks, [True])
+
+
 
 
 if __name__ == "__main__":

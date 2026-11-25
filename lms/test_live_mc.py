@@ -158,6 +158,58 @@ class LiveMcHelperTests(unittest.TestCase):
         self.assertEqual(by_label["keeps us kind"], 1)
         self.assertEqual(by_label["asks the good question"], 1)
 
+    def test_image_only_slots_use_letters_and_tally_together(self) -> None:
+        """Postcard and /state both submit B; those answers share the keyed bar."""
+        payload = {
+            "type": "mc",
+            "text": "Which graph?",
+            "options": ["", ""],
+            "choices": [
+                {"id": "b", "html": "<img src='/opt-a.png' alt=''>"},
+                {"id": "a", "html": "<img src='/opt-b.png' alt=''>", "correct": True},
+            ],
+            "options_html": [
+                "<img src='/opt-a.png' alt=''>",
+                "<img src='/opt-b.png' alt=''>",
+            ],
+            "key": "B",
+        }
+        self.assertEqual(extract_choice_labels(payload), ["A", "B"])
+        tally = build_mc_tally(
+            {"id": 21, "kind": "mc", "payload": payload},
+            responses=[
+                {"response": {"choice": "B"}},
+                {"response": {"choice": "B"}},
+                {"response": {"choice": "A"}},
+            ],
+            present=3,
+        )
+        assert tally is not None
+        by_id = {row["id"]: row for row in tally["choices"]}
+        self.assertEqual(by_id["B"]["count"], 2)
+        self.assertEqual(by_id["B"]["label"], "B")
+        self.assertTrue(by_id["B"]["correct"])
+        self.assertEqual(by_id["A"]["count"], 1)
+        self.assertFalse(by_id["A"]["correct"])
+
+    def test_mixed_text_and_image_slots_keep_the_image_letter(self) -> None:
+        """A text option beside an image-only slot still letters the image B."""
+        payload = {
+            "type": "mc",
+            "options": ["Constant rate", "", "A curve"],
+            "options_html": ["", "<img src='/opt-a.png' alt=''>", ""],
+            "options_image_urls": ["", "/opt-a.png", ""],
+            "key": "B",
+        }
+        self.assertEqual(
+            extract_choice_labels(payload),
+            ["Constant rate", "B", "A curve"],
+        )
+        self.assertEqual(
+            extract_choice_labels({"options": ["kite", "moth", "wren", "lark"]}),
+            ["kite", "moth", "wren", "lark"],
+        )
+
     def test_tally_survives_more_labels_than_letters(self) -> None:
         """Ninth option or many distinct free-text votes must not raise.
 

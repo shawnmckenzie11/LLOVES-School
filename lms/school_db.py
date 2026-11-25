@@ -24904,57 +24904,6 @@ class SchoolDB(LovesDB):
         module = str((teacher or {}).get("live_module") or "")
         return class_id, module, course_code
 
-    @staticmethod
-    def _mc_display_option_labels(
-        item: dict[str, Any], public: dict[str, Any] | None = None
-    ) -> list[str]:
-        """Return student option labels, keeping image-only slots.
-
-        A choice with no text still gets its id or the letter A, B, C
-        when ``options_html`` or ``options_image_urls`` has a figure, so
-        first paint can render a button and submit a stable value.
-        ``_mc_option_labels`` is left unchanged for scoring.
-
-        Args:
-            item: Lifecycle row with a nested catalogue ``item``.
-            public: Student-safe display payload, when already built.
-        """
-        question = item.get("item") if isinstance(item.get("item"), dict) else {}
-        raw: list[Any] = []
-        htmls: list[Any] = []
-        images: list[Any] = []
-        if isinstance(public, dict):
-            raw = list(public.get("options") or public.get("choices") or [])
-            htmls = list(public.get("options_html") or [])
-            images = list(public.get("options_image_urls") or [])
-        if not raw:
-            raw = list(question.get("options") or question.get("choices") or [])
-        if not htmls:
-            htmls = list(question.get("options_html") or [])
-        if not images:
-            images = list(question.get("options_image_urls") or [])
-        count = max(len(raw), len(htmls), len(images), 0)
-        labels: list[str] = []
-        for index in range(min(count, 8)):
-            choice = raw[index] if index < len(raw) else None
-            if isinstance(choice, dict):
-                text = str(choice.get("text") or choice.get("label") or "").strip()
-                ident = str(choice.get("id") or "").strip()
-            else:
-                text = str(choice or "").strip()
-                ident = ""
-            html = str(htmls[index] or "").strip() if index < len(htmls) else ""
-            image = str(images[index] or "").strip() if index < len(images) else ""
-            if text:
-                labels.append(text)
-            elif html or image or ident:
-                labels.append(ident or chr(ord("A") + index))
-            else:
-                labels.append("")
-        while labels and not labels[-1]:
-            labels.pop()
-        return labels
-
     def public_push_card(self, item: dict[str, Any]) -> dict[str, Any] | None:
         """Stem and choices a phone can paint the moment a question is pushed.
 
@@ -25008,7 +24957,7 @@ class SchoolDB(LovesDB):
             if rank_mode not in {"turns", "together"}:
                 rank_mode = ""
         elif kind in {"mc", "poll"}:
-            options = self._mc_display_option_labels(item, public)[:8]
+            options = self._mc_option_labels(item)[:8]
         flow = ""
         if (
             mode == "group_submit"
@@ -25646,23 +25595,17 @@ class SchoolDB(LovesDB):
 
     @staticmethod
     def _mc_option_labels(item: dict[str, Any]) -> list[str]:
-        """Return authored multiple-choice labels for one lifecycle item.
+        """Return student option labels, including image-only slots.
+
+        Delegates to ``extract_choice_labels`` so scoring, group pick,
+        live tallies, and the publish postcard share one slot/letter
+        scheme with the rendered buttons. Text-only lists are unchanged.
 
         Args:
             item: Lifecycle row with a nested catalogue ``item``.
         """
-
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
-        options = question.get("options") or []
-        labels: list[str] = []
-        for option in options:
-            if isinstance(option, dict):
-                text = str(option.get("text") or option.get("label") or "").strip()
-            else:
-                text = str(option or "").strip()
-            if text:
-                labels.append(text)
-        return labels
+        return extract_choice_labels(question)
 
     def _mc_key_letter(self, item: dict[str, Any]) -> str:
         """Return the singular MC answer-key letter (``A``-``H``) or empty.

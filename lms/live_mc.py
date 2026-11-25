@@ -67,32 +67,65 @@ def prompt_ref_for(prompt: Any, teacher_state: Any = None) -> str:
     return ""
 
 
+def _choice_text_and_id(item: Any) -> tuple[str, str]:
+    """Return ``(text, id)`` for one option or choice entry."""
+    if isinstance(item, dict):
+        text = str(
+            item.get("label") or item.get("text") or item.get("choice") or ""
+        ).strip()
+        ident = str(item.get("id") or "").strip()
+        return text, ident
+    return str(item or "").strip(), ""
+
+
+def _raw_has_text(raw: list[Any]) -> bool:
+    """True when any slot already has a student-facing text label."""
+    return any(_choice_text_and_id(item)[0] for item in raw)
+
+
 def extract_choice_labels(payload: Any) -> list[str]:
-    """Return student-facing choice labels in A–H order.
+    """Return student-facing choice labels, including image-only slots.
+
+    Text choices stay the text, in slot order. A slot with no text but
+    ``options_html``, ``options_image_urls``, or an id keeps that id or
+    the letter A, B, C so submit values match the rendered buttons.
+    Completely empty slots are dropped. A text-only list is unchanged.
 
     Args:
-        payload: Live-prompt payload with a ``choices`` list.
+        payload: Live-prompt or catalogue item JSON.
     """
     if not isinstance(payload, dict):
         return []
-    raw = payload.get("choices") or payload.get("options") or []
-    if not isinstance(raw, list) or not raw:
+
+    def as_list(key: str) -> list[Any]:
+        value = payload.get(key)
+        return list(value) if isinstance(value, list) else []
+
+    options = as_list("options")
+    choices = as_list("choices")
+    htmls = as_list("options_html")
+    images = as_list("options_image_urls")
+    if options and (_raw_has_text(options) or htmls or images or not choices):
+        raw = options
+    elif choices:
+        raw = choices
+    else:
+        raw = options
+    if not raw and not htmls and not images:
         items = payload.get("items")
         if isinstance(items, list) and items and isinstance(items[0], dict):
-            nested = items[0].get("choices") or items[0].get("options") or []
-            raw = nested if isinstance(nested, list) else []
-    if not isinstance(raw, list):
+            return extract_choice_labels(items[0])
         return []
+    count = max(len(raw), len(htmls), len(images))
     labels: list[str] = []
-    for item in raw:
-        if isinstance(item, dict):
-            text = str(
-                item.get("label") or item.get("text") or item.get("choice") or ""
-            ).strip()
-        else:
-            text = str(item or "").strip()
+    for index in range(count):
+        text, ident = _choice_text_and_id(raw[index] if index < len(raw) else None)
+        html = str(htmls[index] or "").strip() if index < len(htmls) else ""
+        image = str(images[index] or "").strip() if index < len(images) else ""
         if text:
             labels.append(text)
+        elif html or image or ident:
+            labels.append(ident or chr(ord("A") + index))
     return labels
 
 
@@ -127,14 +160,20 @@ def _meet_pick_bag(meet_chain: Any) -> dict[str, str]:
 def _choice_rows_from_values(
     values: list[Any],
     *,
-    payload: Any,
+    labels: list[str],
 ) -> list[str]:
-    """Map raw student answers onto choice letters."""
+    """Map raw student answers onto choice letters.
+
+    Args:
+        values: Stored response objects or bare choice strings.
+        labels: Already-resolved option labels, including any recovered
+            unmatched answers. Callers pass this list so a catalogue
+            ``options`` field cannot drop those recovered bars.
+    """
     letters: list[str] = []
-    choices = extract_choice_labels(payload)
     for raw in values:
         response = raw if isinstance(raw, dict) else {"choice": raw}
-        letter = choice_letter(response, choices)
+        letter = choice_letter(response, labels)
         if letter:
             letters.append(letter)
     return letters
@@ -225,9 +264,7 @@ def build_mc_tally(
     labels = labels[:span]
     letters = [CHOICE_LETTERS[i] for i in range(span)]
     counts = {letter: 0 for letter in letters}
-    for letter in _choice_rows_from_values(
-        raw_values, payload={**payload, "choices": labels}
-    ):
+    for letter in _choice_rows_from_values(raw_values, labels=labels):
         if letter in counts:
             counts[letter] += 1
     responded = len(raw_values)
