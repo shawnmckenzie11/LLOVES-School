@@ -10,6 +10,7 @@ real SDK with the production options and check the bytes that would be sent.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -20,6 +21,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -327,6 +329,29 @@ class WireFieldsSurviveScrubTests(unittest.TestCase):
                 self.assertIn("[redacted]", value, (key, value))
         self.assertEqual(span["data"]["server_ms"], 3)
 
+    def test_dsc_transaction_is_pinned_and_identity_dropped(self) -> None:
+        """The DSC transaction matches the scrubbed event; user fields are gone."""
+        event = _event()
+        event["transaction"] = f"/api/student/state?v=visit-token&name={STUDENT_NAME}"
+        event["contexts"]["trace"]["dynamic_sampling_context"] = {
+            "trace_id": event["contexts"]["trace"]["trace_id"],
+            "release": event["release"],
+            "transaction": f"/api/student/state?v=visit-token&name={STUDENT_NAME}",
+            "user_id": STUDENT_NAME,
+            "user_segment": f"group-{STUDENT_NAME}",
+        }
+        scrubbed = sentry_wire.before_send_transaction(event)
+        self.assertEqual(scrubbed["transaction"], "/api/student/state")
+        dsc = scrubbed["contexts"]["trace"]["dynamic_sampling_context"]
+        self.assertEqual(dsc["transaction"], scrubbed["transaction"])
+        self.assertNotIn("?", dsc["transaction"])
+        self.assertNotIn("visit-token", dsc["transaction"])
+        self.assertNotIn(STUDENT_NAME, dsc["transaction"])
+        self.assertNotIn("user_id", dsc)
+        self.assertNotIn("user_segment", dsc)
+        self.assertEqual(dsc["release"], "f31a59dba917013e2f37243e8660097e402b5a1c")
+        self.assertEqual(dsc["trace_id"], scrubbed["contexts"]["trace"]["trace_id"])
+
 
 def _envelope_bytes(event: dict) -> bytes:
     """Serialize ``event`` through the SDK's own envelope class."""
@@ -422,6 +447,99 @@ class StudentStateEnvelopeTests(unittest.TestCase):
                 relay_accepts(event)
         for wanted in ("live.state.auth", "live.state.serialize"):
             self.assertIn(wanted, names_seen)
+
+    def test_incoming_baggage_is_stripped_from_dsc_and_envelope_trace(self) -> None:
+        """A visit token or name in baggage must not reach Sentry.
+
+        Incoming ``baggage`` is how a browser can put a query string and a
+        student name on the DSC. The SDK then copies that bag into the
+        envelope header ``trace``, so both the event DSC (before the pop)
+        and the serialized header have to be clean.
+        """
+        incoming: list[dict] = []
+        outgoing: list[dict] = []
+        client = sentry_sdk.get_client()
+        original = client.options["before_send_transaction"]
+
+        def wrapped(event, hint=None):
+            dsc = ((event.get("contexts") or {}).get("trace") or {}).get(
+                "dynamic_sampling_context"
+            )
+            if isinstance(dsc, dict):
+                incoming.append(copy.deepcopy(dsc))
+            result = original(event, hint)
+            if isinstance(result, dict):
+                cleaned = ((result.get("contexts") or {}).get("trace") or {}).get(
+                    "dynamic_sampling_context"
+                )
+                outgoing.append(
+                    {
+                        "transaction": result.get("transaction"),
+                        "dsc": copy.deepcopy(cleaned) if isinstance(cleaned, dict) else {},
+                    }
+                )
+            return result
+
+        client.options["before_send_transaction"] = wrapped
+        self.addCleanup(
+            lambda: client.options.__setitem__("before_send_transaction", original)
+        )
+
+        dirty = f"/api/student/state?v=visit-token&name={STUDENT_NAME}"
+        baggage = ",".join(
+            [
+                "sentry-trace_id=1234ab5678cd9012ef3456ab7890cd12",
+                "sentry-transaction=" + quote(dirty, safe=""),
+                "sentry-user_id=" + quote(STUDENT_NAME, safe=""),
+                "sentry-user_segment=" + quote(f"group-{STUDENT_NAME}", safe=""),
+            ]
+        )
+        _Wire.sent = []
+        res = self.student.get(
+            "/api/student/state",
+            headers={
+                "sentry-trace": "1234ab5678cd9012ef3456ab7890cd12-1234abcd5678ef90-1",
+                "baggage": baggage,
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:300])
+        sentry_sdk.flush()
+        planted = [d for d in incoming if d.get("user_id") or "visit-token" in str(d.get("transaction"))]
+        self.assertTrue(planted, incoming)
+        self.assertIn("visit-token", planted[0]["transaction"])
+        self.assertEqual(planted[0].get("user_id"), STUDENT_NAME)
+        self.assertIn(STUDENT_NAME, str(planted[0].get("user_segment")))
+
+        self.assertTrue(outgoing)
+        for item in outgoing:
+            dsc = item["dsc"]
+            self.assertNotIn("user_id", dsc)
+            self.assertNotIn("user_segment", dsc)
+            self.assertEqual(dsc.get("transaction"), item["transaction"])
+            text = json.dumps(dsc)
+            self.assertNotIn("visit-token", text)
+            self.assertNotIn(STUDENT_NAME, text)
+            self.assertNotIn("?", str(dsc.get("transaction") or ""))
+
+        self.assertTrue(_Wire.sent)
+        for raw in _Wire.sent:
+            self.assertNotIn(STUDENT_NAME.encode(), raw)
+            self.assertNotIn(b"visit-token", raw)
+            header = json.loads(raw.split(b"\n", 1)[0])
+            trace = header.get("trace") or {}
+            self.assertNotIn("user_id", trace)
+            self.assertNotIn("user_segment", trace)
+            self.assertNotIn("visit-token", json.dumps(trace))
+            self.assertNotIn(STUDENT_NAME, json.dumps(trace))
+            if "transaction" in trace:
+                self.assertNotIn("?", trace["transaction"])
+                # The popped header bag is the same object we cleaned.
+                self.assertEqual(trace["transaction"], outgoing[0]["transaction"])
+            event = validate_transaction_envelope(raw)
+            self.assertNotIn("user_id", json.dumps(event.get("contexts") or {}))
+            self.assertNotIn(STUDENT_NAME, json.dumps(event))
+            if StoreNormalizer is not None:
+                relay_accepts(event)
 
 
 @unittest.skipIf(StoreNormalizer is None, "sentry-relay is not installed")

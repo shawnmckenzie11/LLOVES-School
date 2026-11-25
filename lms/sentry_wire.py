@@ -1476,6 +1476,35 @@ def _strip_span_queries(span: dict[str, Any]) -> None:
                 data[key] = [_strip_urlish(v) for v in value]
 
 
+def _scrub_dynamic_sampling_context(event: dict[str, Any]) -> None:
+    """Pin the DSC transaction to the scrubbed event name and drop identity.
+
+    Incoming browser baggage can put a query string (the student visit
+    token) on ``transaction`` and a name on ``user_id`` / ``user_segment``.
+    The SDK copies this bag into the envelope header ``trace`` after
+    ``before_send_transaction`` (sentry-sdk 2.76, ``client.py``), so it
+    has to be clean here. ``transaction`` is set to the already
+    query-stripped event name when one exists; otherwise it is
+    query-stripped in place. ``user_id`` and ``user_segment`` are dropped
+    entirely, not text-scrubbed.
+    """
+    contexts = event.get("contexts")
+    if not isinstance(contexts, dict):
+        return
+    trace = contexts.get("trace")
+    if not isinstance(trace, dict):
+        return
+    dsc = trace.get("dynamic_sampling_context")
+    if not isinstance(dsc, dict):
+        return
+    dsc.pop("user_id", None)
+    dsc.pop("user_segment", None)
+    if "transaction" in event:
+        dsc["transaction"] = event["transaction"]
+    elif "transaction" in dsc:
+        dsc["transaction"] = _strip_url_query(dsc["transaction"])
+
+
 def before_send_transaction(
     event: dict[str, Any], _hint: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
@@ -1493,6 +1522,7 @@ def before_send_transaction(
             request.pop("query_string", None)
         if "transaction" in event:
             event["transaction"] = _strip_url_query(event["transaction"])
+        _scrub_dynamic_sampling_context(event)
         trace = ((event.get("contexts") or {}).get("trace")) or {}
         _strip_span_queries(trace)
         for span in event.get("spans") or []:
