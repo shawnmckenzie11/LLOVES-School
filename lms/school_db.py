@@ -12848,11 +12848,13 @@ class SchoolDB(LovesDB):
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
         self._live_metadata_cache: dict[
-            tuple[int, str, str, str, str], dict[str, Any]
+            tuple[int, str, str, str, str, bool], dict[str, Any]
         ] = {}
         # One in-flight rebuild per revision on this worker. Waiters share
         # the leader's deck instead of each copying the seed merge.
-        self._live_metadata_flight: dict[tuple[int, str, str, str, str], threading.Event] = {}
+        self._live_metadata_flight: dict[
+            tuple[int, str, str, str, str, bool], threading.Event
+        ] = {}
         self._live_metadata_flight_lock = threading.Lock()
         # MCK-436: rebuilt module-bank questions. Keyed by library and
         # module (plus scope discriminators). Each entry also stores the
@@ -16600,7 +16602,11 @@ class SchoolDB(LovesDB):
         }
         if current_ready:
             merged = self.live_class_metadata_for_class_lesson(
-                int(class_id), module_key, slot_key, fresh=True
+                int(class_id),
+                module_key,
+                slot_key,
+                fresh=True,
+                inherit_authored_seed=False,
             )
             current_choice["question_count"] = self._authored_question_count(
                 merged.get("questions")
@@ -17013,7 +17019,11 @@ class SchoolDB(LovesDB):
                 "source_class_id": None,
                 "course": course,
                 "live_metadata": self.live_class_metadata_for_class_lesson(
-                    int(class_id), module_key, slot_key, fresh=True
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    fresh=True,
+                    inherit_authored_seed=False,
                 ),
                 "deck_revision": self.class_deck_revision(
                     int(class_id), module_key, slot_key
@@ -18661,7 +18671,7 @@ class SchoolDB(LovesDB):
         course_key = str(course or "").upper() if course else None
         module_key = str(module or "").upper() if module else None
         slot_key = str(slot or "").upper() if slot else None
-        drop: list[tuple[int, str, str, str, str]] = []
+        drop: list[tuple[int, str, str, str, str, bool]] = []
         for key in self._live_metadata_cache:
             if class_id is not None and key[0] != int(class_id):
                 continue
@@ -34009,6 +34019,7 @@ class SchoolDB(LovesDB):
         fresh: bool = False,
         live_session_id: int | None = None,
         real_deck_only: bool = False,
+        inherit_authored_seed: bool = True,
     ) -> dict[str, Any]:
         """Load seed metadata merged with per-class bank, page, and item overlays.
 
@@ -34026,6 +34037,11 @@ class SchoolDB(LovesDB):
             fresh: When True, skip the in-process cache and rebuild.
             live_session_id: Optional test run id for test storage lookup.
             real_deck_only: When True, read the real slot deck only.
+            inherit_authored_seed: When False, a class with no saved or
+                modified deck does not inherit course-seed questions.
+                Use current and the live session use this so a fresh
+                class starts empty. Course and Previous copy keep the
+                default True so authored seeds still copy.
         """
         key = (
             int(class_id),
@@ -34038,7 +34054,7 @@ class SchoolDB(LovesDB):
             "live_session_id": live_session_id,
             "real_deck_only": real_deck_only,
         }
-        cache_key = (*key, revision)
+        cache_key = (*key, revision, bool(inherit_authored_seed))
         cached, leader = self._prepare_live_metadata_build(cache_key, fresh=fresh)
         if cached is not None and not leader:
             return cached
@@ -34053,6 +34069,7 @@ class SchoolDB(LovesDB):
                     revision,
                     deck_kw,
                     class_id=int(class_id),
+                    inherit_authored_seed=bool(inherit_authored_seed),
                 )
             self._store_live_metadata_cache(cache_key, merged)
             return merged
@@ -34062,7 +34079,7 @@ class SchoolDB(LovesDB):
 
     def _prepare_live_metadata_build(
         self,
-        cache_key: tuple[int, str, str, str, str],
+        cache_key: tuple[int, str, str, str, str, bool],
         *,
         fresh: bool,
     ) -> tuple[dict[str, Any] | None, bool]:
@@ -34097,7 +34114,7 @@ class SchoolDB(LovesDB):
         return self._live_metadata_cache.get(cache_key), False
 
     def _begin_live_metadata_build(
-        self, cache_key: tuple[int, str, str, str, str]
+        self, cache_key: tuple[int, str, str, str, str, bool]
     ) -> bool:
         """Claim the rebuild for one revision. False when one is running.
 
@@ -34111,7 +34128,7 @@ class SchoolDB(LovesDB):
             return True
 
     def _wait_live_metadata_build(
-        self, cache_key: tuple[int, str, str, str, str]
+        self, cache_key: tuple[int, str, str, str, str, bool]
     ) -> None:
         """Wait until the in-flight rebuild for this revision finishes.
 
@@ -34124,7 +34141,7 @@ class SchoolDB(LovesDB):
             event.wait(30)
 
     def _end_live_metadata_build(
-        self, cache_key: tuple[int, str, str, str, str]
+        self, cache_key: tuple[int, str, str, str, str, bool]
     ) -> None:
         """Release waiters of one revision's rebuild.
 
@@ -34143,6 +34160,7 @@ class SchoolDB(LovesDB):
         deck_kw: dict[str, Any],
         *,
         class_id: int,
+        inherit_authored_seed: bool = True,
     ) -> dict[str, Any]:
         """Merge the seed deck with this class's overlays. Not cached.
 
@@ -34151,6 +34169,8 @@ class SchoolDB(LovesDB):
             revision: ``class_deck_revision`` for this lesson.
             deck_kw: Session and real-deck lookup flags.
             class_id: Game-show ``classes.id``.
+            inherit_authored_seed: When False, skip the course seed file
+                unless this class already has a saved or modified deck.
         """
         seed_choice = self.get_class_live_deck_seed(
             int(class_id), key[2], key[3], **deck_kw
@@ -34173,6 +34193,27 @@ class SchoolDB(LovesDB):
             # added later (#268 Real Slice in MCR3U M3 C1) never reached
             # decks seeded before it. Pinned seed media rides along.
             loaded = self._with_pinned_seed_media(loaded, key[1], key[2], key[3])
+        elif not inherit_authored_seed:
+            # MCK-525: Use current / the live session do not inherit
+            # course-seed questions. A first bank add must not pull the
+            # sample seed back in. Course / Previous copy keep
+            # inherit_authored_seed True and still read the seed file.
+            # Lesson media still comes from the seed (and from a
+            # working copy's stored media) so mounted deck media is
+            # not swapped back to the primary seed file.
+            loaded = empty_live_class_metadata(key[1], key[2], key[3])
+            loaded["schema_version"] = SCHEMA_V2
+            if seed_choice:
+                media = seed_choice.get("media")
+                if isinstance(media, dict) and media:
+                    loaded["media"] = deepcopy(media)
+                challenge = seed_choice.get("team_challenge")
+                if isinstance(challenge, dict) and any(
+                    str(challenge.get(part) or "").strip()
+                    for part in ("context", "question", "speaker_notes")
+                ):
+                    loaded["team_challenge"] = deepcopy(challenge)
+            loaded = self._with_seed_media_items(loaded, key[1], key[2], key[3])
         else:
             loaded = load_live_class_metadata(key[1], key[2], key[3])
         placements = self.list_class_playlist_placements(
@@ -34202,20 +34243,32 @@ class SchoolDB(LovesDB):
     LIVE_METADATA_CACHE_MAX = 64
 
     def _store_live_metadata_cache(
-        self, cache_key: tuple[int, str, str, str, str], merged: dict[str, Any]
+        self, cache_key: tuple[int, str, str, str, str, bool], merged: dict[str, Any]
     ) -> None:
         """Cache one merged deck, dropping its stale revisions (MCK-231).
 
-        The key carries ``class_deck_revision``. An edit in one worker only
+        The key carries ``class_deck_revision`` and whether the entry
+        inherited the course seed. An edit in one worker only
         invalidates that worker's cache; the other three saw a new revision
         and added a second full copy of the deck, and the old copy was never
         read or freed again. With workers no longer recycled every ~1000
         requests, those copies grew for the life of the process. Keep one
-        revision per lesson deck and at most ``LIVE_METADATA_CACHE_MAX`` decks.
+        revision per lesson deck and inherit flag, and at most
+        ``LIVE_METADATA_CACHE_MAX`` decks.
         """
         cache = self._live_metadata_cache
-        lesson = cache_key[:4]
-        for key in [k for k in cache if k[:4] == lesson and k != cache_key]:
+        lesson_and_inherit = (
+            cache_key[0],
+            cache_key[1],
+            cache_key[2],
+            cache_key[3],
+            cache_key[5],
+        )
+        for key in [
+            k
+            for k in cache
+            if (k[0], k[1], k[2], k[3], k[5]) == lesson_and_inherit and k != cache_key
+        ]:
             cache.pop(key, None)
         cache.pop(cache_key, None)
         cache[cache_key] = merged
@@ -34257,6 +34310,66 @@ class SchoolDB(LovesDB):
             if item_id and item_id not in ids:
                 ids.append(item_id)
         return tuple(ids)
+
+    @classmethod
+    def _with_seed_media_items(
+        cls, metadata: dict[str, Any], course: str, module: str, slot: str
+    ) -> dict[str, Any]:
+        """Attach course-seed media items without inheriting questions.
+
+        MCK-525 drops authored questions from Use current / the live
+        session, but a teacher-mounted media item that is on this
+        lesson's seed (for example Real Slice on MCR3U M1 C1) must
+        still count as on-deck so ensure_live_class_media does not
+        swap it back to the primary seed file.
+
+        Args:
+            metadata: Working metadata to extend.
+            course: Ontario course code.
+            module: Module token.
+            slot: Challenge token.
+
+        Returns:
+            The same metadata, with missing seed media items added
+            and a primary media slot filled when the seed has one.
+        """
+
+        try:
+            seed = load_live_class_metadata(course, module, slot)
+        except Exception:  # noqa: BLE001 - a missing seed file adds nothing
+            return metadata
+        items = [row for row in metadata.get("items") or [] if isinstance(row, dict)]
+        have_ids = {str(row.get("id") or "").strip() for row in items}
+        have_urls = {
+            str(row.get("file") or row.get("url") or "").strip()
+            for row in items
+            if str(row.get("item_type") or "").lower() == "media"
+        }
+        added = False
+        for row in seed.get("items") or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("item_type") or "").lower() != "media":
+                continue
+            url = str(row.get("file") or row.get("url") or "").strip()
+            item_id = str(row.get("id") or "").strip()
+            if (item_id and item_id in have_ids) or (url and url in have_urls):
+                continue
+            items.append(deepcopy(row))
+            if item_id:
+                have_ids.add(item_id)
+            if url:
+                have_urls.add(url)
+            added = True
+        if added:
+            items.sort(key=_placement_sort_key)
+            metadata["items"] = items
+        current = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
+        if not str(current.get("file") or current.get("url") or "").strip():
+            seed_media = seed.get("media") if isinstance(seed.get("media"), dict) else {}
+            if str(seed_media.get("file") or seed_media.get("url") or "").strip():
+                metadata["media"] = deepcopy(seed_media)
+        return metadata
 
     @classmethod
     def _with_pinned_seed_media(
@@ -34358,6 +34471,7 @@ class SchoolDB(LovesDB):
         fresh: bool = True,
         live_session_id: int | None = None,
         real_deck_only: bool = False,
+        inherit_authored_seed: bool = True,
     ) -> dict[str, Any]:
         """Return merged live-lesson metadata for one class deck.
 
@@ -34369,6 +34483,8 @@ class SchoolDB(LovesDB):
             module: Module token such as ``M1``.
             slot: Live slot such as ``C3``.
             fresh: When True, rebuild from sqlite overlays.
+            inherit_authored_seed: When False, a class with no saved deck
+                does not inherit course-seed questions.
         """
         class_row = self.game.get_class(int(class_id))
         if class_row is None:
@@ -34382,6 +34498,7 @@ class SchoolDB(LovesDB):
             fresh=fresh,
             live_session_id=live_session_id,
             real_deck_only=real_deck_only,
+            inherit_authored_seed=inherit_authored_seed,
         )
 
     def live_class_metadata_for_session(self, session_id: int) -> dict[str, Any]:
@@ -34403,6 +34520,7 @@ class SchoolDB(LovesDB):
             str(class_row.get("course_code") or "").upper(),
             str(teacher.get("live_module") or "M1").upper(),
             str(teacher.get("live_slot") or "C1").upper(),
+            inherit_authored_seed=False,
         )
 
     def schema_v2_owns_live_stage_questions(
@@ -34426,16 +34544,27 @@ class SchoolDB(LovesDB):
                 teacher = self.live_session_teacher_state_payload(session_id)
             except KeyError:
                 teacher = {}
+            module = str((teacher or {}).get("live_module") or "M1")
+            slot = str((teacher or {}).get("live_slot") or "C1")
             seed = self.get_class_live_deck_seed(
                 int(session_row["class_id"]),
-                str((teacher or {}).get("live_module") or "M1"),
-                str((teacher or {}).get("live_slot") or "C1"),
+                module,
+                slot,
             )
             if seed and str(seed.get("mode") or "") == "blank":
                 return True
         metadata = self.live_class_metadata_for_session(session_id)
         if metadata.get("schema_version") != SCHEMA_V2:
             return False
+        # MCK-525: a fresh Use-current (or blank) schema-v2 deck owns
+        # every stage, including empty ones, so waiting-room Minds-On
+        # is not auto-seeded. Schema-v1 sessions still use the
+        # compatibility lazy-seed path above.
+        if session_row is not None:
+            if not seed and not self._slot_has_deck_overlay(
+                int(session_row["class_id"]), module, slot
+            ):
+                return True
         current_stage = str(stage or "").strip().lower()
         if not current_stage:
             teacher = self.live_session_teacher_state_payload(session_id)
@@ -35528,7 +35657,10 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        if self._published_stage_catalogue_prompt(session_id, "join") is None:
+        if self._published_stage_catalogue_prompt(session_id, "join") is None and (
+            self._lifecycle_item_is_published(session_id, "minds_on")
+            or not self.schema_v2_owns_live_stage_questions(session_id, "join")
+        ):
             self.ensure_waiting_room_minds_on(session_id)
         try:
             teacher = self.live_session_teacher_state_payload(session_id)

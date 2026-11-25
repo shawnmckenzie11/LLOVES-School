@@ -35,6 +35,11 @@ from minds_on import (  # noqa: E402
 )
 from live_prompt_feedback import LEAD_MISS  # noqa: E402
 from teams_spark import TEAMS_SPARK_PROMPT  # noqa: E402
+from test_live_deck_helpers import (  # noqa: E402
+    add_teams_spark,
+    add_waiting_room_minds_on,
+    install_authored_seed,
+)
 
 
 class StudentPortalTests(unittest.TestCase):
@@ -899,6 +904,27 @@ class StudentPortalTests(unittest.TestCase):
             The published ``live_session_items`` row.
         """
         token = str(item_id or "").strip().lower().replace("-", "_")
+        teacher = self.school.live_session_teacher_state_payload(
+            self.live_session_id
+        )
+        module = str(teacher.get("live_module") or "M1")
+        slot = str(teacher.get("live_slot") or "C1")
+        if token == "minds_on":
+            add_waiting_room_minds_on(
+                self.school,
+                self.class_id,
+                module=module,
+                slot=slot,
+                session_id=self.live_session_id,
+            )
+        elif token in {"teams_spark", "teams-spark"}:
+            add_teams_spark(
+                self.school,
+                self.class_id,
+                module=module,
+                slot=slot,
+                session_id=self.live_session_id,
+            )
         items = list(self.school.ensure_live_session_items(self.live_session_id))
         row = next(
             (
@@ -1815,6 +1841,15 @@ class StudentPortalTests(unittest.TestCase):
             json={"live_module": "M1", "live_slot": "C2"},
         )
         self.assertEqual(slotted.status_code, 200, slotted.get_json())
+        # MCK-525: Use current no longer inherits the course seed, so this
+        # C2 submit test installs the authored lesson as a working copy.
+        install_authored_seed(
+            self.school,
+            self.class_id,
+            "M1",
+            "C2",
+            session_id=self.live_session_id,
+        )
         items = self.school.ensure_live_session_items(self.live_session_id)
         notation = next(
             row
@@ -1872,6 +1907,14 @@ class StudentPortalTests(unittest.TestCase):
             json={"live_module": "M1", "live_slot": "C2"},
         )
         self.assertEqual(slotted.status_code, 200, slotted.get_json())
+        # MCK-525: a fresh class no longer inherits the C2 seed automatically.
+        install_authored_seed(
+            self.school,
+            self.class_id,
+            "M1",
+            "C2",
+            session_id=self.live_session_id,
+        )
         items = self.school.ensure_live_session_items(self.live_session_id)
         answerable = [
             row

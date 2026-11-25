@@ -26,6 +26,7 @@ from sentry_sdk.transport import Transport  # noqa: E402
 
 import sentry_wire  # noqa: E402
 from app import create_app  # noqa: E402
+from test_live_deck_helpers import add_waiting_room_minds_on  # noqa: E402
 from live_news_wire import _public_card, prompt_event  # noqa: E402
 from minds_on import MINDS_ON_CHOICES  # noqa: E402
 from sentry_wire import (  # noqa: E402
@@ -206,6 +207,11 @@ class LiveTimingServerTests(unittest.TestCase):
 
     def _publish_minds_on(self) -> tuple[int, int]:
         """Publish the Minds-On item over HTTP; return (item id, prompt id)."""
+        add_waiting_room_minds_on(
+            self.school,
+            self.class_id,
+            session_id=self.session_id,
+        )
         item = next(
             row
             for row in self.school.ensure_live_session_items(self.session_id)

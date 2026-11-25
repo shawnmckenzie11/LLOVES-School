@@ -761,7 +761,12 @@ class TestLiveClassKindGuardTests(TestLiveClassTests):
         self.client.post("/verify-email", data={"code": code})
 
     def test_kind_switch_after_run_live_ignores_minds_on_prompt(self) -> None:
-        """Run Live then Test works while only the automatic Minds-On exists."""
+        """Run Live then Test works on a fresh default deck with no auto Minds-On.
+
+        MCK-525: a new class no longer auto-seeds a waiting-room prompt.
+        Kind switch must still work when the session has no student
+        activity and no automatic prompt.
+        """
         rv = self.client.post(f"/staff/class/{self.class_id}/run-live")
         self.assertEqual(rv.status_code, 302, rv.status_code)
         live = self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
@@ -771,7 +776,7 @@ class TestLiveClassKindGuardTests(TestLiveClassTests):
             "SELECT COUNT(*) AS n FROM live_session_prompts WHERE live_session_id = ?",
             (sid,),
         ).fetchone()["n"]
-        self.assertGreater(int(prompt_count), 0)
+        self.assertEqual(int(prompt_count), 0)
         rv = self.client.post(
             f"/api/classes/{self.class_id}/live-session/kind",
             json={"is_test": True},

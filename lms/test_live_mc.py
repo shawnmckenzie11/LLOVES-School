@@ -27,6 +27,7 @@ from live_mc import (  # noqa: E402
 from live_media import DEFAULT_LIVE_MEDIA_URL  # noqa: E402
 from live_teacher_state import MINDS_ON_PROMPT_REF  # noqa: E402
 from minds_on import MINDS_ON_CHOICES, minds_on_prompt_payload  # noqa: E402
+from test_live_deck_helpers import add_waiting_room_minds_on  # noqa: E402
 
 
 class LiveMcHelperTests(unittest.TestCase):
@@ -265,6 +266,10 @@ class LiveMcApiTests(unittest.TestCase):
 
     def test_join_minds_on_populates_and_reveal_stays_in_teacher_state(self) -> None:
         """JOIN Minds-On: live tally is staff-only until Reveal shares + closes."""
+        # MCK-525: Minds-On is no longer auto-seeded on a fresh Use-current class.
+        add_waiting_room_minds_on(
+            self.school, self.class_id, session_id=self.session_id
+        )
         idle = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
         self.assertEqual(idle.status_code, 200, idle.get_json())
         student = self.student.get("/api/student/state").get_json()

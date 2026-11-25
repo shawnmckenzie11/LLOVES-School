@@ -34,6 +34,7 @@ from live_teacher_state import (  # noqa: E402
     student_should_mount_media,
 )
 from minds_on import is_minds_on_payload  # noqa: E402
+from test_live_deck_helpers import add_waiting_room_minds_on  # noqa: E402
 from teams_spark import (  # noqa: E402
     CUE_TEAMS_SPARK,
     TEAMS_SPARK_PROMPT,
@@ -535,6 +536,9 @@ class LiveTeacherStateApiTests(unittest.TestCase):
     def test_question_cards_and_visibility_api(self) -> None:
         """Staff state stacks metadata questions and can activate one for students."""
 
+        add_waiting_room_minds_on(
+            self.school, self.class_id, session_id=self.session_id
+        )
         state = self.client.get(
             f"/api/live-sessions/{self.session_id}/state"
         ).get_json()

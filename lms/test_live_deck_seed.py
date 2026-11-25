@@ -830,9 +830,85 @@ class LiveDeckSeedTests(unittest.TestCase):
         self.assertEqual(media["caption"], "Working caption")
         self.assertEqual(_deck_table_snapshot(self.school, other_id), source_tables)
 
+    def test_use_current_on_fresh_class_has_no_questions(self) -> None:
+        """MCK-525: no saved deck plus Use current starts empty on both sides."""
+
+        options = self.school.deck_seed_options(self.class_id, "M1", "C1")
+        self.assertTrue(options["current"]["available"])
+        self.assertEqual(options["current"]["question_count"], 0)
+        seeded = self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C1", mode="current"
+        )
+        self.assertEqual(seeded["mode"], "current")
+        self.assertEqual(_question_signature(seeded["live_metadata"]), [])
+        started = self.school.start_live_class_session(
+            self.class_id,
+            int(self.teacher["id"]),
+            live_module="M1",
+            live_slot="C1",
+        )
+        session_id = int(started["id"])
+        self.school.ensure_live_session_items(session_id)
+        self.school.live_session_mc_tally(session_id)
+        self.assertTrue(
+            self.school.schema_v2_owns_live_stage_questions(session_id, "join")
+        )
+        self.assertEqual(self.school.live_session_question_cards(session_id), [])
+        questions = [
+            row
+            for row in self.school.list_live_session_items(session_id)
+            if str(row.get("kind") or "") == "question"
+        ]
+        self.assertEqual(questions, [])
+        self.assertIsNone(self.school.get_active_live_prompt(session_id))
+        with self.school.game._lock:
+            students = [
+                dict(row)
+                for row in self.school.game.conn.execute(
+                    """
+                    SELECT * FROM students
+                    WHERE class_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (self.class_id,),
+                ).fetchall()
+            ]
+        self.assertTrue(students)
+        student = students[0]
+        self.school.join_live_class_session(
+            session_id,
+            int(student["id"]),
+            codename=str(student["codename"]),
+        )
+        payload = self.school.student_live_prompt_payload(
+            session_id, student_id=int(student["id"])
+        )
+        self.assertTrue(payload.get("waiting_room"), payload)
+        self.assertIsNone(payload.get("prompt"))
+        self.assertEqual(payload.get("active_questions") or [], [])
+        blob = json.dumps(payload).lower()
+        self.assertNotIn("straight-line", blob)
+        self.assertNotIn("constant rate of change", blob)
+        self.assertNotIn("minds_on", blob)
+        self.assertNotIn("add one from the bank", blob)
+
 
 class DeckSeedPickerUiTests(unittest.TestCase):
     """Chip helper copy, stale replies, and the empty-course chip."""
+
+    def test_empty_deck_teacher_copy(self) -> None:
+        """Page 1 with no questions reuses hint compact and the bank line."""
+
+        src = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn(
+            '<p class="hint compact">No questions yet. Add one from the bank.</p>',
+            src,
+        )
+        self.assertNotIn("No questions in this lesson deck yet.", src)
+        self.assertIn(
+            "No questions on this page yet. Use Add New or Import from bank to add one here.",
+            src,
+        )
 
     def test_set_class_keeps_full_labels_on_chip_titles(self) -> None:
         """Short chip text stays, and the old labels remain in title."""

@@ -6481,7 +6481,7 @@ function paintLiveQuestionCards() {
     host.innerHTML =
       deckTotal > 0
         ? `<p class="hint compact">No questions on this page yet. Use Add New or Import from bank to add one here.</p>`
-        : `<p class="hint compact">No questions in this lesson deck yet.</p>`;
+        : `<p class="hint compact">No questions yet. Add one from the bank.</p>`;
     return;
   }
   const cardHtml = (card, index) => {
