@@ -133,14 +133,19 @@ def relay_accepts(event: dict) -> None:
 
 
 class _Wire(Transport):
-    """Keep the serialized bytes of every transaction envelope."""
+    """Keep the serialized bytes of every transaction and error envelope."""
 
     sent: list[bytes] = []
+    errors: list[bytes] = []
 
     def capture_envelope(self, envelope) -> None:
         """Serialize exactly what the HTTP transport would post."""
-        if any(item.type == "transaction" for item in envelope.items):
-            _Wire.sent.append(envelope.serialize())
+        types = {item.type for item in envelope.items}
+        raw = envelope.serialize()
+        if "transaction" in types:
+            _Wire.sent.append(raw)
+        if "event" in types:
+            _Wire.errors.append(raw)
 
 
 def _event(**over) -> dict:
@@ -352,6 +357,37 @@ class WireFieldsSurviveScrubTests(unittest.TestCase):
         self.assertEqual(dsc["release"], "f31a59dba917013e2f37243e8660097e402b5a1c")
         self.assertEqual(dsc["trace_id"], scrubbed["contexts"]["trace"]["trace_id"])
 
+    def test_error_event_dsc_is_pinned_and_identity_dropped(self) -> None:
+        """``before_send`` query-strips the name and drops DSC identity too."""
+        event = {
+            "event_id": "ab1234cdef5678ab9012cdef3456ab78",
+            "timestamp": "2026-11-25T19:00:01.223456Z",
+            "level": "error",
+            "message": "lookup failed",
+            "transaction": f"/api/student/state?v=visit-token&name={STUDENT_NAME}",
+            "sdk": {"name": "sentry.python.flask", "version": "2.77.0"},
+            "contexts": {
+                "trace": {
+                    "trace_id": "1234ab5678cd9012ef3456ab7890cd12",
+                    "span_id": "1234abcd5678ef90",
+                    "dynamic_sampling_context": {
+                        "trace_id": "1234ab5678cd9012ef3456ab7890cd12",
+                        "transaction": f"/api/student/state?v=visit-token&name={STUDENT_NAME}",
+                        "user_id": STUDENT_NAME,
+                        "user_segment": f"group-{STUDENT_NAME}",
+                    },
+                }
+            },
+        }
+        scrubbed = sentry_wire.before_send(event, {})
+        self.assertEqual(scrubbed["transaction"], "/api/student/state")
+        dsc = scrubbed["contexts"]["trace"]["dynamic_sampling_context"]
+        self.assertEqual(dsc["transaction"], scrubbed["transaction"])
+        self.assertNotIn("visit-token", dsc["transaction"])
+        self.assertNotIn(STUDENT_NAME, dsc["transaction"])
+        self.assertNotIn("user_id", dsc)
+        self.assertNotIn("user_segment", dsc)
+
 
 def _envelope_bytes(event: dict) -> bytes:
     """Serialize ``event`` through the SDK's own envelope class."""
@@ -408,6 +444,7 @@ class StudentStateEnvelopeTests(unittest.TestCase):
         self.student.post("/student/mood", data={"mood": "good"})
         self.student.post("/student/character", data={"character": "fox"})
         _Wire.sent = []
+        _Wire.errors = []
         self._env = mock.patch.dict(
             os.environ, {sentry_wire.LIVE_TRACE_RATE_ENV: "1"}
         )
@@ -540,6 +577,139 @@ class StudentStateEnvelopeTests(unittest.TestCase):
             self.assertNotIn(STUDENT_NAME, json.dumps(event))
             if StoreNormalizer is not None:
                 relay_accepts(event)
+
+    def test_error_event_baggage_is_stripped_from_dsc_and_envelope_trace(self) -> None:
+        """A visit token or name in baggage must not reach an error envelope.
+
+        ``before_send`` has to apply the same DSC and transaction-name scrub
+        as the transaction path. The SDK copies the bag into the error
+        envelope header ``trace``.
+        """
+        incoming: list[dict] = []
+        outgoing: list[dict] = []
+        client = sentry_sdk.get_client()
+        original = client.options["before_send"]
+
+        def wrapped(event, hint=None):
+            dsc = ((event.get("contexts") or {}).get("trace") or {}).get(
+                "dynamic_sampling_context"
+            )
+            incoming.append(
+                {
+                    "transaction": event.get("transaction"),
+                    "dsc": copy.deepcopy(dsc) if isinstance(dsc, dict) else {},
+                }
+            )
+            result = original(event, hint)
+            if isinstance(result, dict):
+                cleaned = ((result.get("contexts") or {}).get("trace") or {}).get(
+                    "dynamic_sampling_context"
+                )
+                outgoing.append(
+                    {
+                        "transaction": result.get("transaction"),
+                        "dsc": copy.deepcopy(cleaned) if isinstance(cleaned, dict) else {},
+                    }
+                )
+            return result
+
+        client.options["before_send"] = wrapped
+        self.addCleanup(
+            lambda: client.options.__setitem__("before_send", original)
+        )
+
+        dirty = f"/api/student/state?v=visit-token&name={STUDENT_NAME}"
+
+        def boom() -> None:
+            """Raise after the request has inherited incoming baggage."""
+            from flask import request as req
+
+            if not req.headers.get("X-Test-Boom"):
+                return
+            scope = sentry_sdk.get_current_scope()
+            txn = getattr(scope, "transaction", None) or scope.span
+            if txn is not None and hasattr(txn, "name"):
+                txn.name = dirty
+            raise RuntimeError("mck-527 test boom")
+
+        # The app has already served requests in setUp, so Flask forbids
+        # before_request() here. Append the hook directly, then take it off.
+        hooks = self.app.before_request_funcs.setdefault(None, [])
+        hooks.append(boom)
+        self.addCleanup(lambda: hooks.remove(boom) if boom in hooks else None)
+
+        baggage = ",".join(
+            [
+                "sentry-trace_id=1234ab5678cd9012ef3456ab7890cd12",
+                "sentry-transaction=" + quote(dirty, safe=""),
+                "sentry-user_id=" + quote(STUDENT_NAME, safe=""),
+                "sentry-user_segment=" + quote(f"group-{STUDENT_NAME}", safe=""),
+            ]
+        )
+        _Wire.sent = []
+        _Wire.errors = []
+        try:
+            res = self.student.get(
+                "/api/student/state",
+                headers={
+                    "sentry-trace": "1234ab5678cd9012ef3456ab7890cd12-1234abcd5678ef90-1",
+                    "baggage": baggage,
+                    "X-Test-Boom": "1",
+                },
+            )
+        except RuntimeError as exc:
+            self.assertIn("mck-527 test boom", str(exc))
+        else:
+            self.assertEqual(res.status_code, 500, res.get_data(as_text=True)[:300])
+        sentry_sdk.flush()
+
+        planted = [
+            item
+            for item in incoming
+            if item["dsc"].get("user_id")
+            or "visit-token" in str(item["dsc"].get("transaction"))
+            or "visit-token" in str(item.get("transaction"))
+        ]
+        self.assertTrue(planted, incoming)
+        self.assertTrue(outgoing)
+        for item in outgoing:
+            self.assertNotIn("visit-token", str(item.get("transaction") or ""))
+            self.assertNotIn("?", str(item.get("transaction") or ""))
+            self.assertNotIn(STUDENT_NAME, str(item.get("transaction") or ""))
+            dsc = item["dsc"]
+            self.assertNotIn("user_id", dsc)
+            self.assertNotIn("user_segment", dsc)
+            if item.get("transaction") is not None and "transaction" in dsc:
+                self.assertEqual(dsc["transaction"], item["transaction"])
+            self.assertNotIn("visit-token", json.dumps(dsc))
+            self.assertNotIn(STUDENT_NAME, json.dumps(dsc))
+
+        self.assertTrue(_Wire.errors)
+        for raw in _Wire.errors:
+            self.assertNotIn(STUDENT_NAME.encode(), raw)
+            self.assertNotIn(b"visit-token", raw)
+            header = json.loads(raw.split(b"\n", 1)[0])
+            trace = header.get("trace") or {}
+            self.assertNotIn("user_id", trace)
+            self.assertNotIn("user_segment", trace)
+            self.assertNotIn("visit-token", json.dumps(trace))
+            self.assertNotIn(STUDENT_NAME, json.dumps(trace))
+            if "transaction" in trace:
+                self.assertNotIn("?", trace["transaction"])
+                self.assertEqual(trace["transaction"], outgoing[0]["transaction"])
+            event = None
+            lines = raw.split(b"\n")
+            for line in lines[2:]:
+                if not line.startswith(b"{"):
+                    continue
+                payload = json.loads(line)
+                if isinstance(payload, dict) and payload.get("type") != "transaction":
+                    event = payload
+                    break
+            self.assertIsNotNone(event)
+            self.assertNotIn("visit-token", str(event.get("transaction") or ""))
+            self.assertNotIn(STUDENT_NAME, str(event.get("transaction") or ""))
+            self.assertNotIn(STUDENT_NAME, json.dumps(event.get("contexts") or {}))
 
 
 @unittest.skipIf(StoreNormalizer is None, "sentry-relay is not installed")

@@ -210,6 +210,9 @@ def before_send(
         if event.get("transaction"):
             paths.append(str(event.get("transaction")))
         _drop_request_body(event)
+        if "transaction" in event:
+            event["transaction"] = _strip_url_query(event["transaction"])
+        _scrub_dynamic_sampling_context(event)
         if not any(is_quiet_telemetry_path(path) for path in paths):
             return event
         if _exception_type_names(hint, event) & _DISCONNECT_TYPES:
@@ -1482,8 +1485,8 @@ def _scrub_dynamic_sampling_context(event: dict[str, Any]) -> None:
     Incoming browser baggage can put a query string (the student visit
     token) on ``transaction`` and a name on ``user_id`` / ``user_segment``.
     The SDK copies this bag into the envelope header ``trace`` after
-    ``before_send_transaction`` (sentry-sdk 2.76, ``client.py``), so it
-    has to be clean here. ``transaction`` is set to the already
+    ``before_send`` and ``before_send_transaction`` (sentry-sdk 2.76,
+    ``client.py``), so it has to be clean here. ``transaction`` is set to the already
     query-stripped event name when one exists; otherwise it is
     query-stripped in place. ``user_id`` and ``user_segment`` are dropped
     entirely, not text-scrubbed.
