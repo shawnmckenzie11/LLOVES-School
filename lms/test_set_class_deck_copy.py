@@ -379,7 +379,7 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertEqual(key({"module": "", "slot": None}), (0, 0))
 
     def test_same_slot_on_sibling_and_current_question_count(self) -> None:
-        """The sibling lists the target M·C; current carries its question count."""
+        """The sibling lists the target M·C; unsaved Use current quotes 0."""
 
         body = self._options(self.a1)
         self.assertTrue(
@@ -395,11 +395,20 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             )
         )
         self.assertTrue(body["current"]["available"])
+        # MCK-525: a course seed file still offers Use current, but a
+        # class with no saved deck starts empty. The sibling picker
+        # row still quotes the copyable authored seed count.
+        self.assertEqual(body["current"]["question_count"], 0)
+        listed = next(
+            row
+            for row in body["decks"]
+            if row["class_id"] == self.a2 and (row["module"], row["slot"]) == ("M2", "C3")
+        )
         deck = self._deck(self.a1, "M2", "C3")
         copyable = [
             pair for pair in deck if not self.school._engine_ride_item_id(pair[0])
         ]
-        self.assertEqual(body["current"]["question_count"], len(copyable))
+        self.assertEqual(listed["question_count"], len(copyable))
         self.school.apply_class_deck_seed(self.a1, "M2", "C1", mode="blank")
         empty = self._options(self.a1, "M2", "C1")
         self.assertFalse(empty["current"]["available"])
@@ -482,7 +491,9 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         listed = self._listed(self.mcr, "M1", "C2", view="M2", challenge="C1")
         self.assertEqual(listed["question_count"], len(authored))
         opened = self._options(self.mcr, "M1", "C2")
-        self.assertEqual(opened["current"]["question_count"], len(authored))
+        # MCK-525: Use current on an unsaved class quotes 0. The Course
+        # deck picker row above still quotes the authored seed count.
+        self.assertEqual(opened["current"]["question_count"], 0)
         copied = self.school.apply_class_deck_seed(
             self.mcr,
             "M3",
@@ -519,7 +530,10 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         listed = self._listed(self.mcr, "M1", "C2", view="M2", challenge="C1")
         self.assertEqual(listed["question_count"], authored)
         opened = self._options(self.mcr, "M1", "C2")
-        self.assertEqual(opened["current"]["question_count"], authored)
+        # MCK-525: Use current still quotes 0 on an unsaved class, even
+        # after a page edit. The Course-picker row above keeps the
+        # authored count from the inherited merge.
+        self.assertEqual(opened["current"]["question_count"], 0)
         copied = self.school.apply_class_deck_seed(
             self.mcr,
             "M3",

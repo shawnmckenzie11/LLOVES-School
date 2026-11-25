@@ -23,6 +23,10 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from test_live_deck_helpers import (  # noqa: E402
+    add_waiting_room_minds_on,
+    install_authored_seed,
+)
 from live_class_metadata import load_live_class_metadata
 from minds_on import is_minds_on_payload  # noqa: E402
 from school_db import GroupAnswerLocked, json_safe  # noqa: E402
@@ -147,6 +151,29 @@ class LiveBackendStateTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
+    def _use_authored_session_deck(
+        self,
+        module: str = "M1",
+        slot: str = "C1",
+        *,
+        include_rides: bool = True,
+    ) -> None:
+        """MCK-525: opt into this slot's course seed on the live session.
+
+        Session metadata no longer inherits the seed, so tests that need
+        official lesson questions or engine rides install a working copy.
+        """
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        install_authored_seed(
+            self.school,
+            self.class_id,
+            module,
+            slot,
+            include_rides=include_rides,
+            session_id=self.session_id,
+        )
+
     def _begin_and_join(self, count: int = 4) -> None:
         """Open attendance and record the requested active attendees."""
 
@@ -196,7 +223,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_v2_join_question_requires_explicit_publish(self) -> None:
         """An inactive v2 JOIN card stays hidden until its lifecycle publish."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck()
         self.assertTrue(
             self.school.schema_v2_owns_live_stage_questions(
                 self.session_id, "join"
@@ -231,7 +258,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_unpublished_teams_spark_stays_off_student_until_publish(self) -> None:
         """TEAMS spark is seeded inactive and hidden until staff Publish."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck()
         self.school.set_live_session_teacher_state(self.session_id, stage="teams")
         self.school.ensure_teams_spark(self.session_id)
         spark_row = self.school._prompt_at_slide(
@@ -456,7 +483,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_move_resets_unpublished_and_clears_responses(self) -> None:
         """Moving a published question unpublishes it and clears answers, not points."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         maple = self.student_ids[0]
         self.school.game.begin_game(self.class_id)
         self.school.join_live_class_session(
@@ -526,7 +553,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_join_cards_exclude_teams_spark_fallback(self) -> None:
         """A legacy TEAMS spark row never creates a second JOIN card."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck()
         self.school.ensure_teams_spark(self.session_id)
         cards = self.school.live_session_question_cards(self.session_id)
         self.assertEqual([row["id"] for row in cards], ["minds_on"])
@@ -1400,7 +1427,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_round_question_submit_after_meet_is_not_meet_card(self) -> None:
         """Page-4 MCs stay submittable after Meet; leftover Meet cards do not."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         self.school.set_live_session_teacher_state(
             self.session_id, live_module="M1", live_slot="C2"
         )
@@ -1461,7 +1488,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_join_question_submit_after_minds_on_is_not_minds_on_card(self) -> None:
         """Page-1 MCs stay submittable after leftover waiting-room minds-on."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         maple = self.student_ids[0]
         self.school.join_live_class_session(
             self.session_id, maple, codename="Aspen"
@@ -1707,7 +1734,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_light_poll_reports_lifecycle_response_counts(self) -> None:
         """Light staff polls expose per-item answer counts after student submit."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         maple = self.student_ids[0]
         self.school.join_live_class_session(
             self.session_id, maple, codename="Aspen"
@@ -1839,7 +1866,7 @@ class LiveBackendStateTests(unittest.TestCase):
     def test_student_payload_includes_results_after_submit(self) -> None:
         """Lifecycle cards receive class results once the student has answered."""
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         maple = self.student_ids[0]
         self.school.join_live_class_session(
             self.session_id, maple, codename="Aspen"
@@ -2397,7 +2424,7 @@ class LiveBackendStateTests(unittest.TestCase):
         persist. Reveal uses that same row for the answer key.
         """
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         self._begin_and_join(1)
         self.school.set_live_session_teacher_state(
             self.session_id,
@@ -2542,6 +2569,14 @@ class LiveBackendStateTests(unittest.TestCase):
             if row.get("item_id") == "parabola-a"
         ]
         self.assertEqual(len(saved), 1)
+        install_authored_seed(
+            self.school,
+            self.class_id,
+            "M1",
+            "C1",
+            include_rides=True,
+            session_id=self.session_id,
+        )
         self.school.set_live_session_teacher_state(
             self.session_id,
             live_module="M1",
@@ -2617,7 +2652,7 @@ class LiveBackendStateTests(unittest.TestCase):
         saved card, and Close must still mark the authored key.
         """
 
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         self._begin_and_join(1)
         self.school.set_live_session_teacher_state(
             self.session_id,
@@ -2862,6 +2897,14 @@ class LiveBackendStateTests(unittest.TestCase):
             """Save, leave, and close one course's M2 C1 pages."""
 
             class_id, session_id, student_id = open_course(code)
+            install_authored_seed(
+                self.school,
+                class_id,
+                "M2",
+                "C1",
+                include_rides=True,
+                session_id=session_id,
+            )
             self.school.set_live_session_teacher_state(
                 session_id,
                 live_module="M2",
@@ -3249,15 +3292,34 @@ class LiveBackendStateTests(unittest.TestCase):
             )
 
     def test_c4_join_submit_stores_a_response(self) -> None:
-        """M1 C4 page 1 (Join) Submit Answer stores the waiting-room choice."""
+        """M1 C4 page 1 Submit Answer stores a teacher-added waiting-room choice.
+
+        MCK-525: C4 no longer auto-seeds Minds-On. This test adds and
+        publishes one, then checks the student's answer is stored.
+        """
 
         self.school.live_class_metadata_for_session = self.original_metadata
+        add_waiting_room_minds_on(
+            self.school,
+            self.class_id,
+            module="M1",
+            slot="C4",
+            session_id=self.session_id,
+        )
         self.school.set_live_session_teacher_state(
             self.session_id,
             live_module="M1",
             live_slot="C4",
             stage="join",
             student_view={"questions": "student"},
+        )
+        item = next(
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if str(row.get("item_id") or "") == "minds_on"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(item["id"]), publish_mode="individual"
         )
         payload = self.school.student_live_prompt_payload(
             self.session_id, self.student_ids[0]

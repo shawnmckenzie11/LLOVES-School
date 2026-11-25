@@ -250,7 +250,7 @@ class TimerCloseTests(backend.LiveBackendStateTests):
 
     def test_meet_item_survives_zero(self) -> None:
         """H1: 0:00 closes the question but never the Meet team item."""
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck("M1", "C2")
         self.school.set_live_session_teacher_state(
             self.session_id, live_module="M1", live_slot="C2"
         )
@@ -280,7 +280,7 @@ class TimerCloseTests(backend.LiveBackendStateTests):
 
     def test_teams_spark_survives_zero(self) -> None:
         """H1: the Teams spark is not a lifecycle question either."""
-        self.school.live_class_metadata_for_session = self.original_metadata
+        self._use_authored_session_deck()
         self._begin_and_join(2)
         self.school.set_live_session_teacher_state(self.session_id, stage="teams")
         self.school.ensure_teams_spark(self.session_id)
