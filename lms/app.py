@@ -171,8 +171,11 @@ from live_news_wire import (  # noqa: E402
 from sentry_wire import (  # noqa: E402
     SENTRY_CONNECT_SRC,
     browser_context as sentry_browser_tags,
+    epoch_ms,
     init_flask_sentry,
     install_request_scope as install_sentry_request_scope,
+    live_trace_span,
+    live_transaction_data,
     note_busy_shed,
     report_swallowed,
     sentry_browser_context,

@@ -36,6 +36,9 @@ DEFAULT_TRACES_SAMPLE_RATE = 0.05
 # Live /state, board reads, and teacher writes. Low enough that a full
 # class does not trace every beat (MCK-441).
 LIVE_TRACE_SAMPLE_RATE = 0.05
+# MCK-522: one env knob for every live-class transaction (server) and every
+# live-class timing span (browser). Unset keeps LIVE_TRACE_SAMPLE_RATE.
+LIVE_TRACE_RATE_ENV = "SENTRY_LIVE_TRACES_SAMPLE_RATE"
 
 # Client-gone during a poll. These are not application faults.
 _DISCONNECT_TYPES = frozenset(
@@ -100,12 +103,14 @@ def sentry_browser_context() -> dict[str, str]:
     in git. An empty string means the partial renders no script tags.
 
     Returns:
-        ``sentry_live_dsn``, ``sentry_environment``, and ``sentry_release``.
+        ``sentry_live_dsn``, ``sentry_environment``, ``sentry_release``, and
+        ``sentry_live_rate`` (MCK-522, the browser live-timing sample rate).
     """
     return {
         "sentry_live_dsn": (os.getenv("SENTRY_DSN_LIVE") or "").strip(),
         "sentry_environment": environment_name(),
         "sentry_release": release_name() or "",
+        "sentry_live_rate": f"{live_trace_sample_rate():g}",
         "sentry_user_id": "",
         "sentry_tags_json": "{}",
         "sentry_defer": True,
@@ -216,17 +221,47 @@ def before_send(
     return event
 
 
+def live_trace_sample_rate() -> float:
+    """Return the rate for live-class transactions (MCK-522).
+
+    ``SENTRY_LIVE_TRACES_SAMPLE_RATE`` overrides ``LIVE_TRACE_SAMPLE_RATE``
+    for ``/state``, board reads, teacher writes, submits, and live question
+    images. It is read per call, so a worker restart is the only step to
+    change it. A blank, non-numeric, or negative value falls back to the
+    default. Values above 1 clamp to 1.
+
+    Returns:
+        A rate from 0 through 1.
+    """
+    raw = (os.getenv(LIVE_TRACE_RATE_ENV) or "").strip()
+    if not raw:
+        return LIVE_TRACE_SAMPLE_RATE
+    try:
+        value = float(raw)
+    except ValueError:
+        return LIVE_TRACE_SAMPLE_RATE
+    if value != value or value < 0:
+        return LIVE_TRACE_SAMPLE_RATE
+    return min(1.0, value)
+
+
 def is_live_trace_path(path: str) -> bool:
     """True for the live routes that keep a low trace sample.
 
-    ``/state``, board reads, and teacher show/hide, publish, close, and
-    playlist writes. Health and heartbeats are not included.
+    ``/state``, board reads, the MC submit, live question images, and
+    teacher show/hide, publish, close, and playlist writes. Health and
+    heartbeats are not included.
 
     Args:
         path: URL path or transaction name. Query strings are ignored.
     """
     cleaned = _path_only(path)
     if cleaned in {"/api/student/state"} or is_live_state_poll(cleaned):
+        return True
+    # MCK-522: the MC submit and the live question images.
+    if cleaned == "/api/student/live-prompt/response":
+        return True
+    if cleaned.startswith("/api/classes/") and "/live-question-images/" in cleaned:
         return True
     if cleaned == "/api/student/board/mine" or cleaned.startswith("/api/student/board/"):
         return True
@@ -273,7 +308,7 @@ def traces_sampler(sampling_context: dict[str, Any]) -> float:
             if isinstance(ctx, dict):
                 path = str(ctx.get("name") or "")
         if is_live_trace_path(path):
-            return LIVE_TRACE_SAMPLE_RATE
+            return live_trace_sample_rate()
         if is_quiet_telemetry_path(path):
             return 0.0
         parent = sampling_context.get("parent_sampled")
@@ -287,30 +322,149 @@ def traces_sampler(sampling_context: dict[str, Any]) -> float:
     return DEFAULT_TRACES_SAMPLE_RATE
 
 
+_SDK_UNSET: Any = object()
+_sdk_module: Any = _SDK_UNSET
+
+
+def _sentry_sdk() -> Any:
+    """Return the imported ``sentry_sdk`` module, or ``None`` without it.
+
+    The import runs once. Span helpers call this on every live request, so
+    it must stay a cheap lookup.
+    """
+    global _sdk_module
+    if _sdk_module is _SDK_UNSET:
+        try:
+            import sentry_sdk as module
+
+            _sdk_module = module
+        except ImportError:
+            _sdk_module = None
+    return _sdk_module
+
+
+def _sampled_parent() -> Any:
+    """Return the current span when it belongs to a sampled transaction.
+
+    Returns ``None`` when there is no Sentry client, no transaction, or the
+    transaction was not sampled. Callers skip span work in that case, so an
+    unsampled live request pays one scope lookup.
+    """
+    sdk = _sentry_sdk()
+    if sdk is None:
+        return None
+    try:
+        span = sdk.get_current_span()
+    except Exception:  # noqa: BLE001 - telemetry never breaks a request
+        return None
+    if span is None or not getattr(span, "sampled", False):
+        return None
+    return span
+
+
+def _set_span_data(span: Any, data: dict[str, Any]) -> None:
+    """Attach plain numbers, booleans, and short labels to ``span``.
+
+    Only ``int``, ``float``, ``bool``, and ``str`` values up to 80 characters
+    are kept. Callers pass counts, durations, and fixed labels, never a name,
+    code, PIN, or answer.
+
+    Args:
+        span: A Sentry span, or ``None``.
+        data: Attribute name to value.
+    """
+    if span is None:
+        return
+    setter = getattr(span, "set_data", None) or getattr(span, "set_attribute", None)
+    if setter is None:
+        return
+    for key, value in data.items():
+        if isinstance(value, bool) or isinstance(value, (int, float)):
+            setter(str(key)[:80], value)
+        elif isinstance(value, str) and len(value) <= 80:
+            setter(str(key)[:80], value)
+
+
 @contextmanager
-def live_trace_span(op: str, name: str) -> Any:
-    """Open a child span around a lock or a metadata rebuild.
+def live_trace_span(op: str, name: str, data: dict[str, Any] | None = None) -> Any:
+    """Open a child span around a lock, a build slice, or a write.
 
     The name is a static label. This does not attach the request URL,
-    query string, body, token, code, or a person's name. With no active
-    Sentry transaction the span is a no-op.
+    query string, body, token, code, or a person's name. With no active or
+    no sampled Sentry transaction nothing is created (MCK-522: the load
+    gate runs this on every ``/state``).
 
     Args:
         op: Short span operation, such as ``db``.
         name: Static span name, such as ``live.metadata.rebuild``.
+        data: Optional numeric or short-label attributes for the span.
 
     Yields:
-        None.
+        The span when one was opened, otherwise ``None``.
     """
-    try:
-        import sentry_sdk
-
-        ctx = sentry_sdk.start_span(op=str(op)[:40], name=str(name)[:80])
-    except Exception:
-        yield
+    if _sampled_parent() is None:
+        yield None
         return
-    with ctx:
-        yield
+    try:
+        ctx = _sentry_sdk().start_span(op=str(op)[:40], name=str(name)[:80])
+    except Exception:  # noqa: BLE001 - telemetry never breaks a request
+        yield None
+        return
+    with ctx as span:
+        try:
+            if data:
+                _set_span_data(span, data)
+        except Exception:  # noqa: BLE001
+            pass
+        yield span
+
+
+def live_transaction_data(**data: Any) -> None:
+    """Attach attributes to the current request's root span (MCK-522).
+
+    A no-op outside a sampled transaction. Used for per-request facts such
+    as the response size and whether a ``/state`` poll was unchanged.
+
+    Args:
+        **data: Attribute name to number, boolean, or short label.
+    """
+    if _sampled_parent() is None:
+        return
+    try:
+        sdk = _sentry_sdk()
+        scope = sdk.get_current_scope()
+        root = getattr(scope, "root_span", None) or getattr(scope, "transaction", None)
+        _set_span_data(root, data)
+    except Exception:  # noqa: BLE001 - telemetry never breaks a request
+        return
+
+
+def epoch_ms() -> int:
+    """Return the server wall clock as whole epoch milliseconds."""
+    return int(time.time() * 1000)
+
+
+def local_iso_to_epoch_ms(stamp: Any) -> int | None:
+    """Convert a stored naive local ISO stamp to epoch milliseconds.
+
+    ``_now()`` in ``school_db`` writes ``datetime.now()`` in the server's
+    zone with no offset and no microseconds, so the result has one-second
+    resolution.
+
+    Args:
+        stamp: ``YYYY-MM-DDTHH:MM:SS`` text, or anything else.
+
+    Returns:
+        Epoch milliseconds, or ``None`` when the text does not parse.
+    """
+    if not stamp:
+        return None
+    try:
+        from datetime import datetime
+
+        return int(datetime.fromisoformat(str(stamp)).timestamp() * 1000)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
 
 
 def init_flask_sentry() -> bool:
@@ -349,7 +503,11 @@ def init_flask_sentry() -> bool:
             type(exc).__name__,
         )
         return False
-    logger.info("Sentry enabled (environment=%s)", options["environment"])
+    logger.info(
+        "Sentry enabled (environment=%s, live_trace_rate=%s)",
+        options["environment"],
+        live_trace_sample_rate(),
+    )
     return True
 
 

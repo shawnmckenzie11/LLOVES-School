@@ -36,6 +36,9 @@
   var SOFT_POLL_TEXT =
     /failed to fetch|networkerror|network request failed|load failed|aborterror|the operation was aborted|the user aborted|request aborted|server overloaded|state unavailable|database is locked|service unavailable|\bhttp\s+\d{3}\b|\b503\b|\b502\b|\b504\b|\b500\b|\b408\b|\b429\b|reconnecting|group status did not update|updating group status|\bbusy\b|\boverloaded\b|\bunavailable\b/i;
   var TRACE_SAMPLE_RATE = 0.05;
+  // MCK-522: spans from live_timing.js are named ``live.client.*``. They use
+  // the server-rendered ``lloves-sentry-live-rate`` (SENTRY_LIVE_TRACES_SAMPLE_RATE).
+  var LIVE_CLIENT_SPAN = /^live\.client\./;
   // Busy / shed / proxy flaps. Those stay on the soft reconnect strip.
   var SOFT_HTTP_STATUS = { 502: true, 503: true, 504: true };
   var FETCH_FAILURE_TAG = "lloves.fetch_failed";
@@ -776,6 +779,34 @@
     return new RegExp(source).test(String(cause || ""));
   }
 
+  /**
+   * Sample rate for ``live.client.*`` timing spans. A missing, blank, or bad
+   * meta value keeps the ordinary browser rate.
+   * @returns {number}
+   */
+  function liveClientRate() {
+    var raw = metaContent("lloves-sentry-live-rate");
+    var value = raw === "" ? NaN : Number(raw);
+    if (!(value >= 0)) return TRACE_SAMPLE_RATE;
+    return Math.min(1, value);
+  }
+
+  /**
+   * Trace sampler. Live timing spans use ``liveClientRate``. Everything
+   * else keeps the earlier behaviour: follow a sampled or unsampled parent,
+   * otherwise ``TRACE_SAMPLE_RATE``.
+   * @param {{name?: string, parentSampled?: boolean}} context
+   * @returns {number}
+   */
+  function tracesSampler(context) {
+    var name = String((context && context.name) || "");
+    if (LIVE_CLIENT_SPAN.test(name)) return liveClientRate();
+    if (context && typeof context.parentSampled === "boolean") {
+      return context.parentSampled ? 1 : 0;
+    }
+    return TRACE_SAMPLE_RATE;
+  }
+
   var sentryClient = window.Sentry;
   if ((!sentryClient || typeof sentryClient.init !== "function") && typeof Sentry !== "undefined") {
     sentryClient = Sentry;
@@ -792,7 +823,7 @@
     dsn: dsn,
     environment: environment,
     sendDefaultPii: false,
-    tracesSampleRate: TRACE_SAMPLE_RATE,
+    tracesSampler: tracesSampler,
     tracePropagationTargets: [
       /^\/(?!api\/student\/(?:state|heartbeat)(?:[/?#]|$)|api\/live-sessions\/\d+\/state(?:[/?#]|$)|health(?:[/?#]|$))/,
     ],

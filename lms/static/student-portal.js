@@ -20,6 +20,7 @@ import {
 import { mcResultsGraphHtml, numericResultsGraphHtml } from "/static/mc_results_graph.js";
 import { compareQuestionPushOrder, questionPushLabel } from "/static/student_question_order.js";
 import { cardOwnsLivePrompt } from "/static/live_prompt_once.js";
+import { liveTiming } from "/static/live_timing.js";
 import { paintEyesUp } from "/static/eyes_up.js";
 import { noteBoardShow, noteBoardShowAll, syncPollFromPayload, syncShownBoards } from "/static/poll_board_show.js";
 import {
@@ -5209,6 +5210,7 @@ async function submitLifecycleAnswer(card, action) {
     let res;
     let data = {};
     let networkFailed = false;
+    const submitStartedAt = Date.now();
     try {
       res = await fetch(
         url,
@@ -5229,6 +5231,7 @@ async function submitLifecycleAnswer(card, action) {
         networkFailed = true;
       }
     }
+    const submitAckedAt = Date.now();
     if (networkFailed) {
       const held = holdUnsentLiveAnswer(holdDetails, {
         message: "Could not submit that answer.",
@@ -5265,6 +5268,14 @@ async function submitLifecycleAnswer(card, action) {
     } else {
       seedTallyTouchOptIn(null, item);
     }
+    // MCK-522: submit tap to the answer card repainted (ack then paint).
+    liveTiming.noteSubmit({
+      startedAt: submitStartedAt,
+      ackedAt: submitAckedAt,
+      paintedAt: Date.now(),
+      status: res.status,
+      action,
+    });
     await tick();
   } finally {
     liveSubmitInFlight.delete(flightKey);
@@ -6742,6 +6753,8 @@ function applyPushedQuestionCard(card) {
   lastStudentPayload = payload;
   paintLifecycleQuestionStack(payload);
   paintPrompt(payload);
+  // MCK-522: publish-to-paint timing starts at the postcard's server stamp.
+  liveTiming.notePush(card);
 }
 
 /**
@@ -7100,13 +7113,17 @@ async function tick() {
     if (lastTallyTouch) params.set("tally_touch", lastTallyTouch);
     if (lastSlideRev != null) params.set("slide_rev", String(lastSlideRev));
     const qs = params.toString() ? `?${params}` : "";
+    const pollSentAt = Date.now();
     const res = await fetch(`/api/student/state${qs}`, visitFetchInit());
+    const pollReceivedAt = Date.now();
     if (!res.ok) {
       setStudentReconnectBanner(true);
       noteStudentPollBusy();
       return;
     }
     const data = await res.json();
+    // MCK-522: one clock-offset sample per poll, for publish-to-paint timing.
+    liveTiming.noteClock(pollSentAt, pollReceivedAt, data && data.server_ms);
     statePainting = true;
     if (data && (data.error === "state unavailable" || isLiveStateBusy(data))) {
       // A pushed question is already painted. Retry the snapshot in this
@@ -7146,6 +7163,8 @@ async function tick() {
         );
         paintPollTotalsBelowFeedback(lastStudentPayload);
         paintLifecycleQuestionStack(lastStudentPayload);
+        // MCK-522: classmate's answer landing to this table repainting.
+        liveTiming.noteTallyPatch(data);
       } else if (data.tally_touch) {
         lastTallyTouch = String(data.tally_touch);
       }
@@ -7232,6 +7251,8 @@ async function tick() {
     if (![...activePaneDrags].some((el) => el.classList.contains("student-live-card"))) {
       paintLifecycleQuestionStack(data);
     }
+    // MCK-522: a full snapshot is painted; finish any publish waiting on it.
+    liveTiming.noteSnapshot(data);
     setStudentReconnectBanner(false);
   } catch (_err) {
     if (statePainting) window.llovesSentryReport?.(_err, "student-state-paint");

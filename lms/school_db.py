@@ -59,6 +59,13 @@ from engagement_events import (  # noqa: E402
 from engagement_live import group_question_started, tier1_engagement_display  # noqa: E402
 from engagement_rollup import compute_rollup, rollup_row_to_store  # noqa: E402
 from serve_capacity import poll_budget_expired  # noqa: E402
+
+try:  # MCK-522: static-label spans around the live student build slices.
+    from sentry_wire import live_trace_span as _live_span
+    from sentry_wire import local_iso_to_epoch_ms as _local_iso_to_epoch_ms
+except ImportError:  # pragma: no cover - package-style import
+    from lms.sentry_wire import live_trace_span as _live_span
+    from lms.sentry_wire import local_iso_to_epoch_ms as _local_iso_to_epoch_ms
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
     end_poll_budget,
@@ -31752,6 +31759,9 @@ class SchoolDB(LovesDB):
                         else "default"
                     ),
                     "published_at": item.get("published_at"),
+                    # MCK-522: same stamp as epoch ms (one-second resolution)
+                    # so the phone can time publish-to-paint on a /state paint.
+                    "published_ms": _local_iso_to_epoch_ms(item.get("published_at")),
                     "closed_at": item.get("closed_at"),
                     "content": public_content,
                     "prompt": (
@@ -55453,16 +55463,60 @@ class SchoolDB(LovesDB):
             tally_touch is not None
             and student_id not in (None, "")
         ):
-            current_tally = self._live_tally_poll_stamp(int(session_id), student_id)
+            with _live_span("live.state", "live.state.tally_stamp"):
+                current_tally = self._live_tally_poll_stamp(
+                    int(session_id), student_id
+                )
             if current_tally:
                 body["tally_touch"] = current_tally
                 if str(tally_touch or "") != current_tally:
-                    patches = self._student_live_tally_patches(
-                        int(session_id), int(class_id), int(student_id)
-                    )
+                    with _live_span("live.state", "live.state.tally_patch"):
+                        patches = self._student_live_tally_patches(
+                            int(session_id), int(class_id), int(student_id)
+                        )
                     if patches:
                         body["active_questions"] = patches
+                        # MCK-522: when the newest answer on these items
+                        # landed (one-second resolution), so the phone can
+                        # time classmate-submit to results-update.
+                        landed = self._live_tally_latest_ms(
+                            [int(row["id"]) for row in patches]
+                        )
+                        if landed:
+                            body["tally_at_ms"] = landed
         return body
+
+    def _live_tally_latest_ms(self, item_ids: list[int]) -> int | None:
+        """Epoch ms of the newest response on these lifecycle items.
+
+        Only the patch path of an unchanged poll calls this, so the extra
+        read runs when a tally actually moved.
+
+        Args:
+            item_ids: ``live_session_items.id`` values that got a patch.
+
+        Returns:
+            Epoch milliseconds (one-second resolution), or ``None``.
+        """
+        ids = [int(value) for value in item_ids if value not in (None, "")]
+        if not ids:
+            return None
+        marks = ",".join("?" for _ in ids)
+        try:
+            with self._lock:
+                row = self.conn.execute(
+                    f"""
+                    SELECT MAX(r.updated_at) AS landed
+                    FROM live_session_items AS i
+                    INNER JOIN live_session_responses AS r
+                        ON r.prompt_id = i.prompt_id
+                    WHERE i.id IN ({marks})
+                    """,
+                    ids,
+                ).fetchone()
+        except sqlite3.Error:
+            return None
+        return _local_iso_to_epoch_ms(row["landed"] if row else None)
 
     def get_live_session_state(
         self, session_id: int, *, light: bool = False
@@ -56092,24 +56146,27 @@ class SchoolDB(LovesDB):
             PollBudgetExceeded: The poll budget was spent before a later slice.
         """
         sid = int(student_id) if student_id not in (None, "") else None
-        session_row = self.get_live_session(int(live_session_id))
-        if session_row is not None and session_row.get("status") == "active":
-            self._restore_live_team_lock(int(class_id), create=False)
-        if unmatched or sid is None:
-            payload = self.guest_student_live_payload(
-                codename=codename,
-                class_id=int(class_id),
-            )
-        else:
-            payload = self.game.student_live_payload(int(class_id), sid)
+        with _live_span("live.state", "live.state.build.base"):
+            session_row = self.get_live_session(int(live_session_id))
+            if session_row is not None and session_row.get("status") == "active":
+                self._restore_live_team_lock(int(class_id), create=False)
+            if unmatched or sid is None:
+                payload = self.guest_student_live_payload(
+                    codename=codename,
+                    class_id=int(class_id),
+                )
+            else:
+                payload = self.game.student_live_payload(int(class_id), sid)
         ensure_poll_budget()
-        payload.update(
-            self.student_live_prompt_payload(
-                int(live_session_id),
-                sid,
-                participant_uuid=participant_uuid,
+        # MCK-522: the question cards (active items, results, my answers).
+        with _live_span("live.state", "live.state.build.card"):
+            payload.update(
+                self.student_live_prompt_payload(
+                    int(live_session_id),
+                    sid,
+                    participant_uuid=participant_uuid,
+                )
             )
-        )
         if shell_only:
             ensure_poll_budget()
             self.apply_student_live_engagement(
@@ -56126,44 +56183,47 @@ class SchoolDB(LovesDB):
             self._stamp_student_run_key(payload, session_row)
             return payload
         ensure_poll_budget()
-        media = self.live_session_active_media_payload(int(live_session_id))
-        if isinstance(media, dict) and is_jigsawable_media(media):
-            media = dict(media)
-            # Stage-ask stems stay on the prompt channel. Students watch
-            # the visualizer; they do not receive the unarmed ask packet.
-            media.pop("linked_prompt", None)
-            media.pop("state_events", None)
-        payload["active_media"] = media
+        with _live_span("live.state", "live.state.build.media_teacher"):
+            media = self.live_session_active_media_payload(int(live_session_id))
+            if isinstance(media, dict) and is_jigsawable_media(media):
+                media = dict(media)
+                # Stage-ask stems stay on the prompt channel. Students watch
+                # the visualizer; they do not receive the unarmed ask packet.
+                media.pop("linked_prompt", None)
+                media.pop("state_events", None)
+            payload["active_media"] = media
+            ensure_poll_budget()
+            payload["teacher_state"] = self.live_session_teacher_state_payload(
+                int(live_session_id)
+            )
+            if session_row is None or session_row.get("status") != "active":
+                # MCK-26: an ended (celebrating) or inactive session never
+                # pauses students, even if a stale blob still says eyes_up.
+                payload["teacher_state"]["eyes_up"] = False
+            payload["google_slide"] = self.student_google_slide(int(live_session_id))
         ensure_poll_budget()
-        payload["teacher_state"] = self.live_session_teacher_state_payload(
-            int(live_session_id)
-        )
-        if session_row is None or session_row.get("status") != "active":
-            # MCK-26: an ended (celebrating) or inactive session never
-            # pauses students, even if a stale blob still says eyes_up.
-            payload["teacher_state"]["eyes_up"] = False
-        payload["google_slide"] = self.student_google_slide(int(live_session_id))
+        with _live_span("live.state", "live.state.build.groups_meta"):
+            self.apply_student_live_group_projection(payload, int(live_session_id))
+            ensure_poll_budget()
+            payload["live_metadata"] = self.student_live_class_metadata_for_session(
+                int(live_session_id)
+            )
         ensure_poll_budget()
-        self.apply_student_live_group_projection(payload, int(live_session_id))
-        ensure_poll_budget()
-        payload["live_metadata"] = self.student_live_class_metadata_for_session(
-            int(live_session_id)
-        )
-        ensure_poll_budget()
-        self.apply_student_live_engagement(
-            payload, int(live_session_id), int(class_id), sid
-        )
-        ensure_poll_budget()
-        self.apply_student_end_overlay(
-            payload,
-            int(live_session_id),
-            int(class_id),
-            sid,
-            participant_uuid,
-        )
-        payload["gamification"] = self.gamification_winner_payload(
-            int(live_session_id), int(class_id), sid
-        )
+        with _live_span("live.state", "live.state.build.engagement"):
+            self.apply_student_live_engagement(
+                payload, int(live_session_id), int(class_id), sid
+            )
+            ensure_poll_budget()
+            self.apply_student_end_overlay(
+                payload,
+                int(live_session_id),
+                int(class_id),
+                sid,
+                participant_uuid,
+            )
+            payload["gamification"] = self.gamification_winner_payload(
+                int(live_session_id), int(class_id), sid
+            )
         shown = ""
         if isinstance(payload.get("teacher_state"), dict):
             shown = str(

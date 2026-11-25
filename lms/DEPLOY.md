@@ -242,6 +242,7 @@ Org `mckenzian`. Projects: `lloves-lms` (Flask) and `lloves-live` (browser). DSN
 | `FLASK_ENV` | Environment tag. Fly sets `production`. Unset local runs tag `development`. |
 | `SENTRY_ENVIRONMENT` | Optional override. Use it for a tip smoke so you do not have to set `FLASK_ENV=production` (that flag refuses `LOCAL_DEV_LOGIN`). |
 | `SENTRY_RELEASE` | Optional override when `GH_SHA` is empty. |
+| `SENTRY_LIVE_TRACES_SAMPLE_RATE` | MCK-522. Rate from 0 to 1 for live-class transactions (student `/state`, submit, live question images, teacher publish and other live writes) and for the browser `live.client.*` timing spans. Unset or blank keeps 0.05. Needs a worker restart to change. Set it for one class, then unset it. |
 
 Fly secrets, after Shawn's GO (this tip does not deploy):
 
@@ -289,7 +290,35 @@ throw new Error('lloves-live tip smoke MCK-8')
 
 Confirm `lloves-lms` and `lloves-live` show those messages, environment `tip`, and release equal to `GH_SHA` when it is set.
 
-Busy, 503, reconnect, and heartbeat failures stay on the soft strip. They are not fatal Sentry events. A script exception while the page is up still reports, including when the message mentions 500, unavailable, or busy. Traces sample at 5%. `/health`, `/api/student/state`, `/api/student/heartbeat`, and `/api/live-sessions/<id>/state` are not sampled. Request bodies and local variables are not sent.
+Busy, 503, reconnect, and heartbeat failures stay on the soft strip. They are not fatal Sentry events. A script exception while the page is up still reports, including when the message mentions 500, unavailable, or busy. Traces sample at 5% (`SENTRY_LIVE_TRACES_SAMPLE_RATE` changes the live-class share). `/health` and `/api/student/heartbeat` are not sampled. Student `/api/student/state` and staff `/api/live-sessions/<id>/state` sample at the live rate. Request bodies and local variables are not sent.
+
+### Live-class timing (MCK-522)
+
+Measurement only. It answers "where does the time go between a teacher publish and the question on a phone". No caching, prefetch, or payload change rides with it. The only additions to a payload are `server_ms` (server clock, on every student `/state` reply), `published_ms` on the publish postcard and on each active item, and `tally_at_ms` on a thin results patch. All are bare numbers.
+
+Server spans (project `lloves-lms`, transactions below, spans named `live.*`):
+
+| Transaction | Spans | Attributes on the transaction |
+|-------------|-------|-------------------------------|
+| `student_state` | `live.state.auth`, `live.state.unchanged_check`, `live.state.tally_stamp`, `live.state.tally_patch`, `live.state.stamp`, `live.state.build` (with `.base`, `.card`, `.media_teacher`, `.groups_meta`, `.engagement`), `live.state.serialize` | `state.kind` (`full`, `unchanged`, `patch`), `state.bytes`, `state.active_items` |
+| `api_publish_live_item` | `live.publish.write`, `live.publish.card`, `live.publish.emit`, `live.publish.respond` | `publish.write_ms`, `publish.card_ms`, `publish.has_card` |
+| `api_student_live_prompt_response` | `live.submit.facing`, `live.submit.write`, `live.submit.tally`, `live.submit.emit` | `submit.path`, `submit.replay` |
+| `serve_live_question_image` | `live.image.access`, `live.image.send` | `image.status`, `image.bytes`, `image.slide_page` |
+| `api_live_session_teacher_state` | none new (already traced) | |
+
+Browser spans (project `lloves-live`, segment names `live.client.*`, op `live.client`):
+
+| Span | Attributes |
+|------|------------|
+| `live.client.publish_to_paint` | `live.text_ms` (publish stamp to stem painted), `live.ready_ms` (to the last image loaded, absent on timeout), `live.via` (`push` or `state`), `live.images`, `live.images_loaded`, `live.timed_out`, `live.item_id`, `live.kind`, `live.skew_ms`, `live.skew_rtt_ms`, `live.skew_known` |
+| `live.client.tally_update` | `live.update_ms` (classmate answer landed to this phone's results repainted; one-second server resolution) |
+| `live.client.submit_to_paint` | `live.rtt_ms`, `live.paint_ms`, `live.action`, `live.status` |
+
+Clock skew: each `/state` reply gives the phone one offset sample (`server_ms` minus the midpoint of send and receive). The smallest-round-trip sample wins and maps the server publish stamp onto the phone's clock. `live.skew_rtt_ms` is the error bar on that sample.
+
+Privacy: spans hold whole milliseconds, counts, fixed labels, and the lifecycle item id. No student name, join code, PIN, catch-up code, answer, or question text.
+
+Run a measured class: `fly secrets set SENTRY_LIVE_TRACES_SAMPLE_RATE=0.25 --app lloves-lms` before class (this restarts the machine, so not mid-class), then `fly secrets unset SENTRY_LIVE_TRACES_SAMPLE_RATE --app lloves-lms` after. Volume, 30 students, 75 minutes, 20 published questions every student answers, every phone on the news stream (20 s fallback poll, heartbeats excluded): about 9,200 live requests, so about 460 server transactions at 0.05 and about 2,300 at 0.25 (about 2,000 of them `/state`), plus up to about 450 browser `live.client.*` spans at 0.25. Each phone that loses its stream polls every 4 s instead, which adds about 1,100 requests per phone.
 
 ### Logs (MCK-135)
 
