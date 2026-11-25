@@ -177,7 +177,76 @@ class Mck521StudentMcPublishTests(unittest.TestCase):
             ),
         )
 
+    def test_tally_touch_zero_seeds_patches_only_for_submitters(self) -> None:
+        """A submitter's tally_touch=0 poll gets patches; a non-submitter's does not."""
+
+        _item, prompt = self._add_mc()
+        seat_a, seat_b, seat_c = self.ids[0], self.ids[1], self.ids[2]
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), seat_a, {"choice": "A"}
+        )
+        stamp_a = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, seat_a
+        )
+        stamp_c = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, seat_c
+        )
+        seq = int(
+            self.school.live_session_teacher_state_payload(self.session_id).get(
+                "state_seq"
+            )
+            or 0
+        )
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]), seat_b, {"choice": "B"}
+        )
+        body_a = self.school.student_live_poll_unchanged(
+            self.session_id,
+            self.class_id,
+            seq,
+            stamp_a,
+            seat_a,
+            "0",
+        )
+        self.assertIsNotNone(body_a)
+        self.assertTrue(body_a.get("unchanged"))
+        self.assertTrue(body_a.get("tally_touch"))
+        self.assertNotEqual(str(body_a.get("tally_touch")), "0")
+        patch = (body_a.get("active_questions") or [])[0]
+        counts = self._counts(patch.get("results"))
+        self.assertEqual(counts.get("kite"), 1)
+        self.assertEqual(counts.get("moth"), 1)
+
+        body_c = self.school.student_live_poll_unchanged(
+            self.session_id,
+            self.class_id,
+            seq,
+            stamp_c,
+            seat_c,
+            "0",
+        )
+        self.assertIsNotNone(body_c)
+        self.assertTrue(body_c.get("unchanged"))
+        self.assertFalse(body_c.get("tally_touch"))
+        self.assertFalse(body_c.get("active_questions"))
+
+    def test_portal_seeds_tally_touch_sentinel(self) -> None:
+        """The student portal starts tally_touch after submit or a refresh."""
+
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("function seedTallyTouchOptIn(", portal)
+        self.assertIn('lastTallyTouch = "0"', portal)
+        self.assertIn("seedTallyTouchOptIn(data)", portal)
+        self.assertIn("seedTallyTouchOptIn(lastStudentPayload, item)", portal)
+        self.assertIn(
+            'if (lastTallyTouch) params.set("tally_touch", lastTallyTouch)',
+            portal,
+        )
+
     def test_image_routes_cache_and_conditional(self) -> None:
+
         """Module and curriculum images send private cache headers and ETags."""
 
         from curriculum_bank_images import CARTRIDGE_IMAGE_DIR
