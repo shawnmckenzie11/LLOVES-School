@@ -66,6 +66,7 @@ from app import (
     earned_avatar_keys,
     emit_answer_landed,
     emit_session_news,
+    epoch_ms,
     events_for_teacher_patch,
     explicit_visit_token_from_request,
     flag_work_event,
@@ -79,6 +80,8 @@ from app import (
     live_media_catalog,
     live_media_url_swap_allowed,
     live_news_response,
+    live_trace_span,
+    live_transaction_data,
     logger,
     login_required,
     missing_live_session,
@@ -1252,46 +1255,57 @@ def register_live(app, school, shared):
         get 404. The class owner can still preview an unpublished page.
         Other question images keep the existing class-access rule.
         """
-        if not _can_access_class_live_asset(class_id):
-            abort(403)
-        visibility = school.google_slide_image_visibility(int(class_id), filename)
-        if visibility != "absent":
-            user = current_user()
-            owner = user is not None and school.teacher_owns_class(
-                int(user["id"]), int(class_id)
-            )
-            if not owner:
-                ctx = _student_live_context()
-                active = school.get_active_live_session_for_class(int(class_id))
-                try:
-                    active_id = int(active["id"]) if active else 0
-                except (TypeError, ValueError, KeyError):
-                    active_id = 0
-                joined_id = 0
-                if (
-                    isinstance(ctx, dict)
-                    and int(ctx.get("class_id") or 0) == int(class_id)
-                ):
+        # MCK-522: spans name the access check and the file send. No file
+        # name, class id, or student detail goes on them.
+        with live_trace_span("live.image", "live.image.access"):
+            if not _can_access_class_live_asset(class_id):
+                abort(403)
+            visibility = school.google_slide_image_visibility(int(class_id), filename)
+            if visibility != "absent":
+                user = current_user()
+                owner = user is not None and school.teacher_owns_class(
+                    int(user["id"]), int(class_id)
+                )
+                if not owner:
+                    ctx = _student_live_context()
+                    active = school.get_active_live_session_for_class(int(class_id))
                     try:
-                        joined_id = int(ctx.get("live_session_id") or 0)
-                    except (TypeError, ValueError):
-                        joined_id = 0
-                if (
-                    active_id <= 0
-                    or joined_id != active_id
-                    or visibility != "published"
-                ):
-                    abort(404)
-        path = school.live_question_image_path(int(class_id), filename)
-        if path is None:
-            abort(404)
-        response = send_from_directory(path.parent, path.name)
-        if visibility != "absent":
-            response.headers["Cache-Control"] = "private, max-age=300"
-            etag, _weak = response.get_etag()
-            if not etag:
-                stat = path.stat()
-                response.set_etag(f"{stat.st_mtime_ns:x}-{stat.st_size:x}")
+                        active_id = int(active["id"]) if active else 0
+                    except (TypeError, ValueError, KeyError):
+                        active_id = 0
+                    joined_id = 0
+                    if (
+                        isinstance(ctx, dict)
+                        and int(ctx.get("class_id") or 0) == int(class_id)
+                    ):
+                        try:
+                            joined_id = int(ctx.get("live_session_id") or 0)
+                        except (TypeError, ValueError):
+                            joined_id = 0
+                    if (
+                        active_id <= 0
+                        or joined_id != active_id
+                        or visibility != "published"
+                    ):
+                        abort(404)
+        with live_trace_span("live.image", "live.image.send"):
+            path = school.live_question_image_path(int(class_id), filename)
+            if path is None:
+                abort(404)
+            response = send_from_directory(path.parent, path.name)
+            if visibility != "absent":
+                response.headers["Cache-Control"] = "private, max-age=300"
+                etag, _weak = response.get_etag()
+                if not etag:
+                    stat = path.stat()
+                    response.set_etag(f"{stat.st_mtime_ns:x}-{stat.st_size:x}")
+        live_transaction_data(
+            **{
+                "image.status": int(response.status_code),
+                "image.bytes": int(response.content_length or 0),
+                "image.slide_page": visibility != "absent",
+            }
+        )
         return response
 
     def _ended_student_response(*, as_json: bool = False):
@@ -2206,14 +2220,17 @@ def register_live(app, school, shared):
     @_guard_live_poll
     def student_state():
         """Live-class payload for the bound student (or a pick redirect)."""
-        denied = _require_active_live_attendee(as_json=True)
+        with live_trace_span("live.state", "live.state.auth"):
+            denied = _require_active_live_attendee(as_json=True)
+            if denied is None:
+                ctx = _student_live_context()
+                bound = ctx is None or _bound_student_class_id(ctx) is not None
+                ident = _student_identity() if bound else None
         if denied is not None:
             return denied
-        ctx = _student_live_context()
-        if ctx is not None and _bound_student_class_id(ctx) is None:
+        if not bound:
             # Phone poll fallback: stay on JSON so the tab keeps polling.
             return jsonify({"ok": True, "status": "waiting", "retry": True})
-        ident = _student_identity()
         if ident is None:
             if session.get("student_codename"):
                 token = visit_token_from_request()
@@ -2245,14 +2262,15 @@ def register_live(app, school, shared):
             poll_student = (
                 int(student_id) if student_id not in (None, "") else None
             )
-            unchanged = school.student_live_poll_unchanged(
-                live_session_id,
-                int(class_id),
-                request.args.get("seq"),
-                request.args.get("stamp"),
-                poll_student,
-                request.args.get("tally_touch"),
-            )
+            with live_trace_span("live.state", "live.state.unchanged_check"):
+                unchanged = school.student_live_poll_unchanged(
+                    live_session_id,
+                    int(class_id),
+                    request.args.get("seq"),
+                    request.args.get("stamp"),
+                    poll_student,
+                    request.args.get("tally_touch"),
+                )
             if unchanged is not None:
                 if unchanged.get("status") == "ended" and not unchanged.get(
                     "celebrate"
@@ -2275,34 +2293,50 @@ def register_live(app, school, shared):
                         )
                         if slide_rev in (None, "") or current != str(slide_rev).strip():
                             unchanged["google_slide"] = card
-                return jsonify(unchanged)
+                # MCK-522: the phone pairs this with its send/receive times to
+                # learn its clock offset. Whole milliseconds, nothing else.
+                unchanged["server_ms"] = epoch_ms()
+                with live_trace_span("live.state", "live.state.serialize"):
+                    reply = jsonify(unchanged)
+                live_transaction_data(
+                    **{
+                        "state.kind": "patch"
+                        if unchanged.get("active_questions")
+                        else "unchanged",
+                        "state.bytes": int(reply.content_length or 0),
+                    }
+                )
+                return reply
             # MCK-155 gate MED-4: take the stamp BEFORE the build. A write
             # that lands while the payload is being built then leaves the
             # client holding an older stamp, so its next poll rebuilds
             # (one extra build at worst) instead of matching a newer stamp
             # on a stale payload and answering ``unchanged`` for ~20 s.
-            stamp = school.live_student_poll_stamp(
-                live_session_id, int(class_id), poll_student
-            )
-            payload = school.assemble_student_live_payload(
-                live_session_id,
-                int(class_id),
-                int(student_id) if student_id not in (None, "") else None,
-                participant_uuid=pid,
-                codename=str(
-                    (ctx or {}).get("codename")
-                    or session.get("student_codename")
-                    or ""
-                ),
-                unmatched=unmatched,
-            )
+            with live_trace_span("live.state", "live.state.stamp"):
+                stamp = school.live_student_poll_stamp(
+                    live_session_id, int(class_id), poll_student
+                )
+            with live_trace_span("live.state", "live.state.build"):
+                payload = school.assemble_student_live_payload(
+                    live_session_id,
+                    int(class_id),
+                    int(student_id) if student_id not in (None, "") else None,
+                    participant_uuid=pid,
+                    codename=str(
+                        (ctx or {}).get("codename")
+                        or session.get("student_codename")
+                        or ""
+                    ),
+                    unmatched=unmatched,
+                )
             payload["display_time"] = school.live_session_display_time(int(class_id))
             payload["stamp"] = stamp
             payload["state_seq"] = int(
                 (payload.get("teacher_state") or {}).get("state_seq") or 0
             )
             payload["live_session_id"] = live_session_id
-            payload = json_safe(payload)
+            with live_trace_span("live.state", "live.state.serialize"):
+                payload = json_safe(payload)
         except PollBudgetExceeded:
             return jsonify(
                 {
@@ -2341,7 +2375,18 @@ def register_live(app, school, shared):
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
         payload = _redact_tester_payload(payload, _offering, int(class_id), student_id)
-        return jsonify(payload)
+        # MCK-522: clock-offset sample for the phone (see the unchanged branch).
+        payload["server_ms"] = epoch_ms()
+        with live_trace_span("live.state", "live.state.serialize"):
+            reply = jsonify(payload)
+        live_transaction_data(
+            **{
+                "state.kind": "full",
+                "state.bytes": int(reply.content_length or 0),
+                "state.active_items": len(payload.get("active_questions") or []),
+            }
+        )
+        return reply
 
     @bp.route("/api/student/live-prompt")
     @student_required
@@ -2573,11 +2618,12 @@ def register_live(app, school, shared):
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
-        facing_payload = school.student_live_prompt_payload(
-            live_session_id,
-            int(student_id) if student_id not in (None, "") else None,
-            participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
-        )
+        with live_trace_span("live.submit", "live.submit.facing"):
+            facing_payload = school.student_live_prompt_payload(
+                live_session_id,
+                int(student_id) if student_id not in (None, "") else None,
+                participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+            )
         facing = facing_payload.get("prompt") if isinstance(facing_payload, dict) else None
         active = school.get_active_live_prompt(live_session_id)
         allowed_ids: set[int] = set()
@@ -2715,12 +2761,13 @@ def register_live(app, school, shared):
                 )
             return jsonify(body)
         try:
-            saved = school.submit_live_prompt_response(
-                prompt_id,
-                int(student_id) if student_id not in (None, "") else None,
-                response,
-                participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
-            )
+            with live_trace_span("live.submit", "live.submit.write"):
+                saved = school.submit_live_prompt_response(
+                    prompt_id,
+                    int(student_id) if student_id not in (None, "") else None,
+                    response,
+                    participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+                )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         replay = bool(isinstance(saved, dict) and saved.pop("idempotent_replay", False))
@@ -2741,30 +2788,37 @@ def register_live(app, school, shared):
         }
         if fragment:
             body["feedback"] = fragment
-        try:
-            teacher = school.live_session_teacher_state_payload(live_session_id)
-        except KeyError:
-            teacher = None
-        tally = school._tally_for_prompt(live_session_id, target, teacher, for_student=True)
-        if tally is None:
-            tally = school.live_session_mc_tally(live_session_id)
-        if tally is not None and school._student_may_see_tally(
-            live_session_id,
-            target,
-            my_response=my_response,
-            teacher=teacher,
-        ):
-            # MCK-155 gate HIGH-1: no answer key while the question is open.
-            body["mc_tally"] = school.student_safe_tally(
-                live_session_id, target, tally, teacher
+        with live_trace_span("live.submit", "live.submit.tally"):
+            try:
+                teacher = school.live_session_teacher_state_payload(live_session_id)
+            except KeyError:
+                teacher = None
+            tally = school._tally_for_prompt(
+                live_session_id, target, teacher, for_student=True
             )
-        if not replay:
-            emit_answer_landed(
-                school,
+            if tally is None:
+                tally = school.live_session_mc_tally(live_session_id)
+            if tally is not None and school._student_may_see_tally(
                 live_session_id,
-                student_id=int(student_id) if student_id not in (None, "") else None,
-                count=prompt_response_count(school, prompt_id),
-            )
+                target,
+                my_response=my_response,
+                teacher=teacher,
+            ):
+                # MCK-155 gate HIGH-1: no answer key while the question is open.
+                body["mc_tally"] = school.student_safe_tally(
+                    live_session_id, target, tally, teacher
+                )
+        if not replay:
+            with live_trace_span("live.submit", "live.submit.emit"):
+                emit_answer_landed(
+                    school,
+                    live_session_id,
+                    student_id=int(student_id) if student_id not in (None, "") else None,
+                    count=prompt_response_count(school, prompt_id),
+                )
+        live_transaction_data(
+            **{"submit.path": "individual", "submit.replay": replay}
+        )
         # MCK-176: students only ever see rank option aliases.
         body = school.alias_student_prompt_reply(prompt_id, body)
         return jsonify(body)
@@ -4529,27 +4583,34 @@ def register_live(app, school, shared):
         body = request.get_json(silent=True) or {}
         write_started = time.perf_counter()
         try:
-            item = school.publish_live_session_item(
-                session_id,
-                live_item_id,
-                publish_mode=str(body.get("publish_mode") or "individual"),
-            )
+            with live_trace_span("live.publish", "live.publish.write"):
+                item = school.publish_live_session_item(
+                    session_id,
+                    live_item_id,
+                    publish_mode=str(body.get("publish_mode") or "individual"),
+                )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         write_ms = (time.perf_counter() - write_started) * 1000
+        # MCK-522: the publish stamp every phone measures against. Server
+        # wall clock, taken as the write returns.
+        published_ms = epoch_ms()
         card_started = time.perf_counter()
-        seq = teacher_state_seq(school, session_id)
-        card = None
-        if isinstance(item, dict):
-            try:
-                card = school.public_push_card(item)
-            except Exception:
-                logger.warning(
-                    "push card skipped session=%s item=%s",
-                    session_id,
-                    live_item_id,
-                )
-                card = None
+        with live_trace_span("live.publish", "live.publish.card"):
+            seq = teacher_state_seq(school, session_id)
+            card = None
+            if isinstance(item, dict):
+                try:
+                    card = school.public_push_card(item)
+                except Exception:
+                    logger.warning(
+                        "push card skipped session=%s item=%s",
+                        session_id,
+                        live_item_id,
+                    )
+                    card = None
+        if isinstance(card, dict):
+            card["published_ms"] = published_ms
         card_ms = (time.perf_counter() - card_started) * 1000
         prompt_id = item.get("prompt_id") if isinstance(item, dict) else None
         from live_news_wire import surface_show_for_item
@@ -4562,28 +4623,37 @@ def register_live(app, school, shared):
             if isinstance(card, dict)
             else surface_show_for_item(item if isinstance(item, dict) else None)
         )
-        emit_session_news(
-            school,
-            session_id,
-            [
-                student_news,
-                flag_work_event("publish", seq),
-            ],
-        )
+        with live_trace_span("live.publish", "live.publish.emit"):
+            emit_session_news(
+                school,
+                session_id,
+                [
+                    student_news,
+                    flag_work_event("publish", seq),
+                ],
+            )
         record_push_stages(
             state_write_ms=write_ms,
             seq_and_card_ms=card_ms,
             emit_ms=(time.perf_counter() - emit_started) * 1000,
         )
-        return jsonify(
-            {
-                "ok": True,
-                "item": item,
-                "active_questions": school.list_active_live_questions(
-                    session_id
-                ),
+        live_transaction_data(
+            **{
+                "publish.write_ms": round(write_ms, 1),
+                "publish.card_ms": round(card_ms, 1),
+                "publish.has_card": isinstance(card, dict),
             }
         )
+        with live_trace_span("live.publish", "live.publish.respond"):
+            return jsonify(
+                {
+                    "ok": True,
+                    "item": item,
+                    "active_questions": school.list_active_live_questions(
+                        session_id
+                    ),
+                }
+            )
 
     @bp.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/close",

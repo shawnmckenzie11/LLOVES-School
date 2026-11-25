@@ -6,6 +6,7 @@
 <meta name="lloves-sentry-dsn" content="{{ sentry_live_dsn }}">
 <meta name="lloves-sentry-environment" content="{{ sentry_environment }}">
 <meta name="lloves-sentry-release" content="{{ sentry_release }}">
+<meta name="lloves-sentry-live-rate" content="{{ sentry_live_rate|default('') }}">
 <meta name="lloves-sentry-user" content="{{ sentry_user_id }}">
 <meta name="lloves-sentry-tags" content="{{ sentry_tags_json }}">
 {# Staff pages defer; student and join pages load Sentry first so early

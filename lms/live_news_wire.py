@@ -689,6 +689,11 @@ def _public_card(raw: Any) -> dict[str, Any] | None:
         return None
     if card["prompt_id"] <= 0:
         card["prompt_id"] = None
+    # MCK-522: server publish stamp (epoch ms) for the phone's publish-to-paint
+    # timing. A bare number; it names no one.
+    published_ms = _as_int(raw.get("published_ms"))
+    if 0 < published_ms < 10**14:
+        card["published_ms"] = published_ms
     return card
 
 
