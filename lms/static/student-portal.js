@@ -4,6 +4,7 @@
  */
 import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import {
+  contentFromPushedQuestionCard,
   escapeText,
   lifecycleAnswerKind,
   lifecyclePromptHtml,
@@ -6702,21 +6703,10 @@ function applyPushedQuestionCard(card) {
   if (!card || typeof card !== "object") return;
   const itemId = Number(card.item_id) || 0;
   if (!itemId) return;
-  const kind = String(card.kind || "mc");
-  const text = String(card.text || "");
-  const options = Array.isArray(card.options) ? card.options : [];
-  if (!text.trim() && !options.length) return;
+  const content = contentFromPushedQuestionCard(card);
+  if (!content) return;
+  const kind = String(content.type || card.kind || "mc");
   const promptId = Number(card.prompt_id) || 0;
-  const content = { type: kind, text, options };
-  const answerWith = String(card.answer_with || "");
-  if (answerWith === "board" || answerWith === "both") {
-    content.answer_with = answerWith;
-  }
-  if (card.image_url) content.image_url = String(card.image_url);
-  if (card.image_as_board_background != null) {
-    content.image_as_board_background = Boolean(card.image_as_board_background);
-  }
-  if (kind === "rank") content.rank_options = options;
   const mode = String(card.mode || "individual");
   /** @type {any} */
   const item = {

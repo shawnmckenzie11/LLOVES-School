@@ -214,14 +214,74 @@ export function liveChoiceLabels(content) {
       : Array.isArray(body.options)
         ? body.options
         : [];
-  return raw
-    .map((choice) => {
-      if (choice && typeof choice === "object") {
-        return String(choice.label || choice.text || choice.choice || "").trim();
-      }
-      return String(choice || "").trim();
-    })
-    .filter(Boolean);
+  const optionsHtml = Array.isArray(body.options_html) ? body.options_html : [];
+  const optionImages = Array.isArray(body.options_image_urls)
+    ? body.options_image_urls
+    : [];
+  const count = Math.max(raw.length, optionsHtml.length, optionImages.length);
+  const labels = [];
+  for (let index = 0; index < count; index += 1) {
+    const choice = raw[index];
+    let text = "";
+    let ident = "";
+    if (choice && typeof choice === "object") {
+      text = String(choice.label || choice.text || choice.choice || "").trim();
+      ident = String(choice.id || "").trim();
+    } else {
+      text = String(choice || "").trim();
+    }
+    const html = String(optionsHtml[index] || "").trim();
+    const image = String(optionImages[index] || "").trim();
+    if (text) labels.push(text);
+    else if (html || image || ident) labels.push(ident || String.fromCharCode(65 + index));
+  }
+  return labels;
+}
+
+/**
+ * Build the student card body from a publish postcard, before ``/state``.
+ * Copies stem HTML and option image fields. Answer keys are not read.
+ * ``applyPushedQuestionCard`` paints from this object.
+ * @param {any} card
+ * @returns {any | null}
+ */
+export function contentFromPushedQuestionCard(card) {
+  if (!card || typeof card !== "object") return null;
+  const kind = String(card.kind || "mc");
+  const text = String(card.text || "");
+  const options = Array.isArray(card.options) ? card.options : [];
+  const textHtml = String(card.text_html || "").trim();
+  const optionsHtml = Array.isArray(card.options_html) ? card.options_html : [];
+  const optionImages = Array.isArray(card.options_image_urls)
+    ? card.options_image_urls
+    : [];
+  const listed = Array.isArray(card.image_urls) ? card.image_urls : [];
+  const hasImages = Boolean(String(card.image_url || "").trim()) || listed.length > 0;
+  const hasOptions =
+    options.length > 0 ||
+    optionsHtml.some((row) => String(row || "").trim()) ||
+    optionImages.some((row) => String(row || "").trim());
+  if (!text.trim() && !textHtml && !hasOptions && !hasImages) return null;
+  /** @type {any} */
+  const content = { type: kind, text, options };
+  if (textHtml) content.text_html = textHtml;
+  if (optionsHtml.length) content.options_html = optionsHtml;
+  if (optionImages.length) content.options_image_urls = optionImages;
+  if (card.image_url) content.image_url = String(card.image_url);
+  if (listed.length) content.image_urls = listed;
+  if (Array.isArray(card.image_alts) && card.image_alts.length) {
+    content.image_alts = card.image_alts;
+  }
+  if (card.image_alt) content.image_alt = String(card.image_alt);
+  if (card.image_as_board_background != null) {
+    content.image_as_board_background = Boolean(card.image_as_board_background);
+  }
+  const answerWith = String(card.answer_with || "");
+  if (answerWith === "board" || answerWith === "both") {
+    content.answer_with = answerWith;
+  }
+  if (kind === "rank") content.rank_options = options;
+  return content;
 }
 
 /**
@@ -306,13 +366,22 @@ export function liveAnswerControlsHtml(kind, content, action, current, submitLab
   if (kind === "mc" || kind === "poll") {
     const choices = liveChoiceLabels(body);
     const optionsHtml = Array.isArray(body.options_html) ? body.options_html : [];
+    const optionImages = Array.isArray(body.options_image_urls)
+      ? body.options_image_urls
+      : [];
     return `<div class="student-live-answer-controls" data-live-action="${action}">
       ${choices
         .map(
           (choice, index) => {
-            const optionBody = String(optionsHtml[index] || "").trim()
+            const html = String(optionsHtml[index] || "").trim();
+            const image = String(optionImages[index] || "").trim();
+            const optionBody = html
               ? `<span class="live-question-html">${optionsHtml[index]}</span>`
-              : escapeText(choice);
+              : image
+                ? `<span class="live-question-html"><img src="${escapeText(
+                    image
+                  )}" alt=""></span>`
+                : escapeText(choice);
             return `<button type="button" class="prompt-choice${
               String(choice) === current ? " is-selected" : ""
             }" data-live-choice="${escapeText(choice)}">${optionBody}</button>`;

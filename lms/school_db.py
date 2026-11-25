@@ -24872,13 +24872,98 @@ class SchoolDB(LovesDB):
             )
         return published
 
+    def _push_card_session_context(
+        self, item: dict[str, Any]
+    ) -> tuple[int | None, str, str]:
+        """Return class, module, and course for one publish postcard.
+
+        Args:
+            item: Lifecycle row with ``live_session_id``.
+
+        Returns:
+            ``(class_id, module, course_code)``. Missing session data
+            becomes ``(None, "", "")``.
+        """
+        raw = item.get("live_session_id") or item.get("session_id")
+        try:
+            session_id = int(raw) if raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            session_id = 0
+        if session_id <= 0:
+            return None, "", ""
+        session_row = self.get_live_session(session_id)
+        class_id: int | None = None
+        course_code = ""
+        if session_row and session_row.get("class_id") not in (None, ""):
+            class_id = int(session_row["class_id"])
+            course_code = self._section_code_for_class(class_id)
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except Exception:  # noqa: BLE001 - a missing teacher state still paints text
+            teacher = {}
+        module = str((teacher or {}).get("live_module") or "")
+        return class_id, module, course_code
+
+    @staticmethod
+    def _mc_display_option_labels(
+        item: dict[str, Any], public: dict[str, Any] | None = None
+    ) -> list[str]:
+        """Return student option labels, keeping image-only slots.
+
+        A choice with no text still gets its id or the letter A, B, C
+        when ``options_html`` or ``options_image_urls`` has a figure, so
+        first paint can render a button and submit a stable value.
+        ``_mc_option_labels`` is left unchanged for scoring.
+
+        Args:
+            item: Lifecycle row with a nested catalogue ``item``.
+            public: Student-safe display payload, when already built.
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        raw: list[Any] = []
+        htmls: list[Any] = []
+        images: list[Any] = []
+        if isinstance(public, dict):
+            raw = list(public.get("options") or public.get("choices") or [])
+            htmls = list(public.get("options_html") or [])
+            images = list(public.get("options_image_urls") or [])
+        if not raw:
+            raw = list(question.get("options") or question.get("choices") or [])
+        if not htmls:
+            htmls = list(question.get("options_html") or [])
+        if not images:
+            images = list(question.get("options_image_urls") or [])
+        count = max(len(raw), len(htmls), len(images), 0)
+        labels: list[str] = []
+        for index in range(min(count, 8)):
+            choice = raw[index] if index < len(raw) else None
+            if isinstance(choice, dict):
+                text = str(choice.get("text") or choice.get("label") or "").strip()
+                ident = str(choice.get("id") or "").strip()
+            else:
+                text = str(choice or "").strip()
+                ident = ""
+            html = str(htmls[index] or "").strip() if index < len(htmls) else ""
+            image = str(images[index] or "").strip() if index < len(images) else ""
+            if text:
+                labels.append(text)
+            elif html or image or ident:
+                labels.append(ident or chr(ord("A") + index))
+            else:
+                labels.append("")
+        while labels and not labels[-1]:
+            labels.pop()
+        return labels
+
     def public_push_card(self, item: dict[str, Any]) -> dict[str, Any] | None:
         """Stem and choices a phone can paint the moment a question is pushed.
 
-        The card is the same for every student at publish. It has no answer
-        key, roster, names, or emails. Keyed rank ids are the student
-        aliases, in the stored display order. A board question keeps
-        ``answer_with`` so the phone does not swap the board for a text box.
+        The card is the same for every student at publish. It carries the
+        same display-resolved stem and option image fields that ``/state``
+        uses. It has no answer key, roster, names, emails, PINs, or join
+        or catch-up codes. Keyed rank ids are the student aliases, in the
+        stored display order. A board question keeps ``answer_with`` so
+        the phone does not swap the board for a text box.
 
         Args:
             item: Published lifecycle row from ``publish_live_session_item``.
@@ -24892,8 +24977,23 @@ class SchoolDB(LovesDB):
         if kind not in {"mc", "numeric", "poll", "rank"}:
             return None
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        class_id, module, course_code = self._push_card_session_context(item)
+        public = self._student_public_item_payload(
+            question,
+            class_id=class_id,
+            module=module,
+            course_code=course_code,
+        )
+        if not isinstance(public, dict):
+            public = {}
         text = str(
-            question.get("text") or question.get("stem") or question.get("prompt") or ""
+            public.get("text")
+            or public.get("stem")
+            or public.get("prompt")
+            or question.get("text")
+            or question.get("stem")
+            or question.get("prompt")
+            or ""
         ).strip()
         mode = str(item.get("response_mode") or "individual").strip().lower()
         options: list[Any] = []
@@ -24908,7 +25008,7 @@ class SchoolDB(LovesDB):
             if rank_mode not in {"turns", "together"}:
                 rank_mode = ""
         elif kind in {"mc", "poll"}:
-            options = self._mc_option_labels(item)[:8]
+            options = self._mc_display_option_labels(item, public)[:8]
         flow = ""
         if (
             mode == "group_submit"
@@ -24917,7 +25017,7 @@ class SchoolDB(LovesDB):
         ):
             flow = GROUP_MC_PICK_THEN_AGREE
         prompt_id = item.get("prompt_id")
-        card = {
+        card: dict[str, Any] = {
             "item_id": int(item["id"]),
             "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
             "kind": kind,
@@ -24927,7 +25027,34 @@ class SchoolDB(LovesDB):
             "flow": flow,
             "rank_mode": rank_mode,
         }
-        answer_with = str(question.get("answer_with") or "").strip().lower()
+        text_html = str(public.get("text_html") or "").strip()
+        if text_html:
+            card["text_html"] = text_html
+        image_url = str(public.get("image_url") or "").strip()
+        if image_url:
+            card["image_url"] = image_url
+        image_urls = public.get("image_urls")
+        if isinstance(image_urls, list) and image_urls:
+            card["image_urls"] = image_urls
+        image_alts = public.get("image_alts")
+        if isinstance(image_alts, list) and image_alts:
+            card["image_alts"] = image_alts
+        image_alt = str(public.get("image_alt") or "").strip()
+        if image_alt:
+            card["image_alt"] = image_alt
+        options_html = public.get("options_html")
+        if isinstance(options_html, list) and any(str(row or "").strip() for row in options_html):
+            card["options_html"] = [str(row or "") for row in options_html[:8]]
+        options_image_urls = public.get("options_image_urls")
+        if isinstance(options_image_urls, list) and any(
+            str(row or "").strip() for row in options_image_urls
+        ):
+            card["options_image_urls"] = [str(row or "") for row in options_image_urls[:8]]
+        if "image_as_board_background" in public:
+            card["image_as_board_background"] = bool(public.get("image_as_board_background"))
+        answer_with = str(
+            public.get("answer_with") or question.get("answer_with") or ""
+        ).strip().lower()
         if answer_with in {"board", "both"}:
             card["answer_with"] = answer_with
         return card

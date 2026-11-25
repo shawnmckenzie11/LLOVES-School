@@ -107,7 +107,11 @@ class LiveNewsLogTests(unittest.TestCase):
                         "prompt_id": 3,
                         "kind": "mc",
                         "text": "Which graph? <script>alert(1)</script>",
+                        "text_html": '<p>Which graph?</p><img src="/curriculum-bank-images/MCF3M/stem.png" alt="">',
                         "options": ["Graph", {"id": "r1a2b3c4d5", "label": "Table"}],
+                        "options_html": ['Graph', '<img src="/curriculum-bank-images/MCF3M/table.png" alt="">'],
+                        "options_image_urls": ["", "/curriculum-bank-images/MCF3M/table.png"],
+                        "image_url": "/curriculum-bank-images/MCF3M/field.png",
                         "mode": "group_submit",
                         "flow": "pick_then_agree",
                         "correct_index": 0,
@@ -126,6 +130,10 @@ class LiveNewsLogTests(unittest.TestCase):
         self.assertEqual(card["kind"], "mc")
         self.assertEqual(card["flow"], "pick_then_agree")
         self.assertIn("Graph", card["options"])
+        self.assertIn("/curriculum-bank-images/MCF3M/stem.png", card["text_html"])
+        self.assertEqual(card["image_url"], "/curriculum-bank-images/MCF3M/field.png")
+        self.assertIn("/curriculum-bank-images/MCF3M/table.png", card["options_html"][1])
+        self.assertEqual(card["options_image_urls"][1], "/curriculum-bank-images/MCF3M/table.png")
         self.assertNotIn("correct_index", blob)
         self.assertNotIn("correct_answer", blob)
         self.assertNotIn("rank_key", blob)
