@@ -280,14 +280,23 @@ class LiveTimingServerTests(unittest.TestCase):
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
         state = self.student.get("/api/student/state").get_json()
-        patched = self.student.get(
-            "/api/student/state",
-            query_string={
-                "seq": state["state_seq"],
-                "stamp": state["stamp"],
-                "tally_touch": "0",
-            },
-        ).get_json()
+
+        def _poll(body: dict) -> dict:
+            return self.student.get(
+                "/api/student/state",
+                query_string={
+                    "seq": body["state_seq"],
+                    "stamp": body["stamp"],
+                    "tally_touch": "0",
+                },
+            ).get_json()
+
+        patched = _poll(state)
+        # Full /state stamps before the build (MCK-155). A write during
+        # that build leaves this poll one stamp behind, so it rebuilds
+        # once. Retry against the fresh stamp.
+        if not patched.get("unchanged"):
+            patched = _poll(patched)
         self.assertTrue(patched.get("unchanged"), patched)
         self.assertTrue(patched.get("active_questions"), patched)
         self.assertIsInstance(patched["tally_at_ms"], int)
