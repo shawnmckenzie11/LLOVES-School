@@ -507,8 +507,10 @@ async function postOneUnsent(row) {
     );
     if (item && lastStudentPayload) {
       lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
+      seedTallyTouchOptIn(lastStudentPayload, item);
     } else if (data.my_response && lastStudentPayload) {
       lastStudentPayload = { ...lastStudentPayload, my_response: data.my_response };
+      seedTallyTouchOptIn(lastStudentPayload);
     }
     return "sent";
   }
@@ -5039,6 +5041,34 @@ function lifecycleAnswerFromCard(card) {
  * @returns {any}
  */
 /**
+ * Start the tally_touch opt-in once this student can see a live tally.
+ * A sentinel of "0" mismatches the server stamp, so the next unchanged
+ * poll returns patches and the real touch. Non-submitters still get
+ * nothing if they send this value (MCK-521).
+ * @param {any} [payload]
+ * @param {any} [submittedItem]
+ */
+function seedTallyTouchOptIn(payload, submittedItem) {
+  if (lastTallyTouch) return;
+  const isLiveTallyItem = (row) =>
+    Boolean(row) &&
+    row.show_live_results !== false &&
+    String(row.status || "") !== "closed";
+  const hasAnswered = (row) =>
+    Boolean(row?.my_response) || hasStoredIndividualAnswer(row);
+  if (submittedItem && isLiveTallyItem(submittedItem)) {
+    lastTallyTouch = "0";
+    return;
+  }
+  const items = Array.isArray(payload?.active_questions)
+    ? payload.active_questions
+    : [];
+  if (items.some((row) => isLiveTallyItem(row) && hasAnswered(row))) {
+    lastTallyTouch = "0";
+  }
+}
+
+/**
  * Merge thin tally-only patches from an unchanged poll.
  * @param {any} payload
  * @param {any[]} patches
@@ -5230,7 +5260,10 @@ async function submitLifecycleAnswer(card, action) {
     rankLocalDrafts.delete(itemId);
     if (lastStudentPayload) {
       lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
+      seedTallyTouchOptIn(lastStudentPayload, item);
       paintLifecycleQuestionStack(lastStudentPayload);
+    } else {
+      seedTallyTouchOptIn(null, item);
     }
     await tick();
   } finally {
@@ -7126,6 +7159,7 @@ async function tick() {
     }
     if (data.stamp) lastPollStamp = String(data.stamp);
     if (data.tally_touch != null) lastTallyTouch = String(data.tally_touch);
+    seedTallyTouchOptIn(data);
     studentNewsTries = 0;
     studentSessionIsOver = studentSessionOver(data);
     if (data.live_session_id && data.status !== "ended") {
