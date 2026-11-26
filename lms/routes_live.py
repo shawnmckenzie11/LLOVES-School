@@ -799,7 +799,11 @@ def register_live(app, school, shared):
             school.ensure_rank_bank(int(library_id))
         try:
             live_metadata = school.live_class_metadata_for_class_lesson(
-                int(class_id), module_key, slot_key, fresh=True
+                int(class_id),
+                module_key,
+                slot_key,
+                fresh=True,
+                inherit_authored_seed=False,
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
@@ -7011,7 +7015,11 @@ def register_live(app, school, shared):
             """
             try:
                 return school.live_class_metadata_for_class_lesson(
-                    class_id, module, slot, fresh=True
+                    class_id,
+                    module,
+                    slot,
+                    fresh=True,
+                    inherit_authored_seed=False,
                 )
             except KeyError:
                 return None
@@ -7094,7 +7102,11 @@ def register_live(app, school, shared):
                     int(class_id), module_code, slot_code
                 ),
                 "live_metadata": school.live_class_metadata_for_class_lesson(
-                    int(class_id), module_code, slot_code, fresh=True
+                    int(class_id),
+                    module_code,
+                    slot_code,
+                    fresh=True,
+                    inherit_authored_seed=False,
                 ),
             }
         )

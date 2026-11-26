@@ -16949,6 +16949,7 @@ class SchoolDB(LovesDB):
                 slot_key,
                 fresh=True,
                 real_deck_only=True,
+                inherit_authored_seed=True,
             )
             questions = [
                 row
@@ -17051,6 +17052,7 @@ class SchoolDB(LovesDB):
                 source_s,
                 fresh=True,
                 real_deck_only=source_real_only,
+                inherit_authored_seed=True,
             )
         elif choice == "course":
             source_m, source_s = self._require_live_lesson_token(
@@ -17114,6 +17116,7 @@ class SchoolDB(LovesDB):
                 source_s,
                 fresh=True,
                 real_deck_only=source_real_only,
+                inherit_authored_seed=True,
             )
         questions: list[dict[str, Any]] = []
         pages = default_math_pages()
@@ -17768,7 +17771,11 @@ class SchoolDB(LovesDB):
         slot_key = str(slot or "").strip().upper()
         snapshot: dict[str, Any] = {
             "live_metadata": self.live_class_metadata_for_class_lesson(
-                int(class_id), module_key, slot_key, fresh=False
+                int(class_id),
+                module_key,
+                slot_key,
+                fresh=False,
+                inherit_authored_seed=False,
             ),
             "deck_revision": self.class_deck_revision(
                 int(class_id), module_key, slot_key
@@ -18291,7 +18298,7 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         self._sync_playlist_change(int(class_id), module, slot)
         live_metadata = self.live_class_metadata_for_class_lesson(
-            int(class_id), module_key, slot_key
+            int(class_id), module_key, slot_key, inherit_authored_seed=False
         )
         page = next(
             (
@@ -18479,7 +18486,7 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         self._sync_playlist_change(int(class_id), module, slot)
         live_metadata = self.live_class_metadata_for_class_lesson(
-            int(class_id), module_key, slot_key
+            int(class_id), module_key, slot_key, inherit_authored_seed=False
         )
         land_page = next(
             (
@@ -18644,7 +18651,11 @@ class SchoolDB(LovesDB):
         """
         try:
             self.live_class_metadata_for_class_lesson(
-                int(class_id), module, slot, fresh=True
+                int(class_id),
+                module,
+                slot,
+                fresh=True,
+                inherit_authored_seed=False,
             )
         except (KeyError, TypeError, ValueError):
             self.invalidate_live_metadata_cache(
@@ -34101,9 +34112,12 @@ class SchoolDB(LovesDB):
             real_deck_only: When True, read the real slot deck only.
             inherit_authored_seed: When False, a class with no saved or
                 modified deck does not inherit course-seed questions.
-                Use current and the live session use this so a fresh
-                class starts empty. Course and Previous copy keep the
-                default True so authored seeds still copy.
+                Teacher-facing current-deck reads, Use current, and the
+                live session pass False so a fresh class starts empty.
+                Course and Previous copy sources keep True so authored
+                seeds still copy. The default stays True so those copy
+                sources, and tests that inspect seed content, do not
+                have to opt in.
         """
         key = (
             int(class_id),
@@ -34546,7 +34560,9 @@ class SchoolDB(LovesDB):
             slot: Live slot such as ``C3``.
             fresh: When True, rebuild from sqlite overlays.
             inherit_authored_seed: When False, a class with no saved deck
-                does not inherit course-seed questions.
+                does not inherit course-seed questions. Teacher-facing
+                current-deck reads pass False. Course and Previous copy
+                sources keep the default True.
         """
         class_row = self.game.get_class(int(class_id))
         if class_row is None:

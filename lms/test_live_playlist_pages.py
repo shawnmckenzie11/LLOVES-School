@@ -311,9 +311,13 @@ class LivePlaylistPageApiTests(unittest.TestCase):
         from live_class_metadata import list_live_lesson_summaries
 
         def merged(module: str, slot: str) -> dict[str, Any]:
-            """Load this class's merged MCR3U playlist."""
+            """Load this class's teacher-facing MCR3U playlist."""
             return self.school.live_class_metadata_for_class_lesson(
-                self.class_id, module, slot, fresh=True
+                self.class_id,
+                module,
+                slot,
+                fresh=True,
+                inherit_authored_seed=False,
             )
 
         def lesson(slot: str) -> dict[str, Any]:
@@ -326,14 +330,16 @@ class LivePlaylistPageApiTests(unittest.TestCase):
             )
 
         before = lesson("C2")
-        base = int(before["question_count"])
+        # MCK-528: teacher inventory on a fresh class does not inherit
+        # course-seed questions. The seed-file summary still quotes them.
+        self.assertEqual(int(before["question_count"]), 0)
         self.assertIn("Exploratory media", before["media_label"])
         self.assertEqual(before["artifact_label"], "")
         self.school.remove_class_playlist_item(
             self.class_id, "M1", "C2", "evaluate-f2"
         )
         removed = lesson("C2")
-        self.assertEqual(removed["question_count"], base - 1)
+        self.assertEqual(removed["question_count"], 0)
         self.assertNotIn(
             "evaluate-f2",
             [str(row.get("id") or "") for row in removed["questions"]],
@@ -343,7 +349,7 @@ class LivePlaylistPageApiTests(unittest.TestCase):
             for row in list_live_lesson_summaries("MCR3U")
             if row["module"] == "M1" and row["live_class"] == "C2"
         )
-        self.assertEqual(seed["question_count"], base)
+        self.assertGreater(int(seed["question_count"]), 0)
         self.school.add_staff_question_to_class_playlist(
             self.class_id,
             "M1",
@@ -355,7 +361,7 @@ class LivePlaylistPageApiTests(unittest.TestCase):
             correct_answer="4",
         )
         added = lesson("C2")
-        self.assertEqual(added["question_count"], base)
+        self.assertEqual(added["question_count"], 1)
         self.assertTrue(
             any("inventory probe" in str(row.get("text") or "") for row in added["questions"])
         )
@@ -383,7 +389,7 @@ class LivePlaylistPageApiTests(unittest.TestCase):
             for row in body.get("lessons") or []
             if row.get("module") == "M1" and row.get("live_class") == "C2"
         )
-        self.assertEqual(api_c2["question_count"], base)
+        self.assertEqual(api_c2["question_count"], 1)
         self.assertIn("Exploratory media", api_c2["media_label"])
         self.assertIn("inventory probe", api_c2["scan"] + " ".join(
             str(row.get("text") or "") for row in api_c2.get("questions") or []

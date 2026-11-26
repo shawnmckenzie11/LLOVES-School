@@ -538,7 +538,9 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
 
     def merged_lesson(module: str, slot: str) -> dict | None:
         try:
-            return school.live_class_metadata_for_class_lesson(cid, module, slot, fresh=True)
+            return school.live_class_metadata_for_class_lesson(
+                cid, module, slot, fresh=True, inherit_authored_seed=False
+            )
         except KeyError:
             return None
 

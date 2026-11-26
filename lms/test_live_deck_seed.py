@@ -892,6 +892,107 @@ class LiveDeckSeedTests(unittest.TestCase):
         self.assertNotIn("minds_on", blob)
         self.assertNotIn("add one from the bank", blob)
 
+    def test_fresh_class_teacher_deck_view_has_no_questions(self) -> None:
+        """MCK-528: teacher deck, snapshot, and inventory start empty."""
+
+        mcr_offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": mcr_offering["id"],
+                "days": "T/Th/F",
+                "time": "10:40am",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        class_id = int(created.get_json()["class"]["id"])
+
+        seed = self.school.live_class_metadata_for_class_lesson(
+            class_id, "M1", "C2", fresh=True, inherit_authored_seed=True
+        )
+        seed_sig = _question_signature(seed)
+        self.assertGreater(len(seed_sig), 0)
+        authored = self._authored(seed_sig)
+        self.assertTrue(authored)
+
+        deck = self.client.get(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/deck?fresh=1"
+        )
+        self.assertEqual(deck.status_code, 200, deck.get_json())
+        self.assertEqual(
+            _question_signature((deck.get_json() or {}).get("live_metadata") or {}),
+            [],
+        )
+        snapshot = self.school.playlist_staff_snapshot(class_id, "M1", "C2")
+        self.assertEqual(_question_signature(snapshot.get("live_metadata") or {}), [])
+
+        inventory = self.client.get(f"/api/classes/{class_id}/live-lessons")
+        self.assertEqual(inventory.status_code, 200, inventory.get_json())
+        c2 = next(
+            row
+            for row in (inventory.get_json() or {}).get("lessons") or []
+            if row.get("module") == "M1" and row.get("live_class") == "C2"
+        )
+        self.assertEqual(int(c2["question_count"]), 0)
+
+        detail = self.client.get(f"/api/classes/{class_id}/live-lessons/M1/C2")
+        self.assertEqual(detail.status_code, 200, detail.get_json())
+        self.assertEqual(
+            _question_signature((detail.get_json() or {}).get("live_metadata") or {}),
+            [],
+        )
+
+        course_copy = self.school.apply_class_deck_seed(
+            class_id,
+            "M2",
+            "C1",
+            mode="course",
+            source_module="M1",
+            source_slot="C2",
+            replace=True,
+        )
+        self.assertEqual(_question_signature(course_copy["live_metadata"]), authored)
+        previous_copy = self.school.apply_class_deck_seed(
+            class_id, "M1", "C3", mode="previous"
+        )
+        self.assertEqual(previous_copy["source_slot"], "C2")
+        self.assertEqual(_question_signature(previous_copy["live_metadata"]), authored)
+
+        added = self.school.add_staff_question_to_class_playlist(
+            class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text="MCK-528 saved stem",
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
+        token = str((added.get("item") or {}).get("id") or "")
+        self.assertTrue(token)
+        saved_deck = self.client.get(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/deck?fresh=1"
+        )
+        saved_sig = _question_signature(
+            (saved_deck.get_json() or {}).get("live_metadata") or {}
+        )
+        self.assertEqual(saved_sig, [(token, "MCK-528 saved stem")])
+        saved_snap = self.school.playlist_staff_snapshot(class_id, "M1", "C2")
+        self.assertEqual(
+            _question_signature(saved_snap.get("live_metadata") or {}),
+            [(token, "MCK-528 saved stem")],
+        )
+        saved_inventory = self.client.get(f"/api/classes/{class_id}/live-lessons")
+        saved_c2 = next(
+            row
+            for row in (saved_inventory.get_json() or {}).get("lessons") or []
+            if row.get("module") == "M1" and row.get("live_class") == "C2"
+        )
+        self.assertEqual(int(saved_c2["question_count"]), 1)
+
 
 class DeckSeedPickerUiTests(unittest.TestCase):
     """Chip helper copy, stale replies, and the empty-course chip."""
