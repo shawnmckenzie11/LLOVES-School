@@ -560,6 +560,7 @@ _CARD_FLOWS = frozenset({"", "pick_then_agree"})
 _CARD_RANK_MODES = frozenset({"", "turns", "together"})
 _CARD_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _SCRIPT_TAG = re.compile(r"(?is)<script\b[^>]*>.*?</script>")
+_IMG_SRC = re.compile(r"(?is)(\bsrc\s*=\s*)([\"'])(.*?)\2")
 
 _push_stages: dict[str, float] = {}
 
@@ -619,6 +620,78 @@ def _clip_text(value: Any, limit: int) -> str:
     return text[: int(limit)]
 
 
+def _public_image_url(value: Any) -> str:
+    """Return a same-origin image path, or empty when the URL is not safe.
+
+    Off-site, protocol-relative, and scheme URLs are dropped so a postcard
+    cannot point phones at a remote or script URL.
+
+    Args:
+        value: Raw image URL or path.
+    """
+    url = str(value or "").strip()
+    if not url.startswith("/") or url.startswith("//"):
+        return ""
+    path = url.split("?", 1)[0]
+    if ":" in path:
+        return ""
+    return _clip_text(url, 300)
+
+
+def _public_image_list(raw: Any) -> list[str]:
+    """Return sanitized same-origin image paths from a postcard list.
+
+    Args:
+        raw: ``image_urls`` or ``options_image_urls`` value.
+    """
+    if not isinstance(raw, list):
+        return []
+    urls: list[str] = []
+    for item in raw[:_CARD_OPTIONS_MAX]:
+        if isinstance(item, dict):
+            url = _public_image_url(item.get("url") or item.get("src"))
+        else:
+            url = _public_image_url(item)
+        urls.append(url)
+    while urls and not urls[-1]:
+        urls.pop()
+    return urls
+
+
+def _public_html(value: Any, limit: int) -> str:
+    """Return HTML with script tags removed and remote image srcs dropped.
+
+    Args:
+        value: Stem or option HTML.
+        limit: Maximum characters kept.
+    """
+    text = _clip_text(value, limit)
+
+    def _keep_local(match: re.Match[str]) -> str:
+        quote = match.group(2)
+        url = _public_image_url(match.group(3))
+        return f"{match.group(1)}{quote}{url}{quote}"
+
+    return _IMG_SRC.sub(_keep_local, text)
+
+
+def _public_html_list(raw: Any, limit: int) -> list[str]:
+    """Return sanitized HTML fragments for option bodies.
+
+    Args:
+        raw: ``options_html`` value.
+        limit: Maximum characters kept in one fragment.
+    """
+    if not isinstance(raw, list):
+        return []
+    fragments: list[str] = []
+    for item in raw[:_CARD_OPTIONS_MAX]:
+        fragments.append(_public_html(item, limit))
+    while fragments and not fragments[-1]:
+        fragments.pop()
+    return fragments
+
+
 def _public_option(raw: Any) -> str | dict[str, str] | None:
     """One choice label, or an aliased rank id plus its label.
 
@@ -640,13 +713,17 @@ def _public_option(raw: Any) -> str | dict[str, str] | None:
 
 
 def _public_card(raw: Any) -> dict[str, Any] | None:
-    """Keep a publish card's stem and choices. Drop keys, names, and roster.
+    """Keep a publish card's stem, choices, and display images.
+
+    Answer keys, names, and roster fields are dropped. Unknown keys are
+    ignored.
 
     Args:
         raw: Caller ``card`` object. Unknown keys are ignored.
 
     Returns:
-        A card with text or choices, or ``None`` when there is nothing to paint.
+        A card with text, choices, or images, or ``None`` when there is
+        nothing to paint.
     """
     if not isinstance(raw, dict):
         return None
@@ -670,7 +747,12 @@ def _public_card(raw: Any) -> dict[str, Any] | None:
             option = _public_option(item)
             if option is not None:
                 options.append(option)
-    if not text and not options:
+    text_html = _public_html(raw.get("text_html"), 2000)
+    image_url = _public_image_url(raw.get("image_url"))
+    image_urls = _public_image_list(raw.get("image_urls"))
+    options_html = _public_html_list(raw.get("options_html"), 400)
+    options_image_urls = _public_image_list(raw.get("options_image_urls"))
+    if not text and not options and not text_html and not image_url and not image_urls and not options_html and not options_image_urls:
         return None
     card: dict[str, Any] = {
         "item_id": max(0, _as_int(raw.get("item_id"))),
@@ -682,6 +764,24 @@ def _public_card(raw: Any) -> dict[str, Any] | None:
         "flow": flow,
         "rank_mode": rank_mode,
     }
+    if text_html:
+        card["text_html"] = text_html
+    if image_url:
+        card["image_url"] = image_url
+    if image_urls:
+        card["image_urls"] = image_urls
+    alts = raw.get("image_alts")
+    if isinstance(alts, list) and alts:
+        card["image_alts"] = [_clip_text(item, 160) for item in alts[:_CARD_OPTIONS_MAX]]
+    image_alt = _clip_text(raw.get("image_alt"), 160)
+    if image_alt:
+        card["image_alt"] = image_alt
+    if options_html:
+        card["options_html"] = options_html
+    if options_image_urls:
+        card["options_image_urls"] = options_image_urls
+    if "image_as_board_background" in raw:
+        card["image_as_board_background"] = bool(raw.get("image_as_board_background"))
     answer_with = str(raw.get("answer_with") or "").strip().lower()
     if answer_with in {"board", "both"}:
         card["answer_with"] = answer_with

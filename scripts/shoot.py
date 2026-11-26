@@ -6344,6 +6344,214 @@ def shoot_mck503(base: str, state_path: Path, out_dir: Path, path: Path) -> list
         raise SystemExit(message) from None
     return written
 
+def _mck526_stamp_image_mc(school, session_id: int, item_id: int, urls: dict[str, str]) -> None:
+    """Put stem and image-only options on one unpublished live item.
+
+    Args:
+        school: Open SchoolDB for the local sqlite.
+        session_id: Active live session.
+        item_id: ``live_session_items.id``.
+        urls: ``stem``, ``field``, ``opt_a``, and ``opt_b`` public paths.
+    """
+
+    item = school.get_live_session_item(session_id, item_id, sync="skip")
+    question = dict(item.get("item") if isinstance(item.get("item"), dict) else {})
+    question["text"] = "Which graph?"
+    question["text_html"] = f"<p>Which graph?</p><img src='{urls['stem']}' alt=''>"
+    question["image_url"] = urls["field"]
+    question["image_urls"] = [urls["field"]]
+    question["options"] = ["", "", "", ""]
+    question["options_html"] = [
+        f"<img src='{urls['opt_b']}' alt=''>",
+        f"<img src='{urls['opt_a']}' alt=''>",
+        f"<img src='{urls['opt_c']}' alt=''>",
+        f"<img src='{urls['opt_d']}' alt=''>",
+    ]
+    question["options_image_urls"] = [urls["opt_b"], urls["opt_a"], urls["opt_c"], urls["opt_d"]]
+    question.pop("key", None)
+    question.pop("correct_answer", None)
+    question.pop("correct_ids", None)
+    payload = json.dumps(question)
+    with school._lock:
+        school.conn.execute(
+            "UPDATE live_session_items SET item_json = ? WHERE id = ?",
+            (payload, int(item_id)),
+        )
+        placement = str(item.get("placement_key") or "")
+        if placement:
+            school.conn.execute(
+                """
+                UPDATE class_live_playlist_placements
+                SET item_json = ?
+                WHERE class_id = (
+                    SELECT class_id FROM live_class_sessions WHERE id = ?
+                ) AND placement_key = ?
+                """,
+                (payload, int(session_id), placement),
+            )
+        school.conn.commit()
+
+
+def shoot_mck526(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-526: student phone first paint of a published image MC.
+
+    The student is already on live home. ``/state`` is held after that so
+    the card must come from the publish postcard. The shot is the open
+    card on a phone viewport, with the on-screen name masked.
+
+    Args:
+        base: Loopback origin.
+        state_path: Staff Playwright storageState.
+        out_dir: Directory for PNG files.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths written.
+    """
+
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    samples = {
+        "stem": LMS_DIR / "static" / "mck526-stem.png",
+        "field": LMS_DIR / "static" / "mck526-field.png",
+        "opt_a": LMS_DIR / "static" / "mck526-opt-a.png",
+        "opt_b": LMS_DIR / "static" / "mck526-opt-b.png",
+        "opt_c": LMS_DIR / "static" / "mck526-opt-c.png",
+        "opt_d": LMS_DIR / "static" / "mck526-opt-d.png",
+    }
+    for dest in samples.values():
+        _mck499_png(dest)
+    urls = {key: f"/static/{dest.name}" for key, dest in samples.items()}
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        for dest in samples.values():
+            dest.unlink(missing_ok=True)
+        raise SystemExit("Staff user missing. Run with --seed first.")
+    written: list[Path] = []
+    held_secrets: list[str] = []
+    try:
+        _mck208_end_active_live(school, class_id)
+        live = school.start_live_class_session(class_id, int(teacher["id"]))
+        session_id = int(live["id"])
+        school.set_live_session_teacher_state(
+            session_id,
+            live_module="M8",
+            live_slot="C1",
+            stage="round",
+            page_number=1,
+            page_id="round_1",
+        )
+        placed = school.add_staff_question_to_class_playlist(
+            class_id,
+            "M8",
+            "C1",
+            page_number=1,
+            stage="round",
+            question_type="mc",
+            text="Which graph?",
+            options=["A", "B", "C", "D"],
+            correct_index=0,
+            image_url=urls["field"],
+        )
+        school.ensure_live_session_items(session_id)
+        row = next(
+            item
+            for item in school.list_live_session_items(session_id)
+            if str(item.get("item_id") or "") == str(placed.get("item_id") or "")
+        )
+        live_item_id = int(row["id"])
+        _mck526_stamp_image_mc(school, session_id, live_item_id, urls)
+        student = school.game.find_student_by_codename(class_id, "Maple")
+        if student is None:
+            raise SystemExit("Demo student missing. Run with --seed first.")
+        school.join_live_class_session(session_id, int(student["id"]), codename="Maple")
+        attendees = school.list_live_session_attendees(session_id)
+        visit = str(
+            next(item["visit_token"] for item in attendees if item.get("codename") == "Maple")
+        )
+        student_url = f"{origin}/student/s/{visit}"
+        secrets = [str(live.get("session_code") or ""), visit, "1234", "9999"]
+        held_secrets = secrets
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir / "mck526-student-phone-first-paint.png"
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            staff = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": 1280, "height": 800},
+            )
+            staff_page = staff.new_page()
+            staff_page.goto(f"{origin}/staff", wait_until="domcontentloaded")
+            student_ctx = browser.new_context(
+                viewport={"width": 390, "height": 844},
+                is_mobile=True,
+                has_touch=True,
+                device_scale_factor=2,
+            )
+            page = student_ctx.new_page()
+            page.goto(student_url, wait_until="domcontentloaded")
+            _mck215_reach_live_home(page)
+            _mck215_dismiss_catchup_pin(page)
+            page.route(
+                "**/api/student/state**",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"ok":true,"unchanged":true}',
+                ),
+            )
+            response = staff_page.request.post(
+                f"{origin}/api/live-sessions/{session_id}/items/{live_item_id}/publish",
+                data=json.dumps({"publish_mode": "individual"}),
+                headers={"Content-Type": "application/json"},
+            )
+            if response.status != 200:
+                raise SystemExit(f"Publish failed with status {response.status}.")
+            card = page.locator(".student-live-card.is-open-focus")
+            card.wait_for(state="visible", timeout=20000)
+            page.locator(".student-live-card.is-open-focus .prompt-choice").nth(1).wait_for(
+                state="visible", timeout=20000
+            )
+            image = card.locator("img").first
+            image.wait_for(state="visible", timeout=20000)
+            found = page.evaluate(
+                """() => {
+                  const card = document.querySelector(".student-live-card.is-open-focus");
+                  if (!card) return {choices: 0, images: 0};
+                  return {
+                    choices: card.querySelectorAll(".prompt-choice").length,
+                    images: card.querySelectorAll("img").length,
+                  };
+                }"""
+            )
+            if int(found.get("choices") or 0) < 2:
+                raise SystemExit("first paint did not render option buttons")
+            if int(found.get("images") or 0) < 2:
+                raise SystemExit("first paint did not render stem or option images")
+            _mask_demo_identity(page)
+            _refuse_private_text(page, secrets)
+            page.screenshot(path=str(dest), full_page=True)
+            written.append(dest)
+            student_ctx.close()
+            staff.close()
+            browser.close()
+    except SystemExit:
+        raise
+    except Exception as err:
+        message = str(err)
+        for secret in held_secrets:
+            token = str(secret or "")
+            if token:
+                message = message.replace(token, "[redacted]")
+        raise SystemExit(message) from None
+    finally:
+        for dest in samples.values():
+            dest.unlink(missing_ok=True)
+    return written
+
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
@@ -6394,6 +6602,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck500",
             "mck503",
             "mck504",
+            "mck526",
         ),
         default="",
         help=(
@@ -6503,6 +6712,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck504":
             written.extend(shoot_mck504(args.base, out, path))
             written.extend(shoot_mck504_team_board_no_legend(out))
+        if args.scenario == "mck526":
+            written.extend(shoot_mck526(args.base, state, out, path))
         if args.scenario == "mck497":
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
