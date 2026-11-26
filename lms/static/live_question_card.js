@@ -440,6 +440,94 @@ export function applyZoomBadges(root, finePointer) {
   });
 }
 
+const ENLARGE_IMAGE_LABEL = "Enlarge image";
+
+const MAGNIFIER_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" focusable="false" aria-hidden="true"><circle cx="10" cy="10" r="6.25" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+
+/**
+ * Owner document for a painted node.
+ * @param {Element} node
+ * @returns {Document | null}
+ */
+function ownerDoc(node) {
+  return node.ownerDocument || (typeof document !== "undefined" ? document : null);
+}
+
+/**
+ * Wrap one image in a span, keeping its place in the stem or option.
+ * @param {HTMLImageElement} img
+ * @param {string} className
+ * @returns {HTMLElement | null}
+ */
+function wrapImage(img, className) {
+  const parent = img.parentNode || img.parentElement;
+  const doc = ownerDoc(img);
+  if (!parent || !doc) return null;
+  const wrap = doc.createElement("span");
+  wrap.className = className;
+  parent.insertBefore(wrap, img);
+  wrap.appendChild(img);
+  return wrap;
+}
+
+/**
+ * Put a visible enlarge hint on one inline stem image.
+ * @param {HTMLImageElement} img
+ */
+function decorateStemImage(img) {
+  const wrap = wrapImage(img, "live-q-inline-figure");
+  if (!wrap) return;
+  wrap.setAttribute("role", "button");
+  wrap.setAttribute("tabindex", "0");
+  wrap.setAttribute("aria-label", ENLARGE_IMAGE_LABEL);
+  const badge = (ownerDoc(img) || document).createElement("span");
+  badge.className = "live-q-zoom-badge";
+  badge.textContent = zoomBadgeLabel(false);
+  wrap.appendChild(badge);
+}
+
+/**
+ * Put the corner magnifier on one answer image, without nesting a button.
+ * @param {HTMLImageElement} img
+ */
+function decorateOptionImage(img) {
+  const wrap = wrapImage(img, "live-q-option-figure");
+  if (!wrap) return;
+  const doc = ownerDoc(img);
+  if (!doc) return;
+  const control = doc.createElement("span");
+  control.className = "live-q-enlarge-option";
+  control.setAttribute("role", "button");
+  control.setAttribute("tabindex", "0");
+  control.setAttribute("title", ENLARGE_IMAGE_LABEL);
+  control.setAttribute("aria-label", ENLARGE_IMAGE_LABEL);
+  const icon = doc.createElement("span");
+  icon.className = "live-q-enlarge-option-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = MAGNIFIER_ICON;
+  control.appendChild(icon);
+  wrap.appendChild(control);
+}
+
+/**
+ * Add enlarge hints and option magnifiers after a card paint.
+ *
+ * Safe to run again: already-wrapped images are left alone. Event
+ * handlers stay on the document, so nothing is re-bound.
+ * @param {ParentNode} root
+ */
+export function enhanceQuestionImages(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return;
+  root.querySelectorAll(".live-question-html img, .prompt-choice img").forEach((node) => {
+    if (!(node instanceof HTMLImageElement)) return;
+    if (node.closest(".live-q-image-btn, .live-q-inline-figure, .live-q-option-figure")) {
+      return;
+    }
+    if (node.closest(".prompt-choice")) decorateOptionImage(node);
+    else decorateStemImage(node);
+  });
+}
+
 /**
  * True when this screen has a mouse or trackpad, not a touch-only phone.
  * @returns {boolean}
@@ -466,7 +554,7 @@ function ensureQuestionLightbox(doc) {
   dialog.className = "live-q-lightbox";
   dialog.setAttribute("aria-label", "Question image, enlarged");
   dialog.innerHTML = `<div class="live-q-lightbox-bar">
-      <button type="button" class="live-q-lightbox-close" data-live-q-close>Close</button>
+      <button type="button" class="live-q-lightbox-close" data-live-q-close aria-label="Close">Close</button>
     </div>
     <div class="live-q-lightbox-stage"><img alt=""></div>`;
   doc.body.appendChild(dialog);
@@ -537,33 +625,129 @@ export function mountQuestionLightbox(doc) {
     lastTap = now;
   });
 
-  root.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const button = target.closest(".live-q-image-btn");
-    if (!(button instanceof HTMLButtonElement)) return;
-    const card = button.closest(".student-live-card, .live-question-card");
-    const buttons = [
-      ...(card ? card.querySelectorAll(".live-q-image-btn") : [button]),
-    ];
-    figures = buttons
-      .map((node) => {
-        const img = node.querySelector("img");
-        return {
-          src: img instanceof HTMLImageElement ? img.src : "",
-          alt: img instanceof HTMLImageElement ? img.alt : "Question image 1",
-        };
-      })
+  /**
+   * Images in one card: gallery buttons, then inline stem images, then
+   * answer images, so paging stays in document order.
+   * @param {Element | null} card
+   * @returns {HTMLImageElement[]}
+   */
+  function cardImages(card) {
+    /** @type {HTMLImageElement[]} */
+    const images = [];
+    const seen = new Set();
+    const add = (node) => {
+      if (!(node instanceof HTMLImageElement) || !String(node.src || "").trim()) return;
+      if (seen.has(node)) return;
+      seen.add(node);
+      images.push(node);
+    };
+    if (card instanceof Element) {
+      card.querySelectorAll(".live-q-image-btn img").forEach(add);
+      card.querySelectorAll(".live-question-html img").forEach((node) => {
+        if (!node.closest(".prompt-choice")) add(node);
+      });
+      card.querySelectorAll(".prompt-choice img").forEach(add);
+    }
+    return images;
+  }
+
+  /**
+   * The image a control should open.
+   * @param {Element} openerNode
+   * @returns {HTMLImageElement | null}
+   */
+  function imageFromOpener(openerNode) {
+    if (openerNode instanceof HTMLImageElement) return openerNode;
+    const host = openerNode.closest(
+      ".live-q-image-btn, .live-q-inline-figure, .live-q-option-figure"
+    ) || openerNode;
+    const found = host instanceof HTMLImageElement ? host : host.querySelector("img");
+    return found instanceof HTMLImageElement ? found : null;
+  }
+
+  /**
+   * Open the shared lightbox on one card image.
+   * @param {Element} openerNode
+   */
+  function openFrom(openerNode) {
+    const card = openerNode.closest(".student-live-card, .live-question-card");
+    const images = cardImages(card instanceof Element ? card : null);
+    const clicked = imageFromOpener(openerNode);
+    if (clicked && !images.includes(clicked)) images.push(clicked);
+    figures = images
+      .map((node) => ({
+        src: node.src,
+        alt: node.alt || "Question image 1",
+      }))
       .filter((figure) => figure.src);
     if (!figures.length || !(image instanceof HTMLImageElement)) return;
-    index = Math.max(0, buttons.indexOf(button));
-    opener = button;
+    index = clicked ? Math.max(0, images.indexOf(clicked)) : 0;
+    if (index >= figures.length) index = 0;
+    opener = openerNode instanceof HTMLElement ? openerNode : clicked;
     dialog.classList.remove("is-2x");
     dialog.dataset.cardId = card instanceof HTMLElement ? card.dataset.liveCardId || "" : "";
     paint();
     if (typeof dialog.showModal === "function") dialog.showModal();
     root.documentElement.classList.add("live-q-lightbox-open");
     if (close instanceof HTMLButtonElement) close.focus();
+  }
+
+  /**
+   * True when this event should open the lightbox and, for a magnifier,
+   * must not also select the answer.
+   * @param {Event} event
+   * @returns {Element | null}
+   */
+  function enlargeOpener(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return null;
+    if (target.closest(".live-q-lightbox")) return null;
+    const magnifier = target.closest(".live-q-enlarge-option");
+    if (magnifier) return magnifier;
+    const button = target.closest(".live-q-image-btn");
+    if (button instanceof HTMLButtonElement) return button;
+    const inline = target.closest(".live-q-inline-figure");
+    if (inline && !inline.closest(".prompt-choice")) return inline;
+    const stemImg = target.closest(".live-question-html img");
+    if (stemImg instanceof HTMLImageElement && !stemImg.closest(".prompt-choice")) {
+      return stemImg;
+    }
+    return null;
+  }
+
+  root.addEventListener(
+    "click",
+    (event) => {
+      const openerNode = enlargeOpener(event);
+      if (!openerNode) return;
+      if (openerNode.classList?.contains("live-q-enlarge-option") || openerNode.closest?.(".live-q-enlarge-option")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      openFrom(openerNode);
+    },
+    true
+  );
+  root.addEventListener(
+    "pointerdown",
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest(".live-q-enlarge-option")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true
+  );
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const openerNode = target.closest(".live-q-enlarge-option, .live-q-inline-figure");
+    if (!openerNode || openerNode.closest(".live-q-lightbox")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openFrom(openerNode);
   });
 }
 
@@ -577,6 +761,7 @@ export function mountQuestionLightbox(doc) {
 export function syncQuestionLightbox(root) {
   const doc = root.ownerDocument || (typeof document !== "undefined" ? document : null);
   if (!doc) return;
+  enhanceQuestionImages(root);
   applyZoomBadges(root, finePointerNow());
   const dialog = doc.getElementById(LIGHTBOX_ID);
   if (!(dialog instanceof HTMLDialogElement) || !dialog.open) return;

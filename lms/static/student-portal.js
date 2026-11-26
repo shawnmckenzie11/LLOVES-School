@@ -5595,6 +5595,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
     wirePromptControls(prompt);
   }
   void renderLiveQuestionMath(promptShell);
+  if (promptShell) syncQuestionLightbox(promptShell);
   restorePromptShellUnsent(payload);
   if (kind === "artifact") {
     applyArtifactPreview(lastArtifactSliders);
