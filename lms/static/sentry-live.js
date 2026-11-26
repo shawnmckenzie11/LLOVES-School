@@ -204,7 +204,9 @@
    * @returns {unknown}
    */
   function stripQueryValue(value) {
-    if (typeof value === "string") return value.indexOf("?") >= 0 || value.indexOf("#") >= 0 ? stripQuery(value) : value;
+    // Always run stripQuery so catch-up / invite / seat path tokens are
+    // masked even when the value has no query string.
+    if (typeof value === "string") return stripQuery(value);
     if (Array.isArray(value)) return value.map(stripQueryValue);
     if (value && typeof value === "object" && "value" in value) {
       value.value = stripQueryValue(value.value);
@@ -276,7 +278,8 @@
   }
 
   /**
-   * Drop the query string and hash from a URL so no typed text rides along.
+   * Drop the query string and hash from a URL, and mask path tokens, so no
+   * typed text or catch-up / invite / seat secret rides along.
    * @param {string} url
    * @returns {string}
    */
@@ -284,8 +287,12 @@
     var text = String(url || "");
     var cut = text.search(/[?#]/);
     text = cut >= 0 ? text.slice(0, cut) : text;
-    // Path tokens (student seat links, invite links) never leave the browser.
+    // Path tokens (student seat, invite, catch-up links) never leave the browser.
     return text
+      .replace(/\/api\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/api/catchup/[token]")
+      .replace(/\/catchup-links\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup-links/[token]")
+      .replace(/(?<!\/student)\/catchup\/([^/?#]+)\/([^/?#]+)\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/$1/$2/[token]")
+      .replace(/(?<!\/student)\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/[token]")
       .replace(/\/student\/s\/[^/?#]+/g, "/student/s/[token]")
       .replace(/\/invite\/[^/?#]+/g, "/invite/[token]");
   }
@@ -565,15 +572,24 @@
   }
 
   /**
-   * MCK-183 Ops LOW-1: mask seat and invite paths anywhere in free text,
-   * with or without a query after them.
+   * MCK-183 Ops LOW-1 / MCK-530: mask seat, invite, and catch-up paths
+   * anywhere in free text, with or without a query after them.
    * @param {any} text
    * @returns {any}
    */
   function maskPathTokens(text) {
     if (typeof text !== "string") return text;
-    if (text.indexOf("/invite/") < 0 && text.indexOf("/student/s/") < 0) return text;
+    if (
+      text.indexOf("/invite/") < 0 &&
+      text.indexOf("/student/s/") < 0 &&
+      text.indexOf("/catchup/") < 0 &&
+      text.indexOf("/catchup-links/") < 0
+    ) return text;
     return text
+      .replace(/\/api\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/api/catchup/[token]")
+      .replace(/\/catchup-links\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup-links/[token]")
+      .replace(/(?<!\/student)\/catchup\/([^/?#]+)\/([^/?#]+)\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/$1/$2/[token]")
+      .replace(/(?<!\/student)\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/[token]")
       .replace(/\/invite\/(?!\[token\])[^\s/?#"'()<>\[\],;]+/g, "/invite/[token]")
       .replace(/\/student\/s\/(?!\[token\])[^\s/?#"'()<>\[\],;]+/g, "/student/s/[token]");
   }
