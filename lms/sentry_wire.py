@@ -517,26 +517,52 @@ def init_flask_sentry() -> bool:
 
 _INVITE_TOKEN_RE = re.compile(r"/invite/[^/?#]+")
 _STUDENT_SEAT_RE = re.compile(r"/student/s/[^/?#]+")
+# Catch-up link tokens are 32-char urlsafe path segments (token_urlsafe(24)).
+# Match 16+ so short fixed routes like /student/catchup/landing stay intact.
+# ``(?<!/student)`` keeps /student/catchup/... from looking like a link token.
+_CATCHUP_TOKEN_SEG = r"[A-Za-z0-9_-]{16,}"
+_API_CATCHUP_RE = re.compile(rf"/api/catchup/{_CATCHUP_TOKEN_SEG}")
+_CANON_CATCHUP_RE = re.compile(
+    rf"(?<!/student)/catchup/([^/?#]+)/([^/?#]+)/{_CATCHUP_TOKEN_SEG}"
+)
+_LEGACY_CATCHUP_RE = re.compile(
+    rf"(?<!/student)/catchup/{_CATCHUP_TOKEN_SEG}(?=[\s?#\"\'()<>\[\],;]|$)"
+)
 # Free text (messages, exception values, breadcrumbs): a token ends at
 # whitespace, quotes, brackets or a path/query separator.
 _TEXT_INVITE_RE = re.compile(r"/invite/(?!\[token\])[^\s/?#\"'()<>\[\],;]+")
 _TEXT_SEAT_RE = re.compile(r"/student/s/(?!\[token\])[^\s/?#\"'()<>\[\],;]+")
 
 
+def _mask_catchup_path_tokens(text: str) -> str:
+    """Mask catch-up link tokens in a path or free-text string."""
+    text = _API_CATCHUP_RE.sub("/api/catchup/[token]", text)
+    text = _CANON_CATCHUP_RE.sub(r"/catchup/\1/\2/[token]", text)
+    return _LEGACY_CATCHUP_RE.sub("/catchup/[token]", text)
+
+
 def mask_path_tokens(value: Any) -> Any:
-    """Mask ``/student/s/<seat>`` and ``/invite/<token>`` anywhere in a string.
+    """Mask seat, invite, and catch-up tokens anywhere in a string.
 
     MCK-183 Ops LOW-1: the old scrub only masked these paths inside a URL
     that had a ``?`` or ``#``. A bare seat or invite path in a message, an
     exception value or a breadcrumb now becomes ``.../[token]`` too.
+    MCK-530: the same for ``/catchup/<course>/<slug>/<token>``,
+    ``/catchup/<token>``, and ``/api/catchup/<token>/...``. Fixed routes
+    such as ``/student/catchup/landing`` are left unchanged.
     Non-strings are returned unchanged.
     """
     if not isinstance(value, str):
         return value
-    if "/invite/" not in value and "/student/s/" not in value:
+    if (
+        "/invite/" not in value
+        and "/student/s/" not in value
+        and "/catchup/" not in value
+    ):
         return value
     value = _TEXT_INVITE_RE.sub("/invite/[token]", value)
-    return _TEXT_SEAT_RE.sub("/student/s/[token]", value)
+    value = _TEXT_SEAT_RE.sub("/student/s/[token]", value)
+    return _mask_catchup_path_tokens(value)
 
 
 def _mask_nested(value: Any, depth: int = 0) -> Any:
@@ -553,7 +579,7 @@ def _mask_nested(value: Any, depth: int = 0) -> Any:
 
 
 def _mask_event_tokens(event: dict[str, Any]) -> None:
-    """Mask seat and invite tokens in an event's text fields, in place.
+    """Mask seat, invite, and catch-up tokens in an event's text fields, in place.
 
     Covers ``message``, ``logentry``, exception and thread values and frame
     paths, breadcrumbs (message and data), ``transaction``, the request URL
@@ -1433,13 +1459,14 @@ _URL_DATA_KEYS = ("url", "http.url", "url.full", "http.target", "url.path")
 
 
 def _strip_url_query(value: Any) -> Any:
-    """Cut ``?query`` and ``#fragment`` from a URL-ish string."""
+    """Cut ``?query`` and ``#fragment`` from a URL-ish string, and mask tokens."""
     if not isinstance(value, str):
         return value
     cut = min((i for i in (value.find("?"), value.find("#")) if i >= 0), default=-1)
     text = value[:cut] if cut >= 0 else value
     text = _INVITE_TOKEN_RE.sub("/invite/[token]", text)
-    return _STUDENT_SEAT_RE.sub("/student/s/[token]", text)
+    text = _STUDENT_SEAT_RE.sub("/student/s/[token]", text)
+    return _mask_catchup_path_tokens(text)
 
 
 _URLISH_QUERY_RE = re.compile(r"(?:^|\s)(?:/|https?://)\S*[?#]")
@@ -1462,7 +1489,7 @@ def _strip_span_queries(span: dict[str, Any]) -> None:
         return
     for key in ("description", "name"):
         if key in span:
-            span[key] = _strip_urlish(span[key])
+            span[key] = mask_path_tokens(_strip_urlish(span[key]))
     data = span.get("data")
     if isinstance(data, dict):
         for key in _QUERY_DATA_KEYS:
@@ -1474,9 +1501,9 @@ def _strip_span_queries(span: dict[str, Any]) -> None:
             if ".header." in str(key).lower() and "visit-token" in str(key).lower():
                 data.pop(key, None)
             elif isinstance(value, str):
-                data[key] = _strip_urlish(value)
+                data[key] = mask_path_tokens(_strip_urlish(value))
             elif isinstance(value, list):
-                data[key] = [_strip_urlish(v) for v in value]
+                data[key] = [mask_path_tokens(_strip_urlish(v)) for v in value]
 
 
 def _scrub_dynamic_sampling_context(event: dict[str, Any]) -> None:
@@ -1565,6 +1592,10 @@ def sentry_init_options(dsn: str) -> dict[str, Any]:
         "enable_logs": True,
         "before_send_log": before_send_log,
         "before_send_transaction": before_send_transaction,
+        # sentry-sdk 2.71+ accepts before_send_span, but it only runs when
+        # trace_lifecycle="stream". Stay on the default transaction lifecycle
+        # so sampling and transport stay unchanged; _strip_span_queries in
+        # before_send_transaction covers every span on the transaction.
         "integrations": [
             LoggingIntegration(
                 level=py_logging.WARNING,

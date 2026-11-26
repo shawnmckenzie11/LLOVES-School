@@ -274,5 +274,268 @@ class StackFrameScrubTests(unittest.TestCase):
         self.assertEqual(sentry_wire._strip_url_query("/invite/tok/switch"), "/invite/[token]/switch")
 
 
+# 32-char urlsafe stand-in; not a real catch-up token.
+_FAKE_CATCHUP_TOKEN = "abcdefghijklmnopqrstuv012345_-xy"
+
+CATCHUP_MASK_SCRIPT = r"""
+const fs = require("fs");
+const vm = require("vm");
+const src = fs.readFileSync(process.argv[1], "utf8");
+function meta(content) { return { content, getAttribute() { return this.content; } }; }
+const metas = {
+  'meta[name="lloves-sentry-dsn"]': meta("https://public@o0.ingest.sentry.io/1"),
+  'meta[name="lloves-sentry-environment"]': meta("tip"),
+  'meta[name="lloves-sentry-tags"]': meta('{"portal":"student"}'),
+};
+const sandbox = {
+  console,
+  location: { origin: "https://alc.mckenzian.com" },
+  document: { querySelector(sel) { return metas[sel] || null; } },
+  fetch: function () { return Promise.resolve({ status: 200, ok: true }); },
+};
+sandbox.window = sandbox;
+sandbox.globalThis = sandbox;
+sandbox.Sentry = {
+  init(opts) { sandbox.__opts = opts; },
+  browserTracingIntegration() { return { name: "BrowserTracing" }; },
+  setUser() {}, setTags() {}, captureMessage() {}, captureException() {}, addBreadcrumb() {},
+};
+vm.createContext(sandbox);
+vm.runInContext(src, sandbox);
+const opts = sandbox.__opts;
+const TOK = "abcdefghijklmnopqrstuv012345_-xy";
+const shapes = [
+  [
+    `https://alc.mckenzian.com/catchup/MCR3U/m3-c2/${TOK}`,
+    "https://alc.mckenzian.com/catchup/MCR3U/m3-c2/[token]",
+  ],
+  [
+    `https://alc.mckenzian.com/catchup/${TOK}`,
+    "https://alc.mckenzian.com/catchup/[token]",
+  ],
+  [
+    `https://alc.mckenzian.com/api/catchup/${TOK}/questions/1/board`,
+    "https://alc.mckenzian.com/api/catchup/[token]/questions/1/board",
+  ],
+];
+const fixed = [
+  "https://alc.mckenzian.com/student/catchup/landing",
+  "/student/catchup/landing",
+  "/student/catchup/sign-out",
+  "/api/student/catchup-pin/later",
+  "https://alc.mckenzian.com/api/student/catchup-pin/verify",
+];
+function fail(msg) { console.error(msg); process.exit(1); }
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+for (const [raw, masked] of shapes) {
+  const event = {
+    message: `failed at ${raw}`,
+    transaction: raw,
+    request: { url: `${raw}?v=visit`, headers: { Referer: raw } },
+    breadcrumbs: [
+      { category: "navigation", data: { from: raw, to: `${raw}?play=1` } },
+      { category: "fetch", data: { url: raw, method: "GET", status_code: 500 } },
+      { category: "xhr", data: { url: raw, method: "GET", status_code: 500 } },
+    ],
+  };
+  const out = opts.beforeSend(clone(event));
+  const text = JSON.stringify(out);
+  if (text.includes(TOK)) fail(`token leaked in beforeSend: ${text}`);
+  if (out.request.url !== masked) fail(`request.url: ${out.request.url}`);
+  if (out.request.headers.Referer !== masked) fail(`Referer: ${out.request.headers.Referer}`);
+  if (out.transaction !== masked) fail(`transaction: ${out.transaction}`);
+  if (out.message !== `failed at ${masked}`) fail(`message: ${out.message}`);
+  if (out.breadcrumbs[0].data.from !== masked) fail(`nav from: ${out.breadcrumbs[0].data.from}`);
+  if (out.breadcrumbs[0].data.to !== masked) fail(`nav to: ${out.breadcrumbs[0].data.to}`);
+  if (out.breadcrumbs[1].data.url !== masked) fail(`fetch url: ${out.breadcrumbs[1].data.url}`);
+  if (out.breadcrumbs[2].data.url !== masked) fail(`xhr url: ${out.breadcrumbs[2].data.url}`);
+
+  const span = opts.beforeSendSpan({
+    description: `GET ${raw}`,
+    name: raw,
+    data: { "http.url": raw, "url.full": raw, "url.path": raw, "http.target": raw },
+  });
+  const spanText = JSON.stringify(span);
+  if (spanText.includes(TOK)) fail(`token leaked in beforeSendSpan: ${spanText}`);
+  if (span.description !== `GET ${masked}`) fail(`span description: ${span.description}`);
+  if (span.name !== masked) fail(`span name: ${span.name}`);
+  if (span.data["http.url"] !== masked) fail(`span http.url: ${span.data["http.url"]}`);
+  if (span.data["url.full"] !== masked) fail(`span url.full: ${span.data["url.full"]}`);
+
+  const nav = opts.beforeBreadcrumb({ category: "navigation", data: { from: raw, to: raw } });
+  if (nav.data.from !== masked) fail(`beforeBreadcrumb nav from: ${nav.data.from}`);
+  if (nav.data.to !== masked) fail(`beforeBreadcrumb nav to: ${nav.data.to}`);
+  const fetchCrumb = opts.beforeBreadcrumb({ category: "fetch", data: { url: raw } });
+  if (fetchCrumb.data.url !== masked) fail(`beforeBreadcrumb fetch url: ${fetchCrumb.data.url}`);
+}
+for (const path of fixed) {
+  const event = {
+    message: path,
+    transaction: path,
+    request: { url: path, headers: { Referer: path } },
+    breadcrumbs: [
+      { category: "navigation", data: { from: path, to: path } },
+      { category: "fetch", data: { url: path } },
+    ],
+  };
+  const out = opts.beforeSend(clone(event));
+  if (out.request.url !== path) fail(`fixed request.url changed: ${out.request.url}`);
+  if (out.request.headers.Referer !== path) fail(`fixed Referer changed: ${out.request.headers.Referer}`);
+  if (out.transaction !== path) fail(`fixed transaction changed: ${out.transaction}`);
+  if (out.message !== path) fail(`fixed message changed: ${out.message}`);
+  if (out.breadcrumbs[0].data.from !== path) fail(`fixed nav from changed: ${out.breadcrumbs[0].data.from}`);
+  if (out.breadcrumbs[0].data.to !== path) fail(`fixed nav to changed: ${out.breadcrumbs[0].data.to}`);
+  if (out.breadcrumbs[1].data.url !== path) fail(`fixed fetch url changed: ${out.breadcrumbs[1].data.url}`);
+  const span = opts.beforeSendSpan({ description: `GET ${path}`, data: { "http.url": path } });
+  if (span.description !== `GET ${path}`) fail(`fixed span description changed: ${span.description}`);
+  if (span.data["http.url"] !== path) fail(`fixed span http.url changed: ${span.data["http.url"]}`);
+}
+console.log("ok");
+"""
+
+
+class CatchupPathTokenMaskTests(unittest.TestCase):
+    """MCK-530: catch-up path tokens are masked in every Sentry URL field."""
+
+    TOKEN = _FAKE_CATCHUP_TOKEN
+    SHAPES = (
+        (
+            f"https://alc.mckenzian.com/catchup/MCR3U/m3-c2/{_FAKE_CATCHUP_TOKEN}",
+            "https://alc.mckenzian.com/catchup/MCR3U/m3-c2/[token]",
+        ),
+        (
+            f"https://alc.mckenzian.com/catchup/{_FAKE_CATCHUP_TOKEN}",
+            "https://alc.mckenzian.com/catchup/[token]",
+        ),
+        (
+            f"https://alc.mckenzian.com/api/catchup/{_FAKE_CATCHUP_TOKEN}/questions/1/board",
+            "https://alc.mckenzian.com/api/catchup/[token]/questions/1/board",
+        ),
+    )
+    FIXED = (
+        "https://alc.mckenzian.com/student/catchup/landing",
+        "/student/catchup/landing",
+        "/student/catchup/sign-out",
+        "/api/student/catchup-pin/later",
+        "https://alc.mckenzian.com/api/student/catchup-pin/verify",
+    )
+
+    def test_request_url(self) -> None:
+        for raw, masked in self.SHAPES:
+            event = {"request": {"url": raw + "?v=visit"}}
+            out = sentry_wire.before_send(event, {})
+            self.assertEqual(out["request"]["url"], masked)
+            self.assertNotIn(self.TOKEN, out["request"]["url"])
+
+    def test_http_url_and_url_full(self) -> None:
+        for raw, masked in self.SHAPES:
+            event = {
+                "transaction": "catchup_page_canonical",
+                "contexts": {"trace": {"data": {"http.url": raw, "url.full": raw}}},
+                "spans": [{"data": {"http.url": raw, "url.full": raw, "url.path": raw, "http.target": raw}}],
+            }
+            out = sentry_wire.before_send_transaction(event, {})
+            self.assertEqual(out["contexts"]["trace"]["data"]["http.url"], masked)
+            self.assertEqual(out["contexts"]["trace"]["data"]["url.full"], masked)
+            self.assertEqual(out["spans"][0]["data"]["http.url"], masked)
+            self.assertEqual(out["spans"][0]["data"]["url.full"], masked)
+            self.assertEqual(out["spans"][0]["data"]["url.path"], masked)
+            self.assertEqual(out["spans"][0]["data"]["http.target"], masked)
+
+    def test_transaction_name(self) -> None:
+        for raw, masked in self.SHAPES:
+            event = {"transaction": raw, "request": {"url": "https://alc.mckenzian.com/"}}
+            out = sentry_wire.before_send(event, {})
+            self.assertEqual(out["transaction"], masked)
+            tx = sentry_wire.before_send_transaction({"transaction": raw}, {})
+            self.assertEqual(tx["transaction"], masked)
+
+    def test_span_description(self) -> None:
+        for raw, masked in self.SHAPES:
+            event = {
+                "transaction": "catchup_page_canonical",
+                "spans": [{"description": f"GET {raw}", "name": raw}],
+            }
+            out = sentry_wire.before_send_transaction(event, {})
+            self.assertEqual(out["spans"][0]["description"], f"GET {masked}")
+            # Span ``name`` is a dropped identity key, so it is removed
+            # before _strip_span_queries runs. Description is the surface
+            # that still carries a path on the transaction payload.
+
+    def test_referer(self) -> None:
+        for raw, masked in self.SHAPES:
+            event = {
+                "request": {
+                    "url": "https://alc.mckenzian.com/student/home",
+                    "headers": {"Referer": raw + "?play=1"},
+                }
+            }
+            out = sentry_wire.before_send(event, {})
+            self.assertEqual(out["request"]["headers"]["Referer"], masked)
+            self.assertNotIn(self.TOKEN, out["request"]["headers"]["Referer"])
+
+    def test_nav_breadcrumb_from_to(self) -> None:
+        for raw, masked in self.SHAPES:
+            crumb = sentry_wire.before_breadcrumb(
+                {"category": "navigation", "data": {"from": raw, "to": raw}},
+            )
+            self.assertEqual(crumb["data"]["from"], masked)
+            self.assertEqual(crumb["data"]["to"], masked)
+
+    def test_fetch_breadcrumb_url(self) -> None:
+        for raw, masked in self.SHAPES:
+            crumb = sentry_wire.before_breadcrumb(
+                {"category": "fetch", "data": {"url": raw}},
+            )
+            self.assertEqual(crumb["data"]["url"], masked)
+
+    def test_message_text(self) -> None:
+        for raw, masked in self.SHAPES:
+            event = {"message": f"failed at {raw}"}
+            out = sentry_wire.before_send(event, {})
+            self.assertEqual(out["message"], f"failed at {masked}")
+            self.assertNotIn(self.TOKEN, out["message"])
+            crumb = sentry_wire.before_breadcrumb({"message": f"open {raw}"})
+            self.assertEqual(crumb["message"], f"open {masked}")
+
+    def test_fixed_catchup_routes_unchanged(self) -> None:
+        for path in self.FIXED:
+            self.assertEqual(sentry_wire._strip_url_query(path), path)
+            self.assertEqual(sentry_wire.mask_path_tokens(path), path)
+            self.assertEqual(sentry_wire._strip_url_query(path + "?x=1"), path)
+            event = {
+                "transaction": path,
+                "message": path,
+                "request": {"url": path, "headers": {"Referer": path}},
+                "spans": [{"description": f"GET {path}", "data": {"http.url": path}}],
+            }
+            sent = sentry_wire.before_send(
+                {"transaction": path, "message": path, "request": {"url": path, "headers": {"Referer": path}}},
+                {},
+            )
+            self.assertEqual(sent["transaction"], path)
+            self.assertEqual(sent["message"], path)
+            self.assertEqual(sent["request"]["url"], path)
+            self.assertEqual(sent["request"]["headers"]["Referer"], path)
+            tx = sentry_wire.before_send_transaction(event, {})
+            self.assertEqual(tx["spans"][0]["description"], f"GET {path}")
+            self.assertEqual(tx["spans"][0]["data"]["http.url"], path)
+            crumb = sentry_wire.before_breadcrumb(
+                {"category": "navigation", "data": {"from": path, "to": path}},
+            )
+            self.assertEqual(crumb["data"]["from"], path)
+            self.assertEqual(crumb["data"]["to"], path)
+
+    def test_browser_masks_catchup_paths(self) -> None:
+        completed = subprocess.run(
+            ["node", "-e", CATCHUP_MASK_SCRIPT, str(LMS_DIR / "static" / "sentry-live.js")],
+            check=False, capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        self.assertIn("ok", completed.stdout)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
