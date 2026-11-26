@@ -11250,6 +11250,9 @@ class LovesDB:
     ) -> list[dict[str, Any]]:
         """Return questions whose page number is past ``new_count``.
 
+        Reads the same class deck the staff rail shows, so a fresh class
+        does not warn about inherited course-seed questions.
+
         Args:
             class_id: Game-show ``classes.id``.
             module: Live module.
@@ -11262,7 +11265,7 @@ class LovesDB:
         """
         try:
             metadata = self.live_class_metadata_for_class_lesson(
-                int(class_id), module, slot
+                int(class_id), module, slot, inherit_authored_seed=False
             )
         except (KeyError, TypeError, ValueError, sqlite3.Error):
             return []
@@ -15480,8 +15483,9 @@ class SchoolDB(LovesDB):
         Bank imports update their placement row. Seed and engine-ride
         questions (``teams_spark``, ``minds_on``, ``meet_team``,
         ``team_challenge``) persist a class overlay. Destination pages
-        come from the same merged deck as the staff rail, including
-        overlay Welcome/Winner/blank pages.
+        and sort_order come from the same class deck as the staff rail
+        (``inherit_authored_seed=False``), including overlay
+        Welcome/Winner/blank pages, not the inherited course seed.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -15501,7 +15505,7 @@ class SchoolDB(LovesDB):
             raise ValueError("item_id required")
         self._prepare_playlist_item_edit(int(class_id), token)
         metadata = self.live_class_metadata_for_class_lesson(
-            int(class_id), module, slot
+            int(class_id), module, slot, inherit_authored_seed=False
         )
         canonical = self._resolve_playlist_metadata_item_id(metadata, token)
         stage, page_number = self._playlist_page_target(

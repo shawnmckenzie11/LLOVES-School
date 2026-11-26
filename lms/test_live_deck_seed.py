@@ -993,6 +993,108 @@ class LiveDeckSeedTests(unittest.TestCase):
         )
         self.assertEqual(int(saved_c2["question_count"]), 1)
 
+    def test_move_bank_question_uses_rail_pages_on_fresh_class(self) -> None:
+        """MCK-528: move-to-page reads the staff rail, not the inherited seed."""
+
+        added = self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text="MCK-528 moved stem",
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
+        token = str(added.get("item_id") or (added.get("item") or {}).get("id") or "")
+        self.assertTrue(token.startswith("staff-q-"), token)
+
+        rail = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True, inherit_authored_seed=False
+        )
+        pages = [
+            row
+            for row in rail.get("pages") or []
+            if isinstance(row, dict) and row.get("stage")
+        ]
+        self.assertGreaterEqual(len(pages), 2)
+        seed = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True, inherit_authored_seed=True
+        )
+        # Prefer a rail page the inherited seed already has questions on,
+        # so a default-True read would write the wrong sort_order.
+        target_index = 2
+        for idx, page in enumerate(pages, start=1):
+            if idx == 4:
+                continue
+            try:
+                page_number = (
+                    int(page["page_number"])
+                    if page.get("page_number") not in (None, "")
+                    else idx
+                )
+            except (TypeError, ValueError):
+                page_number = idx
+            stage = str(page.get("stage") or "").strip().lower()
+            seed_on_page = [
+                row
+                for row in seed.get("questions") or []
+                if isinstance(row, dict)
+                and str(row.get("stage") or "").strip().lower() == stage
+                and int(row.get("page_number") or 0) == page_number
+                and str(row.get("id") or "") != token
+            ]
+            if seed_on_page:
+                target_index = idx
+                break
+        dest = pages[target_index - 1]
+        dest_stage = str(dest.get("stage") or "").strip().lower()
+        try:
+            dest_page = (
+                int(dest["page_number"])
+                if dest.get("page_number") not in (None, "")
+                else target_index
+            )
+        except (TypeError, ValueError):
+            dest_page = target_index
+        expected_sort = self.school._next_question_sort_order(
+            rail,
+            stage=dest_stage,
+            page_number=dest_page,
+            exclude_item_id=token,
+        )
+
+        result = self.school.move_class_playlist_item(
+            self.class_id,
+            "M1",
+            "C2",
+            token,
+            target_page_index=target_index,
+        )
+        self.assertEqual(result["action"], "moved")
+        self.assertEqual(int(result["page_number"]), dest_page)
+        self.assertEqual(str(result["stage"]), dest_stage)
+        self.assertEqual(int(result["sort_order"]), expected_sort)
+
+        rows = self.school.list_class_playlist_placements(self.class_id, "M1", "C2")
+        self.assertEqual([str(row.get("item_id") or "") for row in rows], [token])
+        row = rows[0]
+        self.assertEqual(int(row.get("page_number") or 0), dest_page)
+        self.assertEqual(int(row.get("sort_order") or 0), expected_sort)
+        self.assertEqual(str(row.get("stage") or ""), dest_stage)
+        item = row.get("item") or {}
+        self.assertEqual(int(item.get("page_number") or 0), dest_page)
+        self.assertEqual(int(item.get("order") or 0), expected_sort)
+
+        overrides = self.school.conn.execute(
+            """
+            SELECT item_id FROM class_live_playlist_item_overrides
+            WHERE class_id = ? AND module = ? AND slot = ?
+            """,
+            (self.class_id, "M1", "C2"),
+        ).fetchall()
+        self.assertEqual([item["item_id"] for item in overrides], [])
+
 
 class DeckSeedPickerUiTests(unittest.TestCase):
     """Chip helper copy, stale replies, and the empty-course chip."""
