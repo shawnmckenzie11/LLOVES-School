@@ -317,6 +317,10 @@ const shapes = [
     `https://alc.mckenzian.com/api/catchup/${TOK}/questions/1/board`,
     "https://alc.mckenzian.com/api/catchup/[token]/questions/1/board",
   ],
+  [
+    `https://alc.mckenzian.com/api/classes/12/catchup-links/${TOK}`,
+    "https://alc.mckenzian.com/api/classes/12/catchup-links/[token]",
+  ],
 ];
 const fixed = [
   "https://alc.mckenzian.com/student/catchup/landing",
@@ -324,6 +328,7 @@ const fixed = [
   "/student/catchup/sign-out",
   "/api/student/catchup-pin/later",
   "https://alc.mckenzian.com/api/student/catchup-pin/verify",
+  "/api/classes/12/catchup-links",
 ];
 function fail(msg) { console.error(msg); process.exit(1); }
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -368,6 +373,22 @@ for (const [raw, masked] of shapes) {
   const fetchCrumb = opts.beforeBreadcrumb({ category: "fetch", data: { url: raw } });
   if (fetchCrumb.data.url !== masked) fail(`beforeBreadcrumb fetch url: ${fetchCrumb.data.url}`);
 }
+const trailing = ["/", ".", ":", ","];
+for (const mark of trailing) {
+  const raw = `https://alc.mckenzian.com/catchup/${TOK}${mark}`;
+  const masked = `https://alc.mckenzian.com/catchup/[token]${mark}`;
+  const out = opts.beforeSend(clone({
+    message: `open ${raw}`,
+    request: { url: raw },
+    breadcrumbs: [{ category: "fetch", data: { url: raw } }],
+  }));
+  if (JSON.stringify(out).includes(TOK)) fail(`legacy trailing ${mark} leaked: ${JSON.stringify(out)}`);
+  if (out.request.url !== masked) fail(`legacy trailing ${mark} url: ${out.request.url}`);
+  if (out.message !== `open ${masked}`) fail(`legacy trailing ${mark} message: ${out.message}`);
+  if (out.breadcrumbs[0].data.url !== masked) fail(`legacy trailing ${mark} fetch: ${out.breadcrumbs[0].data.url}`);
+  const span = opts.beforeSendSpan({ description: `GET ${raw}`, data: { "http.url": raw } });
+  if (span.description !== `GET ${masked}`) fail(`legacy trailing ${mark} span: ${span.description}`);
+}
 for (const path of fixed) {
   const event = {
     message: path,
@@ -411,6 +432,10 @@ class CatchupPathTokenMaskTests(unittest.TestCase):
             f"https://alc.mckenzian.com/api/catchup/{_FAKE_CATCHUP_TOKEN}/questions/1/board",
             "https://alc.mckenzian.com/api/catchup/[token]/questions/1/board",
         ),
+        (
+            f"https://alc.mckenzian.com/api/classes/12/catchup-links/{_FAKE_CATCHUP_TOKEN}",
+            "https://alc.mckenzian.com/api/classes/12/catchup-links/[token]",
+        ),
     )
     FIXED = (
         "https://alc.mckenzian.com/student/catchup/landing",
@@ -418,6 +443,7 @@ class CatchupPathTokenMaskTests(unittest.TestCase):
         "/student/catchup/sign-out",
         "/api/student/catchup-pin/later",
         "https://alc.mckenzian.com/api/student/catchup-pin/verify",
+        "/api/classes/12/catchup-links",
     )
 
     def test_request_url(self) -> None:
@@ -525,6 +551,47 @@ class CatchupPathTokenMaskTests(unittest.TestCase):
             )
             self.assertEqual(crumb["data"]["from"], path)
             self.assertEqual(crumb["data"]["to"], path)
+
+    def test_catchup_links_teacher_route(self) -> None:
+        raw = f"https://alc.mckenzian.com/api/classes/12/catchup-links/{self.TOKEN}"
+        masked = "https://alc.mckenzian.com/api/classes/12/catchup-links/[token]"
+        self.assertEqual(sentry_wire._strip_url_query(raw), masked)
+        event = {"request": {"url": raw + "?x=1"}}
+        out = sentry_wire.before_send(event, {})
+        self.assertEqual(out["request"]["url"], masked)
+        crumb = sentry_wire.before_breadcrumb(
+            {"category": "fetch", "data": {"url": raw}},
+        )
+        self.assertEqual(crumb["data"]["url"], masked)
+        xhr = sentry_wire.before_breadcrumb(
+            {"category": "xhr", "data": {"url": raw}},
+        )
+        self.assertEqual(xhr["data"]["url"], masked)
+        tx = sentry_wire.before_send_transaction(
+            {"transaction": "staff_catchup_links", "spans": [{"description": f"POST {raw}"}]},
+            {},
+        )
+        self.assertEqual(tx["spans"][0]["description"], f"POST {masked}")
+
+    def test_legacy_catchup_token_boundary(self) -> None:
+        for mark in ("/", ".", ":", ","):
+            raw = f"https://alc.mckenzian.com/catchup/{self.TOKEN}{mark}"
+            masked = f"https://alc.mckenzian.com/catchup/[token]{mark}"
+            self.assertEqual(sentry_wire._strip_url_query(raw), masked, mark)
+            self.assertEqual(sentry_wire.mask_path_tokens(f"open {raw}"), f"open {masked}", mark)
+            event = {"message": f"open {raw}", "request": {"url": raw}}
+            out = sentry_wire.before_send(event, {})
+            self.assertEqual(out["request"]["url"], masked, mark)
+            self.assertEqual(out["message"], f"open {masked}", mark)
+            crumb = sentry_wire.before_breadcrumb(
+                {"category": "fetch", "data": {"url": raw}},
+            )
+            self.assertEqual(crumb["data"]["url"], masked, mark)
+            tx = sentry_wire.before_send_transaction(
+                {"spans": [{"description": f"GET {raw}"}]},
+                {},
+            )
+            self.assertEqual(tx["spans"][0]["description"], f"GET {masked}", mark)
 
     def test_browser_masks_catchup_paths(self) -> None:
         completed = subprocess.run(

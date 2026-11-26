@@ -289,9 +289,10 @@
     text = cut >= 0 ? text.slice(0, cut) : text;
     // Path tokens (student seat, invite, catch-up links) never leave the browser.
     return text
-      .replace(/\/api\/catchup\/[A-Za-z0-9_-]{16,}/g, "/api/catchup/[token]")
-      .replace(/(?<!\/student)\/catchup\/([^/?#]+)\/([^/?#]+)\/[A-Za-z0-9_-]{16,}/g, "/catchup/$1/$2/[token]")
-      .replace(/(?<!\/student)\/catchup\/[A-Za-z0-9_-]{16,}(?=[\s?#"'()<>\[\],;]|$)/g, "/catchup/[token]")
+      .replace(/\/api\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/api/catchup/[token]")
+      .replace(/\/catchup-links\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup-links/[token]")
+      .replace(/(?<!\/student)\/catchup\/([^/?#]+)\/([^/?#]+)\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/$1/$2/[token]")
+      .replace(/(?<!\/student)\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/[token]")
       .replace(/\/student\/s\/[^/?#]+/g, "/student/s/[token]")
       .replace(/\/invite\/[^/?#]+/g, "/invite/[token]");
   }
@@ -581,12 +582,14 @@
     if (
       text.indexOf("/invite/") < 0 &&
       text.indexOf("/student/s/") < 0 &&
-      text.indexOf("/catchup/") < 0
+      text.indexOf("/catchup/") < 0 &&
+      text.indexOf("/catchup-links/") < 0
     ) return text;
     return text
-      .replace(/\/api\/catchup\/[A-Za-z0-9_-]{16,}/g, "/api/catchup/[token]")
-      .replace(/(?<!\/student)\/catchup\/([^/?#]+)\/([^/?#]+)\/[A-Za-z0-9_-]{16,}/g, "/catchup/$1/$2/[token]")
-      .replace(/(?<!\/student)\/catchup\/[A-Za-z0-9_-]{16,}(?=[\s?#"'()<>\[\],;]|$)/g, "/catchup/[token]")
+      .replace(/\/api\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/api/catchup/[token]")
+      .replace(/\/catchup-links\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup-links/[token]")
+      .replace(/(?<!\/student)\/catchup\/([^/?#]+)\/([^/?#]+)\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/$1/$2/[token]")
+      .replace(/(?<!\/student)\/catchup\/[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/g, "/catchup/[token]")
       .replace(/\/invite\/(?!\[token\])[^\s/?#"'()<>\[\],;]+/g, "/invite/[token]")
       .replace(/\/student\/s\/(?!\[token\])[^\s/?#"'()<>\[\],;]+/g, "/student/s/[token]");
   }

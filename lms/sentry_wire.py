@@ -521,12 +521,19 @@ _STUDENT_SEAT_RE = re.compile(r"/student/s/[^/?#]+")
 # Match 16+ so short fixed routes like /student/catchup/landing stay intact.
 # ``(?<!/student)`` keeps /student/catchup/... from looking like a link token.
 _CATCHUP_TOKEN_SEG = r"[A-Za-z0-9_-]{16,}"
-_API_CATCHUP_RE = re.compile(rf"/api/catchup/{_CATCHUP_TOKEN_SEG}")
+# End of a token: the next character is not urlsafe (or the string ends).
+# A tighter lookahead of whitespace/?#/quotes missed /catchup/<token>/ and
+# /catchup/<token>.: etc. The same boundary is used on every catch-up shape.
+_CATCHUP_TOKEN_BOUND = r"(?![A-Za-z0-9_-])"
+_API_CATCHUP_RE = re.compile(rf"/api/catchup/{_CATCHUP_TOKEN_SEG}{_CATCHUP_TOKEN_BOUND}")
+_CATCHUP_LINKS_RE = re.compile(
+    rf"/catchup-links/{_CATCHUP_TOKEN_SEG}{_CATCHUP_TOKEN_BOUND}"
+)
 _CANON_CATCHUP_RE = re.compile(
-    rf"(?<!/student)/catchup/([^/?#]+)/([^/?#]+)/{_CATCHUP_TOKEN_SEG}"
+    rf"(?<!/student)/catchup/([^/?#]+)/([^/?#]+)/{_CATCHUP_TOKEN_SEG}{_CATCHUP_TOKEN_BOUND}"
 )
 _LEGACY_CATCHUP_RE = re.compile(
-    rf"(?<!/student)/catchup/{_CATCHUP_TOKEN_SEG}(?=[\s?#\"\'()<>\[\],;]|$)"
+    rf"(?<!/student)/catchup/{_CATCHUP_TOKEN_SEG}{_CATCHUP_TOKEN_BOUND}"
 )
 # Free text (messages, exception values, breadcrumbs): a token ends at
 # whitespace, quotes, brackets or a path/query separator.
@@ -537,6 +544,7 @@ _TEXT_SEAT_RE = re.compile(r"/student/s/(?!\[token\])[^\s/?#\"'()<>\[\],;]+")
 def _mask_catchup_path_tokens(text: str) -> str:
     """Mask catch-up link tokens in a path or free-text string."""
     text = _API_CATCHUP_RE.sub("/api/catchup/[token]", text)
+    text = _CATCHUP_LINKS_RE.sub("/catchup-links/[token]", text)
     text = _CANON_CATCHUP_RE.sub(r"/catchup/\1/\2/[token]", text)
     return _LEGACY_CATCHUP_RE.sub("/catchup/[token]", text)
 
@@ -548,7 +556,8 @@ def mask_path_tokens(value: Any) -> Any:
     that had a ``?`` or ``#``. A bare seat or invite path in a message, an
     exception value or a breadcrumb now becomes ``.../[token]`` too.
     MCK-530: the same for ``/catchup/<course>/<slug>/<token>``,
-    ``/catchup/<token>``, and ``/api/catchup/<token>/...``. Fixed routes
+    ``/catchup/<token>``, ``/api/catchup/<token>/...``, and
+    ``/api/classes/<id>/catchup-links/<token>``. Fixed routes
     such as ``/student/catchup/landing`` are left unchanged.
     Non-strings are returned unchanged.
     """
@@ -558,6 +567,7 @@ def mask_path_tokens(value: Any) -> Any:
         "/invite/" not in value
         and "/student/s/" not in value
         and "/catchup/" not in value
+        and "/catchup-links/" not in value
     ):
         return value
     value = _TEXT_INVITE_RE.sub("/invite/[token]", value)
