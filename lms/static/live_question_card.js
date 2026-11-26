@@ -734,7 +734,6 @@ export function mountQuestionLightbox(doc) {
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (!target.closest(".live-q-enlarge-option")) return;
-      event.preventDefault();
       event.stopPropagation();
     },
     true

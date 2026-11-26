@@ -6560,7 +6560,7 @@ def shoot_mck529(base: str, out_dir: Path, path: Path) -> list[Path]:
     Boots an isolated sqlite and local LMS on loopback so the shot does
     not use production. The student is a fixture seat; the on-screen name
     is masked. One shot is the open card at 390px. The second is the same
-    card with the shared lightbox open on the stem image.
+    card with the shared lightbox opened from an answer-image magnifier.
 
     Args:
         base: Loopback base URL (host check only).
@@ -6760,7 +6760,7 @@ def shoot_mck529(base: str, out_dir: Path, path: Path) -> list[Path]:
                 },
             )
             written.append(card_path)
-            card.locator(".live-q-inline-figure").click()
+            card.locator(".live-q-enlarge-option").first.click()
             lightbox = page.locator("#live-q-lightbox")
             lightbox.wait_for(state="visible", timeout=20000)
             close = lightbox.locator("[data-live-q-close]")

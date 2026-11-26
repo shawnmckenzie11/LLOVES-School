@@ -403,11 +403,13 @@ function makeEvent(type, target, opts = {}) {
     target,
     currentTarget: null,
     bubbles: opts.bubbles !== false,
+    cancelable: opts.cancelable !== false,
+    key: opts.key,
     defaultPrevented: false,
     _stopped: false,
     _immediate: false,
     preventDefault() {
-      this.defaultPrevented = true;
+      if (this.cancelable) this.defaultPrevented = true;
     },
     stopPropagation() {
       this._stopped = true;
@@ -417,6 +419,19 @@ function makeEvent(type, target, opts = {}) {
       this._immediate = true;
     },
   };
+}
+
+/**
+ * A real tap: cancelable pointerdown, then click only if pointerdown was
+ * not canceled. Browsers suppress the click when pointerdown calls
+ * preventDefault(), so this would miss the lightbox on the old handler.
+ * @param {ReturnType<typeof createNode>} node
+ */
+function tap(node) {
+  const down = makeEvent("pointerdown", node, { cancelable: true });
+  node.dispatchEvent(down);
+  if (down.defaultPrevented) return;
+  node.dispatchEvent(makeEvent("click", node));
 }
 
 const body = createNode("body", HTMLElement);
@@ -548,6 +563,33 @@ if (!dialog.open) fail("the option magnifier should open the same lightbox");
 if (!String(stageImg.src).includes("opt-a.png")) fail("lightbox should show the answer image");
 if (choice.classList.contains("is-selected")) {
   fail("the magnifier must not select the answer");
+}
+dialog.close();
+
+choice.classList.remove("is-selected");
+tap(magnifier);
+if (!dialog.open) fail("a real tap on the magnifier should open the lightbox");
+if (!String(stageImg.src).includes("opt-a.png")) {
+  fail("lightbox should show the answer image after a real tap");
+}
+if (choice.classList.contains("is-selected")) {
+  fail("a real tap on the magnifier must not select the answer");
+}
+dialog.close();
+
+choice.classList.remove("is-selected");
+magnifier.dispatchEvent(makeEvent("keydown", magnifier, { key: "Enter" }));
+if (!dialog.open) fail("Enter on the magnifier should open the lightbox");
+if (choice.classList.contains("is-selected")) {
+  fail("Enter on the magnifier must not select the answer");
+}
+dialog.close();
+
+choice.classList.remove("is-selected");
+magnifier.dispatchEvent(makeEvent("keydown", magnifier, { key: " " }));
+if (!dialog.open) fail("Space on the magnifier should open the lightbox");
+if (choice.classList.contains("is-selected")) {
+  fail("Space on the magnifier must not select the answer");
 }
 dialog.close();
 
