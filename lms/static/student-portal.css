@@ -3086,7 +3086,11 @@ body.student-home.is-game-show-welcome .prompt-ack {
   }
   .live-q-image-btn:hover .live-q-zoom-badge,
   .live-q-image-btn:focus-visible .live-q-zoom-badge,
-  .live-q-image-btn:focus .live-q-zoom-badge {
+  .live-q-image-btn:focus .live-q-zoom-badge,
+  .live-q-inline-figure:hover .live-q-zoom-badge,
+  .live-q-inline-figure:focus-visible .live-q-zoom-badge,
+  .live-q-inline-figure:focus .live-q-zoom-badge,
+  .live-q-inline-figure:focus-within .live-q-zoom-badge {
     opacity: 1;
   }
 }
@@ -3300,6 +3304,71 @@ body.staff-shell .live-question-html img,
 body.staff-shell .prompt-choice .live-question-html img,
 .student-live-card .prompt-choice .live-question-html img {
   max-width: 12rem;
+}
+
+.student-live-card .live-question-html img,
+.live-question-card .live-question-html img,
+.live-q-inline-figure,
+.live-q-inline-figure img {
+  cursor: zoom-in;
+}
+.student-live-card .prompt-choice .live-question-html img,
+.live-question-card .prompt-choice .live-question-html img,
+.student-live-card .prompt-choice img {
+  cursor: pointer;
+}
+.live-q-inline-figure {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.live-q-inline-figure > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.live-q-option-figure {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.live-q-option-figure > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.live-q-enlarge-option {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b1220;
+  cursor: zoom-in;
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  z-index: 2;
+}
+.live-q-enlarge-option-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+  color: #0b1220;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.live-q-enlarge-option-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 

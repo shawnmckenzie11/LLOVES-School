@@ -6553,6 +6553,231 @@ def shoot_mck526(base: str, state_path: Path, out_dir: Path, path: Path) -> list
     return written
 
 
+
+def shoot_mck529(base: str, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-529: student phone MC with inline stem and option images.
+
+    Boots an isolated sqlite and local LMS on loopback so the shot does
+    not use production. The student is a fixture seat; the on-screen name
+    is masked. One shot is the open card at 390px. The second is the same
+    card with the shared lightbox opened from an answer-image magnifier.
+
+    Args:
+        base: Loopback base URL (host check only).
+        out_dir: Directory for PNG files.
+        path: Unused (keeps ``--scenario`` signature stable).
+
+    Returns:
+        PNG paths written.
+    """
+    del path  # isolated sqlite; do not write the shared dev file.
+
+    sys.path.insert(0, str(LMS_DIR))
+    sys.path.insert(0, str(ROOT))
+    os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
+    os.environ.pop("GOOGLE_CLIENT_ID", None)
+    import logging
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    logging.getLogger("auth").setLevel(logging.ERROR)
+    logging.getLogger("email_service").setLevel(logging.ERROR)
+    from app import create_app  # noqa: E402
+    from playwright.sync_api import sync_playwright
+
+    samples = {
+        "stem": LMS_DIR / "static" / "mck529-stem.png",
+        "field": LMS_DIR / "static" / "mck529-field.png",
+        "opt_a": LMS_DIR / "static" / "mck529-opt-a.png",
+        "opt_b": LMS_DIR / "static" / "mck529-opt-b.png",
+        "opt_c": LMS_DIR / "static" / "mck529-opt-c.png",
+        "opt_d": LMS_DIR / "static" / "mck529-opt-d.png",
+    }
+    for dest in samples.values():
+        _mck499_png(dest)
+    urls = {key: f"/static/{dest.name}" for key, dest in samples.items()}
+
+    tmp = tempfile.TemporaryDirectory()
+    root = Path(tmp.name)
+    app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+    school = app.config["SCHOOL_DB"]
+    staff = app.test_client()
+    school.activate_from_semester_json()
+    teacher = school.register_staff("fixture-staff@example.com")
+    offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCR3U")
+    staff.get("/auth/google?portal=staff")
+    staff.get("/auth/google/callback?email=fixture-staff@example.com&name=T")
+    code = school.get_user_by_email("fixture-staff@example.com")["verification_code"]
+    staff.post("/verify-email", data={"code": code})
+    created = staff.post(
+        "/api/staff/classes",
+        json={
+            "offering_id": int(offering["id"]),
+            "days": "M/W/F",
+            "time": "2:00pm",
+            "codenames": ["River"],
+        },
+    )
+    class_id = int(created.get_json()["class"]["id"])
+    live = school.start_live_class_session(class_id, int(teacher["id"]), is_test=True)
+    session_id = int(live["id"])
+    school.game.begin_game(class_id)
+    school.set_live_session_teacher_state(
+        session_id,
+        live_module="M1",
+        live_slot="C1",
+        stage="round",
+        page_number=1,
+        page_id="round_1",
+        student_view={"questions": "student"},
+    )
+    placed = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C1",
+        page_number=1,
+        stage="round",
+        question_type="mc",
+        text="Which graph?",
+        options=["A", "B", "C", "D"],
+        correct_index=0,
+    )
+    school.ensure_live_session_items(session_id)
+    row = next(
+        item
+        for item in school.list_live_session_items(session_id)
+        if str(item.get("item_id") or "") == str(placed.get("item_id") or "")
+    )
+    live_item_id = int(row["id"])
+    _mck526_stamp_image_mc(school, session_id, live_item_id, urls)
+    published = school.publish_live_session_item(
+        session_id, live_item_id, publish_mode="individual"
+    )
+    prompt = school._prompt_for_live_item(published)
+    if prompt is None:
+        raise SystemExit("Published question has no prompt")
+    payload = dict(prompt.get("payload") or {})
+    payload["text"] = "Which graph?"
+    payload["text_html"] = f"<p>Which graph?</p><img src='{urls['stem']}' alt=''>"
+    payload.pop("image_url", None)
+    payload.pop("image_urls", None)
+    payload["options"] = ["A", "B", "C", "D"]
+    payload["options_html"] = [
+        f"<img src='{urls['opt_b']}' alt=''>",
+        f"<img src='{urls['opt_a']}' alt=''>",
+        f"<img src='{urls['opt_c']}' alt=''>",
+        f"<img src='{urls['opt_d']}' alt=''>",
+    ]
+    payload["options_image_urls"] = [
+        urls["opt_b"],
+        urls["opt_a"],
+        urls["opt_c"],
+        urls["opt_d"],
+    ]
+    with school._lock:
+        school.conn.execute(
+            "UPDATE live_session_prompts SET payload = ? WHERE id = ?",
+            (json.dumps(payload), int(prompt["id"])),
+        )
+        school.conn.commit()
+    student = school.game.find_student_by_codename(class_id, "River")
+    if student is None:
+        raise SystemExit("Synthetic roster missing")
+    student_id = int(student["id"])
+    school.join_live_class_session(session_id, student_id, codename="River")
+    token_row = school.conn.execute(
+        """
+        SELECT visit_token FROM live_session_attendees
+        WHERE live_session_id = ? AND student_id = ?
+        """,
+        (session_id, student_id),
+    ).fetchone()
+    visit = str(token_row["visit_token"] if token_row else "")
+    if not visit:
+        raise SystemExit("student seat missing")
+
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = int(sock.getsockname()[1])
+    sock.close()
+    origin = f"http://127.0.0.1:{port}"
+    assert_loopback(origin)
+    del base  # isolated server; the caller base is only checked by main().
+
+    def run_server() -> None:
+        app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+    threading.Thread(target=run_server, daemon=True).start()
+    deadline = time.time() + 25
+    up = False
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(origin + "/health", timeout=0.4) as response:
+                up = response.status == 200
+                if up:
+                    break
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.15)
+    if not up:
+        raise SystemExit("local LMS for mck529 did not start")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    secrets = [visit, str(live.get("session_code") or ""), "1234", "9999"]
+    url = f"{origin}/student/s/{visit}"
+    viewport = {"width": 390, "height": 844}
+    try:
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            context = browser.new_context(
+                viewport=viewport,
+                is_mobile=True,
+                has_touch=True,
+                device_scale_factor=2,
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded")
+            _mck215_reach_live_home(page)
+            _mck215_dismiss_catchup_pin(page)
+            card = page.locator(".student-live-card.is-open-focus")
+            card.wait_for(state="visible", timeout=60000)
+            card.locator(".live-q-inline-figure img").wait_for(state="visible", timeout=20000)
+            card.locator(".live-q-enlarge-option").first.wait_for(state="visible", timeout=20000)
+            _mask_demo_identity(page)
+            _refuse_private_text(page, secrets)
+            card_path = out_dir / "mck529-student-phone-mc-390.png"
+            box = card.bounding_box()
+            if not box:
+                raise SystemExit("student question card has no box")
+            page.screenshot(
+                path=str(card_path),
+                clip={
+                    "x": max(0, box["x"]),
+                    "y": max(0, box["y"]),
+                    "width": min(box["width"], viewport["width"] - max(0, box["x"])),
+                    "height": min(box["height"], viewport["height"] - max(0, box["y"])),
+                },
+            )
+            written.append(card_path)
+            card.locator(".live-q-enlarge-option").first.click()
+            lightbox = page.locator("#live-q-lightbox")
+            lightbox.wait_for(state="visible", timeout=20000)
+            close = lightbox.locator("[data-live-q-close]")
+            close.wait_for(state="visible", timeout=20000)
+            _mask_demo_identity(page)
+            _refuse_private_text(page, secrets)
+            open_path = out_dir / "mck529-student-phone-lightbox-390.png"
+            page.screenshot(path=str(open_path), full_page=False)
+            written.append(open_path)
+            context.close()
+            browser.close()
+    finally:
+        for dest in samples.values():
+            dest.unlink(missing_ok=True)
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -6603,6 +6828,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck503",
             "mck504",
             "mck526",
+            "mck529",
         ),
         default="",
         help=(
@@ -6618,7 +6844,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-293 group rank check and group engagement points, "
             "MCK-495 student question width, Q labels, and bar colours, "
             "MCK-496 teacher question footer, "
-            "or MCK-499 student question fit and image size."
+            "or MCK-499 student question fit and image size, or MCK-529 inline image enlarge."
         ),
     )
     args = parser.parse_args(argv)
@@ -6629,7 +6855,7 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        student_only = args.scenario in {"mck222", "mck495", "mck497", "mck499", "mck504"}
+        student_only = args.scenario in {"mck222", "mck495", "mck497", "mck499", "mck504", "mck529"}
         needs_login = (
             not student_only
             and (args.seed or not state.exists() or state.stat().st_size == 0)
@@ -6714,6 +6940,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck504_team_board_no_legend(out))
         if args.scenario == "mck526":
             written.extend(shoot_mck526(args.base, state, out, path))
+        if args.scenario == "mck529":
+            written.extend(shoot_mck529(args.base, out, path))
         if args.scenario == "mck497":
             written.extend(shoot_mck497(out))
         if args.scenario == "mck494":
@@ -6741,7 +6969,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500|mck503|mck504."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293|mck494|mck495|mck496|mck497|mck499|mck500|mck503|mck504|mck526|mck529."
             )
         for item in written:
             print(item)
