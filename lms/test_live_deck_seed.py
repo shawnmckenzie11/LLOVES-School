@@ -892,6 +892,209 @@ class LiveDeckSeedTests(unittest.TestCase):
         self.assertNotIn("minds_on", blob)
         self.assertNotIn("add one from the bank", blob)
 
+    def test_fresh_class_teacher_deck_view_has_no_questions(self) -> None:
+        """MCK-528: teacher deck, snapshot, and inventory start empty."""
+
+        mcr_offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": mcr_offering["id"],
+                "days": "T/Th/F",
+                "time": "10:40am",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        class_id = int(created.get_json()["class"]["id"])
+
+        seed = self.school.live_class_metadata_for_class_lesson(
+            class_id, "M1", "C2", fresh=True, inherit_authored_seed=True
+        )
+        seed_sig = _question_signature(seed)
+        self.assertGreater(len(seed_sig), 0)
+        authored = self._authored(seed_sig)
+        self.assertTrue(authored)
+
+        deck = self.client.get(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/deck?fresh=1"
+        )
+        self.assertEqual(deck.status_code, 200, deck.get_json())
+        self.assertEqual(
+            _question_signature((deck.get_json() or {}).get("live_metadata") or {}),
+            [],
+        )
+        snapshot = self.school.playlist_staff_snapshot(class_id, "M1", "C2")
+        self.assertEqual(_question_signature(snapshot.get("live_metadata") or {}), [])
+
+        inventory = self.client.get(f"/api/classes/{class_id}/live-lessons")
+        self.assertEqual(inventory.status_code, 200, inventory.get_json())
+        c2 = next(
+            row
+            for row in (inventory.get_json() or {}).get("lessons") or []
+            if row.get("module") == "M1" and row.get("live_class") == "C2"
+        )
+        self.assertEqual(int(c2["question_count"]), 0)
+
+        detail = self.client.get(f"/api/classes/{class_id}/live-lessons/M1/C2")
+        self.assertEqual(detail.status_code, 200, detail.get_json())
+        self.assertEqual(
+            _question_signature((detail.get_json() or {}).get("live_metadata") or {}),
+            [],
+        )
+
+        course_copy = self.school.apply_class_deck_seed(
+            class_id,
+            "M2",
+            "C1",
+            mode="course",
+            source_module="M1",
+            source_slot="C2",
+            replace=True,
+        )
+        self.assertEqual(_question_signature(course_copy["live_metadata"]), authored)
+        previous_copy = self.school.apply_class_deck_seed(
+            class_id, "M1", "C3", mode="previous"
+        )
+        self.assertEqual(previous_copy["source_slot"], "C2")
+        self.assertEqual(_question_signature(previous_copy["live_metadata"]), authored)
+
+        added = self.school.add_staff_question_to_class_playlist(
+            class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text="MCK-528 saved stem",
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
+        token = str((added.get("item") or {}).get("id") or "")
+        self.assertTrue(token)
+        saved_deck = self.client.get(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/deck?fresh=1"
+        )
+        saved_sig = _question_signature(
+            (saved_deck.get_json() or {}).get("live_metadata") or {}
+        )
+        self.assertEqual(saved_sig, [(token, "MCK-528 saved stem")])
+        saved_snap = self.school.playlist_staff_snapshot(class_id, "M1", "C2")
+        self.assertEqual(
+            _question_signature(saved_snap.get("live_metadata") or {}),
+            [(token, "MCK-528 saved stem")],
+        )
+        saved_inventory = self.client.get(f"/api/classes/{class_id}/live-lessons")
+        saved_c2 = next(
+            row
+            for row in (saved_inventory.get_json() or {}).get("lessons") or []
+            if row.get("module") == "M1" and row.get("live_class") == "C2"
+        )
+        self.assertEqual(int(saved_c2["question_count"]), 1)
+
+    def test_move_bank_question_uses_rail_pages_on_fresh_class(self) -> None:
+        """MCK-528: move-to-page reads the staff rail, not the inherited seed."""
+
+        added = self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text="MCK-528 moved stem",
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
+        token = str(added.get("item_id") or (added.get("item") or {}).get("id") or "")
+        self.assertTrue(token.startswith("staff-q-"), token)
+
+        rail = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True, inherit_authored_seed=False
+        )
+        pages = [
+            row
+            for row in rail.get("pages") or []
+            if isinstance(row, dict) and row.get("stage")
+        ]
+        self.assertGreaterEqual(len(pages), 2)
+        seed = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True, inherit_authored_seed=True
+        )
+        # Prefer a rail page the inherited seed already has questions on,
+        # so a default-True read would write the wrong sort_order.
+        target_index = 2
+        for idx, page in enumerate(pages, start=1):
+            if idx == 4:
+                continue
+            try:
+                page_number = (
+                    int(page["page_number"])
+                    if page.get("page_number") not in (None, "")
+                    else idx
+                )
+            except (TypeError, ValueError):
+                page_number = idx
+            stage = str(page.get("stage") or "").strip().lower()
+            seed_on_page = [
+                row
+                for row in seed.get("questions") or []
+                if isinstance(row, dict)
+                and str(row.get("stage") or "").strip().lower() == stage
+                and int(row.get("page_number") or 0) == page_number
+                and str(row.get("id") or "") != token
+            ]
+            if seed_on_page:
+                target_index = idx
+                break
+        dest = pages[target_index - 1]
+        dest_stage = str(dest.get("stage") or "").strip().lower()
+        try:
+            dest_page = (
+                int(dest["page_number"])
+                if dest.get("page_number") not in (None, "")
+                else target_index
+            )
+        except (TypeError, ValueError):
+            dest_page = target_index
+        expected_sort = self.school._next_question_sort_order(
+            rail,
+            stage=dest_stage,
+            page_number=dest_page,
+            exclude_item_id=token,
+        )
+
+        result = self.school.move_class_playlist_item(
+            self.class_id,
+            "M1",
+            "C2",
+            token,
+            target_page_index=target_index,
+        )
+        self.assertEqual(result["action"], "moved")
+        self.assertEqual(int(result["page_number"]), dest_page)
+        self.assertEqual(str(result["stage"]), dest_stage)
+        self.assertEqual(int(result["sort_order"]), expected_sort)
+
+        rows = self.school.list_class_playlist_placements(self.class_id, "M1", "C2")
+        self.assertEqual([str(row.get("item_id") or "") for row in rows], [token])
+        row = rows[0]
+        self.assertEqual(int(row.get("page_number") or 0), dest_page)
+        self.assertEqual(int(row.get("sort_order") or 0), expected_sort)
+        self.assertEqual(str(row.get("stage") or ""), dest_stage)
+        item = row.get("item") or {}
+        self.assertEqual(int(item.get("page_number") or 0), dest_page)
+        self.assertEqual(int(item.get("order") or 0), expected_sort)
+
+        overrides = self.school.conn.execute(
+            """
+            SELECT item_id FROM class_live_playlist_item_overrides
+            WHERE class_id = ? AND module = ? AND slot = ?
+            """,
+            (self.class_id, "M1", "C2"),
+        ).fetchall()
+        self.assertEqual([item["item_id"] for item in overrides], [])
+
 
 class DeckSeedPickerUiTests(unittest.TestCase):
     """Chip helper copy, stale replies, and the empty-course chip."""

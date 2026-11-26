@@ -83,7 +83,7 @@ class MCK325PageNumberTests(unittest.TestCase):
     def _question_pages(self) -> dict[str, int]:
         """Return catalogue question id to page number for this lesson."""
         metadata = self.school.live_class_metadata_for_class_lesson(
-            self.class_id, "M1", "C2"
+            self.class_id, "M1", "C2", inherit_authored_seed=False
         )
         pages: dict[str, int] = {}
         for row in metadata.get("questions") or []:
@@ -206,6 +206,16 @@ class MCK325PageNumberTests(unittest.TestCase):
         """A shorter re-pull warns and does not delete or renumber questions."""
         teacher = self.school.live_session_teacher_state_payload(self.session_id)
         self.assertGreater(int(teacher.get("fixed_page_count") or 0), 2)
+        self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text="MCK-325 saved re-pull stem",
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
         with self.assertRaises(SlideCountMismatch) as first_block:
             self.school.save_course_slide_deck(
                 self.class_id,
@@ -263,6 +273,56 @@ class MCK325PageNumberTests(unittest.TestCase):
         teacher = self.school.live_session_teacher_state_payload(self.session_id)
         self.assertEqual(teacher.get("fixed_page_count"), 1)
         self.assertEqual(SEED_C2.read_text(encoding="utf-8"), self.seed_before)
+
+    def test_repull_warning_lists_only_saved_question_on_fresh_class(self) -> None:
+        """MCK-528: a shorter re-pull names the saved question, not seed questions."""
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertGreater(int(teacher.get("fixed_page_count") or 0), 1)
+        stem = "MCK-528 saved re-pull stem"
+        self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text=stem,
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
+        seed = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M1", "C2", fresh=True, inherit_authored_seed=True
+        )
+        seed_labels = []
+        for row in seed.get("questions") or []:
+            if not isinstance(row, dict):
+                continue
+            label = str(
+                row.get("text") or row.get("name") or row.get("id") or ""
+            ).strip()
+            if label and label != stem:
+                seed_labels.append(label[:80])
+        self.assertGreater(len(seed_labels), 0)
+
+        with self.assertRaises(SlideCountMismatch) as caught:
+            self.school.save_course_slide_deck(
+                self.class_id,
+                "M1",
+                "C2",
+                title="Shorter",
+                source="pptx",
+                page_pngs=[_PNG],
+                session_id=self.session_id,
+            )
+        message = str(caught.exception)
+        labels = [
+            label
+            for row in (caught.exception.missing_pages or [])
+            for label in (row.get("questions") or [])
+        ]
+        self.assertEqual(labels, [stem])
+        self.assertIn(stem, message)
+        for label in seed_labels:
+            self.assertNotIn(label, message)
 
     def test_page_number_patch_does_not_reset_projection(self) -> None:
         """A page-number patch is not a stage entry."""
