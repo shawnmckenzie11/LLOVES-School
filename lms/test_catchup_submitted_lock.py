@@ -131,6 +131,17 @@ class CatchupPageLayoutTests(unittest.TestCase):
         self.assertTrue(out.is_file())
         self.assertGreater(out.stat().st_size, 1000)
 
+    def test_landing_drops_your_code_matched(self) -> None:
+        """The matched-class kicker no longer says YOUR CODE MATCHED."""
+        landing = (LMS_DIR / "catchup_landing.py").read_text(encoding="utf-8")
+        html = (LMS_DIR / "templates" / "student" / "catchup_landing.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("COPY_YOUR_CODE_MATCHED", landing)
+        self.assertNotIn("YOUR CODE MATCHED", landing)
+        self.assertNotIn("YOUR CODE MATCHED", html)
+        self.assertNotIn("your_code_matched", html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -163,6 +163,8 @@ class CatchupLandingFlowTests(Base):
         self.assertIn("Individual", html)
         self.assertIn("Group", html)
         self.assertIn("Formative", html)
+        self.assertNotIn("YOUR CODE MATCHED", html)
+        self.assertNotIn("your_code_matched", html)
         self.assertNotIn(">New<", html)
 
     def test_other_open_heading_hidden_when_list_empty(self) -> None:

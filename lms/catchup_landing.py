@@ -25,7 +25,6 @@ TORONTO = ZoneInfo("America/Toronto")
 COPY_PICK_TITLE = "Pick a class to catch up on"
 COPY_SIGNED_IN_AS = "Signed in as {name}"
 COPY_NOT_YOU = "Not you?"
-COPY_YOUR_CODE_MATCHED = "YOUR CODE MATCHED"
 COPY_OPEN_CATCHUP = "Open catch-up"
 COPY_OPEN_UNTIL = "open until {date}"
 COPY_OTHER_HEADER = "OTHER OPEN CLASSES IN {course} · newest first"
@@ -105,7 +104,6 @@ def landing_copy() -> dict[str, str]:
     return {
         "pick_title": COPY_PICK_TITLE,
         "not_you": COPY_NOT_YOU,
-        "your_code_matched": COPY_YOUR_CODE_MATCHED,
         "open_catchup": COPY_OPEN_CATCHUP,
         "other_header": COPY_OTHER_HEADER,
         "show_older": COPY_SHOW_OLDER,
