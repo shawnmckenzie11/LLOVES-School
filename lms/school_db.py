@@ -200,6 +200,9 @@ try:
     )
     from live_teacher_state import (
         CUE_CONS_UNLOCK,
+        PUBLISHED_HERE_KEY,
+        clean_published_here,
+        teacher_place,
         CUE_FREEZE,
         apply_teacher_state_update,
         surface_show_keeps_seq,
@@ -384,6 +387,9 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.live_teacher_state import (
         CUE_CONS_UNLOCK,
+        PUBLISHED_HERE_KEY,
+        clean_published_here,
+        teacher_place,
         CUE_FREEZE,
         apply_teacher_state_update,
         surface_show_keeps_seq,
@@ -24881,7 +24887,62 @@ class SchoolDB(LovesDB):
             self._sync_whiteboard_collab(
                 session_id, str(published.get("publish_mode") or "")
             )
+        self._note_published_here(session_id, published)
         return published
+
+    def _note_published_here(
+        self, session_id: int, item: dict[str, Any]
+    ) -> None:
+        """Keep a just-published question live on the teacher's current slide.
+
+        MCK-531: the push postcard paints a question whatever slide it is
+        bound to. Without this, the next ``/state`` parked a question bound
+        to another slide or stage and the phone dropped the card. The id
+        stays in this session's teacher state until the next slide or stage
+        change (``set_live_session_teacher_state`` drops it). It does not
+        bump ``state_seq``: the publish already moved the poll stamp.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Published lifecycle row.
+        """
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind in {"media", "whiteboard", "slides"}:
+            return
+        try:
+            item_pk = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            return
+        if item_pk <= 0:
+            return
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+            if row is None:
+                return
+            stored: dict[str, Any] = {}
+            raw = row["teacher_state_json"]
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed = {}
+                if isinstance(parsed, dict):
+                    stored = parsed
+            ids = [
+                value
+                for value in clean_published_here(stored.get(PUBLISHED_HERE_KEY))
+                if value != item_pk
+            ]
+            ids.append(item_pk)
+            stored[PUBLISHED_HERE_KEY] = clean_published_here(ids)
+            self.conn.execute(
+                "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+                (json.dumps(stored), int(session_id)),
+            )
+            self.conn.commit()
 
     def _push_card_session_context(
         self, item: dict[str, Any]
@@ -31584,6 +31645,8 @@ class SchoolDB(LovesDB):
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "").strip().lower()
         current_page = self._current_student_page_number(session_id)
+        # MCK-531: published on this slide and stage, so live even if bound elsewhere.
+        published_here = set(clean_published_here(teacher.get(PUBLISHED_HERE_KEY)))
         deck_ids: list[str] = []
         for row in (
             self.live_class_metadata_for_session(session_id).get("questions") or []
@@ -31700,6 +31763,8 @@ class SchoolDB(LovesDB):
                         stage_matches = True
                 except (TypeError, ValueError):
                     pass
+            if int(item["id"]) in published_here:
+                stage_matches = True
             include_results = status == "closed" or (
                 bool(item["show_live_results"])
                 and (
@@ -31917,7 +31982,11 @@ class SchoolDB(LovesDB):
             row
             for row in public_items
             if self._student_row_is_facing(
-                session_id, row, stage=stage, current_page=current_page
+                session_id,
+                row,
+                stage=stage,
+                current_page=current_page,
+                published_here=published_here,
             )
         ]
         facing_ids = {int(row["id"]) for row in facing}
@@ -36179,6 +36248,7 @@ class SchoolDB(LovesDB):
         *,
         stage: str,
         current_page: int | None,
+        published_here: set[int] | frozenset[int] = frozenset(),
     ) -> bool:
         """True when this public row is a live question the student should answer.
 
@@ -36192,9 +36262,16 @@ class SchoolDB(LovesDB):
             row: One ``student_live_items_payload`` public row.
             stage: Teacher stage, already lowercased.
             current_page: Teacher deck page, or None when pages are unset.
+            published_here: Lifecycle ids published on the teacher's current
+                slide and stage (MCK-531). They face until the next move.
         """
         if str(row.get("status") or "") != "active" or row.get("prompt") is None:
             return False
+        try:
+            if int(row.get("id") or 0) in published_here:
+                return True
+        except (TypeError, ValueError):
+            pass
         if not self._student_item_on_current_page(
             session_id, row, current_page=current_page
         ):
@@ -42603,6 +42680,10 @@ class SchoolDB(LovesDB):
             self._stamp_page_number_for_legacy_stage(
                 session_id, payload, prev_stage=prev_stage
             )
+        if teacher_place(payload) != teacher_place(current):
+            # MCK-531: any slide or stage move, however it was reached,
+            # ends the window where a published off-slide question stays live.
+            payload.pop(PUBLISHED_HERE_KEY, None)
         written = self._write_teacher_state(session_id, payload)
         if payload.get("page_number") != current.get("page_number"):
             self._sync_slide_index_to_page(

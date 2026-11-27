@@ -4961,8 +4961,7 @@ function paintLifecycleQuestionStack(payload) {
     }),
     nextIds
   );
-  mountQuestionLightbox(document);
-  syncQuestionLightbox(liveQuestionStackBody);
+  safeSyncQuestionLightbox(liveQuestionStackBody);
   // MCK-184: a card the student lifted (phone resize pill, desktop drag)
   // used to keep its old DOM forever: a Take turns pick greyed the
   // buttons, the server took it, and that phone never showed it or any
@@ -5595,7 +5594,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
     wirePromptControls(prompt);
   }
   void renderLiveQuestionMath(promptShell);
-  if (promptShell) syncQuestionLightbox(promptShell);
+  if (promptShell) safeSyncQuestionLightbox(promptShell);
   restorePromptShellUnsent(payload);
   if (kind === "artifact") {
     applyArtifactPreview(lastArtifactSliders);
@@ -7750,3 +7749,17 @@ document.getElementById("gamification-winner")?.addEventListener("click", (event
   void submitMvpVote(codename);
 });
 
+/**
+ * MCK-531: image enlarge is decoration. A throw there must never stop the
+ * card paint, the unsent-answer restore, or the rest of the repaint.
+ * @param {Element|null} root
+ */
+function safeSyncQuestionLightbox(root) {
+  if (!root) return;
+  try {
+    mountQuestionLightbox(document);
+    syncQuestionLightbox(root);
+  } catch (err) {
+    window.llovesSentryReport?.(err, "question-lightbox");
+  }
+}

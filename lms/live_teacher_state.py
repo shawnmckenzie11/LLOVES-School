@@ -79,6 +79,42 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# MCK-531: lifecycle ids the teacher published on the current slide and
+# stage. A page- or stage-bound question published from another slide stays
+# live for students until the teacher's next slide or stage change, which
+# drops this list. It lives in this session's teacher state only.
+PUBLISHED_HERE_KEY = "published_here"
+PUBLISHED_HERE_MAX = 40
+
+
+def clean_published_here(raw: Any) -> list[int]:
+    """Return the published-on-this-slide lifecycle ids, oldest first.
+
+    Args:
+        raw: Stored ``published_here`` value, possibly malformed.
+    """
+    if not isinstance(raw, list):
+        return []
+    ids: list[int] = []
+    for value in raw:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0 and number not in ids:
+            ids.append(number)
+    return ids[-PUBLISHED_HERE_MAX:]
+
+
+def teacher_place(state: dict[str, Any]) -> tuple[str, Any, str]:
+    """Slide and stage identity used to expire ``published_here``."""
+    return (
+        str(state.get("stage") or ""),
+        state.get("page_number"),
+        str(state.get("page_id") or ""),
+    )
+
+
 def default_student_view(stage: str | None = None) -> dict[str, str]:
     """Return per-surface student-view modes for one stage.
 
@@ -990,6 +1026,9 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     drafts = _clean_group_drafts(stored.get("group_drafts"))
     if drafts:
         base["group_drafts"] = drafts
+    published_here = clean_published_here(stored.get(PUBLISHED_HERE_KEY))
+    if published_here:
+        base[PUBLISHED_HERE_KEY] = published_here
     apply_unlock_frames(base)
     return base
 
@@ -1111,6 +1150,7 @@ def apply_teacher_state_update(
     """
     del canvas_ephemeral  # always true; callers cannot persist the stub
     base = public_teacher_state(current)
+    prev_place = teacher_place(base)
     prev_mc_ui = (
         dict(base["mc_ui"]) if isinstance(base.get("mc_ui"), dict) else None
     )
@@ -1349,6 +1389,9 @@ def apply_teacher_state_update(
         bind_join_share_on_reveal(base, previous_mc_ui=prev_mc_ui)
     base["canvas_ephemeral"] = True
     apply_unlock_frames(base)
+    if teacher_place(base) != prev_place:
+        # MCK-531: a slide or stage change ends the publish-from-here window.
+        base.pop(PUBLISHED_HERE_KEY, None)
     base["updated_at"] = _now_iso()
     base["state_seq"] = _clean_state_seq(base.get("state_seq")) + 1
     return base
