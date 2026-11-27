@@ -111,6 +111,23 @@ def catchup_earned(current: int | None) -> int:
     return RANK_EARNED_BASE
 
 
+def group_catchup_score(current_earned: int | None) -> tuple[int, int]:
+    """Score one group catch-up answer. The cap is 1/1.
+
+    Shawn decided in C Suite on Nov 27, 2026 that every Group catch-up
+    answer — rank, MC, Numeric, Poll, and Show Your Work — uses the
+    same cap as rank catch-up. This reuses ``catchup_earned`` so a
+    live 2/1 or a doubled-scale row is not reduced. Catch-up never
+    writes the no-check bonus. Callers write ``source='catchup'`` and
+    must not touch ``live_group_responses`` or team rows.
+
+    Args:
+        current_earned: Points already stored for this student and
+            question, if any.
+    """
+    return catchup_earned(current_earned), RANK_POSSIBLE
+
+
 def legacy_doubled_rank(possible: int | None, kind: str) -> bool:
     """True when a rank row is stored on the doubled MCK-301 scale.
 

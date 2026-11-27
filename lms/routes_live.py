@@ -6165,6 +6165,79 @@ def register_live(app, school, shared):
         return jsonify(reply)
 
     @bp.route(
+        "/api/catchup/<token>/group-boards/<path:question_key>/board",
+        methods=["GET"],
+    )
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_group_catchup_question_board(token: str, question_key: str):
+        """Solo Group catch-up board for one student."""
+        from question_board import QuestionBoardError
+
+        found, denied = _catchup_board_student(token)
+        if denied is not None:
+            return denied
+        _link, student_id = found
+        try:
+            reply = school.read_group_catchup_board(
+                token,
+                int(student_id),
+                str(question_key),
+                since=_optional_board_seq(request.args.get("since")),
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
+        "/api/catchup/<token>/group-boards/<path:question_key>/board/ops",
+        methods=["POST"],
+    )
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_group_catchup_question_board_ops(token: str, question_key: str):
+        """Append ink on this student's Group catch-up board only."""
+        from question_board import QuestionBoardError
+
+        found, denied = _catchup_board_student(token)
+        if denied is not None:
+            return denied
+        _link, student_id = found
+        body = request.get_json(silent=True) or {}
+        try:
+            ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+            reply = school.append_group_catchup_board_ops(
+                token,
+                int(student_id),
+                str(question_key),
+                ops,
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
+        "/api/catchup/<token>/group-boards/<path:question_key>/board/submit",
+        methods=["POST"],
+    )
+    @feature_required_any("whiteboard", "whiteboard_submit")
+    def api_group_catchup_question_board_submit(token: str, question_key: str):
+        """Submit a Group catch-up board. Live and team rows are not touched."""
+        from question_board import QuestionBoardError
+
+        found, denied = _catchup_board_student(token)
+        if denied is not None:
+            return denied
+        _link, student_id = found
+        body = request.get_json(silent=True) or {}
+        try:
+            reply = school.submit_group_catchup_board(
+                token, int(student_id), str(question_key), body.get("text") or ""
+            )
+        except QuestionBoardError as exc:
+            return _question_board_error(exc)
+        return jsonify(reply)
+
+    @bp.route(
         "/api/live-sessions/<int:session_id>/whiteboard-gallery/<path:board_key>/clear",
         methods=["POST"],
     )

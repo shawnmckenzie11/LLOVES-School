@@ -83,6 +83,10 @@ class CatchupPageLayoutTests(unittest.TestCase):
         self.assertIn('"Group"', js)
         self.assertIn('"Formative"', js)
         self.assertNotIn("T1 Individual", js)
+        work = (LMS_DIR / "static" / "catchup.js").read_text(encoding="utf-8")
+        self.assertIn('["individual", "Individual"]', work)
+        self.assertIn('["group", "Group"]', work)
+        self.assertIn('["formative", "Formative"]', work)
 
     def test_catchup_board_locks_after_submit(self) -> None:
         """The phone greys out, tools disable, and the line is Submitted ✓."""
@@ -94,9 +98,12 @@ class CatchupPageLayoutTests(unittest.TestCase):
         self.assertIn('submittedLine: "Submitted ✓"', mount)
         self.assertIn("classList.add(\"is-locked\")", ui)
         py = (LMS_DIR / "question_board.py").read_text(encoding="utf-8")
-        self.assertIn('CATCHUP_SUBMITTED_LINE = "Submitted ✓"', py)
-        self.assertIn('if parsed.kind not in {"question", "catchup"}:', py)
+        self.assertIn('SUBMITTED_LINE = "Submitted ✓"', py)
+        self.assertIn("CATCHUP_SUBMITTED_LINE = SUBMITTED_LINE", py)
+        self.assertIn('if parsed.kind not in {"question", "catchup", "catchup_group"}:', py)
         self.assertNotIn("You can still make changes.", py)
+        self.assertNotIn("You can still make changes.", ui)
+        self.assertIn('const fallback = options.submittedLine || "Submitted ✓"', ui)
         css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
         self.assertIn(".qboard-phone.is-locked", css)
         self.assertIn("pointer-events: none", css)

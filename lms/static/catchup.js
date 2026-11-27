@@ -106,14 +106,15 @@ export function catchupCardHtml(question, tag) {
   const promptKind = String(question?.prompt_kind || "");
   const liveKind = lifecycleAnswerKind({ content, prompt: { kind: promptKind } });
   const kind = liveKind === "rank" || liveKind === "artifact" ? "text" : liveKind;
-  const boardMode = String(content.answer_with || "");
-  const board = boardMode === "board" || boardMode === "both";
+  const boardMode = String(content.answer_with || (question?.board_answer ? "board" : ""));
+  const board = boardMode === "board" || boardMode === "both" || Boolean(question?.board_answer);
   const boardImage =
     content?.image_as_board_background !== false && content?.image_url
       ? String(content.image_url)
       : "";
+  const groupKey = question?.group_item && !question?.item_id ? String(question?.question_key || "") : "";
   const body = board
-    ? `<div class="qboard-slot" data-qboard-catchup="${escapeText(String(question?.item_id || ""))}" data-qboard-mode="${escapeText(boardMode)}" data-qboard-readonly="${question?.read_only ? "1" : "0"}" data-qboard-image="${escapeText(boardImage)}"></div>`
+    ? `<div class="qboard-slot" data-qboard-catchup="${escapeText(String(question?.item_id || ""))}" data-qboard-group-key="${escapeText(groupKey)}" data-qboard-mode="${escapeText(boardMode)}" data-qboard-readonly="${question?.read_only ? "1" : "0"}" data-qboard-image="${escapeText(boardImage)}"></div>`
     : question?.answered
     ? `<p class="student-live-own-answer">${escapeText(tag)}</p>`
     : question?.group_rank
@@ -123,9 +124,10 @@ export function catchupCardHtml(question, tag) {
           ? catchupDrawControlsHtml()
           : ""
         : liveAnswerControlsHtml(kind, content, "individual", "—", "Submit Answer");
+  const category = question?.group_item || question?.group_rank ? "group" : String(question?.category || "individual");
   return `<article class="student-live-card is-${question?.answered ? "closed" : "active"}" data-question-key="${escapeText(
     question?.question_key || ""
-  )}"${question?.group_rank ? ' data-group-rank="1"' : ""}>
+  )}" data-catchup-category="${escapeText(category)}"${question?.group_rank ? ' data-group-rank="1"' : ""}${question?.group_item ? ' data-group-item="1"' : ""}>
         ${liveQuestionHeadHtml(content, promptKind, formatQuestionHtml)}
         ${body}
         ${boardFeedbackBlock(question?.board_feedback)}
@@ -206,7 +208,36 @@ function mountCatchup() {
     data = {};
   }
   const questions = Array.isArray(data.questions) ? data.questions : [];
-  root.innerHTML = questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
+  const tabs = [
+    ["individual", "Individual"],
+    ["group", "Group"],
+    ["formative", "Formative"],
+  ];
+  const tabBar = `<div class="catchup-tabs" role="tablist" aria-label="Catch-up categories">${tabs
+    .map(
+      ([id, label], index) =>
+        `<button type="button" class="catchup-tab${index === 0 ? " is-on" : ""}" role="tab" aria-selected="${
+          index === 0 ? "true" : "false"
+        }" data-catchup-tab="${id}">${label}</button>`
+    )
+    .join("")}</div>`;
+  root.innerHTML = tabBar + questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
+  const showCategory = (id) => {
+    root.querySelectorAll("[data-catchup-tab]").forEach((btn) => {
+      const on = btn.getAttribute("data-catchup-tab") === id;
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    root.querySelectorAll("[data-catchup-category]").forEach((card) => {
+      card.hidden = card.getAttribute("data-catchup-category") !== id;
+    });
+  };
+  showCategory("individual");
+  root.addEventListener("click", (event) => {
+    const tab = event.target instanceof Element ? event.target.closest("[data-catchup-tab]") : null;
+    if (!tab) return;
+    showCategory(tab.getAttribute("data-catchup-tab") || "individual");
+  });
   mountQuestionLightbox(document);
   syncQuestionLightbox(root);
   const parts = window.location.pathname.split("/").filter(Boolean);

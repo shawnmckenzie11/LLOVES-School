@@ -23,12 +23,14 @@ CLOSED_LINE = "This question is closed."
 EMPTY_LINE = "Add an answer before submitting."
 GATE_LINE = "Everyone on the team adds something to the board before Submit."
 LOCKED_LINE = "This board is submitted."
-CATCHUP_SUBMITTED_LINE = "Submitted ✓"
+SUBMITTED_LINE = "Submitted ✓"
+CATCHUP_SUBMITTED_LINE = SUBMITTED_LINE
 TEXT_LINE = "That text is too long."
 FEEDBACK_CAP = 500
 ROUND_DIGITS = 3
 
 _CATCHUP_RE = re.compile(r"^(?P<base>[^~]+)~cu~q(?P<n>[0-9]+)$")
+_CATCHUP_GROUP_RE = re.compile(r"^(?P<base>[^~]+)~cu~g~(?P<key>.+)$")
 _QUESTION_RE = re.compile(r"^(?P<base>[^~]+)~q(?P<n>[0-9]+)$")
 _FRESH_RE = re.compile(r"^(?P<base>[^~]+)~g(?P<n>[0-9]+)$")
 _ANSWER_WITH = frozenset({"text", "board", "both"})
@@ -64,21 +66,26 @@ class BoardRunKey:
 
     Attributes:
         base: Session or catch-up link run key, with no suffix.
-        kind: ``session``, ``fresh``, ``question``, or ``catchup``.
+        kind: ``session``, ``fresh``, ``question``, ``catchup``,
+            or ``catchup_group``.
         n: Generation, prompt id, or participation item id.
+        tag: Group catch-up ``question_key`` when kind is
+            ``catchup_group``.
     """
 
     base: str
     kind: str
     n: int | None
+    tag: str | None = None
 
 
 def parse_board_run_key(raw: Any) -> BoardRunKey:
     """Parse a board run key into base, kind, and suffix number.
 
     Recognised forms are the bare session key, ``<base>~g<n>``,
-    ``<base>~q<prompt id>``, and ``<base>~cu~q<item id>``. Anything else
-    is refused. ``~g`` and ``~q`` never combine.
+    ``<base>~q<prompt id>``, ``<base>~cu~q<item id>``, and
+    ``<base>~cu~g~<question key>``. Anything else is refused. ``~g``
+    and ``~q`` never combine.
 
     Args:
         raw: Client or stored run key.
@@ -97,6 +104,9 @@ def parse_board_run_key(raw: Any) -> BoardRunKey:
     match = _CATCHUP_RE.match(token)
     if match:
         return BoardRunKey(match.group("base"), "catchup", int(match.group("n")))
+    match = _CATCHUP_GROUP_RE.match(token)
+    if match:
+        return BoardRunKey(match.group("base"), "catchup_group", None, match.group("key"))
     match = _QUESTION_RE.match(token)
     if match:
         return BoardRunKey(match.group("base"), "question", int(match.group("n")))
@@ -122,6 +132,8 @@ def assert_board_run_key(raw: Any) -> str:
         return f"{parsed.base}~g{int(parsed.n or 0)}"
     if parsed.kind == "question":
         return f"{parsed.base}~q{int(parsed.n or 0)}"
+    if parsed.kind == "catchup_group":
+        return f"{parsed.base}~cu~g~{str(parsed.tag or '').strip()}"
     return f"{parsed.base}~cu~q{int(parsed.n or 0)}"
 
 
@@ -141,7 +153,7 @@ def session_lock_key(raw: Any) -> str:
     parsed = parse_board_run_key(raw)
     if parsed.kind == "question":
         return parsed.base
-    if parsed.kind == "catchup":
+    if parsed.kind in {"catchup", "catchup_group"}:
         return f"{parsed.base}~cu"
     if parsed.kind == "fresh":
         return f"{parsed.base}~g{int(parsed.n or 0)}"
@@ -172,6 +184,19 @@ def catchup_run_key(link_run_key: str, item_id: int) -> str:
         ``<link run key>~cu~q<item id>``.
     """
     return f"{str(link_run_key).strip()}~cu~q{int(item_id)}"
+
+
+def catchup_group_board_run_key(link_run_key: str, question_key: str) -> str:
+    """Build the catch-up run key for a Group Show Your Work board.
+
+    Args:
+        link_run_key: Catch-up link run key.
+        question_key: ``group_engagement_items.question_key``.
+
+    Returns:
+        ``<link run key>~cu~g~<question key>``.
+    """
+    return f"{str(link_run_key).strip()}~cu~g~{str(question_key).strip()}"
 
 
 def purge_like_params(base: str) -> tuple[str, str, str, str]:
@@ -730,7 +755,7 @@ def refuse_submitted_student_ink(
         parsed = parse_board_run_key(run_key)
     except ValueError:
         return
-    if parsed.kind not in {"question", "catchup"}:
+    if parsed.kind not in {"question", "catchup", "catchup_group"}:
         return
     try:
         cursor = exec_(
@@ -1550,7 +1575,7 @@ def submit_live_board(
         "group": group,
         "answer": pointer,
         "submitted_by": int(student_id),
-        "status_line": "Submitted.",
+        "status_line": SUBMITTED_LINE,
         "editing_locked": True,
     }
 
@@ -1973,7 +1998,7 @@ def read_student_question_board(
     if submitted_at and group and who_name:
         line = f"Submitted by {who_name}."
     elif submitted_at:
-        line = "Submitted."
+        line = SUBMITTED_LINE
     body = {
         "ok": True,
         "run_key": run_key,
@@ -2800,6 +2825,220 @@ def submit_catchup_board(
         "editing_locked": True,
         "read_only": True,
     }
+
+
+def _group_catchup_board_item(
+    school: Any, link: dict[str, Any], question_key: str
+) -> dict[str, Any] | None:
+    """Load a Group catalogue board, or None. No names or keys are added.
+
+    Args:
+        school: Open school database.
+        link: Catch-up link row.
+        question_key: ``group_engagement_items.question_key``.
+    """
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT item_json, prompt_kind, live_module
+            FROM group_engagement_items
+            WHERE class_id = ? AND run_key = ? AND question_key = ?
+            """,
+            (int(link["class_id"]), str(link["run_key"]), str(question_key)),
+        ).fetchone()
+    if row is None:
+        return None
+    kind = str(row["prompt_kind"] or "")
+    payload = _loads(row["item_json"])
+    if kind != "board" and not uses_board(payload):
+        return None
+    return {
+        "item_json": row["item_json"],
+        "prompt_kind": kind,
+        "live_module": row["live_module"],
+        "payload": payload if isinstance(payload, dict) else {},
+    }
+
+
+def submit_group_catchup_board(
+    school: Any,
+    token: str,
+    student_id: int,
+    question_key: str,
+    text: Any = "",
+) -> dict[str, Any]:
+    """Submit a solo Group catch-up board. No live or team rows are touched.
+
+    After the ink copy is saved, ``_write_group_catchup_score_row``
+    writes the 1/1 ``source='catchup'`` cap. ``live_group_responses``
+    and team rows stay as they were.
+
+    Args:
+        school: Open school database.
+        token: Catch-up link token. Not logged.
+        student_id: Roster id from the catch-up login.
+        question_key: ``group_engagement_items.question_key``.
+        text: Typed part.
+    """
+    from catchup_landing import link_still_open
+
+    link = school.get_catchup_link(str(token or ""))
+    if link is None or not link_still_open(school, {**link, "class_id": int(link["class_id"])}):
+        raise QuestionBoardError(CLOSED_LINE, 409)
+    item = _group_catchup_board_item(school, link, str(question_key))
+    if item is None:
+        raise QuestionBoardError("Question not found", 404)
+    typed = _cap_text(text)
+    run_key = catchup_group_board_run_key(str(link["run_key"]), str(question_key))
+    board_key = f"solo:{int(student_id)}"
+    if _copy_is_submitted(school, int(link["class_id"]), run_key, board_key):
+        raise QuestionBoardError(LOCKED_LINE, 409)
+    rows, seq = _board_rows(school, run_key, board_key)
+    copy = compact_saved_copy(rows, seq)
+    size = copy_byte_size(copy)
+    if size > COPY_CAP_BYTES:
+        raise QuestionBoardError(SIZE_LINE, 413)
+    strokes = copy.get("strokes") or []
+    labels = copy.get("texts") or []
+    if not strokes and not labels and not typed.strip():
+        raise QuestionBoardError(EMPTY_LINE, 400)
+    now = _now_stamp(school)
+    with school._lock:
+        started = _begin_immediate(school)
+        try:
+            landed = _upsert_copy(
+                school,
+                class_id=int(link["class_id"]),
+                run_key=run_key,
+                board_key=board_key,
+                strokes_json=copy_json(copy),
+                byte_size=size,
+                board_seq=seq,
+                text=typed,
+                submitted_by=int(student_id),
+                member_ids=[int(student_id)],
+                now=now,
+            )
+            _finish_write(school, started)
+        except QuestionBoardError:
+            raise
+        except Exception:
+            _abort_write(school, started)
+            raise
+    if landed:
+        school._write_group_catchup_score_row(link, int(student_id), str(question_key))
+    return {
+        "ok": True,
+        "status_line": CATCHUP_SUBMITTED_LINE,
+        "editing_locked": True,
+        "read_only": True,
+    }
+
+
+def read_group_catchup_board(
+    school: Any,
+    token: str,
+    student_id: int,
+    question_key: str,
+    since: int | None = None,
+) -> dict[str, Any]:
+    """Solo Group catch-up board. Other students' ink is not included.
+
+    Args:
+        school: Open school database.
+        token: Catch-up link token. Not logged.
+        student_id: Roster id.
+        question_key: ``group_engagement_items.question_key``.
+        since: Last sequence the phone has applied. Omit for a snapshot.
+    """
+    from board_ops import fold_one_board
+    from catchup_landing import link_still_open
+
+    link = school.get_catchup_link(str(token or ""))
+    if link is None or not link_still_open(school, {**link, "class_id": int(link["class_id"])}):
+        raise QuestionBoardError(CLOSED_LINE, 409)
+    item = _group_catchup_board_item(school, link, str(question_key))
+    if item is None:
+        raise QuestionBoardError("Question not found", 404)
+    payload = item["payload"]
+    run_key = catchup_group_board_run_key(str(link["run_key"]), str(question_key))
+    board_key = f"solo:{int(student_id)}"
+    submitted = _copy_is_submitted(school, int(link["class_id"]), run_key, board_key)
+    rows, seq = _board_rows(school, run_key, board_key)
+    view = fold_one_board(rows, include_feedback=False)
+    phone = _solo_phone(int(student_id))
+    return {
+        "ok": True,
+        "run_key": run_key,
+        "board_key": board_key,
+        "board_seq": seq,
+        "snapshot": since is None,
+        "canvas_view": view,
+        "read_only": submitted,
+        "editing_locked": submitted,
+        "group": False,
+        "answer_with": answer_with_of(payload),
+        "status_line": CATCHUP_SUBMITTED_LINE if submitted else "",
+        "image_url": str(payload.get("image_url") or "") if image_is_background(payload) else "",
+        "stem": str(payload.get("text") or payload.get("prompt") or ""),
+        "submit_ready": True,
+        **phone,
+    }
+
+
+def append_group_catchup_board_ops(
+    school: Any,
+    token: str,
+    student_id: int,
+    question_key: str,
+    ops: list[dict[str, Any]],
+    *,
+    client_batch_id: str | None = None,
+) -> dict[str, Any]:
+    """Append ink on this student's Group catch-up board only.
+
+    Args:
+        school: Open school database.
+        token: Catch-up link token. Not logged.
+        student_id: Roster id.
+        question_key: ``group_engagement_items.question_key``.
+        ops: Client ops.
+        client_batch_id: Retry token.
+    """
+    from catchup_landing import link_still_open
+    from formative_live_board import scrub_op
+
+    link = school.get_catchup_link(str(token or ""))
+    if link is None or not link_still_open(school, {**link, "class_id": int(link["class_id"])}):
+        raise QuestionBoardError(CLOSED_LINE, 409)
+    item = _group_catchup_board_item(school, link, str(question_key))
+    if item is None:
+        raise QuestionBoardError("Question not found", 404)
+    run_key = catchup_group_board_run_key(str(link["run_key"]), str(question_key))
+    board_key = f"solo:{int(student_id)}"
+    if _copy_is_submitted(school, int(link["class_id"]), run_key, board_key):
+        raise QuestionBoardError(LOCKED_LINE, 409)
+    cleaned = [scrub_op(op) for op in ops if isinstance(op, dict)]
+    boards = getattr(school, "boards", None)
+    if boards is None:
+        raise QuestionBoardError(DOWN_LINE, 503)
+    from board_ops import BoardSessionClosed
+
+    try:
+        assert_board_run_key(run_key)
+        return boards.append_ops(
+            run_key,
+            board_key,
+            owner=str(int(student_id)),
+            ops=cleaned,
+            client_batch_id=client_batch_id,
+        )
+    except QuestionBoardError:
+        raise
+    except BoardSessionClosed as exc:
+        raise QuestionBoardError(CLOSED_LINE, 409) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
 
 
 def _solo_phone(student_id: int) -> dict[str, Any]:
