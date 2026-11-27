@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -33,14 +34,51 @@ from feature_admin import (  # noqa: E402
     admin_reset_teacher_overrides,
     admin_set_teacher_override,
     admin_set_teacher_plan,
-    assert_audit_append_only,
-    audit_row_count,
 )
+
+
+def assert_audit_append_only(conn: sqlite3.Connection) -> None:
+    """Refuse update and delete on ``teacher_feature_audit`` (test helper)."""
+    conn.execute(
+        """
+        INSERT INTO teacher_feature_audit (
+            admin_user_id, teacher_user_id, key, old_value, new_value, created_at
+        ) VALUES (1, 2, 'plan', 'basic', 'pro', '2000-01-01T00:00:00')
+        """
+    )
+    audit_id = int(
+        conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    )
+    try:
+        conn.execute(
+            "UPDATE teacher_feature_audit SET new_value = 'basic' WHERE id = ?",
+            (audit_id,),
+        )
+        raise AssertionError("audit update should have been refused")
+    except sqlite3.IntegrityError:
+        pass
+    try:
+        conn.execute("DELETE FROM teacher_feature_audit WHERE id = ?", (audit_id,))
+        raise AssertionError("audit delete should have been refused")
+    except sqlite3.IntegrityError:
+        pass
 
 
 def _stamp() -> str:
     """ISO timestamp without microseconds."""
     return datetime.now().replace(microsecond=0).isoformat()
+
+
+def audit_row_count(conn: sqlite3.Connection, teacher_user_id: int) -> int:
+    """Count audit rows for one teacher (test helper)."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM teacher_feature_audit
+        WHERE teacher_user_id = ?
+        """,
+        (int(teacher_user_id),),
+    ).fetchone()
+    return int(row["n"])
 
 
 class TeacherPlanAdminTests(unittest.TestCase):
@@ -117,6 +155,15 @@ class TeacherPlanAdminTests(unittest.TestCase):
             json={"plan": PLAN_PRO},
         )
         self.assertEqual(api.status_code, 404)
+        override = self.client.post(
+            f"/it/api/teacher-plans/{self.teacher_id}/features/media",
+            json={"mode": OVERRIDE_ON},
+        )
+        self.assertEqual(override.status_code, 404)
+        reset = self.client.post(
+            f"/it/api/teacher-plans/{self.teacher_id}/reset-overrides",
+        )
+        self.assertEqual(reset.status_code, 404)
 
     def test_audit_triggers_refuse_mutation(self) -> None:
         """Audit rows are append-only on sqlite."""
@@ -256,6 +303,74 @@ class TeacherPlanAdminTests(unittest.TestCase):
             json={"mode": OVERRIDE_ON},
         )
         self.assertEqual(bad.status_code, 404)
+
+    def test_cross_tenant_post_is_404_with_no_audit(self) -> None:
+        """An admin cannot change a teacher in another tenant."""
+        other = self.school.create_tenant("plan-admin-other", "Other school")
+        outsider = self.school.register_staff(
+            "other-tenant-teacher@example.com",
+            tenant_id=int(other["id"]),
+        )
+        outsider_id = int(outsider["id"])
+        self.school.conn.execute(
+            """
+            INSERT INTO user_features (user_id, feature_key, enabled, updated_at)
+            VALUES (?, 'media', 1, ?)
+            """,
+            (outsider_id, _stamp()),
+        )
+        audits_before = int(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM teacher_feature_audit"
+            ).fetchone()[0]
+        )
+        self._login(self.admin_id, "it")
+        plan_resp = self.client.post(
+            f"/it/api/teacher-plans/{outsider_id}/plan",
+            json={"plan": PLAN_PRO},
+        )
+        self.assertEqual(plan_resp.status_code, 404)
+        override_resp = self.client.post(
+            f"/it/api/teacher-plans/{outsider_id}/features/media",
+            json={"mode": OVERRIDE_OFF},
+        )
+        self.assertEqual(override_resp.status_code, 404)
+        reset_resp = self.client.post(
+            f"/it/api/teacher-plans/{outsider_id}/reset-overrides",
+        )
+        self.assertEqual(reset_resp.status_code, 404)
+        audits_after = int(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM teacher_feature_audit"
+            ).fetchone()[0]
+        )
+        self.assertEqual(audits_before, audits_after)
+        plan = self.school.conn.execute(
+            "SELECT plan FROM users WHERE id = ?", (outsider_id,)
+        ).fetchone()["plan"]
+        self.assertEqual(str(plan), PLAN_BASIC)
+        override_row = self.school.conn.execute(
+            """
+            SELECT enabled FROM user_features
+            WHERE user_id = ? AND feature_key = 'media'
+            """,
+            (outsider_id,),
+        ).fetchone()
+        self.assertIsNotNone(override_row)
+        self.assertEqual(1, int(override_row["enabled"]))
+
+    def test_archived_teacher_returns_404(self) -> None:
+        """Archived staff cannot be changed from the plan admin API."""
+        self.school.conn.execute(
+            "UPDATE users SET archived_at = ? WHERE id = ?",
+            (_stamp(), self.teacher_id),
+        )
+        self._login(self.admin_id, "it")
+        resp = self.client.post(
+            f"/it/api/teacher-plans/{self.teacher_id}/plan",
+            json={"plan": PLAN_PRO},
+        )
+        self.assertEqual(resp.status_code, 404)
 
 
 if __name__ == "__main__":

@@ -149,20 +149,12 @@ def plan_default(plan: str | None, key: str) -> bool:
     return bool(FEATURE_REGISTRY.get(name, False))
 
 
-def _sqlite_school_conn(conn: Any) -> bool:
-    """True when ``conn`` is the school sqlite file (not live Postgres)."""
-    try:
-        conn.execute("PRAGMA user_version")
-        return True
-    except Exception:
-        return False
-
-
 def ensure_feature_schema(conn: Any) -> None:
     """Create ``user_features`` and add ``users.plan`` when it is missing.
 
     Safe to call on every boot. A second call does not rewrite the column.
-    Also ensures the append-only teacher plan/override audit table on sqlite.
+    Also ensures the append-only teacher plan/override audit table and its
+    triggers on the school sqlite connection.
 
     Args:
         conn: sqlite connection. The caller holds the boot lock.
@@ -173,9 +165,8 @@ def ensure_feature_schema(conn: Any) -> None:
         conn.execute(USER_PLAN_DDL)
     conn.execute(TEACHER_FEATURE_AUDIT_DDL)
     conn.execute(TEACHER_FEATURE_AUDIT_INDEX_DDL)
-    if _sqlite_school_conn(conn):
-        conn.execute(TEACHER_FEATURE_AUDIT_NO_UPDATE)
-        conn.execute(TEACHER_FEATURE_AUDIT_NO_DELETE)
+    conn.execute(TEACHER_FEATURE_AUDIT_NO_UPDATE)
+    conn.execute(TEACHER_FEATURE_AUDIT_NO_DELETE)
 
 
 def _it_allowlist() -> set[str]:

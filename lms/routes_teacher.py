@@ -761,6 +761,10 @@ def register_teacher(app, school, shared):
             changed = admin_set_teacher_plan(
                 school, int(actor["id"]), int(teacher_id), plan
             )
+        except RuntimeError:
+            if request.is_json or _wants_json():
+                return jsonify({"ok": False}), 503
+            return "Service Unavailable", 503
         except ValueError:
             abort(404)
         if request.path.startswith("/it/api/") or request.is_json or _wants_json():
@@ -797,6 +801,10 @@ def register_teacher(app, school, shared):
                 feature_key,
                 mode,
             )
+        except RuntimeError:
+            if request.is_json or _wants_json():
+                return jsonify({"ok": False}), 503
+            return "Service Unavailable", 503
         except ValueError:
             abort(404)
         if request.is_json or _wants_json():
@@ -823,6 +831,10 @@ def register_teacher(app, school, shared):
             removed = admin_reset_teacher_overrides(
                 school, int(actor["id"]), int(teacher_id)
             )
+        except RuntimeError:
+            if request.is_json or _wants_json():
+                return jsonify({"ok": False}), 503
+            return "Service Unavailable", 503
         except ValueError:
             abort(404)
         if request.is_json or _wants_json():
