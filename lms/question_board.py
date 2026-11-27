@@ -3041,6 +3041,140 @@ def append_group_catchup_board_ops(
         raise QuestionBoardError(DOWN_LINE, 503) from exc
 
 
+def apply_group_catchup_presence(
+    school: Any,
+    token: str,
+    student_id: int,
+    question_key: str,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Store one presence batch on a Group catch-up board.
+
+    The board is ``solo:<id>`` under the ``~cu~g~`` key. Text, equations,
+    Clear (``board_wipe``), Undo (``board_unwipe``), and ink are stored
+    the same way as an individual catch-up board. Participation and
+    score rows are not written. A submitted board is refused. Names
+    are not stored.
+
+    Args:
+        school: Open school database.
+        token: Catch-up link token. Not logged.
+        student_id: Roster id.
+        question_key: ``group_engagement_items.question_key``.
+        body: Presence JSON.
+    """
+    from board_ops import BoardOpRejected, BoardSessionClosed
+    from catchup_landing import link_still_open
+    from live_canvas import cursor_color_for
+
+    link = school.get_catchup_link(str(token or ""))
+    if link is None or not link_still_open(school, {**link, "class_id": int(link["class_id"])}):
+        raise QuestionBoardError(CLOSED_LINE, 409)
+    item = _group_catchup_board_item(school, link, str(question_key))
+    if item is None:
+        raise QuestionBoardError("Question not found", 404)
+    run_key = _require_claimed_run(
+        body.get("run_key"),
+        catchup_group_board_run_key(str(link["run_key"]), str(question_key)),
+    )
+    board_key = f"solo:{int(student_id)}"
+    if _copy_is_submitted(school, int(link["class_id"]), run_key, board_key):
+        raise QuestionBoardError(LOCKED_LINE, 409)
+    boards = getattr(school, "boards", None)
+    if boards is None:
+        raise QuestionBoardError(DOWN_LINE, 503)
+    who = str(int(student_id))
+    color = cursor_color_for(who)
+    batch = str(body.get("client_batch_id") or "").strip() or None
+    try:
+        assert_board_run_key(run_key)
+        text_id = str(body.get("text_id") or "").strip()
+        equation_id = str(body.get("equation_id") or "").strip()
+        op_kind = str(body.get("op") or body.get("type") or "").strip()
+        if text_id:
+            boards.append_text(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                text_id=text_id,
+                text=str(body.get("text") if body.get("text") is not None else ""),
+                x=body.get("x"),
+                y=body.get("y"),
+                color=color,
+                team_id=None,
+                client_batch_id=batch,
+            )
+        elif equation_id:
+            boards.append_equation(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                equation_id=equation_id,
+                latex=str(body.get("latex") if body.get("latex") is not None else ""),
+                x=body.get("x"),
+                y=body.get("y"),
+                color=color,
+                team_id=None,
+                client_batch_id=batch,
+            )
+        elif op_kind == "board_wipe":
+            boards.append_wipe(
+                run_key,
+                board_key,
+                owner=who,
+                wipe_id=str(body.get("wipe_id") or body.get("id") or ""),
+                client_batch_id=batch,
+            )
+        elif op_kind == "board_unwipe":
+            boards.append_unwipe(
+                run_key,
+                board_key,
+                owner=who,
+                unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
+                wipe_id=str(body.get("wipe_id") or body.get("wipe") or ""),
+                client_batch_id=batch,
+            )
+        elif op_kind == "stroke_remove":
+            boards.append_remove(
+                run_key,
+                board_key,
+                owner=who,
+                stroke_id=str(body.get("stroke_id") or body.get("id") or ""),
+                client_batch_id=batch,
+            )
+        else:
+            points = body.get("points") if isinstance(body.get("points"), list) else None
+            boards.append_ink(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                color=color,
+                team_id=None,
+                stroke_id=str(body.get("stroke_id") or "") or None,
+                points=points,
+                point=body.get("point"),
+                ended=bool(body.get("ended")),
+                batched=isinstance(points, list),
+                x=body.get("x"),
+                y=body.get("y"),
+                client_batch_id=batch,
+            )
+    except BoardSessionClosed as exc:
+        if getattr(exc, "submitted", False):
+            raise QuestionBoardError(LOCKED_LINE, 409) from exc
+        raise QuestionBoardError(CLOSED_LINE, 409) from exc
+    except BoardOpRejected as exc:
+        raise QuestionBoardError("That stroke is not yours.", 403) from exc
+    except QuestionBoardError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise QuestionBoardError(DOWN_LINE, 503) from exc
+    return _presence_delta(school, run_key, board_key, body.get("since"))
+
+
 def _solo_phone(student_id: int) -> dict[str, Any]:
     """Viewer id and a nameless colour chip for one solo phone.
 
@@ -3242,6 +3376,8 @@ def append_catchup_board_ops(
         raise QuestionBoardError("That answer was saved in class.", 409)
     run_key = catchup_run_key(str(link["run_key"]), int(item_id))
     board_key = f"solo:{int(student_id)}"
+    if _copy_is_submitted(school, int(link["class_id"]), run_key, board_key):
+        raise QuestionBoardError(LOCKED_LINE, 409)
     cleaned = [scrub_op(op) for op in ops if isinstance(op, dict)]
     boards = getattr(school, "boards", None)
     if boards is None:
@@ -3260,6 +3396,8 @@ def append_catchup_board_ops(
     except QuestionBoardError:
         raise
     except BoardSessionClosed as exc:
+        if getattr(exc, "submitted", False):
+            raise QuestionBoardError(LOCKED_LINE, 409) from exc
         raise QuestionBoardError(CLOSED_LINE, 409) from exc
     except Exception as exc:  # noqa: BLE001
         raise QuestionBoardError(DOWN_LINE, 503) from exc

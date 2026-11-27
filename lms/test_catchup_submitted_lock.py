@@ -55,9 +55,11 @@ class CatchupPageLayoutTests(unittest.TestCase):
         self.assertIn("function liveQuestionTypeLabel", staff)
         self.assertIn('return "MC"', staff)
         self.assertIn('return "Numeric"', staff)
-        self.assertIn('return "Poll"', staff)
+        self.assertIn('if (type === "poll") return "Poll";', staff)
         self.assertIn('return "Show Your Work"', staff)
         self.assertNotIn('return "Whiteboard"', staff)
+        label_fn = staff.split("function liveQuestionTypeLabel(")[1].split("function heldRankRows(")[0]
+        self.assertIn('return "";', label_fn)
         self.assertIn("live-question-type", paint)
         self.assertIn("live-question-stem", paint)
         self.assertNotIn("live-question-card-meta", paint)

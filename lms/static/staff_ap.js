@@ -6195,7 +6195,7 @@ function liveQuestionIsRank(item, card) {
  * Fixed-width type label on a teacher question row.
  * @param {any} item
  * @param {any} card
- * @returns {"MC"|"Numeric"|"Poll"|"Show Your Work"|"Rank"}
+ * @returns {"MC"|"Numeric"|"Poll"|"Show Your Work"|"Rank"|""}
  */
 function liveQuestionTypeLabel(item, card) {
   const answerWith = String(item?.answer_with || card?.answer_with || "").toLowerCase();
@@ -6215,7 +6215,8 @@ function liveQuestionTypeLabel(item, card) {
   if (type === "numeric" || Boolean(item?.integer_only || card?.integer_only)) {
     return "Numeric";
   }
-  return "Poll";
+  if (type === "poll") return "Poll";
+  return "";
 }
 
 /** @type {Map<number, {seq: number, rows: any[], at: number}>} */
@@ -6836,9 +6837,13 @@ function paintLiveQuestionCards() {
         <div class="live-question-card-main">
           <div class="live-question-card-text">
             <span class="live-question-order">${index + 1}</span>
-            <span class="live-question-type-sep" aria-hidden="true">·</span>
+            ${
+              typeLabel
+                ? `<span class="live-question-type-sep" aria-hidden="true">·</span>
             <span class="live-question-type">${escapeHtml(typeLabel)}</span>
-            <span class="live-question-type-sep" aria-hidden="true">·</span>
+            <span class="live-question-type-sep" aria-hidden="true">·</span>`
+                : `<span class="live-question-type-sep" aria-hidden="true">·</span>`
+            }
             <span class="live-question-stem">${stemShown}</span>
           </div>
           ${thumb}

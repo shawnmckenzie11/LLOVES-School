@@ -428,6 +428,127 @@ class GroupCatchupTypesTests(ChallengeHarness):
         live_after = json.loads(self._totals_snapshot())["live"]
         self.assertEqual(live_after, live_before)
 
+    def test_group_catchup_phone_presence_saves_and_is_refused_after_submit(self) -> None:
+        """Phone points and Clear persist on a Group catch-up board.
+
+        Presence and wipe do not write a score or participation row. A
+        later Submit sees the saved ink. After Submit, Clear is refused.
+        """
+        from catchup_session import establish_catchup_identity
+        from question_board import LOCKED_LINE
+
+        board = self._publish(
+            self._add(
+                {
+                    "type": "team_draw",
+                    "text": "Show the graph.",
+                    "answer_with": "board",
+                }
+            )
+        )
+        key = self._question_key(board)
+        _ensure_group_item(
+            self.school,
+            self.session_id,
+            self._run_key(),
+            key,
+            self._live(board),
+        )
+        self._end()
+        token = self._token()
+        # A roster student with no live board completion.
+        sid = self.ids["Ben"]
+        self.school.set_student_pin(self.class_id, sid, "2468")
+        phone = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, sid)
+        with phone.session_transaction() as sess:
+            establish_catchup_identity(sess, self.school, self.class_id, sid, stamp)
+        base = f"/api/catchup/{token}/group-boards/{key}/board"
+
+        def _score_rows() -> int:
+            with self.school._lock:
+                row = self.school.conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM group_engagement
+                    WHERE class_id = ? AND question_key = ? AND student_id = ?
+                    """,
+                    (self.class_id, key, sid),
+                ).fetchone()
+                part = self.school.conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM participation_answers
+                    WHERE class_id = ? AND student_id = ? AND source = 'catchup'
+                    """,
+                    (self.class_id, sid),
+                ).fetchone()
+            return int(row["n"] or 0), int(part["n"] or 0)
+
+        drawn = phone.post(
+            f"{base}/ops",
+            json={
+                "points": [[0.1, 0.2], [0.4, 0.5], [0.7, 0.3]],
+                "stroke_id": "g-ink",
+                "ended": True,
+            },
+        )
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        loaded = phone.get(base)
+        self.assertEqual(loaded.status_code, 200, loaded.get_json())
+        stroke_ids = {
+            str(row.get("id") or "")
+            for row in (loaded.get_json().get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertIn("g-ink", stroke_ids)
+        self.assertEqual(_score_rows(), (0, 0))
+
+        wiped = phone.post(
+            f"{base}/ops",
+            json={"op": "board_wipe", "wipe_id": "g-wipe", "id": "g-wipe"},
+        )
+        self.assertEqual(wiped.status_code, 200, wiped.get_json())
+        after_wipe = phone.get(base)
+        self.assertEqual(after_wipe.status_code, 200, after_wipe.get_json())
+        wiped_ids = {
+            str(row.get("id") or "")
+            for row in (after_wipe.get_json().get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertNotIn("g-ink", wiped_ids)
+        self.assertEqual(_score_rows(), (0, 0))
+
+        kept = phone.post(
+            f"{base}/ops",
+            json={
+                "points": [[0.2, 0.3], [0.5, 0.6], [0.8, 0.4]],
+                "stroke_id": "g-kept",
+                "ended": True,
+            },
+        )
+        self.assertEqual(kept.status_code, 200, kept.get_json())
+        submitted = phone.post(f"{base}/submit", json={"text": ""})
+        self.assertEqual(submitted.status_code, 200, submitted.get_json())
+        self.assertTrue((submitted.get_json() or {}).get("editing_locked"))
+        after_submit = phone.get(base)
+        self.assertEqual(after_submit.status_code, 200, after_submit.get_json())
+        saved_ids = {
+            str(row.get("id") or "")
+            for row in (after_submit.get_json().get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertIn("g-kept", saved_ids)
+        self.assertNotIn("g-ink", saved_ids)
+
+        late = phone.post(
+            f"{base}/ops",
+            json={"op": "board_wipe", "wipe_id": "late-wipe", "id": "late-wipe"},
+        )
+        self.assertEqual(late.status_code, 409, late.get_json())
+        self.assertEqual((late.get_json() or {}).get("error"), LOCKED_LINE)
+        still = phone.get(base)
+        still_ids = {
+            str(row.get("id") or "")
+            for row in (still.get_json().get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertIn("g-kept", still_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

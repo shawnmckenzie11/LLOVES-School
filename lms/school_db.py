@@ -42465,6 +42465,21 @@ class SchoolDB(LovesDB):
             client_batch_id=client_batch_id,
         )
 
+    def apply_group_catchup_presence(
+        self, token: str, student_id: int, question_key: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store one presence batch on a Group catch-up board.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            question_key: ``group_engagement_items.question_key``.
+            body: Presence JSON.
+        """
+        from question_board import apply_group_catchup_presence as _apply
+
+        return _apply(self, token, int(student_id), str(question_key), body)
+
     def submit_group_catchup_board(
         self, token: str, student_id: int, question_key: str, text: Any = ""
     ) -> dict[str, Any]:

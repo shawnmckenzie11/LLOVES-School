@@ -6200,17 +6200,24 @@ def register_live(app, school, shared):
         found, denied = _catchup_board_student(token)
         if denied is not None:
             return denied
+        from question_board import body_is_presence
+
         _link, student_id = found
         body = request.get_json(silent=True) or {}
         try:
-            ops = body.get("ops") if isinstance(body.get("ops"), list) else []
-            reply = school.append_group_catchup_board_ops(
-                token,
-                int(student_id),
-                str(question_key),
-                ops,
-                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
-            )
+            if body_is_presence(body):
+                reply = school.apply_group_catchup_presence(
+                    token, int(student_id), str(question_key), body
+                )
+            else:
+                ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+                reply = school.append_group_catchup_board_ops(
+                    token,
+                    int(student_id),
+                    str(question_key),
+                    ops,
+                    client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+                )
         except QuestionBoardError as exc:
             return _question_board_error(exc)
         return jsonify(reply)
