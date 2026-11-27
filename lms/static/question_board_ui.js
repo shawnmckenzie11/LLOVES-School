@@ -120,21 +120,24 @@ function boardUrls(kind, id, token) {
 }
 
 /**
- * Student phone toolbar: icon-only Pen, Line, Text, Equation, Undo, and Clear.
+ * Student board tools: Pen, Line, Text, and Equation in one left column.
+ * Undo and Clear sit in a short corner row at phone width (MCK-532).
  * @returns {HTMLElement}
  */
 function toolBar() {
   const tools = document.createElement("div");
-  tools.className = "live-canvas-toolbar live-canvas-toolbar-vertical";
-  tools.setAttribute("role", "toolbar");
-  tools.setAttribute("aria-label", "Whiteboard tools");
+  tools.className = "live-canvas-toolbar-cluster";
   tools.innerHTML = [
+    `<div class="live-canvas-toolbar live-canvas-toolbar-vertical" role="toolbar" aria-label="Whiteboard tools">`,
     `<button type="button" data-tool="pen" class="is-on" aria-pressed="true" aria-label="Pen" title="Pen">${WHITEBOARD_TOOL_SVG.pen}</button>`,
     `<button type="button" data-tool="line" aria-pressed="false" aria-label="Line" title="Line">${WHITEBOARD_TOOL_SVG.line}</button>`,
     `<button type="button" data-tool="text" aria-pressed="false" aria-label="Text" title="Text">${WHITEBOARD_TOOL_SVG.text}</button>`,
     `<button type="button" data-tool="equation" class="wb-tool-eq" aria-pressed="false" aria-label="Equation" title="Equation">${WHITEBOARD_TOOL_SVG.equation}</button>`,
+    `</div>`,
+    `<div class="live-canvas-toolbar live-canvas-toolbar-corner" role="toolbar" aria-label="Board actions">`,
     `<button type="button" data-tool="undo" aria-label="Undo" title="Undo" disabled>${WHITEBOARD_TOOL_SVG.undo}</button>`,
     `<button type="button" data-tool="clear" aria-label="Clear board" title="Clear board">${WHITEBOARD_TOOL_SVG.clear}</button>`,
+    `</div>`,
   ].join("");
   return tools;
 }

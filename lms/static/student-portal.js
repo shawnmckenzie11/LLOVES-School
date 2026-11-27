@@ -4747,8 +4747,101 @@ if (newQuestionPill instanceof HTMLButtonElement) {
   });
 }
 
+let pendingLifecycleStackPayload = null;
+let lifecycleStackPaintHoldGen = 0;
+let lifecycleStackPaintArmed = false;
+let lifecycleStackHeldAnchorKey = "";
+
+/**
+ * True while a student finger or pointer is mid-stroke on a board.
+ * @returns {boolean}
+ */
+function studentBoardStrokeIsDown() {
+  return Boolean(document.querySelector("canvas.student-canvas.is-stroke-down"));
+}
+
+/**
+ * Card to keep still across a stack rebuild (MCK-533).
+ * @param {HTMLElement} body
+ * @returns {HTMLElement|null}
+ */
+function lifecycleStackAnchorCard(body) {
+  if (!(body instanceof HTMLElement)) return null;
+  const cards = [...body.querySelectorAll(":scope > .student-live-card")];
+  if (lifecycleStackHeldAnchorKey) {
+    const held = cards.find(
+      (card) => card.getAttribute("data-live-card-key") === lifecycleStackHeldAnchorKey
+    );
+    if (held) return held;
+  }
+  const stroke = cards.find((card) =>
+    card.querySelector("canvas.student-canvas.is-stroke-down")
+  );
+  if (stroke) return stroke;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement) {
+    const focused = active.closest(".student-live-card");
+    if (focused instanceof HTMLElement && cards.includes(focused)) return focused;
+  }
+  const view = body.getBoundingClientRect();
+  return (
+    cards.find((card) => {
+      const box = card.getBoundingClientRect();
+      return box.bottom > view.top && box.top < view.bottom;
+    }) ||
+    cards[0] ||
+    null
+  );
+}
+
+/**
+ * Run a held stack paint once, after the in-progress stroke ends.
+ */
+function armHeldLifecycleStackPaint() {
+  if (lifecycleStackPaintArmed) return;
+  lifecycleStackPaintArmed = true;
+  const gen = ++lifecycleStackPaintHoldGen;
+  const release = () => {
+    if (gen !== lifecycleStackPaintHoldGen) return;
+    lifecycleStackPaintArmed = false;
+    lifecycleStackPaintHoldGen += 1;
+    for (const name of ["pointerup", "pointercancel", "mouseup", "lostpointercapture"]) {
+      document.removeEventListener(name, release, true);
+      window.removeEventListener(name, release, true);
+    }
+    queueMicrotask(() => {
+      const pending = pendingLifecycleStackPayload;
+      pendingLifecycleStackPayload = null;
+      if (pending != null) paintLifecycleQuestionStack(pending);
+    });
+  };
+  for (const name of ["pointerup", "pointercancel", "mouseup", "lostpointercapture"]) {
+    document.addEventListener(name, release, true);
+    window.addEventListener(name, release, true);
+  }
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
+  // MCK-533: do not rebuild under a stroke; one paint of the latest
+  // payload runs after pointerup / pointercancel.
+  if (studentBoardStrokeIsDown()) {
+    pendingLifecycleStackPayload = payload;
+    const strokeCard = document
+      .querySelector("canvas.student-canvas.is-stroke-down")
+      ?.closest(".student-live-card");
+    if (strokeCard instanceof HTMLElement) {
+      lifecycleStackHeldAnchorKey =
+        strokeCard.getAttribute("data-live-card-key") || lifecycleStackHeldAnchorKey;
+    }
+    armHeldLifecycleStackPaint();
+    return;
+  }
+  if (lifecycleStackPaintArmed) {
+    lifecycleStackPaintHoldGen += 1;
+    lifecycleStackPaintArmed = false;
+    pendingLifecycleStackPayload = null;
+  }
   hydrateServerSavedAnswers(payload);
   hydrateUnsentDrafts();
   const grabbedCard = [...activePaneDrags].find((el) =>
@@ -4804,6 +4897,21 @@ function paintLifecycleQuestionStack(payload) {
       minimizedCards.push(item);
     } else openCards.push(item);
   }
+  const anchorCard = lifecycleStackAnchorCard(liveQuestionStackBody);
+  const anchorKey =
+    anchorCard instanceof HTMLElement
+      ? anchorCard.getAttribute("data-live-card-key") || ""
+      : "";
+  const anchorCanvas =
+    anchorCard instanceof HTMLElement
+      ? anchorCard.querySelector("canvas.student-canvas")
+      : null;
+  const anchorTop =
+    anchorCanvas instanceof HTMLElement
+      ? anchorCanvas.getBoundingClientRect().top
+      : anchorCard instanceof HTMLElement
+        ? anchorCard.getBoundingClientRect().top
+        : null;
   paintQuestionDock(all, payload);
   paintStudentMinimizedBars(minimizedCards, all);
   const floatingCards = new Map();
@@ -4952,15 +5060,13 @@ function paintLifecycleQuestionStack(payload) {
   const composing = studentIsComposing();
   liveQuestionStackBody.innerHTML = stacked.map(renderLiveCard).join("");
   const nextIds = stacked.map((item) => String(Number(item.id) || ""));
-  applyNewQuestionScroll(
-    newQuestionScrollPlan({
+  const scrollPlan = newQuestionScrollPlan({
       busy: composing,
       scrollTop: heldScroll,
       previousIds,
       nextIds,
-    }),
-    nextIds
-  );
+    });
+  applyNewQuestionScroll(scrollPlan, nextIds);
   safeSyncQuestionLightbox(liveQuestionStackBody);
   // MCK-184: a card the student lifted (phone resize pill, desktop drag)
   // used to keep its old DOM forever: a Take turns pick greyed the
@@ -4975,6 +5081,27 @@ function paintLifecycleQuestionStack(payload) {
   });
   // After the card HTML, so a lifted card is not replaced out from under the board.
   mountStudentQuestionBoards();
+  // MCK-533: restore place by the anchor card's screen top, not raw scrollTop.
+  liveQuestionStackBody.style.paddingTop = "";
+  const pinLifecycleStackAnchor = () => {
+    if (!scrollPlan.keepScroll || !anchorKey || typeof anchorTop !== "number") return;
+    const nextAnchor = liveQuestionStackBody.querySelector(
+      `[data-live-card-key="${CSS.escape(anchorKey)}"]`
+    );
+    if (!(nextAnchor instanceof HTMLElement)) return;
+    const pinEl =
+      nextAnchor.querySelector("canvas.student-canvas") || nextAnchor;
+    liveQuestionStackBody.scrollTop +=
+      pinEl.getBoundingClientRect().top - anchorTop;
+    const leftover = pinEl.getBoundingClientRect().top - anchorTop;
+    if (leftover < -0.5) {
+      // The scroller is already at 0; pad the top so the card stays put.
+      const pad = parseFloat(liveQuestionStackBody.style.paddingTop) || 0;
+      liveQuestionStackBody.style.paddingTop = `${pad - leftover}px`;
+    }
+  };
+  pinLifecycleStackAnchor();
+  lifecycleStackHeldAnchorKey = "";
   void renderLiveQuestionMath(liveQuestionStackBody);
   floatingCards.forEach((card) => void renderLiveQuestionMath(card));
   openCards.forEach((item, index) => {
@@ -5002,6 +5129,8 @@ function paintLifecycleQuestionStack(payload) {
     questionFrame.hidden = true;
   }
   syncArtifactGroupQLock();
+  pinLifecycleStackAnchor();
+  requestAnimationFrame(pinLifecycleStackAnchor);
 }
 
 /**
