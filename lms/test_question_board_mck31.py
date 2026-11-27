@@ -30,6 +30,7 @@ from question_board import (  # noqa: E402
     copy_byte_size,
     copy_json,
     parse_board_run_key,
+    LOCKED_LINE,
 )
 from school_db import SchoolDB  # noqa: E402
 
@@ -617,6 +618,112 @@ class QuestionBoardTests(unittest.TestCase):
         )
         self.assertIn("shown work", by_student[self.ids[2]]["answer_json"])
         self.assertNotIn("shown work again", by_student[self.ids[2]]["answer_json"])
+
+    def test_catchup_clear_persists_and_is_refused_after_submit(self) -> None:
+        """A catch-up Clear stays cleared on reload, and is refused after Submit.
+
+        The wipe does not write a participation row. A live answer stays put.
+        """
+        from catchup_session import establish_catchup_identity
+
+        prompt_id = self._add("Board catch clear", answer_with="both")
+        self.school.append_question_board_ops(
+            self.session_id, prompt_id, self.ids[0], _stroke("live")
+        )
+        self.school.submit_question_board(self.session_id, prompt_id, self.ids[0], "live text")
+        self.school.end_live_class_session(self.session_id, record_participation=True)
+        with self.school._lock:
+            live = self.school.conn.execute(
+                """
+                SELECT question_key, answer_json FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND source = 'live'
+                """,
+                (self.class_id, self.ids[0]),
+            ).fetchone()
+            part = self.school.conn.execute(
+                """
+                SELECT id FROM participation_items
+                WHERE class_id = ? AND question_key = ?
+                """,
+                (self.class_id, live["question_key"]),
+            ).fetchone()
+            link = self.school.conn.execute(
+                "SELECT token FROM catchup_links WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        item_id = int(part["id"])
+        original = live["answer_json"]
+        phone = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, self.ids[2])
+        with phone.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, self.ids[2], stamp
+            )
+        base = f"/api/catchup/{link['token']}/questions/{item_id}/board"
+        drawn = phone.post(f"{base}/ops", json={"ops": _stroke("cu-ink")})
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        texted = phone.post(
+            f"{base}/ops",
+            json={"text_id": "cu-label", "text": "note", "x": 0.3, "y": 0.4},
+        )
+        self.assertEqual(texted.status_code, 200, texted.get_json())
+        equated = phone.post(
+            f"{base}/ops",
+            json={"equation_id": "cu-eq", "latex": "x^2", "x": 0.5, "y": 0.6},
+        )
+        self.assertEqual(equated.status_code, 200, equated.get_json())
+        wiped = phone.post(
+            f"{base}/ops",
+            json={"op": "board_wipe", "wipe_id": "cu-wipe", "id": "cu-wipe"},
+        )
+        self.assertEqual(wiped.status_code, 200, wiped.get_json())
+        self.assertTrue((wiped.get_json() or {}).get("ok"))
+        loaded = phone.get(base)
+        self.assertEqual(loaded.status_code, 200, loaded.get_json())
+        view = loaded.get_json().get("canvas_view") or {}
+        stroke_ids = {str(row.get("id") or "") for row in view.get("strokes") or []}
+        text_ids = {str(row.get("id") or "") for row in view.get("texts") or []}
+        eq_ids = {str(row.get("id") or "") for row in view.get("equations") or []}
+        self.assertNotIn("cu-ink", stroke_ids)
+        self.assertNotIn("cu-label", text_ids)
+        self.assertNotIn("cu-eq", eq_ids)
+        with self.school._lock:
+            mid = self.school.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND source = 'catchup'
+                """,
+                (self.class_id, self.ids[2]),
+            ).fetchone()
+            live_row = self.school.conn.execute(
+                """
+                SELECT answer_json FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND source = 'live'
+                """,
+                (self.class_id, self.ids[0]),
+            ).fetchone()
+        self.assertEqual(int(mid["n"] or 0), 0)
+        self.assertEqual(live_row["answer_json"], original)
+
+        redrawn = phone.post(f"{base}/ops", json={"ops": _stroke("kept", salt=2)})
+        self.assertEqual(redrawn.status_code, 200, redrawn.get_json())
+        submitted = phone.post(f"{base}/submit", json={"text": ""})
+        self.assertEqual(submitted.status_code, 200, submitted.get_json())
+        self.assertTrue((submitted.get_json() or {}).get("editing_locked"))
+        late = phone.post(
+            f"{base}/ops",
+            json={"op": "board_wipe", "wipe_id": "late-wipe", "id": "late-wipe"},
+        )
+        self.assertEqual(late.status_code, 409, late.get_json())
+        self.assertEqual((late.get_json() or {}).get("error"), LOCKED_LINE)
+        after = phone.get(base)
+        self.assertEqual(after.status_code, 200)
+        after_ids = {
+            str(row.get("id") or "")
+            for row in (after.get_json().get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertIn("kept", after_ids)
+        self.assertNotIn("cu-ink", after_ids)
 
     def test_teacher_pen_and_undo_show_on_the_student_board(self) -> None:
         """Teacher ink is stored in red and undo removes that stroke."""

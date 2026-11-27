@@ -3274,8 +3274,11 @@ def apply_catchup_presence(
 ) -> dict[str, Any]:
     """Store one presence batch on a catch-up board.
 
-    The board is ``solo:<id>`` under the ``~cu`` key. A live answer is
-    left untouched. Names are not stored.
+    The board is ``solo:<id>`` under the ``~cu`` key. Text, equations,
+    Clear (``board_wipe``), Undo (``board_unwipe``), and ink are stored
+    the same way as a live question board. A live answer and
+    participation rows are left untouched. A submitted board is
+    refused. Names are not stored.
 
     Args:
         school: Open school database.
@@ -3330,6 +3333,8 @@ def apply_catchup_presence(
     try:
         assert_board_run_key(run_key)
         text_id = str(body.get("text_id") or "").strip()
+        equation_id = str(body.get("equation_id") or "").strip()
+        op_kind = str(body.get("op") or body.get("type") or "").strip()
         if text_id:
             boards.append_text(
                 run_key,
@@ -3344,7 +3349,38 @@ def apply_catchup_presence(
                 team_id=None,
                 client_batch_id=batch,
             )
-        elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+        elif equation_id:
+            boards.append_equation(
+                run_key,
+                board_key,
+                owner=who,
+                name="",
+                equation_id=equation_id,
+                latex=str(body.get("latex") if body.get("latex") is not None else ""),
+                x=body.get("x"),
+                y=body.get("y"),
+                color=color,
+                team_id=None,
+                client_batch_id=batch,
+            )
+        elif op_kind == "board_wipe":
+            boards.append_wipe(
+                run_key,
+                board_key,
+                owner=who,
+                wipe_id=str(body.get("wipe_id") or body.get("id") or ""),
+                client_batch_id=batch,
+            )
+        elif op_kind == "board_unwipe":
+            boards.append_unwipe(
+                run_key,
+                board_key,
+                owner=who,
+                unwipe_id=str(body.get("unwipe_id") or body.get("id") or ""),
+                wipe_id=str(body.get("wipe_id") or body.get("wipe") or ""),
+                client_batch_id=batch,
+            )
+        elif op_kind == "stroke_remove":
             boards.append_remove(
                 run_key,
                 board_key,
