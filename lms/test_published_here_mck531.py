@@ -216,6 +216,51 @@ class PublishedHereTests(unittest.TestCase):
         )
         self._assert_live(row)
 
+    def _publish_between_read_and_write(self, row: dict[str, Any]) -> None:
+        """Land a publish after the teacher write read its state, before it writes."""
+        original = self.school._write_teacher_state
+        fired = {"done": False}
+
+        def hooked(session_id: int, payload: dict[str, Any], **kwargs: Any) -> Any:
+            if not fired["done"]:
+                fired["done"] = True
+                self._publish(row)
+            return original(session_id, payload, **kwargs)
+
+        self.school._write_teacher_state = hooked  # type: ignore[method-assign]
+        self.addCleanup(setattr, self.school, "_write_teacher_state", original)
+        return None
+
+    def test_same_slide_write_racing_a_publish_keeps_it_live(self) -> None:
+        """A same-slide teacher write in flight cannot drop a new publish."""
+        first = self._add(MC, page=4)
+        second = self._add({**MC, "text": "Second slide-bound MC"}, page=5)
+        self._move(page=9)
+        self._publish(first)
+        self._publish_between_read_and_write(second)
+        self.school.set_live_session_teacher_state(
+            self.session_id, scoreboard_visible=True
+        )
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(
+            teacher.get(PUBLISHED_HERE_KEY), [int(first["id"]), int(second["id"])]
+        )
+        self._assert_live(first)
+        self._assert_live(second)
+
+    def test_slide_change_racing_a_publish_still_clears(self) -> None:
+        """A slide move that overlaps a publish still ends the window."""
+        first = self._add(MC, page=4)
+        second = self._add({**MC, "text": "Second slide-bound MC"}, page=5)
+        self._move(page=9)
+        self._publish(first)
+        self._publish_between_read_and_write(second)
+        self._move(page=10)
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertNotIn(PUBLISHED_HERE_KEY, teacher)
+        self._assert_parked(first)
+        self._assert_parked(second)
+
     def test_unpublished_other_slide_question_still_parks(self) -> None:
         """Without a publish here, the MCK-477 rule is unchanged."""
         row = self._add(MC, page=4)
