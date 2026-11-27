@@ -374,9 +374,13 @@ class OtherFeatureGateTests(_School):
     def test_catchup_scope_keeps_only_the_newest_for_basic(self) -> None:
         """Full catch-up keeps every row. Basic keeps the last in-window row."""
         teacher = self._teacher("gate-catchup@example.com")
+        # Relative stamps: a fixed date aged out of the free window (MCK-531 CI).
+        from datetime import datetime, timedelta
+
+        now = datetime.now().replace(microsecond=0)
         rows = [
-            {"live_module": "M1", "live_slot": "C1", "run_key": "older", "created_at": "2026-10-01T00:00:00"},
-            {"live_module": "M1", "live_slot": "C2", "run_key": "newer", "created_at": "2026-10-28T00:00:00"},
+            {"live_module": "M1", "live_slot": "C1", "run_key": "older", "created_at": (now - timedelta(days=40)).isoformat()},
+            {"live_module": "M1", "live_slot": "C2", "run_key": "newer", "created_at": (now - timedelta(days=1)).isoformat()},
         ]
         with self.app.app_context():
             basic = scope_catchup_links(teacher, rows)
