@@ -49967,8 +49967,10 @@ class SchoolDB(LovesDB):
         rows from ``group_engagement_items``. A stored earned above 0
         is a completion, on the forward scale (1 or 2) or the doubled
         scale (2 or 4), and a live completion is omitted. Earned 0 is
-        not a completion and is offered. Catch-up never offers the
-        no-check bonus. A catch-up completion stays on the page as
+        not a completion and is offered. A skip for this student is
+        left to ``_question_skip_catchup_questions`` so it keeps
+        ``question_skip`` and the 1/1 skip cap. Catch-up never offers
+        the no-check bonus. A catch-up completion stays on the page as
         answered. Content is only ``_student_public_item_payload``:
         no answer keys, names, or codes. Poll-as-mc rows stay ``mc``
         in the table; the type label is read from ``item_json``.
@@ -49992,6 +49994,16 @@ class SchoolDB(LovesDB):
                 """,
                 (int(student_id), class_id, str(link["run_key"])),
             ).fetchall()
+            skipped = {
+                str(row["question_key"])
+                for row in self.conn.execute(
+                    """
+                    SELECT question_key FROM live_question_skips
+                    WHERE class_id = ? AND run_key = ? AND student_id = ?
+                    """,
+                    (class_id, str(link["run_key"]), int(student_id)),
+                ).fetchall()
+            }
         out: list[dict[str, Any]] = []
         try:
             from question_board import uses_board
@@ -50002,6 +50014,8 @@ class SchoolDB(LovesDB):
         for row in rows:
             kind = str(row["prompt_kind"] or "")
             if kind not in allowed:
+                continue
+            if str(row["question_key"]) in skipped:
                 continue
             earned = int(row["earned"] or 0) if row["earned"] is not None else 0
             source = str(row["source"] or "")

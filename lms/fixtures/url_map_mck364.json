@@ -19,6 +19,31 @@
       "api_slides_status"
     ],
     [
+      "/api/catchup/<token>/group-boards/<path:question_key>/board",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "api_group_catchup_question_board"
+    ],
+    [
+      "/api/catchup/<token>/group-boards/<path:question_key>/board/ops",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_group_catchup_question_board_ops"
+    ],
+    [
+      "/api/catchup/<token>/group-boards/<path:question_key>/board/submit",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "api_group_catchup_question_board_submit"
+    ],
+    [
       "/api/catchup/<token>/questions/<int:item_id>/board",
       [
         "GET",
