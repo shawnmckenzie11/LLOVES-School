@@ -106,11 +106,16 @@ def clean_published_here(raw: Any) -> list[int]:
     return ids[-PUBLISHED_HERE_MAX:]
 
 
-def teacher_place(state: dict[str, Any]) -> tuple[str, Any, str]:
+def teacher_place(state: dict[str, Any]) -> tuple[str, int | None, str]:
     """Slide and stage identity used to expire ``published_here``."""
+    raw_page = state.get("page_number")
+    try:
+        page: int | None = int(raw_page) if raw_page is not None else None
+    except (TypeError, ValueError):
+        page = None
     return (
         str(state.get("stage") or ""),
-        state.get("page_number"),
+        page,
         str(state.get("page_id") or ""),
     )
 

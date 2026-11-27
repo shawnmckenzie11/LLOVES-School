@@ -24899,7 +24899,7 @@ class SchoolDB(LovesDB):
         bound to. Without this, the next ``/state`` parked a question bound
         to another slide or stage and the phone dropped the card. The id
         stays in this session's teacher state until the next slide or stage
-        change (``set_live_session_teacher_state`` drops it). It does not
+        change (``_write_teacher_state`` drops it for every writer). It does not
         bump ``state_seq``: the publish already moved the poll stamp.
 
         Args:
@@ -38357,21 +38357,19 @@ class SchoolDB(LovesDB):
         return payload
 
     def _write_teacher_state(
-        self,
-        session_id: int,
-        payload: dict[str, Any],
-        *,
-        keep_published_here: bool = True,
+        self, session_id: int, payload: dict[str, Any]
     ) -> dict[str, Any]:
         """Persist a public LiveTeacherState blob.
+
+        MCK-531: under the write lock, ``published_here`` follows the stored
+        row. If the stored slide and stage match ``payload``, ids a publish
+        stored after ``payload`` was read are merged in, so a concurrent
+        same-place write cannot drop them. If any writer moved the slide or
+        stage, the key is dropped, so stale ids cannot come back.
 
         Args:
             session_id: ``live_class_sessions.id``.
             payload: Public teacher-state dict.
-            keep_published_here: Merge ids a publish stored after ``payload``
-                was read, under the write lock, so a concurrent same-slide
-                write cannot drop them (MCK-531). False only when the caller
-                moved the slide or stage and means to clear them.
         """
         try:
             from sentry_wire import live_trace_span
@@ -38379,25 +38377,28 @@ class SchoolDB(LovesDB):
             from lms.sentry_wire import live_trace_span
         with live_trace_span("db", "live.lock.write"):
             with self._lock:
-                if keep_published_here:
-                    row = self.conn.execute(
-                        "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
-                        (int(session_id),),
-                    ).fetchone()
-                    stored: Any = {}
-                    if row is not None and isinstance(row["teacher_state_json"], str):
-                        try:
-                            stored = json.loads(row["teacher_state_json"] or "{}")
-                        except json.JSONDecodeError:
-                            stored = {}
-                    latest = clean_published_here(
-                        stored.get(PUBLISHED_HERE_KEY) if isinstance(stored, dict) else None
-                    )
+                row = self.conn.execute(
+                    "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                    (int(session_id),),
+                ).fetchone()
+                stored: dict[str, Any] = {}
+                if row is not None and isinstance(row["teacher_state_json"], str):
+                    try:
+                        parsed = json.loads(row["teacher_state_json"] or "{}")
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        stored = parsed
+                merged: list[int] = []
+                if teacher_place(stored) == teacher_place(payload):
                     merged = clean_published_here(
-                        clean_published_here(payload.get(PUBLISHED_HERE_KEY)) + latest
+                        clean_published_here(payload.get(PUBLISHED_HERE_KEY))
+                        + clean_published_here(stored.get(PUBLISHED_HERE_KEY))
                     )
-                    if merged:
-                        payload[PUBLISHED_HERE_KEY] = merged
+                if merged:
+                    payload[PUBLISHED_HERE_KEY] = merged
+                else:
+                    payload.pop(PUBLISHED_HERE_KEY, None)
                 encoded = json.dumps(payload)
                 self.conn.execute(
                     """
@@ -42707,14 +42708,7 @@ class SchoolDB(LovesDB):
             self._stamp_page_number_for_legacy_stage(
                 session_id, payload, prev_stage=prev_stage
             )
-        same_place = teacher_place(payload) == teacher_place(current)
-        if not same_place:
-            # MCK-531: any slide or stage move, however it was reached,
-            # ends the window where a published off-slide question stays live.
-            payload.pop(PUBLISHED_HERE_KEY, None)
-        written = self._write_teacher_state(
-            session_id, payload, keep_published_here=same_place
-        )
+        written = self._write_teacher_state(session_id, payload)
         if payload.get("page_number") != current.get("page_number"):
             self._sync_slide_index_to_page(
                 session_id, payload.get("page_number")

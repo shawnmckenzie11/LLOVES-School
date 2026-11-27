@@ -221,11 +221,11 @@ class PublishedHereTests(unittest.TestCase):
         original = self.school._write_teacher_state
         fired = {"done": False}
 
-        def hooked(session_id: int, payload: dict[str, Any], **kwargs: Any) -> Any:
+        def hooked(session_id: int, payload: dict[str, Any]) -> Any:
             if not fired["done"]:
                 fired["done"] = True
                 self._publish(row)
-            return original(session_id, payload, **kwargs)
+            return original(session_id, payload)
 
         self.school._write_teacher_state = hooked  # type: ignore[method-assign]
         self.addCleanup(setattr, self.school, "_write_teacher_state", original)
@@ -260,6 +260,40 @@ class PublishedHereTests(unittest.TestCase):
         self.assertNotIn(PUBLISHED_HERE_KEY, teacher)
         self._assert_parked(first)
         self._assert_parked(second)
+
+    def test_clear_session_warmups_stage_change_clears(self) -> None:
+        """A direct stage write outside set_live_session_teacher_state ends the window."""
+        row = self._add(MC, page=4)
+        self._move(page=9, stage="meet")
+        self._publish(row)
+        self._assert_live(row)
+        self.school.clear_session_warmups(self.session_id)
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(teacher.get("stage"), "round")
+        self.assertNotIn(PUBLISHED_HERE_KEY, teacher)
+        self._assert_parked(row)
+
+    def test_stale_apply_update_writer_cannot_revive_ids(self) -> None:
+        """_persist_live_slot read slide 9; the teacher moved; its write drops the ids."""
+        row = self._add(MC, page=4)
+        self._move(page=9)
+        self._publish(row)
+        original = self.school._write_teacher_state
+        fired = {"done": False}
+
+        def hooked(session_id: int, payload: dict[str, Any]) -> Any:
+            if not fired["done"]:
+                fired["done"] = True
+                self._move(page=10)
+            return original(session_id, payload)
+
+        self.school._write_teacher_state = hooked  # type: ignore[method-assign]
+        self.addCleanup(setattr, self.school, "_write_teacher_state", original)
+        self.school._persist_live_slot(self.session_id, "C3")
+        self.assertTrue(fired["done"])
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertNotIn(PUBLISHED_HERE_KEY, teacher)
+        self._assert_parked(row)
 
     def test_unpublished_other_slide_question_still_parks(self) -> None:
         """Without a publish here, the MCK-477 rule is unchanged."""
