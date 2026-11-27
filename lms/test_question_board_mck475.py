@@ -209,13 +209,13 @@ class QuestionBoardSubmitLockTests(unittest.TestCase):
         self.assertEqual(sent.status_code, 200, sent.get_json())
         body = sent.get_json()
         self.assertTrue(body.get("editing_locked"))
-        self.assertEqual(body.get("status_line"), "Submitted.")
+        self.assertEqual(body.get("status_line"), "Submitted ✓")
         phone_view = self.school.read_student_question_board(
             self.session_id, prompt_id, self.ids[0]
         )
         self.assertTrue(phone_view["editing_locked"])
         self.assertFalse(phone_view["read_only"])
-        self.assertEqual(phone_view["status_line"], "Submitted.")
+        self.assertEqual(phone_view["status_line"], "Submitted ✓")
         self.assertIn("kept", self._stroke_ids(phone_view))
         before = json.dumps(phone_view.get("canvas_view") or {}, sort_keys=True)
         refused = {

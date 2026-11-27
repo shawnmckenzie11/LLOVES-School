@@ -421,7 +421,10 @@ class LiveAddedQuestionTests(unittest.TestCase):
             "function adoptLiveItem"
         )[0]
         self.assertIn("lifecycle?.status || card.status", paint)
-        self.assertIn('<span class="live-question-new-chip">New</span>', staff)
+        self.assertIn("function liveQuestionTypeLabel", staff)
+        self.assertIn("Show Your Work", paint)
+        self.assertNotIn('<span class="live-question-new-chip">New</span>', paint)
+        self.assertNotIn("live-question-card-meta", paint)
         student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertNotIn("added_live_run_key", student)
         self.assertNotIn("added_live_session_id", student)

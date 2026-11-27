@@ -3789,10 +3789,12 @@ body.staff-shell .live-question-key {
 }
 body.staff-shell .live-question-card-text {
   display: flex;
-  gap: 0.55rem;
-  margin: 0.45rem 0 0;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
   font-weight: 700;
   line-height: 1.35;
+  min-width: 0;
 }
 body.staff-shell .live-question-order {
   flex: 0 0 auto;
@@ -3802,6 +3804,25 @@ body.staff-shell .live-question-order {
   height: 1.5rem;
   border-radius: 999px;
   background: #e2e8f0;
+}
+body.staff-shell .live-question-type-sep {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-weight: 600;
+}
+body.staff-shell .live-question-type {
+  flex: 0 0 9.75rem;
+  width: 9.75rem;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+body.staff-shell .live-question-stem {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 body.staff-shell .live-question-card-options {
   margin: 0.45rem 0 0 2rem;

@@ -65,7 +65,7 @@
 {% else %}
     {% if matched %}
     <section class="cl-matched-card" aria-labelledby="cl-matched-label">
-      <p class="cl-matched-kicker">{{ copy.your_code_matched }} · {{ matched.label }}</p>
+      <p class="cl-matched-kicker">{{ matched.label }}</p>
       {% if matched.title %}<h2 id="cl-matched-label" class="cl-class-title">{{ matched.title }}</h2>{% endif %}
       <div class="cl-tier-row" aria-label="Participation tiers">
         <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_individual }}</span><span class="cl-tier-val">{{ matched.tiers.t1 }}</span></div>

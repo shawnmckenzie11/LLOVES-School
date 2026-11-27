@@ -6191,6 +6191,34 @@ function liveQuestionIsRank(item, card) {
   return type === "rank";
 }
 
+/**
+ * Fixed-width type label on a teacher question row.
+ * @param {any} item
+ * @param {any} card
+ * @returns {"MC"|"Numeric"|"Poll"|"Show Your Work"|"Rank"|""}
+ */
+function liveQuestionTypeLabel(item, card) {
+  const answerWith = String(item?.answer_with || card?.answer_with || "").toLowerCase();
+  const type = String(item?.type || card?.type || "").toLowerCase();
+  if (
+    answerWith === "board" ||
+    answerWith === "both" ||
+    type === "whiteboard" ||
+    type === "team_draw" ||
+    type === "show_your_work" ||
+    type === "draw"
+  ) {
+    return "Show Your Work";
+  }
+  if (liveQuestionIsRank(item, card)) return "Rank";
+  if (liveQuestionIsMultipleChoice(item, card) || type === "mc") return "MC";
+  if (type === "numeric" || Boolean(item?.integer_only || card?.integer_only)) {
+    return "Numeric";
+  }
+  if (type === "poll") return "Poll";
+  return "";
+}
+
 /** @type {Map<number, {seq: number, rows: any[], at: number}>} */
 const rankDisplayHold = new Map();
 
@@ -6509,23 +6537,6 @@ function paintLiveQuestionCards() {
           : "";
       const answerKey = item.correct_answer ?? card.correct_answer;
       const hasAnswerKey = liveQuestionHasSingularKey(card);
-      const key = answerKey != null && String(answerKey) !== ""
-        ? `<span class="live-question-key">Answer ${escapeHtml(answerKey)}</span>`
-        : "";
-      const page =
-        card.page_number == null
-          ? ""
-          : `<span>Page ${escapeHtml(card.page_number)}</span>`;
-      const importSource =
-        item.import_source === "artifact" || String(item.type || card.type || "") === "artifact"
-          ? `<span class="hint">Artifact · Transformations</span>`
-          : item.import_source === "module_bank" || String(card.id || "").startsWith("bank-import-")
-          ? `<span class="hint">Bank · ${escapeHtml(
-              item.bank_title || item.question_title || "Module MC"
-            )}</span>`
-          : item.engine_ride || card.engine_ride
-            ? `<span class="hint">${escapeHtml(card.ride_label || item.ride_label || "Live class")}</span>`
-            : "";
       const promptId = Number(card.prompt_id) || 0;
       const liveItemId = Number(card.live_item_id || card.id) || 0;
       // MCK-261: this render map is its own function. The merge map's
@@ -6549,9 +6560,6 @@ function paintLiveQuestionCards() {
       card.response_mode = start.response_mode;
       card.publish_mode = start.publish_mode;
       card.show_live_results = start.show_live_results;
-      const newChip = liveQuestionAddedThisClass(item, card, status)
-        ? `<span class="live-question-new-chip">New</span>`
-        : "";
       const active = status === "active";
       const closed = status === "closed";
       const publishModes = Array.isArray(item.publish_modes)
@@ -6575,11 +6583,6 @@ function paintLiveQuestionCards() {
             status !== "closed" &&
             groupStyle === "submit" &&
             groupPick === "group"));
-      const showGroupBadge =
-        groupChrome ||
-        card.response_mode === "group_submit" ||
-        card.response_mode === "team_draw" ||
-        card.response_mode === "group_consensus";
       const result = lifecycleResults.get(liveItemId);
       const drawResult =
         result ||
@@ -6817,36 +6820,33 @@ function paintLiveQuestionCards() {
             closedCopy: `<span class="live-closed-copy">Final results</span>`,
           })
         : "";
-      return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
-        item.id || card.item_id || card.id
-      )}" data-live-item-id="${liveItemId}">
-        <div class="live-question-card-main">
-          <div class="live-question-card-head">
-            <div class="live-question-card-meta">
-              <span>${escapeHtml(
-                String(
-                  item.engine_ride || card.engine_ride
-                    ? (options.length ? item.type || card.type || "poll" : "open")
-                    : item.type || card.type || "poll"
-                ).toUpperCase()
-              )}</span>${newChip}${key}${page}${importSource}
-              <span class="live-status-badge is-${status}">${escapeHtml(
-                status.charAt(0).toUpperCase() + status.slice(1)
-              )}</span>${
-                showGroupBadge
-                  ? `<span class="live-status-badge is-group">Group</span>`
-                  : ""
-              }
-            </div>
-          </div>
-          ${questionImageHtml(
+      const typeLabel = liveQuestionTypeLabel(item, card);
+      const showYourWorkRow = typeLabel === "Show Your Work";
+      const thumb = showYourWorkRow
+        ? ""
+        : questionImageHtml(
             {
               image_urls: item.image_urls || card.image_urls,
               image_url: item.image_url || card.image_url,
             },
             { variant: "thumb" }
-          )}
-          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${stemShown}</div>
+          );
+      return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
+        item.id || card.item_id || card.id
+      )}" data-live-item-id="${liveItemId}">
+        <div class="live-question-card-main">
+          <div class="live-question-card-text">
+            <span class="live-question-order">${index + 1}</span>
+            ${
+              typeLabel
+                ? `<span class="live-question-type-sep" aria-hidden="true">·</span>
+            <span class="live-question-type">${escapeHtml(typeLabel)}</span>
+            <span class="live-question-type-sep" aria-hidden="true">·</span>`
+                : `<span class="live-question-type-sep" aria-hidden="true">·</span>`
+            }
+            <span class="live-question-stem">${stemShown}</span>
+          </div>
+          ${thumb}
           ${liveQuestionEquationHtml(item, card)}
           ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}
           ${extraGraphParts.graph}

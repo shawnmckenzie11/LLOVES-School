@@ -144,6 +144,7 @@ try:
         MC_POSSIBLE,
         RANK_POSSIBLE,
         catchup_earned,
+        group_catchup_score,
         check_message,
         display_points,
         format_fraction,
@@ -42420,6 +42421,80 @@ class SchoolDB(LovesDB):
 
         return _submit(self, token, int(student_id), int(item_id), text)
 
+    def read_group_catchup_board(
+        self, token: str, student_id: int, question_key: str, since: int | None = None
+    ) -> dict[str, Any]:
+        """Group catch-up board for one student. No other ink is included.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            question_key: ``group_engagement_items.question_key``.
+            since: Last sequence the phone has applied.
+        """
+        from question_board import read_group_catchup_board as _read
+
+        return _read(self, token, int(student_id), str(question_key), since=since)
+
+    def append_group_catchup_board_ops(
+        self,
+        token: str,
+        student_id: int,
+        question_key: str,
+        ops: list[dict[str, Any]],
+        *,
+        client_batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ink on one student's Group catch-up board.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            question_key: ``group_engagement_items.question_key``.
+            ops: Client ops.
+            client_batch_id: Retry token.
+        """
+        from question_board import append_group_catchup_board_ops as _append
+
+        return _append(
+            self,
+            token,
+            int(student_id),
+            str(question_key),
+            ops,
+            client_batch_id=client_batch_id,
+        )
+
+    def apply_group_catchup_presence(
+        self, token: str, student_id: int, question_key: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store one presence batch on a Group catch-up board.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            question_key: ``group_engagement_items.question_key``.
+            body: Presence JSON.
+        """
+        from question_board import apply_group_catchup_presence as _apply
+
+        return _apply(self, token, int(student_id), str(question_key), body)
+
+    def submit_group_catchup_board(
+        self, token: str, student_id: int, question_key: str, text: Any = ""
+    ) -> dict[str, Any]:
+        """Submit a Group catch-up board and write the 1/1 catch-up cap.
+
+        Args:
+            token: Catch-up link token. Not logged.
+            student_id: Roster id.
+            question_key: ``group_engagement_items.question_key``.
+            text: Typed part.
+        """
+        from question_board import submit_group_catchup_board as _submit
+
+        return _submit(self, token, int(student_id), str(question_key), text)
+
     def _purge_board_ops_if_ended(self, session_id: int) -> None:
         """Drop board ops when a swept session is already ended.
 
@@ -44154,6 +44229,111 @@ class SchoolDB(LovesDB):
                     return "mc", body
         return "", {}
 
+    def _catalogue_group_catchup_kind(
+        self, item_json: Any, prompt_payload: Any
+    ) -> tuple[str, dict[str, Any]]:
+        """Catalogue-only kind for Catch-Up Group items at End Class.
+
+        Used only when writing ``group_engagement_items`` for kinds
+        that ``_classify_group_engagement`` does not return. Live group
+        score totals keep using that classifier, which stays rank or
+        mc. This may return ``numeric``, ``poll``, or ``board``. Poll
+        that already classifies as ``mc`` never reaches this map, so
+        existing poll-as-mc rows stay ``mc``.
+
+        Args:
+            item_json: ``live_session_items.item_json``.
+            prompt_payload: Linked prompt payload, if any.
+        """
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        bodies: list[dict[str, Any]] = []
+        for raw in (item_json, prompt_payload):
+            data = self._json_object(raw)
+            if not data:
+                continue
+            bodies.append(data)
+            nested = data.get("payload") if isinstance(data.get("payload"), dict) else None
+            if nested:
+                bodies.append(nested)
+        board_tokens = {
+            "board",
+            "whiteboard",
+            "show_your_work",
+            "team_draw",
+            "draw",
+        }
+        for body in bodies:
+            token = str(body.get("type") or body.get("kind") or "").strip().lower()
+            if uses_board(body) or token in board_tokens:
+                return "board", body
+        for body in bodies:
+            token = str(body.get("type") or body.get("kind") or "").strip().lower()
+            if token in {"numeric", "integer_only"}:
+                return "numeric", body
+            if token == "poll":
+                return "poll", body
+        return "", {}
+
+    def _write_catalogue_group_catchup_item(
+        self,
+        item: Any,
+        *,
+        class_id: int,
+        run_key: str,
+        module: str,
+        slot: str,
+        now: str,
+    ) -> bool:
+        """Insert a Catch-Up catalogue row only. Never writes points.
+
+        ``ON CONFLICT DO NOTHING`` so a ``board`` row written by
+        ``board_poll_score._ensure_group_item`` is not clobbered:
+        ``prompt_kind`` and ``item_json`` stay as stored. Going
+        forward only; no backfill of ended classes.
+
+        Args:
+            item: Published ``live_session_items`` row with payload.
+            class_id: Game-show ``classes.id``.
+            run_key: Live run uuid.
+            module: Live module token.
+            slot: Live slot token.
+            now: Offer timestamp.
+        """
+        kind, payload = self._catalogue_group_catchup_kind(
+            item["item_json"], item["payload"]
+        )
+        if not kind:
+            return False
+        placement = str(item["placement_key"] or "").strip() or str(item["id"])
+        question_key = f"item:{placement}"
+        stored = dict(payload)
+        if placement and not stored.get("placement_key"):
+            stored["placement_key"] = placement
+        self.conn.execute(
+            """
+            INSERT INTO group_engagement_items (
+                class_id, run_key, question_key, live_module, live_slot,
+                item_json, prompt_kind, offered_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(class_id, run_key, question_key) DO NOTHING
+            """,
+            (
+                int(class_id),
+                str(run_key),
+                question_key,
+                module,
+                slot,
+                json.dumps(stored),
+                kind,
+                now,
+            ),
+        )
+        return True
+
     def _group_engagement_points(
         self, kind: str, stored: dict[str, Any], response: Any
     ) -> tuple[int, int]:
@@ -44296,6 +44476,15 @@ class SchoolDB(LovesDB):
         for item in items:
             kind, payload = self._classify_group_engagement(item["item_json"], item["payload"])
             if not kind:
+                if self._write_catalogue_group_catchup_item(
+                    item,
+                    class_id=class_id,
+                    run_key=run_key,
+                    module=module,
+                    slot=slot,
+                    now=now,
+                ):
+                    wrote = True
                 continue
             placement = str(item["placement_key"] or "").strip() or str(item["id"])
             question_key = f"item:{placement}"
@@ -49735,6 +49924,7 @@ class SchoolDB(LovesDB):
                     if board
                     else ""
                 ),
+                "category": "individual",
             })
         out.extend(self._group_engagement_catchup_questions(link, int(student_id)))
         out.extend(
@@ -49746,17 +49936,59 @@ class SchoolDB(LovesDB):
         )
         return out
 
+    def _group_catchup_type_label(self, item: dict[str, Any], prompt_kind: str) -> str:
+        """MC vs Poll comes from ``item_json`` type, not ``prompt_kind``.
+
+        Poll-as-mc catalogue rows stay ``mc`` in the table. The Catch-Up
+        Group list labels them Poll when the stored type is poll.
+        This does not rewrite ``prompt_kind``.
+
+        Args:
+            item: Stored catalogue dict, keys already stripped by the
+                caller before this is shown.
+            prompt_kind: ``group_engagement_items.prompt_kind``.
+        """
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        token = str(item.get("type") or item.get("kind") or "").strip().lower()
+        kind = str(prompt_kind or "").strip().lower()
+        if token == "poll" or kind == "poll":
+            return "Poll"
+        if token == "mc" or kind == "mc":
+            return "MC"
+        if token in {"numeric", "integer_only"} or kind == "numeric":
+            return "Numeric"
+        if uses_board(item) or kind == "board" or token in {
+            "board",
+            "whiteboard",
+            "show_your_work",
+            "team_draw",
+            "draw",
+        }:
+            return "Show Your Work"
+        if token == "rank" or kind == "rank":
+            return "Rank"
+        return kind or token or "Group"
+
     def _group_engagement_catchup_questions(
         self, link: dict[str, Any], student_id: int
     ) -> list[dict[str, Any]]:
-        """Group ranks this student has not already completed.
+        """Group questions this student has not already completed.
 
-        A stored earned above 0 is a completion, on the forward scale
-        (1 or 2) or the doubled scale (2 or 4), and a live completion is
-        omitted. Earned 0 is not a completion and is offered. Catch-up
-        never offers the no-check bonus. A catch-up completion stays on
-        the page as answered. Multiple choice is not a catch-up question.
-        The content is the student payload: no answer order.
+        Offers rank, mc, poll, numeric, and board (Show Your Work)
+        rows from ``group_engagement_items``. A stored earned above 0
+        is a completion, on the forward scale (1 or 2) or the doubled
+        scale (2 or 4), and a live completion is omitted. Earned 0 is
+        not a completion and is offered. A skip for this student is
+        left to ``_question_skip_catchup_questions`` so it keeps
+        ``question_skip`` and the 1/1 skip cap. Catch-up never offers
+        the no-check bonus. A catch-up completion stays on the page as
+        answered. Content is only ``_student_public_item_payload``:
+        no answer keys, names, or codes. Poll-as-mc rows stay ``mc``
+        in the table; the type label is read from ``item_json``.
 
         Args:
             link: Catch-up row for one run.
@@ -49777,10 +50009,28 @@ class SchoolDB(LovesDB):
                 """,
                 (int(student_id), class_id, str(link["run_key"])),
             ).fetchall()
+            skipped = {
+                str(row["question_key"])
+                for row in self.conn.execute(
+                    """
+                    SELECT question_key FROM live_question_skips
+                    WHERE class_id = ? AND run_key = ? AND student_id = ?
+                    """,
+                    (class_id, str(link["run_key"]), int(student_id)),
+                ).fetchall()
+            }
         out: list[dict[str, Any]] = []
+        try:
+            from question_board import uses_board
+        except ImportError:
+            from lms.question_board import uses_board
+
+        allowed = {"rank", "mc", "poll", "numeric", "board"}
         for row in rows:
             kind = str(row["prompt_kind"] or "")
-            if kind != "rank":
+            if kind not in allowed:
+                continue
+            if str(row["question_key"]) in skipped:
                 continue
             earned = int(row["earned"] or 0) if row["earned"] is not None else 0
             source = str(row["source"] or "")
@@ -49792,86 +50042,42 @@ class SchoolDB(LovesDB):
             except (TypeError, ValueError):
                 item = {}
             item = item if isinstance(item, dict) else {}
+            content = self._student_public_item_payload(
+                item,
+                class_id=class_id,
+                module=str(row["live_module"] or ""),
+            )
+            board = uses_board(content) or kind == "board"
             out.append({
                 "question_key": row["question_key"],
-                "content": self._student_public_item_payload(
-                    item,
-                    class_id=class_id,
-                    module=str(row["live_module"] or ""),
-                ),
-                "prompt_kind": str(row["prompt_kind"] or "rank"),
-                "group_rank": True,
+                "content": content,
+                "prompt_kind": kind or "rank",
+                "type_label": self._group_catchup_type_label(item, kind),
+                "group_item": True,
+                "group_rank": kind == "rank",
+                "category": "group",
+                "board_answer": board,
                 "answered": source == "catchup" and earned >= 1,
             })
         return out
 
-    def _store_group_engagement_catchup(
-        self, link: dict[str, Any], student_id: int, question_key: str, answer: Any
+    def _write_group_catchup_score_row(
+        self, link: dict[str, Any], student_id: int, question_key: str
     ) -> bool:
-        """Record a solo catch-up rank. The saved row is at most 1/1.
+        """Write one per-student catch-up row, capped at 1/1.
 
-        Any full permutation counts. The answer order is not scored.
-        A row that already has earned points is left as stored, including
-        a no-check 2/1 and a doubled 4/2 or 2/2. An incomplete 0 is
-        updated to earned 1 and possible 1. Multiple choice rows are
-        refused.
+        This is the Catch-Up Group score write path. It uses
+        ``group_catchup_score`` (reusing the rank catch-up cap) and
+        stores ``source='catchup'``. It never touches
+        ``live_group_responses`` or team rows. A row that already has
+        earned points is left as stored, including a no-check 2/1 and
+        a doubled 4/2 or 2/2. An incomplete 0 is updated to 1/1.
 
         Args:
             link: Open catch-up row.
             student_id: Roster id.
-            question_key: ``item:`` key for the group rank.
-            answer: JSON list of option ids, aliases included.
+            question_key: ``item:`` key for the group question.
         """
-        with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT item_json, prompt_kind FROM group_engagement_items
-                WHERE class_id = ? AND run_key = ? AND question_key = ?
-                """,
-                (int(link["class_id"]), str(link["run_key"]), str(question_key)),
-            ).fetchone()
-        if row is None or str(row["prompt_kind"] or "") != "rank":
-            row = self.conn.execute(
-                """
-                SELECT item_json, prompt_kind FROM live_question_skips
-                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
-                """,
-                (
-                    int(link["class_id"]),
-                    str(link["run_key"]),
-                    str(question_key),
-                    int(student_id),
-                ),
-            ).fetchone()
-            if row is None or str(row["prompt_kind"] or "") != "rank":
-                return False
-        try:
-            stored = json.loads(row["item_json"] or "{}")
-        except (TypeError, ValueError):
-            return False
-        if not isinstance(stored, dict):
-            return False
-        options = safe_rank_options(
-            stored.get("rank_options") or stored.get("options") or stored.get("choices")
-        )
-        allowed = [opt["id"] for opt in options]
-        raw: Any = answer
-        if isinstance(answer, str):
-            text = answer.strip()
-            try:
-                raw = json.loads(text) if text else []
-            except (TypeError, ValueError):
-                return False
-        aliases = self.student_rank_aliases(stored)
-        if aliases is not None and isinstance(raw, list):
-            try:
-                raw = aliases.back_list(raw)
-            except ValueError:
-                return False
-        try:
-            parse_rank_order(raw, allowed, complete=True)
-        except ValueError:
-            return False
         now = _now()
         with self._lock:
             current = self.conn.execute(
@@ -49886,9 +50092,10 @@ class SchoolDB(LovesDB):
                     int(student_id),
                 ),
             ).fetchone()
-            if current is not None and int(current["earned"] or 0) > 0:
+            already = int(current["earned"] or 0) if current is not None else None
+            if already is not None and already > 0:
                 return True
-            earned = catchup_earned(None)
+            earned, possible = group_catchup_score(already)
             self.conn.execute(
                 """
                 INSERT INTO group_engagement (
@@ -49919,13 +50126,107 @@ class SchoolDB(LovesDB):
                     str(question_key),
                     int(student_id),
                     int(earned),
-                    RANK_POSSIBLE,
+                    int(possible),
                     now,
                 ),
             )
             if self.conn.in_transaction:
                 self.conn.commit()
         return True
+
+    def _store_group_engagement_catchup(
+        self, link: dict[str, Any], student_id: int, question_key: str, answer: Any
+    ) -> bool:
+        """Record a solo group catch-up answer. The saved row is at most 1/1.
+
+        Rank, MC, Numeric, Poll, and Show Your Work all use
+        ``_write_group_catchup_score_row``. Any complete rank order
+        counts; the answer order is not scored. MC and Poll accept any
+        listed choice, and Numeric accepts a number. A row that already
+        has earned points is left as stored. Live group responses and
+        team rows are not touched.
+
+        Args:
+            link: Open catch-up row.
+            student_id: Roster id.
+            question_key: ``item:`` key for the group question.
+            answer: Rank order, choice text, numeric text, or a
+                board completion marker.
+        """
+        allowed_kinds = {"rank", "mc", "poll", "numeric", "board"}
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT item_json, prompt_kind FROM group_engagement_items
+                WHERE class_id = ? AND run_key = ? AND question_key = ?
+                """,
+                (int(link["class_id"]), str(link["run_key"]), str(question_key)),
+            ).fetchone()
+        kind = str(row["prompt_kind"] or "") if row is not None else ""
+        if row is None or kind not in allowed_kinds:
+            skip = self.conn.execute(
+                """
+                SELECT item_json, prompt_kind FROM live_question_skips
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(question_key),
+                    int(student_id),
+                ),
+            ).fetchone()
+            if skip is None or str(skip["prompt_kind"] or "") != "rank":
+                return False
+            row = skip
+            kind = "rank"
+        try:
+            stored = json.loads(row["item_json"] or "{}")
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(stored, dict):
+            return False
+        if kind == "rank":
+            options = safe_rank_options(
+                stored.get("rank_options") or stored.get("options") or stored.get("choices")
+            )
+            allowed = [opt["id"] for opt in options]
+            raw: Any = answer
+            if isinstance(answer, str):
+                text = answer.strip()
+                try:
+                    raw = json.loads(text) if text else []
+                except (TypeError, ValueError):
+                    return False
+            aliases = self.student_rank_aliases(stored)
+            if aliases is not None and isinstance(raw, list):
+                try:
+                    raw = aliases.back_list(raw)
+                except ValueError:
+                    return False
+            try:
+                parse_rank_order(raw, allowed, complete=True)
+            except ValueError:
+                return False
+        elif kind in {"mc", "poll"}:
+            text = str(answer or "").strip()
+            if not text:
+                return False
+            labels = self._mc_option_labels({"item": stored})
+            if labels and text not in labels:
+                return False
+        elif kind == "numeric":
+            text = str(answer or "").strip()
+            try:
+                float(text)
+            except (TypeError, ValueError):
+                return False
+        elif kind == "board":
+            if answer in (None, ""):
+                return False
+        else:
+            return False
+        return self._write_group_catchup_score_row(link, int(student_id), str(question_key))
 
     def _question_skip_catchup_questions(
         self,
@@ -50126,9 +50427,9 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.question_board import uses_board
 
-        if uses_board(matched.get("content")):
+        if uses_board(matched.get("content")) and not matched.get("group_item"):
             return False
-        if matched.get("group_rank"):
+        if matched.get("group_rank") or matched.get("group_item"):
             return self._store_group_engagement_catchup(link, int(student_id), str(question_key), answer)
         if matched.get("question_skip"):
             return self._store_skipped_question_catchup(

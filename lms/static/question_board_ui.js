@@ -115,6 +115,10 @@ function boardUrls(kind, id, token) {
     const base = `/api/catchup/${encodeURIComponent(token || "")}/questions/${id}/board`;
     return { read: base, ops: `${base}/ops`, submit: `${base}/submit`, draft: null };
   }
+  if (kind === "catchup-group") {
+    const base = `/api/catchup/${encodeURIComponent(token || "")}/group-boards/${encodeURIComponent(id || "")}/board`;
+    return { read: base, ops: `${base}/ops`, submit: `${base}/submit`, draft: null };
+  }
   const base = `/api/student/question-board/${id}`;
   return { read: base, ops: `${base}/ops`, submit: `${base}/submit`, draft: `${base}/draft` };
 }
@@ -222,6 +226,9 @@ export function lockSubmittedQuestionBoard(parts) {
   const board = parts?.board;
   if (board && typeof board.closeTextEntry === "function") board.closeTextEntry();
   if (board && typeof board.lockEditing === "function") board.lockEditing();
+  if (board && typeof board.setEnabled === "function") board.setEnabled(false);
+  const root = parts?.root;
+  if (root instanceof HTMLElement) root.classList.add("is-locked");
   const submit = parts?.submit;
   if (submit) {
     submit.hidden = true;
@@ -359,9 +366,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
     if (data.editing_locked) freezePhone();
     const locked = Boolean(data.read_only) || place.slot.getAttribute("data-qboard-readonly") === "1";
     if (locked) {
-      board.setEnabled?.(false);
-      submit.hidden = true;
-      text.readOnly = true;
+      lockSubmittedQuestionBoard({ board, submit, typed: text, tools, root });
       poll.stop();
     }
     if (root._editingLocked) {
@@ -375,7 +380,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
    */
   function freezePhone() {
     root._editingLocked = true;
-    lockSubmittedQuestionBoard({ board, submit, typed: text, tools });
+    lockSubmittedQuestionBoard({ board, submit, typed: text, tools, root });
   }
 
   const queue = createPresenceQueue({
@@ -556,7 +561,7 @@ async function ensurePhoneBoard(slot, key, urls, options) {
       return;
     }
     if (options.lockOnSubmit || payload.editing_locked) freezePhone();
-    const fallback = options.lockOnSubmit ? "Submitted." : "Submitted. You can still make changes.";
+    const fallback = options.submittedLine || "Submitted ✓";
     showLine(root, String(payload.status_line || fallback), "status");
     since = 0;
     poll.kick(true);
@@ -617,11 +622,21 @@ export function mountStudentQuestionBoards() {
 export function mountCatchupQuestionBoards(token) {
   document.querySelectorAll("[data-qboard-catchup]").forEach((slot) => {
     if (!(slot instanceof HTMLElement)) return;
+    const groupKey = String(slot.getAttribute("data-qboard-group-key") || "");
     const itemId = String(slot.getAttribute("data-qboard-catchup") || "");
+    if (groupKey && token) {
+      void ensurePhoneBoard(slot, `cug:${groupKey}`, boardUrls("catchup-group", groupKey, token), {
+        team: false,
+        lockOnSubmit: true,
+        submittedLine: "Submitted ✓",
+      });
+      return;
+    }
     if (!itemId || !token) return;
     void ensurePhoneBoard(slot, `cu:${itemId}`, boardUrls("catchup", itemId, token), {
       team: false,
-      lockOnSubmit: false,
+      lockOnSubmit: true,
+      submittedLine: "Submitted ✓",
     });
   });
 }

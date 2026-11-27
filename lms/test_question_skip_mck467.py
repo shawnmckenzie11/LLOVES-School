@@ -343,13 +343,24 @@ class QuestionSkipTests(ChallengeHarness):
             if q.get("question_skip") and not q.get("answered")
         }
         self.assertIn(key, eli_keys)
-        for name in ("Ava", "Cy", "Ben"):
+        for name in ("Ava", "Cy"):
             keys = {
                 q["question_key"]
                 for q in self.school.catchup_questions(token, self.ids[name])
                 if q.get("prompt_kind") == "mc" or q.get("question_skip")
             }
             self.assertNotIn(key, keys, name)
+        # Ben's team did not submit. Group catch-up now offers MC to
+        # students who have no live completion; a skip stays on the
+        # skip path above, not on this catalogue row.
+        ben = [
+            q
+            for q in self.school.catchup_questions(token, self.ids["Ben"])
+            if q["question_key"] == key
+        ]
+        self.assertEqual(len(ben), 1)
+        self.assertTrue(ben[0].get("group_item"))
+        self.assertFalse(ben[0].get("question_skip"))
         self.assertTrue(
             self.school.submit_catchup_answer(token, self.ids["Eli"], key, "2")
         )
