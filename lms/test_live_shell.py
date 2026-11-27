@@ -684,10 +684,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("splitMcResultsControls(resultHtml)", paint)
         self.assertIn("relocateHtml: relocateButton", paint)
         self.assertIn("graphControlsHtml:", paint)
-        head = paint.split("live-question-card-head")[1].split(
-            "live-question-card-actions"
-        )[0]
-        self.assertNotIn("relocateButton", head)
+        # One-line rows dropped the old head (NEW / Page / BANK / Inactive).
+        self.assertNotIn("live-question-card-head", paint)
+        self.assertIn("liveQuestionTypeLabel(", paint)
+        self.assertIn("live-question-type", paint)
         card_actions = paint.split("live-question-card-actions")[1].split("</article>")[0]
         self.assertIn("controlStrip", card_actions)
         self.assertNotIn("relocateButton", card_actions)
