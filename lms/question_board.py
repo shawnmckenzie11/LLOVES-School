@@ -2105,7 +2105,11 @@ def _presence_awards_participation(body: dict[str, Any]) -> bool:
     Args:
         body: Presence JSON from the phone.
     """
-    if str(body.get("op") or body.get("type") or "") == "stroke_remove":
+    if str(body.get("op") or body.get("type") or "") in {
+        "stroke_remove",
+        "board_wipe",
+        "board_unwipe",
+    }:
         return False
     if str(body.get("text_id") or "").strip() and str(body.get("text") or "").strip():
         return True
@@ -2118,8 +2122,10 @@ def _presence_awards_participation(body: dict[str, Any]) -> bool:
 def body_is_presence(body: Any) -> bool:
     """True when a write is a live-whiteboard presence batch, not an op list.
 
-    The gallery posts ``ops``. Phones post points, text, or stroke_remove,
-    the same body ``/api/student/canvas-presence`` accepts.
+    The gallery posts ``ops``. Phones post points, text, an equation,
+    wipe, unwipe, or stroke_remove, the same body
+    ``/api/student/canvas-presence`` accepts. A Clear or Undo body has
+    no ``ops`` list, so it must match here or the route stores nothing.
 
     Args:
         body: JSON object from the client.
@@ -2131,8 +2137,10 @@ def body_is_presence(body: Any) -> bool:
         return False
     if str(body.get("text_id") or "").strip():
         return True
+    if str(body.get("equation_id") or "").strip():
+        return True
     kind = str(body.get("op") or body.get("type") or "")
-    if kind == "stroke_remove":
+    if kind in {"stroke_remove", "board_wipe", "board_unwipe"}:
         return True
     return isinstance(body.get("points"), list)
 
