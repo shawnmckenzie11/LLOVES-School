@@ -2475,6 +2475,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/canvas-presence", methods=["POST"])
     @student_required
+    @feature_required("whiteboard")
     def api_student_canvas_presence():
         """Student cursor / team-stroke tick on the bound live session."""
         denied = _require_active_live_attendee(as_json=True)
@@ -5288,6 +5289,7 @@ def register_live(app, school, shared):
         "/api/live-sessions/<int:session_id>/canvas-presence",
         methods=["POST"],
     )
+    @feature_required("whiteboard")
     def api_live_session_canvas_presence(session_id: int):
         """Thin cursor / stroke tick for Frozen or team-shared canvas.
 
@@ -5517,6 +5519,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/board/<board_key>", methods=["GET"])
     @student_required
+    @feature_required("whiteboard")
     def api_student_board(board_key: str):
         """Ink since seq for this student's team board, plus teacher ink.
 
@@ -5558,6 +5561,7 @@ def register_live(app, school, shared):
 
     @bp.route("/api/student/board/<board_key>/ops", methods=["POST"])
     @student_required
+    @feature_required("whiteboard")
     def api_student_board_ops(board_key: str):
         """Append a batch of ops to a board this student may write.
 
@@ -5642,7 +5646,7 @@ def register_live(app, school, shared):
         methods=["GET"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery(session_id: int):
         """Teacher gallery. Hidden until a whiteboard question is published."""
         from formative_live_board import parse_cursors
@@ -5666,7 +5670,7 @@ def register_live(app, school, shared):
         methods=["GET"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery_one(session_id: int, board_key: str):
         """Teacher side panel for one team or solo board."""
         held = _whiteboard_overview_hold(session_id)
@@ -5690,7 +5694,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery_feedback(session_id: int, board_key: str):
         """Append live teacher ink. Does not create a feedback layer."""
         _row, denied = _teacher_formative_session(session_id)
@@ -5720,7 +5724,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery_release(session_id: int, board_key: str):
         """Release feedback rows already stored. New ink does not use this."""
         _row, denied = _teacher_formative_session(session_id)
@@ -6249,7 +6253,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery_clear(session_id: int, board_key: str):
         """Clear student ink on one board. Teacher ink stays."""
         _row, denied = _teacher_formative_session(session_id)
@@ -6270,7 +6274,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery_show(session_id: int, board_key: str):
         """Show one board to the class, including its colour legend."""
         _row, denied = _teacher_formative_session(session_id)
@@ -6287,7 +6291,7 @@ def register_live(app, school, shared):
         methods=["POST"],
     )
     @login_required
-    @feature_required_any("whiteboard", "whiteboard_submit")
+    @feature_required("whiteboard")
     def api_whiteboard_gallery_show_all(session_id: int):
         """Project every live whiteboard, or stop that grid."""
         from question_board import QuestionBoardError
@@ -6307,6 +6311,7 @@ def register_live(app, school, shared):
         "/api/live-sessions/<int:session_id>/board/<board_key>",
         methods=["GET"],
     )
+    @feature_required("whiteboard")
     def api_live_session_board(session_id: int, board_key: str):
         """Since-seq read. Staff may read only the teacher board.
 
@@ -6372,6 +6377,7 @@ def register_live(app, school, shared):
         "/api/live-sessions/<int:session_id>/board/<board_key>/ops",
         methods=["POST"],
     )
+    @feature_required("whiteboard")
     def api_live_session_board_ops(session_id: int, board_key: str):
         """Append ops. Staff write the teacher board only.
 
