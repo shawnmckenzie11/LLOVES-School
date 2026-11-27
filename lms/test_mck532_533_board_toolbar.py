@@ -29,7 +29,15 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 
 SCRIPT = LMS_DIR / "e2e" / "board_toolbar_mck532_533.mjs"
-EVIDENCE = Path(os.environ.get("MCK532_EVIDENCE", "/workspace/mck-532-533-evidence"))
+def _evidence_dir() -> Path:
+    """Write toolbar screenshots somewhere this machine can create."""
+    override = os.environ.get("MCK532_EVIDENCE", "").strip()
+    if override:
+        return Path(override)
+    return Path(tempfile.gettempdir()) / "mck-532-533-evidence"
+
+
+EVIDENCE = _evidence_dir()
 
 
 def _chrome() -> str:
