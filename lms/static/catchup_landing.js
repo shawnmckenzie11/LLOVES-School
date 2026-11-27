@@ -33,9 +33,9 @@ async function loadMore() {
   if (!root || !list || !moreBtn) return;
   const offset = parseInt(root.dataset.offset || "0", 10) + list.querySelectorAll(".cl-row").length;
   const copy = {
-    t1Label: moreBtn.dataset.t1 || "T1 Individual",
-    t2Label: moreBtn.dataset.t2 || "T2 Group",
-    t3Label: moreBtn.dataset.t3 || "T3 Understanding",
+    t1Label: moreBtn.dataset.t1 || "Individual",
+    t2Label: moreBtn.dataset.t2 || "Group",
+    t3Label: moreBtn.dataset.t3 || "Formative",
     offline: moreBtn.dataset.offline || "No connection. Retry.",
   };
   moreBtn.disabled = true;
@@ -67,9 +67,7 @@ async function loadMore() {
 if (moreBtn && root) {
   const heading = document.getElementById("cl-other-heading");
   if (heading) {
-    moreBtn.dataset.t1 = heading.textContent.includes("T1")
-      ? "T1 Individual"
-      : "T1 Individual";
+    moreBtn.dataset.t1 = moreBtn.dataset.t1 || "Individual";
   }
   moreBtn.dataset.offline = root.dataset.offline || "No connection. Retry.";
   moreBtn.addEventListener("click", loadMore);

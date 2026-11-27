@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catch-up board submitted</title>
+  <link rel="stylesheet" href="../static/whiteboard_formative.css">
+  <style>
+    body { margin: 0; background: #f4f6f8; font-family: "Segoe UI", system-ui, sans-serif; color: #12202e; }
+    main { max-width: 22rem; margin: 0 auto; padding: 1rem; }
+    h1 { font-size: 1.15rem; margin: 0 0 .75rem; }
+    .tabs { display: flex; gap: 0; margin: 0 0 1rem; border-bottom: 1px solid #d5dde5; }
+    .tabs button { flex: 1; border: 0; background: transparent; padding: .55rem .3rem; font: inherit; font-weight: 700; color: #64748b; }
+    .tabs button[aria-selected="true"] { color: #12202e; box-shadow: inset 0 -2px 0 #12202e; }
+    .qboard-phone { background: #fff; border: 1px solid #d5dde5; border-radius: .5rem; padding: .65rem; }
+    .live-canvas-stage { display: flex; gap: .4rem; align-items: stretch; }
+    .live-canvas-toolbar { display: flex; flex-direction: column; gap: .25rem; }
+    .live-canvas-toolbar button { width: 2rem; height: 2rem; border: 1px solid #cbd5e1; border-radius: .35rem; background: #fff; }
+    canvas.student-canvas { flex: 1; width: 100%; height: 160px; border: 1px solid #cbd5e1; border-radius: .35rem; background: #fff; }
+    .status { margin: .5rem 0 0; font-weight: 700; color: #0f766e; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Catch-up</h1>
+    <div class="tabs" role="tablist" aria-label="Catch-up">
+      <button type="button" role="tab" aria-selected="true">Individual</button>
+      <button type="button" role="tab" aria-selected="false">Group</button>
+      <button type="button" role="tab" aria-selected="false">Formative</button>
+    </div>
+    <div class="qboard-phone is-locked">
+      <div class="live-canvas-stage">
+        <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
+          <button type="button" disabled aria-label="Pen">✏️</button>
+          <button type="button" disabled aria-label="Line">／</button>
+          <button type="button" disabled aria-label="Text">T</button>
+          <button type="button" disabled aria-label="Undo">↺</button>
+          <button type="button" disabled aria-label="Clear">🗑</button>
+        </div>
+        <canvas class="student-canvas" width="720" height="360" aria-label="Whiteboard"></canvas>
+      </div>
+      <p class="status">Submitted ✓</p>
+    </div>
+  </main>
+  <script>
+    const canvas = document.querySelector("canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.strokeStyle = "#12202e";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(80, 220);
+    ctx.quadraticCurveTo(220, 40, 400, 200);
+    ctx.quadraticCurveTo(520, 300, 640, 120);
+    ctx.stroke();
+  </script>
+</body>
+</html>

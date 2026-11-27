@@ -23,6 +23,7 @@ CLOSED_LINE = "This question is closed."
 EMPTY_LINE = "Add an answer before submitting."
 GATE_LINE = "Everyone on the team adds something to the board before Submit."
 LOCKED_LINE = "This board is submitted."
+CATCHUP_SUBMITTED_LINE = "Submitted ✓"
 TEXT_LINE = "That text is too long."
 FEEDBACK_CAP = 500
 ROUND_DIGITS = 3
@@ -707,8 +708,8 @@ def refuse_submitted_student_ink(
     The SELECT uses ``exec_`` so it joins the transaction that will insert
     the ops. The match is the run, not only the key the writer computed:
     a team copy covers every member. Teacher writes, including Clear, are
-    allowed. A run key that is not a live question (the deck board, a
-    fresh board, or catch-up) is ignored. A store that has no copy table
+    allowed. A run key that is not a live or catch-up question (the deck
+    board or a fresh board) is ignored. A store that has no copy table
     is not a submitted board.
 
     Args:
@@ -729,7 +730,7 @@ def refuse_submitted_student_ink(
         parsed = parse_board_run_key(run_key)
     except ValueError:
         return
-    if parsed.kind != "question":
+    if parsed.kind not in {"question", "catchup"}:
         return
     try:
         cursor = exec_(
@@ -2714,6 +2715,8 @@ def submit_catchup_board(
     size = copy_byte_size(copy)
     if size > COPY_CAP_BYTES:
         raise QuestionBoardError(SIZE_LINE, 413)
+    if _copy_is_submitted(school, int(link["class_id"]), run_key, board_key):
+        raise QuestionBoardError(LOCKED_LINE, 409)
     strokes = copy.get("strokes") or []
     labels = copy.get("texts") or []
     if not strokes and not labels and not typed.strip():
@@ -2790,7 +2793,13 @@ def submit_catchup_board(
         except Exception:
             _abort_write(school, started)
             raise
-    return {"ok": True, "answer": pointer, "status_line": "Submitted. You can still make changes."}
+    return {
+        "ok": True,
+        "answer": pointer,
+        "status_line": CATCHUP_SUBMITTED_LINE,
+        "editing_locked": True,
+        "read_only": True,
+    }
 
 
 def _solo_phone(student_id: int) -> dict[str, Any]:
@@ -2890,20 +2899,22 @@ def read_catchup_board(
         with school._lock:
             copy = school.conn.execute(
                 """
-                SELECT strokes_json, text, feedback_text FROM board_answer_copies
+                SELECT strokes_json, text, feedback_text, submitted_at FROM board_answer_copies
                 WHERE class_id = ? AND run_key = ? AND board_key = ?
                 """,
                 (int(link["class_id"]), run_key, board_key),
             ).fetchone()
         view = _loads(copy["strokes_json"]) if copy is not None else {"strokes": [], "texts": []}
+        submitted = copy is not None and str(copy["submitted_at"] or "").strip()
         return {
             "ok": True,
             "read_only": True,
+            "editing_locked": True,
             "snapshot": True,
             "canvas_view": view,
             "text": str(copy["text"] or "") if copy is not None else "",
             "feedback": str(copy["feedback_text"] or "") if copy is not None else "",
-            "status_line": "Submitted. You can still make changes." if copy is not None else "",
+            "status_line": CATCHUP_SUBMITTED_LINE if submitted else "",
             "run_key": run_key,
             "board_key": board_key,
             **_solo_phone(int(student_id)),
@@ -2921,13 +2932,14 @@ def read_catchup_board(
     view = fold_one_board(rows, include_feedback=False)
     body = {
         "ok": True,
-        "read_only": False,
+        "read_only": bool(submitted),
+        "editing_locked": bool(submitted),
         "snapshot": True,
         "canvas_view": view,
         "board_seq": seq,
         "text": str(copy["text"] or "") if submitted else "",
         "feedback": str(copy["feedback_text"] or "") if copy is not None else "",
-        "status_line": "Submitted. You can still make changes." if submitted else "",
+        "status_line": CATCHUP_SUBMITTED_LINE if submitted else "",
         "run_key": run_key,
         "board_key": board_key,
         **_solo_phone(int(student_id)),

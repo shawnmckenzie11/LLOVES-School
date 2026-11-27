@@ -160,9 +160,9 @@ class CatchupLandingFlowTests(Base):
         )
         html = client.get("/student/catchup").get_data(as_text=True)
         self.assertIn(COPY_PICK_TITLE, html)
-        self.assertIn("T1 Individual", html)
-        self.assertIn("T2 Group", html)
-        self.assertIn("T3 Understanding", html)
+        self.assertIn("Individual", html)
+        self.assertIn("Group", html)
+        self.assertIn("Formative", html)
         self.assertNotIn(">New<", html)
 
     def test_other_open_heading_hidden_when_list_empty(self) -> None:

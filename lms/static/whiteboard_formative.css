@@ -788,6 +788,17 @@ body.student-home:has(#canvas-pane:not([hidden])) {
   cursor: default;
 }
 
+.qboard-phone.is-locked .live-canvas-stage,
+.qboard-phone.is-locked .live-canvas-toolbar {
+  opacity: 0.55;
+  filter: grayscale(0.25);
+  pointer-events: none;
+}
+
+.qboard-phone.is-locked canvas.student-canvas {
+  background: #e8edf2;
+}
+
 .qboard-dash .wb-live {
   min-height: 28rem;
 }
