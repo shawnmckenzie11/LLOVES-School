@@ -83,6 +83,43 @@ CREATE TABLE IF NOT EXISTS user_features (
 )
 """
 
+TEACHER_FEATURE_AUDIT_DDL = """
+CREATE TABLE IF NOT EXISTS teacher_feature_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_user_id INTEGER NOT NULL,
+    teacher_user_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    created_at TEXT NOT NULL
+)
+"""
+
+TEACHER_FEATURE_AUDIT_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS idx_teacher_feature_audit_teacher_created
+ON teacher_feature_audit(teacher_user_id, created_at)
+"""
+
+TEACHER_FEATURE_AUDIT_NO_UPDATE = """
+CREATE TRIGGER IF NOT EXISTS teacher_feature_audit_no_update
+BEFORE UPDATE ON teacher_feature_audit
+BEGIN
+    SELECT RAISE(ABORT, 'teacher_feature_audit is append-only');
+END
+"""
+
+TEACHER_FEATURE_AUDIT_NO_DELETE = """
+CREATE TRIGGER IF NOT EXISTS teacher_feature_audit_no_delete
+BEFORE DELETE ON teacher_feature_audit
+BEGIN
+    SELECT RAISE(ABORT, 'teacher_feature_audit is append-only');
+END
+"""
+
+OVERRIDE_ON = "on"
+OVERRIDE_OFF = "off"
+OVERRIDE_PLAN = "plan"
+
 
 def _now() -> str:
     """Local ISO timestamp without microseconds, matching ``school_db._now``."""
@@ -112,10 +149,20 @@ def plan_default(plan: str | None, key: str) -> bool:
     return bool(FEATURE_REGISTRY.get(name, False))
 
 
+def _sqlite_school_conn(conn: Any) -> bool:
+    """True when ``conn`` is the school sqlite file (not live Postgres)."""
+    try:
+        conn.execute("PRAGMA user_version")
+        return True
+    except Exception:
+        return False
+
+
 def ensure_feature_schema(conn: Any) -> None:
     """Create ``user_features`` and add ``users.plan`` when it is missing.
 
     Safe to call on every boot. A second call does not rewrite the column.
+    Also ensures the append-only teacher plan/override audit table on sqlite.
 
     Args:
         conn: sqlite connection. The caller holds the boot lock.
@@ -124,6 +171,11 @@ def ensure_feature_schema(conn: Any) -> None:
     cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(users)")}
     if "plan" not in cols:
         conn.execute(USER_PLAN_DDL)
+    conn.execute(TEACHER_FEATURE_AUDIT_DDL)
+    conn.execute(TEACHER_FEATURE_AUDIT_INDEX_DDL)
+    if _sqlite_school_conn(conn):
+        conn.execute(TEACHER_FEATURE_AUDIT_NO_UPDATE)
+        conn.execute(TEACHER_FEATURE_AUDIT_NO_DELETE)
 
 
 def _it_allowlist() -> set[str]:

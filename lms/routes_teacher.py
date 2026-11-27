@@ -61,6 +61,7 @@ from app import (
     forget_featured_students,
     get_question_bank,
     instances_payload,
+    it_admin_404,
     it_emails,
     it_required,
     join_limit_ip_key,
@@ -720,6 +721,113 @@ def register_teacher(app, school, shared):
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
+
+    @bp.route("/it/teacher-plans")
+    @it_admin_404
+    def it_teacher_plans():
+        """IT: set teacher plan and per-feature overrides (MCK-538)."""
+        user = current_user()
+        tenant_id = school.tenant_id_of(user)
+        try:
+            from feature_admin import list_teachers_for_plan_admin
+        except ImportError:
+            from lms.feature_admin import list_teachers_for_plan_admin
+        teachers = list_teachers_for_plan_admin(school, tenant_id)
+        return render_template(
+            "it/teacher_plans.html",
+            user=user,
+            teachers=teachers,
+            school_name=SCHOOL_NAME,
+        )
+
+    @bp.route("/it/api/teacher-plans/<int:teacher_id>/plan", methods=["POST"])
+    @it_admin_404
+    def it_teacher_plan_set(teacher_id: int):
+        """Set basic or pro for one teacher."""
+        if not _same_origin_post():
+            return "Forbidden", 403
+        actor = current_user()
+        if actor is None:
+            abort(404)
+        if request.is_json and isinstance(request.json, dict):
+            plan = str(request.json.get("plan") or "").strip().lower()
+        else:
+            plan = str(request.form.get("plan") or "").strip().lower()
+        try:
+            from feature_admin import admin_set_teacher_plan
+        except ImportError:
+            from lms.feature_admin import admin_set_teacher_plan
+        try:
+            changed = admin_set_teacher_plan(
+                school, int(actor["id"]), int(teacher_id), plan
+            )
+        except ValueError:
+            abort(404)
+        if request.path.startswith("/it/api/") or request.is_json or _wants_json():
+            return jsonify({"ok": True, "changed": changed})
+        return redirect(url_for("it_teacher_plans"))
+
+    @bp.route(
+        "/it/api/teacher-plans/<int:teacher_id>/features/<feature_key>",
+        methods=["POST"],
+    )
+    @it_admin_404
+    def it_teacher_feature_override(teacher_id: int, feature_key: str):
+        """Force on, off, or follow plan for one registry key."""
+        if not _same_origin_post():
+            return "Forbidden", 403
+        actor = current_user()
+        if actor is None:
+            abort(404)
+        mode = (
+            request.form.get("mode")
+            or (request.json.get("mode") if request.is_json else None)
+            or ""
+        )
+        mode = str(mode).strip().lower()
+        try:
+            from feature_admin import admin_set_teacher_override
+        except ImportError:
+            from lms.feature_admin import admin_set_teacher_override
+        try:
+            changed = admin_set_teacher_override(
+                school,
+                int(actor["id"]),
+                int(teacher_id),
+                feature_key,
+                mode,
+            )
+        except ValueError:
+            abort(404)
+        if request.is_json or _wants_json():
+            return jsonify({"ok": True, "changed": changed})
+        return redirect(url_for("it_teacher_plans"))
+
+    @bp.route(
+        "/it/api/teacher-plans/<int:teacher_id>/reset-overrides",
+        methods=["POST"],
+    )
+    @it_admin_404
+    def it_teacher_reset_overrides(teacher_id: int):
+        """Remove every per-feature override for one teacher."""
+        if not _same_origin_post():
+            return "Forbidden", 403
+        actor = current_user()
+        if actor is None:
+            abort(404)
+        try:
+            from feature_admin import admin_reset_teacher_overrides
+        except ImportError:
+            from lms.feature_admin import admin_reset_teacher_overrides
+        try:
+            removed = admin_reset_teacher_overrides(
+                school, int(actor["id"]), int(teacher_id)
+            )
+        except ValueError:
+            abort(404)
+        if request.is_json or _wants_json():
+            return jsonify({"ok": True, "removed": removed})
+        return redirect(url_for("it_teacher_plans"))
 
     def _invite_link(token: str) -> str:
         """Absolute ``/invite/<token>`` URL (``PUBLIC_APP_URL`` on Fly)."""
