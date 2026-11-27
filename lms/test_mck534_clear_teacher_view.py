@@ -24,7 +24,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from question_board import body_is_presence  # noqa: E402
+from question_board import LOCKED_LINE, body_is_presence  # noqa: E402
 
 
 def _stroke_ids(view: dict) -> set[str]:
@@ -38,6 +38,25 @@ def _op_types(payload: dict) -> set[str]:
     """Op types on a since-seq teacher tile or panel delta."""
     ops = list(payload.get("ops") or []) + list(payload.get("ops_since") or [])
     return {str(op.get("type") or op.get("op") or "") for op in ops if isinstance(op, dict)}
+
+
+def _ink_ids(view: dict) -> dict[str, set[str]]:
+    """Stroke, text, and equation ids on a snapshot view."""
+    canvas = view.get("canvas_view") if isinstance(view.get("canvas_view"), dict) else view
+    if not isinstance(canvas, dict):
+        canvas = {}
+
+    def ids(key: str) -> set[str]:
+        rows = canvas.get(key) or []
+        if isinstance(rows, dict):
+            rows = list(rows.values())
+        return {
+            str(row.get("id") or "")
+            for row in rows
+            if isinstance(row, dict) and row.get("id")
+        }
+
+    return {"strokes": ids("strokes"), "texts": ids("texts"), "equations": ids("equations")}
 
 
 class BodyIsPresenceTests(unittest.TestCase):
@@ -283,6 +302,109 @@ class ClearUpdatesTeacherViewTests(unittest.TestCase):
         snapped = self._tile(prompt_id, board_key, cursors={board_key: 10**15})
         self.assertTrue(snapped.get("snapshot"))
         self.assertEqual(_stroke_ids(snapped), {"back"})
+
+    def test_clear_wipes_text_equations_and_unmarked_strokes(self) -> None:
+        """After Clear, the teacher snapshot matches the phone, including text and equations.
+
+        A stroke stored without a phone own-mark is still that student's ink,
+        so the owner-scoped wipe removes it on both views. Teacher ink stays.
+        """
+        prompt_id = self._add("Board clear all ink")
+        phone = self._phone(0)
+        drawn = self._draw(phone, prompt_id, "marked")
+        board_key = str(drawn.get("board_key") or "")
+        self.school.append_question_board_ops(
+            self.session_id,
+            prompt_id,
+            self.ids[0],
+            [
+                {"type": "stroke_add", "id": "unmarked", "points": [[0.15, 0.15], [0.25, 0.28]]},
+                {"type": "stroke_end", "id": "unmarked"},
+            ],
+        )
+        texted = phone.post(
+            f"/api/student/question-board/{prompt_id}/ops",
+            json={"text_id": "label-a", "text": "demo", "x": 0.35, "y": 0.4},
+        )
+        self.assertEqual(texted.status_code, 200, texted.get_json())
+        equated = phone.post(
+            f"/api/student/question-board/{prompt_id}/ops",
+            json={"equation_id": "eq-a", "latex": "x^2", "x": 0.55, "y": 0.6},
+        )
+        self.assertEqual(equated.status_code, 200, equated.get_json())
+        self.school.append_question_board_ops(
+            self.session_id,
+            prompt_id,
+            0,
+            [
+                {"type": "stroke_add", "id": "teacher-ink", "points": [[0.7, 0.2], [0.8, 0.3]]},
+                {"type": "stroke_end", "id": "teacher-ink"},
+            ],
+            owner="teacher",
+            board_key=board_key,
+        )
+        before = _ink_ids(self._panel(prompt_id, board_key))
+        self.assertEqual(before["strokes"], {"marked", "unmarked", "teacher-ink"})
+        self.assertEqual(before["texts"], {"label-a"})
+        self.assertEqual(before["equations"], {"eq-a"})
+
+        wiped = phone.post(
+            f"/api/student/question-board/{prompt_id}/ops",
+            json={"op": "board_wipe", "wipe_id": "wipe-all", "id": "wipe-all"},
+        )
+        self.assertEqual(wiped.status_code, 200, wiped.get_json())
+        self.assertTrue((wiped.get_json() or {}).get("ok"))
+
+        phone_view = phone.get(f"/api/student/question-board/{prompt_id}")
+        self.assertEqual(phone_view.status_code, 200)
+        phone_ink = _ink_ids(phone_view.get_json() or {})
+        teacher_ink = _ink_ids(self._panel(prompt_id, board_key))
+        self.assertEqual(phone_ink, teacher_ink)
+        self.assertEqual(phone_ink["strokes"], {"teacher-ink"})
+        self.assertEqual(phone_ink["texts"], set())
+        self.assertEqual(phone_ink["equations"], set())
+
+    def test_board_wipe_and_unwipe_are_refused_after_submit(self) -> None:
+        """After Submit, board_wipe and board_unwipe are refused like later ink."""
+        prompt_id = self._add("Board wipe lock")
+        phone = self._phone(0)
+        first = self._draw(phone, prompt_id, "first")
+        board_key = str(first.get("board_key") or "")
+        held = int(first.get("board_seq") or 0)
+        wiped = phone.post(
+            f"/api/student/question-board/{prompt_id}/ops",
+            json={"op": "board_wipe", "wipe_id": "prior-wipe", "id": "prior-wipe", "since": held},
+        )
+        self.assertEqual(wiped.status_code, 200, wiped.get_json())
+        self._draw(phone, prompt_id, "kept", salt=2)
+        sent = phone.post(
+            f"/api/student/question-board/{prompt_id}/submit",
+            json={"text": ""},
+        )
+        self.assertEqual(sent.status_code, 200, sent.get_json())
+        self.assertTrue((sent.get_json() or {}).get("editing_locked"))
+        before = _ink_ids(self._panel(prompt_id, board_key))
+        self.assertEqual(before["strokes"], {"kept"})
+
+        for payload in (
+            {"op": "board_wipe", "wipe_id": "late-wipe", "id": "late-wipe"},
+            {
+                "op": "board_unwipe",
+                "unwipe_id": "late-unwipe",
+                "id": "late-unwipe",
+                "wipe_id": "prior-wipe",
+            },
+        ):
+            reply = phone.post(f"/api/student/question-board/{prompt_id}/ops", json=payload)
+            self.assertEqual(reply.status_code, 409, payload["op"])
+            self.assertEqual((reply.get_json() or {}).get("error"), LOCKED_LINE)
+
+        after_phone = phone.get(f"/api/student/question-board/{prompt_id}")
+        self.assertEqual(after_phone.status_code, 200)
+        after = _ink_ids(after_phone.get_json() or {})
+        self.assertEqual(after, _ink_ids(self._panel(prompt_id, board_key)))
+        self.assertEqual(after["strokes"], {"kept"})
+
 
 
 
