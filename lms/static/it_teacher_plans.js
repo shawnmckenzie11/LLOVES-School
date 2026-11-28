@@ -498,7 +498,7 @@
         .join("");
     } catch (_e) {
       els.auditBody.innerHTML =
-        "<tr><td colspan='5' class='it-tp-empty'>Couldn't load teachers. Refresh to try again.</td></tr>";
+        "<tr><td colspan='5' class='it-tp-empty'>Couldn't load audit history. Try again.</td></tr>";
     }
   }
 

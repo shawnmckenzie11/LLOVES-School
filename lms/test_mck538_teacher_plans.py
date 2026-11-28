@@ -164,6 +164,19 @@ class TeacherPlanAdminTests(unittest.TestCase):
             f"/it/api/teacher-plans/{self.teacher_id}/reset-overrides",
         )
         self.assertEqual(reset.status_code, 404)
+        listing = self.client.get("/it/api/teacher-plans")
+        self.assertEqual(listing.status_code, 404)
+        history = self.client.get(
+            f"/it/api/teacher-plans/{self.teacher_id}/history"
+        )
+        self.assertEqual(history.status_code, 404)
+        audit = self.client.get("/it/api/teacher-plans/audit")
+        self.assertEqual(audit.status_code, 404)
+        bulk = self.client.post(
+            "/it/api/teacher-plans/bulk-plan",
+            json={"teacher_ids": [self.teacher_id], "plan": PLAN_PRO},
+        )
+        self.assertEqual(bulk.status_code, 404)
 
     def test_audit_triggers_refuse_mutation(self) -> None:
         """Audit rows are append-only on sqlite."""

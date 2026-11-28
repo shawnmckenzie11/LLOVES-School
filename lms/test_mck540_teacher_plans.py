@@ -186,7 +186,12 @@ class TeacherPlanConsoleTests(TeacherPlanAdminTests):
         body = page.get_data(as_text=True)
         self.assertIn("Teacher plans", body)
         self.assertIn("Change history", body)
+        self.assertIn('data-drawer hidden', body)
         self.assertNotIn("teacher-a@example.com", body)
+        css = (
+            Path(__file__).resolve().parent / "static" / "it-teacher-plans.css"
+        ).read_text(encoding="utf-8")
+        self.assertIn(".it-tp-drawer[hidden]", css)
         api = self.client.get("/it/api/teacher-plans")
         self.assertEqual(200, api.status_code)
         payload = json.loads(api.get_data(as_text=True))

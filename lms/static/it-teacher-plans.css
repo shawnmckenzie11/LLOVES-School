@@ -230,6 +230,10 @@ body.it-teacher-plans .it-tp-drawer {
   z-index: 20;
 }
 
+body.it-teacher-plans .it-tp-drawer[hidden] {
+  display: none !important;
+}
+
 body.it-teacher-plans .it-tp-toast {
   position: fixed;
   left: 24px;
