@@ -2190,12 +2190,30 @@
       "it_review_access_request"
     ],
     [
+      "/it/api/teacher-plans",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "it_teacher_plans_list"
+    ],
+    [
       "/it/api/teacher-plans/<int:teacher_id>/features/<feature_key>",
       [
         "OPTIONS",
         "POST"
       ],
       "it_teacher_feature_override"
+    ],
+    [
+      "/it/api/teacher-plans/<int:teacher_id>/history",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "it_teacher_plans_history"
     ],
     [
       "/it/api/teacher-plans/<int:teacher_id>/plan",
@@ -2212,6 +2230,23 @@
         "POST"
       ],
       "it_teacher_reset_overrides"
+    ],
+    [
+      "/it/api/teacher-plans/audit",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "it_teacher_plans_audit"
+    ],
+    [
+      "/it/api/teacher-plans/bulk-plan",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "it_teacher_plans_bulk_plan"
     ],
     [
       "/it/audit.csv",

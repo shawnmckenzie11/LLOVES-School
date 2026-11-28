@@ -725,20 +725,119 @@ def register_teacher(app, school, shared):
     @bp.route("/it/teacher-plans")
     @it_admin_404
     def it_teacher_plans():
-        """IT: set teacher plan and per-feature overrides (MCK-538)."""
+        """IT: teacher plan admin console (MCK-538, MCK-540 redesign)."""
         user = current_user()
+        try:
+            from feature_admin import feature_registry_for_admin
+        except ImportError:
+            from lms.feature_admin import feature_registry_for_admin
+        return render_template(
+            "it/teacher_plans.html",
+            user=user,
+            school_name=SCHOOL_NAME,
+            feature_registry=feature_registry_for_admin(),
+        )
+
+    @bp.route("/it/api/teacher-plans", methods=["GET"])
+    @it_admin_404
+    def it_teacher_plans_list():
+        """JSON teacher list with last-changed enrichment."""
+        user = current_user()
+        if user is None:
+            abort(404)
         tenant_id = school.tenant_id_of(user)
         try:
             from feature_admin import list_teachers_for_plan_admin
         except ImportError:
             from lms.feature_admin import list_teachers_for_plan_admin
-        teachers = list_teachers_for_plan_admin(school, tenant_id)
-        return render_template(
-            "it/teacher_plans.html",
-            user=user,
-            teachers=teachers,
-            school_name=SCHOOL_NAME,
+        return jsonify({"ok": True, "teachers": list_teachers_for_plan_admin(school, tenant_id)})
+
+    @bp.route("/it/api/teacher-plans/<int:teacher_id>/history", methods=["GET"])
+    @it_admin_404
+    def it_teacher_plans_history(teacher_id: int):
+        """Tenant-scoped change history for one teacher."""
+        user = current_user()
+        if user is None:
+            abort(404)
+        try:
+            from feature_admin import list_teacher_change_history
+        except ImportError:
+            from lms.feature_admin import list_teacher_change_history
+        rows = list_teacher_change_history(school, int(user["id"]), int(teacher_id))
+        if not rows:
+            tenant_id = school.tenant_id_of(user)
+            try:
+                from feature_admin import _staff_or_it_row
+            except ImportError:
+                from lms.feature_admin import _staff_or_it_row
+            if _staff_or_it_row(school.conn, teacher_id, tenant_id) is None:
+                abort(404)
+        return jsonify({"ok": True, "history": rows})
+
+    @bp.route("/it/api/teacher-plans/audit", methods=["GET"])
+    @it_admin_404
+    def it_teacher_plans_audit():
+        """Tenant-wide feature audit log (no export)."""
+        user = current_user()
+        if user is None:
+            abort(404)
+        teacher_raw = request.args.get("teacher_id")
+        feature_key = request.args.get("feature_key")
+        date_from = request.args.get("from")
+        date_to = request.args.get("to")
+        teacher_id: int | None = None
+        if teacher_raw not in (None, ""):
+            try:
+                teacher_id = int(teacher_raw)
+            except ValueError:
+                abort(400)
+        try:
+            from feature_admin import list_tenant_feature_audit
+        except ImportError:
+            from lms.feature_admin import list_tenant_feature_audit
+        rows = list_tenant_feature_audit(
+            school,
+            int(user["id"]),
+            teacher_user_id=teacher_id,
+            feature_key=str(feature_key or "").strip() or None,
+            date_from=str(date_from or "").strip() or None,
+            date_to=str(date_to or "").strip() or None,
         )
+        return jsonify({"ok": True, "audit": rows})
+
+    @bp.route("/it/api/teacher-plans/bulk-plan", methods=["POST"])
+    @it_admin_404
+    def it_teacher_plans_bulk_plan():
+        """All-or-nothing bulk plan change for selected teachers."""
+        if not _same_origin_post():
+            return "Forbidden", 403
+        user = current_user()
+        if user is None:
+            abort(404)
+        payload = request.json if request.is_json else request.form
+        if not isinstance(payload, dict):
+            abort(400)
+        plan = str(payload.get("plan") or "").strip().lower()
+        raw_ids = payload.get("teacher_ids") or payload.get("teacher_ids[]") or []
+        if isinstance(raw_ids, (str, int)):
+            raw_ids = [raw_ids]
+        try:
+            teacher_ids = [int(x) for x in raw_ids]
+        except (TypeError, ValueError):
+            abort(400)
+        try:
+            from feature_admin import admin_bulk_set_teacher_plan
+        except ImportError:
+            from lms.feature_admin import admin_bulk_set_teacher_plan
+        try:
+            changed = admin_bulk_set_teacher_plan(
+                school, int(user["id"]), teacher_ids, plan
+            )
+        except RuntimeError:
+            return jsonify({"ok": False}), 503
+        except ValueError:
+            return jsonify({"ok": False, "error": "teacher not found"}), 400
+        return jsonify({"ok": True, "changed": changed})
 
     @bp.route("/it/api/teacher-plans/<int:teacher_id>/plan", methods=["POST"])
     @it_admin_404

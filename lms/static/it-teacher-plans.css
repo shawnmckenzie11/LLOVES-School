@@ -1,0 +1,374 @@
+/* MCK-540: Teacher plans admin — staff-shell tokens only */
+body.it-teacher-plans.staff-shell {
+  min-width: 1280px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body.it-teacher-plans .it-tp-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 20px 24px 24px;
+}
+
+body.it-teacher-plans .it-tp-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+body.it-teacher-plans .it-tp-kicker {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--live-muted, #64748b);
+  margin: 0 0 2px;
+}
+
+body.it-teacher-plans .it-tp-title {
+  margin: 0 0 4px;
+  font-size: 1.55rem;
+  font-weight: 700;
+}
+
+body.it-teacher-plans .it-tp-tabs {
+  display: flex;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid var(--live-border, #d5dde6);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+body.it-teacher-plans .it-tp-tab {
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+body.it-teacher-plans .it-tp-tab.on {
+  background: #0f766e;
+  color: #fff;
+}
+
+body.it-teacher-plans .it-tp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+body.it-teacher-plans .it-tp-search {
+  flex: 1 1 auto;
+  max-width: 280px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #c5d0dc;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+}
+
+body.it-teacher-plans .it-tp-filter {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #c5d0dc;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+}
+
+body.it-teacher-plans .it-tp-btn {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #0b5f59;
+  background: #0f766e;
+  color: #fff;
+  font-weight: 650;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+body.it-teacher-plans .it-tp-btn:disabled {
+  background: #e8eef4;
+  border-color: #c5d0dc;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+body.it-teacher-plans .it-tp-table-wrap {
+  background: #fff;
+  border: 1px solid var(--live-border, #d5dde6);
+  border-radius: 10px;
+  overflow: hidden;
+  flex: 1 1 auto;
+}
+
+body.it-teacher-plans table.it-tp-data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  text-align: left;
+}
+
+body.it-teacher-plans table.it-tp-data th {
+  background: #f7f9fb;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--live-border, #d5dde6);
+}
+
+body.it-teacher-plans table.it-tp-data td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #eef2f6;
+  vertical-align: middle;
+}
+
+body.it-teacher-plans table.it-tp-data tbody tr:hover td {
+  background: #f8fbfb;
+}
+
+body.it-teacher-plans table.it-tp-data tbody tr.it-tp-row-active td {
+  background: #eef6f5;
+}
+
+body.it-teacher-plans .it-tp-checkcol {
+  width: 36px;
+}
+
+body.it-teacher-plans .it-tp-plan-select {
+  height: 30px;
+  border: 1px solid #c5d0dc;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+body.it-teacher-plans .it-tp-plan-select.pro {
+  border-color: #0f766e;
+  color: #0b5f59;
+  background: #eef6f5;
+}
+
+body.it-teacher-plans .it-tp-overrides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 520px;
+}
+
+body.it-teacher-plans .it-tp-ov {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--live-border, #d5dde6);
+  background: #f7f9fb;
+  padding: 0.15rem 0.45rem;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+body.it-teacher-plans .it-tp-ov.on {
+  background: #eef6f5;
+  border-color: #99d5d0;
+}
+
+body.it-teacher-plans .it-tp-ov.off {
+  background: #f8fafc;
+}
+
+body.it-teacher-plans .it-tp-ov .state {
+  color: #64748b;
+  font-weight: 550;
+}
+
+body.it-teacher-plans .it-tp-ov.on .state {
+  color: #0b5f59;
+  font-weight: 700;
+}
+
+body.it-teacher-plans .it-tp-stage {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+body.it-teacher-plans .it-tp-stage.with-drawer .it-tp-table-pane {
+  margin-right: 400px;
+}
+
+body.it-teacher-plans .it-tp-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  background: #fff;
+  border: 1px solid var(--live-border, #d5dde6);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+}
+
+body.it-teacher-plans .it-tp-toast {
+  position: fixed;
+  left: 24px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  background: #12202e;
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+  font-size: 0.9rem;
+  z-index: 50;
+}
+
+body.it-teacher-plans .it-tp-toast button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+  color: #12202e;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+body.it-teacher-plans .it-tp-banner {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+body.it-teacher-plans .it-tp-banner.is-error {
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  color: #b42318;
+}
+
+body.it-teacher-plans .it-tp-empty,
+body.it-teacher-plans .it-tp-loading {
+  padding: 24px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+body.it-teacher-plans .it-tp-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+
+body.it-teacher-plans .it-tp-confirm {
+  background: #fff;
+  border-radius: 10px;
+  padding: 20px 22px;
+  max-width: 420px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+
+body.it-teacher-plans .it-tp-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+body.it-teacher-plans .it-tp-confirm-actions .secondary {
+  background: #fff;
+  color: #12202e;
+  border: 1px solid #94a3b8;
+}
+
+body.it-teacher-plans .it-tp-pane[hidden] {
+  display: none !important;
+}
+
+body.it-teacher-plans .it-tp-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+body.it-teacher-plans .it-tp-compare th,
+body.it-teacher-plans .it-tp-compare td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef2f6;
+  text-align: left;
+}
+
+body.it-teacher-plans .it-tp-compare th.col-plan {
+  width: 92px;
+  text-align: center;
+}
+
+body.it-teacher-plans .it-tp-compare td.col-plan {
+  text-align: center;
+  color: #64748b;
+}
+
+body.it-teacher-plans .hist-item {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 0 10px;
+  padding: 10px 12px;
+  position: relative;
+}
+
+body.it-teacher-plans .hist-when {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+body.it-teacher-plans .hist-what {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+}
+
+body.it-teacher-plans .hist-who {
+  color: #334155;
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
+body.it-teacher-plans .change {
+  font-weight: 650;
+}
+
+body.it-teacher-plans .dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 99px;
+  background: #0f766e;
+  justify-self: center;
+}

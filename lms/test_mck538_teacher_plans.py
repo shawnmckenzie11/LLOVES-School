@@ -286,14 +286,18 @@ class TeacherPlanAdminTests(unittest.TestCase):
         self.assertEqual(before + 2, audit_row_count(self.school.conn, self.teacher_id))
 
     def test_admin_page_lists_handle_not_email(self) -> None:
-        """Rendered page shows user id and handle only."""
+        """List API exposes handle only, not email (MCK-540 shell)."""
         self._login(self.admin_id, "it")
         body = self.client.get("/it/teacher-plans").get_data(as_text=True)
-        self.assertIn(f"User {self.teacher_id}", body)
-        self.assertIn("Handle-staff", body)
         self.assertNotIn("teacher-a@example.com", body)
-        for key in FEATURE_KEYS:
-            self.assertIn(key, body)
+        api = self.client.get("/it/api/teacher-plans")
+        self.assertEqual(200, api.status_code)
+        import json
+
+        teachers = json.loads(api.get_data(as_text=True)).get("teachers") or []
+        match = next((t for t in teachers if int(t["id"]) == self.teacher_id), None)
+        self.assertIsNotNone(match)
+        self.assertEqual("Handle-staff", match["handle"])
 
     def test_api_rejects_unknown_feature_key(self) -> None:
         """Unknown keys are 404."""
