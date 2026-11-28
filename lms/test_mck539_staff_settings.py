@@ -20,7 +20,7 @@ os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from features import PLAN_BASIC, PLAN_PRO, set_feature_override  # noqa: E402
+from features import BASIC_OFF, PLAN_BASIC, PLAN_PRO, set_feature_override  # noqa: E402
 
 _TOKEN_MARKERS = (
     "refresh_token",
@@ -94,11 +94,35 @@ class StaffSettingsTests(unittest.TestCase):
         self.assertIn("You're on Pro", html)
         self.assertNotIn("To get Pro features, ask your admin.", html)
 
-    def test_override_note_under_plan_card(self) -> None:
-        """Overrides surface as notes, not table edits."""
-        set_feature_override(self.school, int(self.basic["id"]), "whiteboard", True)
-        html = self._html(int(self.basic["id"]))
+    def test_override_note_only_when_differs_from_plan(self) -> None:
+        """Notes appear only when an override changes plan defaults."""
+        uid = int(self.basic["id"])
+        set_feature_override(self.school, uid, "whiteboard", True)
+        html = self._html(uid)
         self.assertIn("Whiteboards is on for your account", html)
+        set_feature_override(self.school, uid, "mc_questions", True)
+        html2 = self._html(uid)
+        self.assertNotIn("Multiple choice is on for your account", html2)
+
+    def test_grandfathered_overrides_summarized(self) -> None:
+        """Many plan-differing on rows collapse to one summary line."""
+        uid = int(self.basic["id"])
+        for key in BASIC_OFF:
+            set_feature_override(self.school, uid, key, True)
+        html = self._html(uid)
+        self.assertIn("features beyond your Basic plan defaults", html)
+        self.assertNotIn("Whiteboards is on for your account", html)
+
+    def test_effective_access_in_you_column(self) -> None:
+        """Overrides show included for the teacher without a Pro badge."""
+        uid = int(self.basic["id"])
+        set_feature_override(self.school, uid, "whiteboard", True)
+        html = self._html(uid)
+        idx = html.find("Whiteboards")
+        self.assertGreater(idx, -1)
+        snippet = html[idx : idx + 220]
+        self.assertNotIn("staff-plan-pro-badge", snippet)
+        self.assertIn('aria-label="Included for you"', html)
 
     def test_no_token_strings_in_response(self) -> None:
         """Connected apps never echo OAuth material."""

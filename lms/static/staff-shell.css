@@ -10295,7 +10295,7 @@ body.staff-shell .staff-account-item-current {
   color: #0b5f59;
 }
 body.staff-shell.staff-settings-page {
-  min-width: 1280px;
+  overflow-x: clip;
 }
 body.staff-shell .staff-settings-wrap {
   max-width: none;
@@ -10479,4 +10479,65 @@ body.staff-shell .staff-settings-future {
   color: #64748b;
   font-size: 0.9rem;
   line-height: 1.45;
+}
+
+body.staff-shell .staff-plan-col-you {
+  width: 72px;
+}
+body.staff-shell .staff-plan-compare-list {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+body.staff-shell .staff-plan-compare-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2f6;
+  font-size: 14px;
+}
+body.staff-shell .staff-plan-compare-list-item:last-child {
+  border-bottom: 0;
+}
+body.staff-shell .staff-plan-list-feature {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #12202e;
+}
+body.staff-shell .staff-plan-list-you {
+  color: #334155;
+  font-size: 0.9rem;
+}
+body.staff-shell .staff-plan-list-plans {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+@media (max-width: 699px) {
+  body.staff-shell .staff-settings-wrap {
+    padding: 0 12px 24px;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  body.staff-shell .staff-settings-body {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  body.staff-shell.staff-settings-page .staff-top-menu {
+    flex-wrap: wrap;
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+  body.staff-shell .staff-settings-panel {
+    padding: 16px 14px 14px;
+  }
+  body.staff-shell .staff-plan-compare {
+    display: none;
+  }
+  body.staff-shell .staff-plan-compare-list {
+    display: block;
+  }
 }

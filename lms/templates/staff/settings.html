@@ -67,10 +67,11 @@
           </ul>
           {% endif %}
           <p class="staff-settings-section-kicker">What&apos;s included</p>
-          <table class="staff-plan-compare">
+          <table class="staff-plan-compare" aria-label="Plan comparison">
             <thead>
               <tr>
                 <th scope="col">Feature</th>
+                <th scope="col" class="staff-plan-col staff-plan-col-you">You</th>
                 <th scope="col" class="staff-plan-col">Basic</th>
                 <th scope="col" class="staff-plan-col">Pro</th>
               </tr>
@@ -79,21 +80,42 @@
               {% for row in plan_comparison_rows %}
               <tr>
                 <td>
-                  <span class="staff-plan-feat-label{% if row.pro_only %} staff-plan-feat-pro{% endif %}">
+                  <span class="staff-plan-feat-label{% if row.show_pro_badge %} staff-plan-feat-pro{% endif %}">
                     {{ row.label }}
-                    {% if row.pro_only %}<span class="staff-plan-pro-badge">Pro</span>{% endif %}
+                    {% if row.show_pro_badge %}<span class="staff-plan-pro-badge">Pro</span>{% endif %}
                   </span>
                 </td>
-                <td class="staff-plan-col">
-                  {% if row.basic_included %}<span class="staff-plan-check" aria-label="Included">✓</span>{% else %}<span class="staff-plan-dash" aria-hidden="true">—</span>{% endif %}
+                <td class="staff-plan-col staff-plan-col-you">
+                  {% if row.effective_included %}<span class="staff-plan-check" aria-label="Included for you">✓</span>{% else %}<span class="staff-plan-dash" aria-hidden="true">—</span>{% endif %}
                 </td>
                 <td class="staff-plan-col">
-                  <span class="staff-plan-check" aria-label="Included">✓</span>
+                  {% if row.basic_included %}<span class="staff-plan-check" aria-label="Included on Basic">✓</span>{% else %}<span class="staff-plan-dash" aria-hidden="true">—</span>{% endif %}
+                </td>
+                <td class="staff-plan-col">
+                  <span class="staff-plan-check" aria-label="Included on Pro">✓</span>
                 </td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
+          <ul class="staff-plan-compare-list" aria-label="Your plan features">
+            {% for row in plan_comparison_rows %}
+            <li class="staff-plan-compare-list-item">
+              <span class="staff-plan-list-feature">
+                {{ row.label }}
+                {% if row.show_pro_badge %}<span class="staff-plan-pro-badge">Pro</span>{% endif %}
+              </span>
+              <span class="staff-plan-list-you">
+                You:
+                {% if row.effective_included %}<span class="staff-plan-check" aria-label="Included">✓</span>{% else %}<span class="staff-plan-dash" aria-hidden="true">—</span>{% endif %}
+              </span>
+              <span class="staff-plan-list-plans">
+                Basic {% if row.basic_included %}✓{% else %}—{% endif %}
+                · Pro ✓
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
         </section>
         {% elif settings_section == 'connected' %}
         <section class="staff-settings-panel" aria-labelledby="settings-connected-heading">

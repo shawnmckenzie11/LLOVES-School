@@ -167,7 +167,7 @@ def plan_comparison_rows() -> list[dict[str, Any]]:
     """Read-only Basic vs Pro rows derived from ``FEATURE_REGISTRY``.
 
     Pro includes every registry key. Basic follows each registry boolean.
-    The table is plan defaults only; per-teacher overrides are shown separately.
+    Prefer :func:`teacher_plan_comparison_rows` on the Settings page.
 
     Returns:
         Dicts with ``key``, ``label``, ``basic_included``, ``pro_only``.
@@ -186,15 +186,58 @@ def plan_comparison_rows() -> list[dict[str, Any]]:
     return rows
 
 
+OVERRIDE_NOTE_SUMMARY_THRESHOLD = 4
+
+
+def _teacher_plan_label(plan: str) -> str:
+    """Capitalized plan word for override summary copy."""
+    normalized = str(plan or PLAN_BASIC).strip().lower()
+    if normalized == PLAN_PRO:
+        return "Pro"
+    return "Basic"
+
+
+def teacher_plan_comparison_rows(user: Any) -> list[dict[str, Any]]:
+    """Basic vs Pro plan table plus this teacher's effective access.
+
+    ``effective_included`` follows :func:`has_feature`. The Pro badge shows
+    only when the feature is off on Basic and the teacher does not have it yet.
+
+    Args:
+        user: Signed-in staff user row.
+
+    Returns:
+        Row dicts for ``staff/settings.html``.
+    """
+    rows: list[dict[str, Any]] = []
+    for key in FEATURE_KEYS:
+        basic_on = bool(FEATURE_REGISTRY.get(key, False))
+        effective = has_feature(user, key)
+        rows.append(
+            {
+                "key": key,
+                "label": feature_display_label(key),
+                "basic_included": basic_on,
+                "pro_included": True,
+                "effective_included": effective,
+                "show_pro_badge": not basic_on and not effective,
+            }
+        )
+    return rows
+
+
 def feature_override_notes(school: Any, user: Any) -> list[str]:
-    """Short lines for explicit ``user_features`` overrides on Settings.
+    """Short lines for ``user_features`` rows that differ from the plan default.
+
+    Grandfathered accounts with many matching-on rows get one summary instead
+    of a long per-feature list.
 
     Args:
         school: Open school database.
         user: Signed-in teacher row.
 
     Returns:
-        Notes such as ``Whiteboards is on for your account``.
+        Summary or per-feature notes, empty when there are no diffs.
     """
     row = _as_user(user)
     if row is None:
@@ -208,7 +251,7 @@ def feature_override_notes(school: Any, user: Any) -> list[str]:
                 (uid,),
             ).fetchone()
             plan = str(stored["plan"] or PLAN_BASIC).strip().lower() if stored else PLAN_BASIC
-    notes: list[str] = []
+    diffs: list[tuple[str, bool]] = []
     with school._lock:
         overrides = school.conn.execute(
             """
@@ -223,7 +266,29 @@ def feature_override_notes(school: Any, user: Any) -> list[str]:
         if key not in FEATURE_REGISTRY:
             continue
         enabled = int(item["enabled"]) != 0
-        label = feature_display_label(key)
+        if enabled == plan_default(plan, key):
+            continue
+        diffs.append((feature_display_label(key), enabled))
+    if not diffs:
+        return []
+    plan_word = _teacher_plan_label(plan)
+    if len(diffs) >= OVERRIDE_NOTE_SUMMARY_THRESHOLD:
+        extra_on = sum(1 for _, on in diffs if on)
+        extra_off = len(diffs) - extra_on
+        if extra_off == 0:
+            return [
+                f"Your admin turned on {extra_on} features beyond your {plan_word} plan defaults."
+            ]
+        if extra_on == 0:
+            return [
+                f"Your admin turned off {extra_off} features from your {plan_word} plan defaults."
+            ]
+        return [
+            "Your admin adjusted "
+            f"{len(diffs)} features away from your {plan_word} plan defaults."
+        ]
+    notes: list[str] = []
+    for label, enabled in diffs:
         if enabled:
             notes.append(f"{label} is on for your account")
         else:

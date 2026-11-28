@@ -9,7 +9,7 @@ from features import (
     PLAN_PRO,
     feature_override_notes,
     has_feature,
-    plan_comparison_rows,
+    teacher_plan_comparison_rows,
 )
 from live_class_constants import is_slides_operator_email
 
@@ -94,7 +94,7 @@ def settings_view_model(school: Any, user: Any, section: str) -> dict[str, Any]:
         "settings_sections": SETTINGS_SECTION_LABELS,
         "plan_status_heading": plan_status_heading(plan),
         "plan_is_basic": plan != PLAN_PRO,
-        "plan_comparison_rows": plan_comparison_rows(),
+        "plan_comparison_rows": teacher_plan_comparison_rows(user),
         "feature_override_notes": feature_override_notes(school, user),
         "google_slides_app": slides_row,
         "display_name": str(user.get("display_name") or "").strip() or "—",
