@@ -2190,6 +2190,30 @@
       "it_review_access_request"
     ],
     [
+      "/it/api/teacher-plans/<int:teacher_id>/features/<feature_key>",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "it_teacher_feature_override"
+    ],
+    [
+      "/it/api/teacher-plans/<int:teacher_id>/plan",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "it_teacher_plan_set"
+    ],
+    [
+      "/it/api/teacher-plans/<int:teacher_id>/reset-overrides",
+      [
+        "OPTIONS",
+        "POST"
+      ],
+      "it_teacher_reset_overrides"
+    ],
+    [
       "/it/audit.csv",
       [
         "GET",
@@ -2398,6 +2422,15 @@
         "POST"
       ],
       "it_staff_rename"
+    ],
+    [
+      "/it/teacher-plans",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "it_teacher_plans"
     ],
     [
       "/live-overlay/<int:session_id>",

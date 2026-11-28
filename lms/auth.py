@@ -23,6 +23,7 @@ from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token as google_id_token
 from flask import (
     Flask,
+    abort,
     current_app,
     has_request_context,
     jsonify,
@@ -767,6 +768,22 @@ def it_required(f: Callable) -> Callable:
                 "forbidden.html",
                 message="Ask Admin to grant access.",
             ), 403
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+def it_admin_404(f: Callable) -> Callable:
+    """Require IT admin; everyone else (including staff) gets 404."""
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user = current_user()
+        if user is None:
+            abort(404)
+        email = str(user.get("email") or "").lower()
+        if user["role"] != "it" and email not in it_emails():
+            abort(404)
         return f(*args, **kwargs)
 
     return decorated

@@ -82,6 +82,7 @@ from auth import (  # noqa: E402
     _safe_next_url,
     current_user,
     google_oauth_ready,
+    it_admin_404,
     it_emails,
     it_required,
     join_limit_ip_key,
