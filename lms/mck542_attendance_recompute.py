@@ -24,6 +24,8 @@ Rules:
   came from another session. It is lowered through the run's credit ledger
   (``live_participation_credits``), so manual points stay. All other
   credits are only counted (``credits_unverifiable``).
+* A session with no attendee rows at all (cleanup can delete them) is skipped:
+  who joined is unknown, so nothing may be flipped.
 * Nothing is deleted. Every write is logged in ``mck542_recompute_log`` in the
   same transaction so ``revert_run`` can undo it.
 
@@ -164,6 +166,19 @@ def plan_recompute(school: Any, since: str = DEFAULT_SINCE) -> list[ColumnPlan]:
         if len(by_column[column]) > 1:
             plan.skip = "ambiguous_column"
             continue
+        with school._lock:
+            attendee_rows = int(
+                school.conn.execute(
+                    "SELECT COUNT(*) FROM live_session_attendees "
+                    "WHERE live_session_id = ?",
+                    (live_id,),
+                ).fetchone()[0]
+            )
+        if attendee_rows == 0:
+            # Cleanup (discard, wipe, metrics purge, slides restore) can delete
+            # every attendee row. Then "who joined" is unknown, not empty.
+            plan.skip = "no_attendee_rows"
+            continue
         excluded = exclude_participation_answer_student_ids(cid, school)
         correct = {
             int(s)
@@ -263,8 +278,14 @@ def format_report(plans: list[ColumnPlan], *, applied: bool) -> list[str]:
         f"unexplained_present_kept={sum(p.unexplained for p in live)} "
         f"credit_students_lowered={sum(len(p.credits) for p in live)} "
         f"credits_unverifiable_left_alone={sum(p.credits_unverifiable for p in live)} "
-        f"columns_skipped_other={skipped or 0} "
+        f"columns_skipped_no_attendees={skipped.get('no_attendee_rows', 0)} "
+        f"columns_skipped_other={sum(v for k, v in skipped.items() if k != 'no_attendee_rows')} "
         f"{'APPLIED' if applied else 'DRY RUN, nothing written'}"
+    )
+    lines.append(
+        "warning: a teacher's manual 'present' for a student who attended in person "
+        "without joining, but who joined on another day, cannot be detected and "
+        "would be flipped to absent."
     )
     return lines
 

@@ -184,6 +184,7 @@ class RecomputeAttendanceTests(unittest.TestCase):
         self.assertIn("DRY RUN", text)
         self.assertIn("columns_scanned=2", text)
         self.assertIn("columns_would_change=1", text)
+        self.assertIn("warning: a teacher's manual 'present'", text)
         self.assertIn("students_present_to_absent=1", text)
         self.assertIn("credit_students_lowered=1", text)
         self.assertIn("credits_unverifiable_left_alone=1", text)
@@ -259,6 +260,43 @@ class RecomputeAttendanceTests(unittest.TestCase):
         self.assertEqual(len(plans), 2)
         apply_recompute(self.school, plans)
         self.assertEqual(self._present(cu_col), {self.aspen, self.birch})
+
+    def test_session_with_no_attendee_rows_is_skipped(self) -> None:
+        """Cleanup removed the attendee rows: the column is left exactly as is."""
+        with self.school._lock:
+            self.school.conn.execute(
+                "DELETE FROM live_session_attendees WHERE live_session_id = ?",
+                (self.sid2,),
+            )
+            self.school.conn.commit()
+        before = self._present(self.col2)
+        self.assertEqual(before, {self.aspen, self.birch})
+        plans = plan_recompute(self.school)
+        col2 = next(p for p in plans if p.column_id == self.col2)
+        self.assertEqual(col2.skip, "no_attendee_rows")
+        state = self._state()
+        apply_recompute(self.school, plans)
+        self.assertEqual(self._present(self.col2), before)
+        self.assertEqual(self._state(), state)
+        _, text = self._cli()
+        self.assertIn("columns_skipped_no_attendees=1", text)
+        self.assertIn("columns_would_change=0", text)
+
+    def test_dry_run_failure_removes_the_temp_copy(self) -> None:
+        """A dry run that dies partway leaves no snapshot behind."""
+        import glob
+        import tempfile
+        from unittest import mock
+
+        pattern = str(Path(tempfile.gettempdir()) / "mck542-*")
+        before = set(glob.glob(pattern))
+        with mock.patch(
+            "mck542_attendance_recompute.plan_recompute",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._cli()
+        self.assertEqual(set(glob.glob(pattern)), before)
 
     def test_manual_edits_are_preserved(self) -> None:
         """Present flags the bug cannot explain stay; a manually changed column is skipped."""
