@@ -176,23 +176,44 @@ class WhiteboardGateTests(_School):
         self.assertEqual(joined.status_code, 302)
         return phone
 
-    def test_submit_overview_holds_a_second_immediate_refresh(self) -> None:
-        """The first gallery read works. The next one inside 30 seconds waits."""
-        first = self.staff.get(f"/api/live-sessions/{self.session_id}/whiteboard-gallery")
-        self.assertNotEqual(first.status_code, 404)
-        self.assertNotEqual(first.status_code, 429)
-        second = self.staff.get(f"/api/live-sessions/{self.session_id}/whiteboard-gallery")
-        self.assertEqual(second.status_code, 429)
-        self.assertEqual(second.headers.get("Retry-After"), "30")
-        tapped = self.staff.get(
-            f"/api/live-sessions/{self.session_id}/whiteboard-gallery?tap=1"
+    def test_submit_only_teacher_is_404_on_realtime_whiteboard_routes(self) -> None:
+        """Basic plan keeps submit boards; realtime gallery and collab are pro."""
+        set_feature_override(self.school, int(self.teacher["id"]), "whiteboard_submit", True)
+        set_feature_override(self.school, int(self.teacher["id"]), "whiteboard", False)
+        blocked_gets = (
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery",
+            f"/api/live-sessions/{self.session_id}/board/teacher",
         )
-        self.assertNotEqual(tapped.status_code, 429)
-        self.assertNotEqual(tapped.status_code, 404)
+        for path in blocked_gets:
+            self.assertEqual(self.staff.get(path).status_code, 404, path)
+        blocked_posts = (
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/show-all",
+            f"/api/live-sessions/{self.session_id}/canvas-presence",
+        )
+        for path in blocked_posts:
+            payload = {} if path.endswith("show-all") else {"x": 0.1, "y": 0.2}
+            self.assertEqual(self.staff.post(path, json=payload).status_code, 404, path)
+        submit_path = f"/api/live-sessions/{self.session_id}/questions/1/boards"
+        submit = self.staff.get(submit_path)
+        self.assertEqual(submit.status_code, 404, submit_path)
+        self.assertIsInstance(submit.get_json(), dict, submit_path)
+        phone = self._join("One")
+        self.assertEqual(phone.get("/api/student/board/mine?since=0").status_code, 404)
+        self.assertEqual(
+            phone.post(
+                "/api/student/canvas-presence",
+                json={"x": 0.2, "y": 0.3, "stroke_id": "pen"},
+            ).status_code,
+            404,
+        )
+        qb = phone.get("/api/student/question-board/1")
+        self.assertEqual(qb.status_code, 404)
+        self.assertIsInstance(qb.get_json(), dict)
 
     def test_both_whiteboard_flags_off_is_404_for_staff_and_student(self) -> None:
         """A teacher with neither whiteboard key, and their student, get 404."""
         set_feature_override(self.school, int(self.teacher["id"]), "whiteboard_submit", False)
+        set_feature_override(self.school, int(self.teacher["id"]), "whiteboard", False)
         staff_paths = (
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery",
             f"/api/live-sessions/{self.session_id}/board/teacher",
@@ -230,6 +251,7 @@ class WhiteboardGateTests(_School):
 
     def test_submit_stroke_does_not_reload_the_other_phone(self) -> None:
         """One student's ink must not move the other phone's /state (MCK-283)."""
+        set_feature_override(self.school, int(self.teacher["id"]), "whiteboard", True)
         first = self._join("One")
         second = self._join("Two")
         before = second.get("/api/student/state")
@@ -297,6 +319,47 @@ class OtherFeatureGateTests(_School):
             ).status_code,
             404,
         )
+
+    def test_student_group_draw_follows_the_session_owner(self) -> None:
+        """A student in a basic session cannot post a group drawing."""
+        teacher = self._teacher("gate-student-gdraw@example.com")
+        class_id = self._class_for(int(teacher["id"]), ["Ada", "Bea"])
+        live = self._live(class_id, int(teacher["id"]))
+        phone = self.app.test_client()
+        joined = phone.post(
+            "/auth/student-code",
+            data={"code": str(live["session_code"]), "name": "Ada"},
+        )
+        self.assertEqual(joined.status_code, 302)
+        staff = self.app.test_client()
+        _sign_in_basic(staff, int(teacher["id"]))
+        set_feature_override(self.school, int(teacher["id"]), "group_draw", True)
+        added = staff.post(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C1/add-question",
+            json={
+                "type": "team_draw",
+                "text": "Sketch",
+                "response_mode": "group_draw",
+                "page_number": 1,
+                "stage": "round",
+            },
+        )
+        self.assertEqual(added.status_code, 200)
+        placed = str(added.get_json()["placement"]["item"]["id"])
+        self.school.ensure_live_session_items(int(live["id"]))
+        rows = [
+            row
+            for row in self.school.list_live_session_items(int(live["id"]))
+            if str(row.get("item_id") or "") == placed
+        ]
+        self.assertTrue(rows)
+        item_id = int(rows[-1]["id"])
+        set_feature_override(self.school, int(teacher["id"]), "group_draw", False)
+        denied = phone.post(
+            f"/api/student/live-items/{item_id}/team-draw",
+            json={"image": "abc"},
+        )
+        self.assertEqual(denied.status_code, 404)
 
     def test_student_team_draw_follows_the_session_owner(self) -> None:
         """A student in a basic session cannot post a team drawing."""
