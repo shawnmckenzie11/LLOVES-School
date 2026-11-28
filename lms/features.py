@@ -197,22 +197,26 @@ def _teacher_plan_label(plan: str) -> str:
     return "Basic"
 
 
-def teacher_plan_comparison_rows(user: Any) -> list[dict[str, Any]]:
+def teacher_plan_comparison_rows(
+    user: Any, feature_flags: dict[str, bool] | None = None
+) -> list[dict[str, Any]]:
     """Basic vs Pro plan table plus this teacher's effective access.
 
-    ``effective_included`` follows :func:`has_feature`. The Pro badge shows
-    only when the feature is off on Basic and the teacher does not have it yet.
+    ``effective_included`` follows :func:`has_feature` unless ``feature_flags``
+    is supplied (preferred from :func:`feature_map` inside a request).
 
     Args:
         user: Signed-in staff user row.
+        feature_flags: Optional precomputed map from :func:`feature_map`.
 
     Returns:
         Row dicts for ``staff/settings.html``.
     """
+    flags = feature_flags if feature_flags is not None else feature_map(user)
     rows: list[dict[str, Any]] = []
     for key in FEATURE_KEYS:
         basic_on = bool(FEATURE_REGISTRY.get(key, False))
-        effective = has_feature(user, key)
+        effective = bool(flags.get(key, False))
         rows.append(
             {
                 "key": key,

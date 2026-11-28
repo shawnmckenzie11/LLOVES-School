@@ -7,6 +7,7 @@ from typing import Any
 from features import (
     PLAN_BASIC,
     PLAN_PRO,
+    feature_map,
     feature_override_notes,
     has_feature,
     teacher_plan_comparison_rows,
@@ -89,12 +90,13 @@ def settings_view_model(school: Any, user: Any, section: str) -> dict[str, Any]:
     """
     plan = str(user.get("plan") or PLAN_BASIC).strip().lower()
     slides_row = google_slides_connected_apps_row(school, user)
+    feature_flags = feature_map(user)
     return {
         "settings_section": section,
         "settings_sections": SETTINGS_SECTION_LABELS,
         "plan_status_heading": plan_status_heading(plan),
         "plan_is_basic": plan != PLAN_PRO,
-        "plan_comparison_rows": teacher_plan_comparison_rows(user),
+        "plan_comparison_rows": teacher_plan_comparison_rows(user, feature_flags),
         "feature_override_notes": feature_override_notes(school, user),
         "google_slides_app": slides_row,
         "display_name": str(user.get("display_name") or "").strip() or "—",

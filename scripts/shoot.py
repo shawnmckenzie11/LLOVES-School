@@ -6787,6 +6787,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="/opt/cursor/artifacts", help="PNG directory.")
     parser.add_argument("--state", default="", help="storageState JSON path.")
     parser.add_argument("--mck208-only", default=None, choices=("finish-open",), help="With --scenario mck208, capture only this shot.")
+    parser.add_argument(
+        "--teacher-email",
+        default="",
+        help="Staff email for Playwright login (defaults to seeded Shawn).",
+    )
     parser.add_argument("--seed", action="store_true", help="Run the local-dev seed first.")
     parser.add_argument("--click", default="", help="CSS selector to click before each shot.")
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")
@@ -6861,7 +6866,8 @@ def main(argv: list[str] | None = None) -> int:
             and (args.seed or not state.exists() or state.stat().st_size == 0)
         )
         if needs_login:
-            login_state(args.base, state, teacher_email=staff_shawn_email(path))
+            teacher_email = (args.teacher_email or "").strip() or staff_shawn_email(path)
+            login_state(args.base, state, teacher_email=teacher_email)
         out = Path(args.out)
         written: list[Path] = []
         if args.scenario == "catchup":
