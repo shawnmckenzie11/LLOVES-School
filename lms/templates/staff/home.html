@@ -27,7 +27,7 @@
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
     {% if not whats_new_hold %}<button type="button" class="staff-corner-link whats-new-open" id="whats-new-open" aria-label="What's new" hidden>What's new<span class="whats-new-dot" data-whats-new-dot hidden></span></button>{% endif %}
     {% with help_on_dashboard=true, help_hold=whats_new_hold %}{% include "staff/_help_menu.html" %}{% endwith %}
-    <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
+    {% include "staff/_account_menu.html" %}
   </div>
   <div class="wrap staff-home-wrap">
         {% if catchup_pin_alerts %}

@@ -2195,6 +2195,31 @@ def register_teacher(app, school, shared):
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
 
+    @bp.route("/staff/settings")
+    @staff_required
+    def staff_settings():
+        """Read-only teacher account, plan, connected apps, and billing placeholder."""
+        user = current_user()
+        assert user is not None
+        if str(user.get("role") or "").strip().lower() not in {"staff", "it"}:
+            abort(403)
+        try:
+            from staff_settings import normalize_settings_section, settings_view_model
+        except ImportError:
+            from lms.staff_settings import (  # type: ignore[no-redef]
+                normalize_settings_section,
+                settings_view_model,
+            )
+        section = normalize_settings_section(request.args.get("section"))
+        ctx = settings_view_model(school, user, section)
+        return render_template(
+            "staff/settings.html",
+            user=user,
+            school_name=SCHOOL_NAME,
+            nav_courses=_staff_nav_courses(int(user["id"])),
+            **ctx,
+        )
+
     @bp.route("/api/staff/whats-new")
     @staff_required
     def api_staff_whats_new():

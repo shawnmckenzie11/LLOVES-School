@@ -18,7 +18,7 @@
       {% endfor %}
       <span class="staff-top-spacer"></span>
       {% if user.role == 'it' %}<a class="staff-top-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
-      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
+      {% with account_summary_class='staff-top-link' %}{% include "staff/_account_menu.html" %}{% endwith %}
     </nav>
 
     <p class="kicker">Admin · development</p>

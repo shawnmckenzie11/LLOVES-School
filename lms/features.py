@@ -67,6 +67,28 @@ BASIC_OFF: tuple[str, ...] = tuple(
     key for key, enabled in FEATURE_REGISTRY.items() if not enabled
 )
 
+#: Teacher Settings and admin plan tables (Wonder v1 labels for listed keys).
+FEATURE_DISPLAY_LABELS: dict[str, str] = {
+    "mc_questions": "Multiple choice",
+    "rank_questions": "Ranking",
+    "numeric_questions": "Numeric",
+    "essay_questions": "Written response",
+    "live_slides": "Live slides",
+    "catchup_links": "Catch-up (last class)",
+    "catchup_full": "Catch-up (all classes)",
+    "celebrations": "Celebrations",
+    "gradebook_tracking": "Attendance & participation",
+    "game_show": "Rank game show",
+    "slides_import": "Import Google Slides or PowerPoint",
+    "whiteboard_submit": "Show Your Work",
+    "whiteboard": "Whiteboards",
+    "media": "Media",
+    "team_draw": "Team draw",
+    "group_draw": "Group draw",
+    "portfolio_gdoc": "Portfolio to Google Doc",
+    "news_wire_extras": "News wire extras",
+}
+
 # school_settings key. Set after the first grant so a later boot does not
 # turn every feature on for teachers who joined in between.
 GRANDFATHER_MARKER = "mck345_feature_grandfather_v1"
@@ -124,6 +146,158 @@ OVERRIDE_PLAN = "plan"
 def _now() -> str:
     """Local ISO timestamp without microseconds, matching ``school_db._now``."""
     return datetime.now().replace(microsecond=0).isoformat()
+
+
+def feature_display_label(key: str) -> str:
+    """Return the teacher-facing label for a registry key.
+
+    Unknown keys fall back to the raw key so new flags still render.
+
+    Args:
+        key: Feature key in ``FEATURE_REGISTRY``.
+
+    Returns:
+        Wonder label when defined, else ``key``.
+    """
+    name = str(key or "").strip()
+    return FEATURE_DISPLAY_LABELS.get(name, name)
+
+
+def plan_comparison_rows() -> list[dict[str, Any]]:
+    """Read-only Basic vs Pro rows derived from ``FEATURE_REGISTRY``.
+
+    Pro includes every registry key. Basic follows each registry boolean.
+    Prefer :func:`teacher_plan_comparison_rows` on the Settings page.
+
+    Returns:
+        Dicts with ``key``, ``label``, ``basic_included``, ``pro_only``.
+    """
+    rows: list[dict[str, Any]] = []
+    for key in FEATURE_KEYS:
+        basic_on = bool(FEATURE_REGISTRY.get(key, False))
+        rows.append(
+            {
+                "key": key,
+                "label": feature_display_label(key),
+                "basic_included": basic_on,
+                "pro_only": not basic_on,
+            }
+        )
+    return rows
+
+
+OVERRIDE_NOTE_SUMMARY_THRESHOLD = 4
+
+
+def _teacher_plan_label(plan: str) -> str:
+    """Capitalized plan word for override summary copy."""
+    normalized = str(plan or PLAN_BASIC).strip().lower()
+    if normalized == PLAN_PRO:
+        return "Pro"
+    return "Basic"
+
+
+def teacher_plan_comparison_rows(
+    user: Any, feature_flags: dict[str, bool] | None = None
+) -> list[dict[str, Any]]:
+    """Basic vs Pro plan table plus this teacher's effective access.
+
+    ``effective_included`` follows :func:`has_feature` unless ``feature_flags``
+    is supplied (preferred from :func:`feature_map` inside a request).
+
+    Args:
+        user: Signed-in staff user row.
+        feature_flags: Optional precomputed map from :func:`feature_map`.
+
+    Returns:
+        Row dicts for ``staff/settings.html``.
+    """
+    flags = feature_flags if feature_flags is not None else feature_map(user)
+    rows: list[dict[str, Any]] = []
+    for key in FEATURE_KEYS:
+        basic_on = bool(FEATURE_REGISTRY.get(key, False))
+        effective = bool(flags.get(key, False))
+        rows.append(
+            {
+                "key": key,
+                "label": feature_display_label(key),
+                "basic_included": basic_on,
+                "pro_included": True,
+                "effective_included": effective,
+                "show_pro_badge": not basic_on and not effective,
+            }
+        )
+    return rows
+
+
+def feature_override_notes(school: Any, user: Any) -> list[str]:
+    """Short lines for ``user_features`` rows that differ from the plan default.
+
+    Grandfathered accounts with many matching-on rows get one summary instead
+    of a long per-feature list.
+
+    Args:
+        school: Open school database.
+        user: Signed-in teacher row.
+
+    Returns:
+        Summary or per-feature notes, empty when there are no diffs.
+    """
+    row = _as_user(user)
+    if row is None:
+        return []
+    uid = int(row["id"])
+    plan = str(row.get("plan") or PLAN_BASIC).strip().lower()
+    if not plan:
+        with school._lock:
+            stored = school.conn.execute(
+                "SELECT plan FROM users WHERE id = ?",
+                (uid,),
+            ).fetchone()
+            plan = str(stored["plan"] or PLAN_BASIC).strip().lower() if stored else PLAN_BASIC
+    diffs: list[tuple[str, bool]] = []
+    with school._lock:
+        overrides = school.conn.execute(
+            """
+            SELECT feature_key, enabled FROM user_features
+            WHERE user_id = ?
+            ORDER BY feature_key
+            """,
+            (uid,),
+        ).fetchall()
+    for item in overrides:
+        key = str(item["feature_key"])
+        if key not in FEATURE_REGISTRY:
+            continue
+        enabled = int(item["enabled"]) != 0
+        if enabled == plan_default(plan, key):
+            continue
+        diffs.append((feature_display_label(key), enabled))
+    if not diffs:
+        return []
+    plan_word = _teacher_plan_label(plan)
+    if len(diffs) >= OVERRIDE_NOTE_SUMMARY_THRESHOLD:
+        extra_on = sum(1 for _, on in diffs if on)
+        extra_off = len(diffs) - extra_on
+        if extra_off == 0:
+            return [
+                f"Your admin turned on {extra_on} features beyond your {plan_word} plan defaults."
+            ]
+        if extra_on == 0:
+            return [
+                f"Your admin turned off {extra_off} features from your {plan_word} plan defaults."
+            ]
+        return [
+            "Your admin adjusted "
+            f"{len(diffs)} features away from your {plan_word} plan defaults."
+        ]
+    notes: list[str] = []
+    for label, enabled in diffs:
+        if enabled:
+            notes.append(f"{label} is on for your account")
+        else:
+            notes.append(f"{label} is off for your account")
+    return notes
 
 
 def plan_default(plan: str | None, key: str) -> bool:
