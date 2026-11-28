@@ -164,6 +164,19 @@ class TeacherPlanAdminTests(unittest.TestCase):
             f"/it/api/teacher-plans/{self.teacher_id}/reset-overrides",
         )
         self.assertEqual(reset.status_code, 404)
+        listing = self.client.get("/it/api/teacher-plans")
+        self.assertEqual(listing.status_code, 404)
+        history = self.client.get(
+            f"/it/api/teacher-plans/{self.teacher_id}/history"
+        )
+        self.assertEqual(history.status_code, 404)
+        audit = self.client.get("/it/api/teacher-plans/audit")
+        self.assertEqual(audit.status_code, 404)
+        bulk = self.client.post(
+            "/it/api/teacher-plans/bulk-plan",
+            json={"teacher_ids": [self.teacher_id], "plan": PLAN_PRO},
+        )
+        self.assertEqual(bulk.status_code, 404)
 
     def test_audit_triggers_refuse_mutation(self) -> None:
         """Audit rows are append-only on sqlite."""
@@ -286,14 +299,18 @@ class TeacherPlanAdminTests(unittest.TestCase):
         self.assertEqual(before + 2, audit_row_count(self.school.conn, self.teacher_id))
 
     def test_admin_page_lists_handle_not_email(self) -> None:
-        """Rendered page shows user id and handle only."""
+        """List API exposes handle only, not email (MCK-540 shell)."""
         self._login(self.admin_id, "it")
         body = self.client.get("/it/teacher-plans").get_data(as_text=True)
-        self.assertIn(f"User {self.teacher_id}", body)
-        self.assertIn("Handle-staff", body)
         self.assertNotIn("teacher-a@example.com", body)
-        for key in FEATURE_KEYS:
-            self.assertIn(key, body)
+        api = self.client.get("/it/api/teacher-plans")
+        self.assertEqual(200, api.status_code)
+        import json
+
+        teachers = json.loads(api.get_data(as_text=True)).get("teachers") or []
+        match = next((t for t in teachers if int(t["id"]) == self.teacher_id), None)
+        self.assertIsNotNone(match)
+        self.assertEqual("Handle-staff", match["handle"])
 
     def test_api_rejects_unknown_feature_key(self) -> None:
         """Unknown keys are 404."""
