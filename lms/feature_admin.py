@@ -8,7 +8,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from features import (
-    BASIC_ON,
     FEATURE_KEYS,
     FEATURE_REGISTRY,
     OVERRIDE_OFF,
@@ -101,15 +100,21 @@ def _audit_value_label(key: str, value: str | None) -> str:
     return token or "—"
 
 
-def row_feature_keys_for_teacher(features: list[dict[str, Any]]) -> list[str]:
-    """Registry keys to render as override chips on one Teachers row."""
-    by_key = {str(f["key"]): f for f in features}
-    keys: list[str] = list(ROW_PLAN_DIFF_KEYS)
-    for key in BASIC_ON:
-        if key in ROW_PLAN_DIFF_KEYS:
-            continue
-        feat = by_key.get(key)
-        if feat is not None and str(feat.get("source")) != OVERRIDE_PLAN:
+def row_feature_keys_for_teacher(
+    plan: str, features: list[dict[str, Any]]
+) -> list[str]:
+    """Keys whose effective value differs from the teacher plan default.
+
+    Grandfathered ``user_features`` rows that match plan defaults are omitted
+    so the Overrides column stays scannable.
+    """
+    normalized = str(plan or PLAN_BASIC).strip().lower()
+    keys: list[str] = []
+    for feat in features:
+        key = str(feat["key"])
+        default = bool(plan_default(normalized, key))
+        effective = bool(feat.get("effective"))
+        if effective != default:
             keys.append(key)
     return keys
 
@@ -297,7 +302,7 @@ def list_teachers_for_plan_admin(school: Any, tenant_id: int) -> list[dict[str, 
                     "effective": bool(effective),
                 }
             )
-        row_keys = row_feature_keys_for_teacher(feature_rows)
+        row_keys = row_feature_keys_for_teacher(plan, feature_rows)
         lc_raw = last_changed.get(uid)
         teachers.append(
             {

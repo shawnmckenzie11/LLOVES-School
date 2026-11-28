@@ -25,6 +25,7 @@
     tab: "teachers",
     toast: null,
     bulkBanner: null,
+    expandedOverrides: new Set(),
   };
 
   const els = {
@@ -288,6 +289,89 @@
     renderTeachers();
   }
 
+
+  function chipHtml(teacher, key) {
+    const feat = featByKey(teacher, key) || {
+      key,
+      source: "plan",
+      effective: false,
+    };
+    const chip = chipState(feat);
+    return `<button type="button" class="it-tp-ov ${chip.cls}" data-chip-key="${key}" data-teacher-id="${teacher.id}">
+            <span class="feat-name">${labelFor(key)}</span>
+            <span class="state">${chip.text}</span>
+          </button>`;
+  }
+
+  function overridesHtml(teacher) {
+    const tid = Number(teacher.id);
+    const expanded = state.expandedOverrides.has(tid);
+    const diffs = teacher.row_feature_keys || [];
+    if (expanded) {
+      const allKeys = (teacher.features || []).map((f) => f.key);
+      return (
+        allKeys.map((key) => chipHtml(teacher, key)).join("") +
+        `<button type="button" class="it-tp-ov more" data-collapse-overrides="${teacher.id}">Show less</button>`
+      );
+    }
+    if (!diffs.length) {
+      return '<span class="it-tp-plan-defaults">Plan defaults</span>';
+    }
+    const visible = diffs.length > 4 ? diffs.slice(0, 3) : diffs;
+    let html = visible.map((key) => chipHtml(teacher, key)).join("");
+    if (diffs.length > 4) {
+      html += `<button type="button" class="it-tp-ov more" data-expand-overrides="${teacher.id}" aria-label="Show more overrides">+${diffs.length - 3} more</button>`;
+    }
+    return html;
+  }
+
+  function bindOverrideControls(tr, teacher) {
+    tr.querySelectorAll("[data-chip-key]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const key = btn.dataset.chipKey;
+        const feat = featByKey(teacher, key);
+        if (!feat) return;
+        const mode = nextMode(feat);
+        const name = labelFor(key);
+        let msg = `Turn ${name} on for ${teacher.handle}?`;
+        let primary = "Turn on";
+        if (mode === "off") {
+          msg = `Turn ${name} off for ${teacher.handle}?`;
+          primary = "Turn off";
+        } else if (mode === "plan") {
+          msg = `Reset ${name} to default for ${teacher.handle}?`;
+          primary = "Reset";
+        }
+        const undoMode = feat.source;
+        confirmDialog(msg, primary, () =>
+          postOverride(teacher.id, key, mode, {
+            kind: "override",
+            teacherId: teacher.id,
+            featureKey: key,
+            oldMode: undoMode,
+          })
+        );
+      });
+    });
+    const expand = tr.querySelector("[data-expand-overrides]");
+    if (expand) {
+      expand.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        state.expandedOverrides.add(Number(teacher.id));
+        renderTeachers();
+      });
+    }
+    const collapse = tr.querySelector("[data-collapse-overrides]");
+    if (collapse) {
+      collapse.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        state.expandedOverrides.delete(Number(teacher.id));
+        renderTeachers();
+      });
+    }
+  }
+
   function renderTeachersShell() {
     if (els.teachersLoading) els.teachersLoading.hidden = !state.loading;
     if (els.teachersEmpty) els.teachersEmpty.hidden = true;
@@ -308,13 +392,16 @@
     if (!rows.length) {
       if (els.teachersEmpty) {
         els.teachersEmpty.hidden = false;
-        els.teachersEmpty.textContent = "No teachers in this school yet";
+        els.teachersEmpty.textContent =
+          state.teachers.length === 0
+            ? "No teachers in this school yet"
+            : "No teachers match that search.";
       }
       if (els.teachersBody) els.teachersBody.innerHTML = "";
       return;
     }
     if (els.teachersEmpty) els.teachersEmpty.hidden = true;
-  if (els.teachersLoading) els.teachersLoading.hidden = true;
+    if (els.teachersLoading) els.teachersLoading.hidden = true;
     const selectedCount = state.selected.size;
     if (els.bulkBtn) {
       els.bulkBtn.disabled = selectedCount === 0;
@@ -334,21 +421,7 @@
       const checked = state.selected.has(Number(teacher.id));
       const last = teacher.last_changed_display || "Never";
       const planCls = teacher.plan === "pro" ? "pro" : "";
-      const keys = teacher.row_feature_keys || [];
-      const chips = keys
-        .map((key) => {
-          const feat = featByKey(teacher, key) || {
-            key,
-            source: "plan",
-            effective: false,
-          };
-          const chip = chipState(feat);
-          return `<button type="button" class="it-tp-ov ${chip.cls}" data-chip-key="${key}" data-teacher-id="${teacher.id}">
-            <span class="feat-name">${labelFor(key)}</span>
-            <span class="state">${chip.text}</span>
-          </button>`;
-        })
-        .join("");
+      const chips = overridesHtml(teacher);
       tr.innerHTML = `
         <td class="it-tp-checkcol"><input type="checkbox" data-row-select="${teacher.id}" ${checked ? "checked" : ""} aria-label="Select ${teacher.handle}"></td>
         <td class="teacher-name">${teacher.handle}</td>
@@ -364,7 +437,9 @@
         if (
           tag.closest("input") ||
           tag.closest("select") ||
-          tag.closest("[data-chip-key]")
+          tag.closest("[data-chip-key]") ||
+          tag.closest("[data-expand-overrides]") ||
+          tag.closest("[data-collapse-overrides]")
         ) {
           return;
         }
@@ -393,34 +468,7 @@
             })
         );
       });
-      tr.querySelectorAll("[data-chip-key]").forEach((btn) => {
-        btn.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          const key = btn.dataset.chipKey;
-          const feat = featByKey(teacher, key);
-          if (!feat) return;
-          const mode = nextMode(feat);
-          const name = labelFor(key);
-          let msg = `Turn ${name} on for ${teacher.handle}?`;
-          let primary = "Turn on";
-          if (mode === "off") {
-            msg = `Turn ${name} off for ${teacher.handle}?`;
-            primary = "Turn off";
-          } else if (mode === "plan") {
-            msg = `Reset ${name} to default for ${teacher.handle}?`;
-            primary = "Reset";
-          }
-          const undoMode = feat.source;
-          confirmDialog(msg, primary, () =>
-            postOverride(teacher.id, key, mode, {
-              kind: "override",
-              teacherId: teacher.id,
-              featureKey: key,
-              oldMode: undoMode,
-            })
-          );
-        });
-      });
+      bindOverrideControls(tr, teacher);
       els.teachersBody.appendChild(tr);
     });
   }
@@ -470,7 +518,7 @@
   async function loadAudit() {
     if (!els.auditBody) return;
     els.auditBody.innerHTML =
-      "<tr><td colspan='5' class='it-tp-loading'>Loading teachers…</td></tr>";
+      "<tr><td colspan='5' class='it-tp-loading'>Loading audit history…</td></tr>";
     const q = new URLSearchParams();
     const f = state.auditFilters;
     if (f.teacher_id) q.set("teacher_id", f.teacher_id);

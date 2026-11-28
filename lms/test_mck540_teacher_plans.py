@@ -27,7 +27,7 @@ from feature_admin import (  # noqa: E402
     list_teacher_change_history,
     list_tenant_feature_audit,
 )
-from features import OVERRIDE_ON, OVERRIDE_PLAN, PLAN_BASIC, PLAN_PRO  # noqa: E402
+from features import OVERRIDE_OFF, OVERRIDE_ON, OVERRIDE_PLAN, PLAN_BASIC, PLAN_PRO  # noqa: E402
 from test_mck538_teacher_plans import (  # noqa: E402
     TeacherPlanAdminTests,
     audit_row_count,
@@ -197,6 +197,65 @@ class TeacherPlanConsoleTests(TeacherPlanAdminTests):
         payload = json.loads(api.get_data(as_text=True))
         handles = [t["handle"] for t in payload["teachers"]]
         self.assertIn("Handle-staff", handles)
+
+
+    def test_row_feature_keys_omit_grandfather_matches(self) -> None:
+        """Overrides list only keys that differ from plan defaults."""
+        from feature_admin import row_feature_keys_for_teacher
+        from features import FEATURE_KEYS, OVERRIDE_OFF, OVERRIDE_ON, PLAN_BASIC, PLAN_PRO, plan_default
+
+        grandfather = []
+        for key in FEATURE_KEYS:
+            grandfather.append(
+                {"key": key, "source": OVERRIDE_ON, "effective": True}
+            )
+        keys = row_feature_keys_for_teacher(PLAN_BASIC, grandfather)
+        for key in keys:
+            self.assertFalse(plan_default(PLAN_BASIC, key), key)
+        self.assertIn("catchup_full", keys)
+        self.assertNotIn("mc_questions", keys)
+        plain = []
+        for key in FEATURE_KEYS:
+            default = plan_default(PLAN_BASIC, key)
+            plain.append(
+                {"key": key, "source": "plan", "effective": bool(default)}
+            )
+        self.assertEqual([], row_feature_keys_for_teacher(PLAN_BASIC, plain))
+        pro_features = []
+        for key in FEATURE_KEYS:
+            default = plan_default(PLAN_PRO, key)
+            pro_features.append(
+                {"key": key, "source": "plan", "effective": bool(default)}
+            )
+        for feat in pro_features:
+            if feat["key"] == "whiteboard":
+                feat["source"] = OVERRIDE_OFF
+                feat["effective"] = False
+                break
+        self.assertEqual(
+            ["whiteboard"],
+            row_feature_keys_for_teacher(PLAN_PRO, pro_features),
+        )
+
+    def test_list_api_row_keys_after_grandfather(self) -> None:
+        """API omits plan-default grandfather rows from row_feature_keys."""
+        from features import FEATURE_KEYS, _now
+
+        self._login(self.admin_id, "it")
+        uid = self.teacher_id
+        for key in FEATURE_KEYS:
+            self.school.conn.execute(
+                """
+                INSERT INTO user_features (user_id, feature_key, enabled, updated_at)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(user_id, feature_key) DO UPDATE SET enabled=1
+                """,
+                (uid, key, _now()),
+            )
+        self.school.conn.commit()
+        payload = self.client.get("/it/api/teacher-plans").get_json()
+        teacher = next(t for t in payload["teachers"] if int(t["id"]) == uid)
+        self.assertLess(len(teacher["row_feature_keys"]), len(FEATURE_KEYS))
 
 
 if __name__ == "__main__":

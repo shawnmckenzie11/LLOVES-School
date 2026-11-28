@@ -376,3 +376,15 @@ body.it-teacher-plans .dot {
   background: #0f766e;
   justify-self: center;
 }
+body.it-teacher-plans .it-tp-plan-defaults {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+body.it-teacher-plans .it-tp-ov.more {
+  color: #0b5f59;
+  font-weight: 700;
+  background: #fff;
+  border-style: dashed;
+}
