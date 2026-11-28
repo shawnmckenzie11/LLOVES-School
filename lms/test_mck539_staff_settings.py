@@ -126,7 +126,7 @@ class StaffSettingsTests(unittest.TestCase):
 
     def test_no_token_strings_in_response(self) -> None:
         """Connected apps never echo OAuth material."""
-        operator = self.school.register_staff("shawnmckenzie11.sm@gmail.com")
+        operator = self.school.register_staff("operator-settings@example.com")
         self.school.conn.execute(
             "UPDATE users SET plan = ? WHERE id = ?",
             (PLAN_PRO, int(operator["id"])),
