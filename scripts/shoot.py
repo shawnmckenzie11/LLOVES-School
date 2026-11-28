@@ -6554,77 +6554,6 @@ def shoot_mck526(base: str, state_path: Path, out_dir: Path, path: Path) -> list
 
 
 
-def shoot_mck540(base: str, out_dir: Path) -> list[Path]:
-    """MCK-540: IT teacher plans console (Teachers, Plans, Audit, drawer).
-
-    Uses the seeded IT picker account. No real names are shown in the UI.
-    """
-    import urllib.parse
-
-    from playwright.sync_api import sync_playwright
-
-    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
-    it_email = "solutions@mckenzian.com"
-    callback = (
-        f"{origin}/auth/google/callback?"
-        + urllib.parse.urlencode(
-            {"portal": "it", "email": it_email, "name": "Admin Demo"}
-        )
-    )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
-    shots = (
-        ("mck540-teachers-1280.png", None),
-        ("mck540-plans-1280.png", "plans"),
-        ("mck540-audit-1280.png", "audit"),
-    )
-    with sync_playwright() as playwright:
-        browser = _launch(playwright)
-        context = browser.new_context(viewport={"width": 1280, "height": 800})
-        page = context.new_page()
-        page.goto(callback, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_url("**/it**", timeout=30000)
-        page.goto(f"{origin}/it/teacher-plans", wait_until="networkidle", timeout=60000)
-        page.wait_for_function(
-            """() => {
-              const root = document.getElementById('it-teacher-plans-root');
-              const loading = root && root.querySelector('[data-teachers-loading]');
-              return loading && loading.hidden;
-            }""",
-            timeout=30000,
-        )
-        dest = out_dir / shots[0][0]
-        page.screenshot(path=str(dest), full_page=False)
-        written.append(dest)
-        for name, tab in shots[1:]:
-            if tab:
-                page.locator(f'[data-tab="{tab}"]').click()
-                page.wait_for_timeout(400)
-            dest = out_dir / name
-            page.screenshot(path=str(dest), full_page=False)
-            written.append(dest)
-        page.locator('[data-tab="teachers"]').click()
-        page.wait_for_timeout(400)
-        row = page.locator("[data-teachers-body] tr").first
-        if row.count() > 0:
-            row.locator(".teacher-name").click()
-            try:
-                page.wait_for_selector("[data-drawer]:not([hidden])", timeout=8000)
-            except Exception:
-                page.evaluate(
-                    """() => {
-                      const tr = document.querySelector('[data-teachers-body] tr');
-                      if (!tr) return;
-                      tr.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                    }"""
-                )
-        drawer = out_dir / "mck540-history-drawer-1280.png"
-        page.screenshot(path=str(drawer), full_page=False)
-        written.append(drawer)
-        browser.close()
-    return written
-
-
 def shoot_mck529(base: str, out_dir: Path, path: Path) -> list[Path]:
     """MCK-529: student phone MC with inline stem and option images.
 
@@ -6900,7 +6829,6 @@ def main(argv: list[str] | None = None) -> int:
             "mck504",
             "mck526",
             "mck529",
-            "mck540",
         ),
         default="",
         help=(
@@ -7012,8 +6940,6 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck504_team_board_no_legend(out))
         if args.scenario == "mck526":
             written.extend(shoot_mck526(args.base, state, out, path))
-        if args.scenario == "mck540":
-            written.extend(shoot_mck540(args.base, out))
         if args.scenario == "mck529":
             written.extend(shoot_mck529(args.base, out, path))
         if args.scenario == "mck497":
