@@ -226,6 +226,29 @@ class RecomputeAttendanceTests(unittest.TestCase):
         code, text = self._cli()
         self.assertIn("columns_would_change=0", text)
 
+    def test_class_id_filter_limits_the_scan(self) -> None:
+        """--class-id scans only that class; an unknown class scans nothing."""
+        code, text = self._cli("--class-id", str(self.class_id))
+        self.assertIn("columns_scanned=2", text)
+        code, text = self._cli("--class-id", str(self.class_id + 999))
+        self.assertIn("columns_scanned=0", text)
+        before = self._state()
+        code, text = self._cli(
+            "--class-id", str(self.class_id + 999), "--apply", "--backup-confirmed"
+        )
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self._state(), before)
+
+    def test_noop_apply_says_nothing_to_change(self) -> None:
+        """A second --apply prints 'nothing to change' and makes no run_id."""
+        self._cli("--apply", "--backup-confirmed")
+        logged = self._log_rows()
+        code, text = self._cli("--apply", "--backup-confirmed")
+        self.assertEqual(code, 0, text)
+        self.assertIn("nothing to change", text)
+        self.assertNotIn("run_id:", text)
+        self.assertEqual(self._log_rows(), logged)
+
     def test_second_run_changes_nothing(self) -> None:
         """Apply twice: the second plan is empty and the log does not grow."""
         apply_recompute(self.school, plan_recompute(self.school))

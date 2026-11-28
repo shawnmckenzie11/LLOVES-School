@@ -110,12 +110,17 @@ def _is_catchup(run_key: str | None) -> bool:
     return "~cu" in str(run_key or "")
 
 
-def plan_recompute(school: Any, since: str = DEFAULT_SINCE) -> list[ColumnPlan]:
+def plan_recompute(
+    school: Any,
+    since: str = DEFAULT_SINCE,
+    class_ids: set[int] | None = None,
+) -> list[ColumnPlan]:
     """Compare each stored End Class column with its own session. Read only.
 
     Args:
         school: Open ``SchoolDB``.
         since: First day (``YYYY-MM-DD``) of live sessions to scan.
+        class_ids: Only these classes. ``None`` scans every class.
 
     Returns:
         One plan per mapped live session started on or after ``since``.
@@ -144,6 +149,8 @@ def plan_recompute(school: Any, since: str = DEFAULT_SINCE) -> list[ColumnPlan]:
     for row in live_rows:
         run_key = str(row["run_key"] or "").strip()
         if str(row["started_at"] or "")[:10] < since:
+            continue
+        if class_ids is not None and int(row["class_id"]) not in class_ids:
             continue
         if int(row["is_test"]) or _is_catchup(run_key):
             continue
@@ -302,7 +309,7 @@ def _scores_json(game: Any, column: int, sid: int) -> str:
     return json.dumps(list(row) if row else None)
 
 
-def apply_recompute(school: Any, plans: list[ColumnPlan]) -> str:
+def apply_recompute(school: Any, plans: list[ColumnPlan]) -> str | None:
     """Write the plan in one transaction and log every change.
 
     Re-checks each flip inside the transaction, so a student whose flag
@@ -314,10 +321,13 @@ def apply_recompute(school: Any, plans: list[ColumnPlan]) -> str:
         plans: Output of :func:`plan_recompute`.
 
     Returns:
-        The run id for :func:`revert_run`.
+        The run id for :func:`revert_run`, or ``None`` when there is nothing
+        to change (no run id, no log table, no write).
     """
     import json
 
+    if not any(p.would_change for p in plans):
+        return None
     game = school.game
     run_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")

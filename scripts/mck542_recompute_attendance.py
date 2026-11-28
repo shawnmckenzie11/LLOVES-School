@@ -56,6 +56,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--db", type=Path, default=None, help="Sqlite path (default: LLOVES_DB or the LMS default).")
     p.add_argument("--since", default="2026-10-21", help="First day of sessions to scan.")
+    p.add_argument("--class-id", type=int, action="append", default=None, dest="class_ids", help="Only this class (repeatable). Default: every eligible class.")
     p.add_argument("--apply", action="store_true", help="Write the correction (needs --backup-confirmed).")
     p.add_argument("--backup-confirmed", action="store_true", help="Confirm a fresh backup of the database exists.")
     p.add_argument("--revert", metavar="RUN_ID", default=None, help="Undo a previous --apply run.")
@@ -130,10 +131,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.revert:
                 print(f"reverted: {revert_run(school, args.revert)}")
                 return 0
-            plans = plan_recompute(school, args.since)
+            plans = plan_recompute(school, args.since, set(args.class_ids) if args.class_ids else None)
             if args.apply:
                 run_id = apply_recompute(school, plans)
-                print(f"run_id: {run_id} (undo with --revert {run_id})")
+                if run_id is None:
+                    print("nothing to change (no run_id created)")
+                else:
+                    print(f"run_id: {run_id} (undo with --revert {run_id})")
             for line in format_report(plans, applied=bool(args.apply)):
                 print(line)
         finally:
