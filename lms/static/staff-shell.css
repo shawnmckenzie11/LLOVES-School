@@ -10255,3 +10255,228 @@ body.staff-shell .begin-mod-dialog .begin-mod-confirm:disabled {
     margin-left: 0;
   }
 }
+
+/* MCK-539: Account menu and read-only Settings (1280px desktop). */
+body.staff-shell .staff-account {
+  position: relative;
+  display: inline-block;
+  margin-left: 0.15rem;
+}
+body.staff-shell .staff-account > summary {
+  list-style: none;
+  cursor: pointer;
+}
+body.staff-shell .staff-account > summary::-webkit-details-marker { display: none; }
+body.staff-shell .staff-account-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.staff-shell .staff-account-caret {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+body.staff-shell .staff-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 12.5rem;
+  padding: 0.35rem;
+  background: #fff;
+  border: 1px solid #c5d0dc;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+body.staff-shell .staff-account-item-current {
+  background: #eef6f5;
+  color: #0b5f59;
+}
+body.staff-shell.staff-settings-page {
+  min-width: 1280px;
+}
+body.staff-shell .staff-settings-wrap {
+  max-width: none;
+  padding: 0 24px 32px;
+}
+body.staff-shell .staff-settings-head {
+  margin: 18px 0 14px;
+}
+body.staff-shell .staff-settings-title {
+  margin: 0 0 4px;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+body.staff-shell .staff-settings-sub {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+body.staff-shell .staff-settings-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+body.staff-shell .staff-settings-subnav {
+  background: #fff;
+  border: 1px solid #d5dde6;
+  border-radius: 10px;
+  padding: 8px;
+}
+body.staff-shell .staff-settings-nav-item {
+  display: block;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 0.95rem;
+  font-weight: 550;
+  text-decoration: none;
+}
+body.staff-shell .staff-settings-nav-item.is-current,
+body.staff-shell .staff-settings-nav-item:hover {
+  background: #eef6f5;
+  color: #0b5f59;
+  font-weight: 650;
+}
+body.staff-shell .staff-settings-panel {
+  background: #fff;
+  border: 1px solid #d5dde6;
+  border-radius: 10px;
+  padding: 22px 24px 20px;
+}
+body.staff-shell .staff-settings-panel-title {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+body.staff-shell .staff-settings-field {
+  margin: 0 0 16px;
+}
+body.staff-shell .staff-settings-field-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+body.staff-shell .staff-settings-field-value {
+  font-size: 0.98rem;
+  color: #12202e;
+}
+body.staff-shell .staff-plan-card {
+  margin-bottom: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #d5dde6;
+}
+body.staff-shell .staff-plan-status {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+body.staff-shell .staff-plan-managed,
+body.staff-shell .staff-plan-ask {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+body.staff-shell .staff-plan-override-notes {
+  margin: 0 0 16px 1.1rem;
+  padding: 0;
+  color: #334155;
+  font-size: 0.9rem;
+}
+body.staff-shell .staff-settings-section-kicker {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+body.staff-shell .staff-plan-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+body.staff-shell .staff-plan-compare th {
+  text-align: left;
+  font-weight: 650;
+  color: #334155;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid #d5dde6;
+}
+body.staff-shell .staff-plan-compare th.staff-plan-col {
+  width: 92px;
+  text-align: center;
+  padding-right: 0;
+}
+body.staff-shell .staff-plan-compare td {
+  padding: 7px 12px 7px 0;
+  border-bottom: 1px solid #eef2f6;
+  vertical-align: middle;
+}
+body.staff-shell .staff-plan-compare td.staff-plan-col {
+  text-align: center;
+  color: #64748b;
+  padding-right: 0;
+}
+body.staff-shell .staff-plan-compare tr:last-child td { border-bottom: 0; }
+body.staff-shell .staff-plan-feat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+body.staff-shell .staff-plan-pro-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #99d5d0;
+  background: #fff;
+  color: #0f766e;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.12rem 0.4rem;
+}
+body.staff-shell .staff-plan-check {
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 15px;
+}
+body.staff-shell .staff-plan-dash {
+  color: #cbd5e1;
+}
+body.staff-shell .staff-settings-divider {
+  border: 0;
+  border-top: 1px solid #d5dde6;
+  margin: 0 0 14px;
+}
+body.staff-shell .staff-connected-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.95rem;
+}
+body.staff-shell .staff-connected-name { font-weight: 600; }
+body.staff-shell .staff-connected-status { color: #334155; }
+body.staff-shell .staff-settings-muted {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+body.staff-shell .staff-settings-future {
+  margin-top: 8px;
+  padding: 16px 18px;
+  border: 1px dashed #b7c4d1;
+  border-radius: 10px;
+  background: #f7f9fb;
+  color: #64748b;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}

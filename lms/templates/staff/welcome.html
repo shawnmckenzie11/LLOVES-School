@@ -11,7 +11,7 @@
 </head>
 <body class="staff-shell staff-onboarding" data-user-id="{{ user.id }}" data-onboarding-step="{{ step }}">
   <div class="staff-home-corner" aria-label="Account">
-    <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
+    {% include "staff/_account_menu.html" %}
   </div>
   <main class="ob-wrap">
     {% if step == 'welcome' %}

@@ -1,0 +1,8 @@
+{# MCK-539: Account menu — Settings and Log out (read-only account surface). #}
+<details class="staff-account" data-staff-account>
+  <summary class="{{ account_summary_class|default('staff-corner-link') }} staff-account-summary">Account<span class="staff-account-caret" aria-hidden="true">▾</span></summary>
+  <div class="staff-account-menu">
+    <a class="staff-help-item{% if request.endpoint == 'staff_settings' %} staff-account-item-current{% endif %}" href="{{ url_for('staff_settings') }}">Settings</a>
+    <a class="staff-help-item" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+</details>

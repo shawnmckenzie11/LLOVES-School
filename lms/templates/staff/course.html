@@ -56,7 +56,7 @@
       {% endfor %}
       <span class="staff-top-spacer"></span>
       {% with help_summary_class='staff-top-link' %}{% include "staff/_help_menu.html" %}{% endwith %}
-      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
+      {% with account_summary_class='staff-top-link' %}{% include "staff/_account_menu.html" %}{% endwith %}
     </nav>
     {% if tour_done %}{% include "staff/_tour_done.html" %}{% endif %}
 

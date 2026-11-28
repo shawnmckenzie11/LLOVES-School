@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/staff-shell.css">
+  {% include "_sentry_browser.html" %}
+</head>
+<body class="staff-shell staff-settings-page" data-user-id="{{ user.id }}">
+  <div class="wrap staff-settings-wrap">
+    <nav class="staff-top-menu" aria-label="Staff navigation">
+      <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
+      {% if user.role == 'it' %}<a class="staff-top-btn" href="{{ url_for('staff_bots') }}">Bots</a>{% endif %}
+      {% for item in nav_courses %}
+      <a class="staff-top-btn" href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+      <span class="staff-top-spacer"></span>
+      {% with help_summary_class='staff-top-link' %}{% include "staff/_help_menu.html" %}{% endwith %}
+      {% with account_summary_class='staff-top-link' %}{% include "staff/_account_menu.html" %}{% endwith %}
+    </nav>
+
+    <header class="staff-settings-head">
+      <h1 class="staff-settings-title">Settings</h1>
+      <p class="staff-settings-sub">Account and plan for this sign-in.</p>
+    </header>
+
+    <div class="staff-settings-body">
+      <nav class="staff-settings-subnav" aria-label="Settings sections">
+        {% for sid, label in settings_sections.items() %}
+        <a href="{{ url_for('staff_settings', section=sid) }}"
+           class="staff-settings-nav-item{% if settings_section == sid %} is-current{% endif %}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+
+      <div class="staff-settings-panels">
+        {% if settings_section == 'profile' %}
+        <section class="staff-settings-panel" aria-labelledby="settings-profile-heading">
+          <h2 id="settings-profile-heading" class="visually-hidden">Profile</h2>
+          <div class="staff-settings-field">
+            <span class="staff-settings-field-label">Name</span>
+            <span class="staff-settings-field-value">{{ display_name }}</span>
+          </div>
+          <div class="staff-settings-field">
+            <span class="staff-settings-field-label">Google sign-in email</span>
+            <span class="staff-settings-field-value">{{ email }}</span>
+          </div>
+        </section>
+        {% elif settings_section == 'plan' %}
+        <section class="staff-settings-panel" aria-labelledby="settings-plan-heading">
+          <h2 id="settings-plan-heading" class="visually-hidden">Plan</h2>
+          <div class="staff-plan-card">
+            <div class="staff-plan-card-main">
+              <p class="staff-plan-status">{{ plan_status_heading }}</p>
+              <p class="staff-plan-managed">Managed by your admin</p>
+              {% if plan_is_basic %}
+              <p class="staff-plan-ask">To get Pro features, ask your admin.</p>
+              {% endif %}
+            </div>
+          </div>
+          {% if feature_override_notes %}
+          <ul class="staff-plan-override-notes" aria-label="Account overrides">
+            {% for note in feature_override_notes %}
+            <li>{{ note }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          <p class="staff-settings-section-kicker">What&apos;s included</p>
+          <table class="staff-plan-compare">
+            <thead>
+              <tr>
+                <th scope="col">Feature</th>
+                <th scope="col" class="staff-plan-col">Basic</th>
+                <th scope="col" class="staff-plan-col">Pro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in plan_comparison_rows %}
+              <tr>
+                <td>
+                  <span class="staff-plan-feat-label{% if row.pro_only %} staff-plan-feat-pro{% endif %}">
+                    {{ row.label }}
+                    {% if row.pro_only %}<span class="staff-plan-pro-badge">Pro</span>{% endif %}
+                  </span>
+                </td>
+                <td class="staff-plan-col">
+                  {% if row.basic_included %}<span class="staff-plan-check" aria-label="Included">✓</span>{% else %}<span class="staff-plan-dash" aria-hidden="true">—</span>{% endif %}
+                </td>
+                <td class="staff-plan-col">
+                  <span class="staff-plan-check" aria-label="Included">✓</span>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+        {% elif settings_section == 'connected' %}
+        <section class="staff-settings-panel" aria-labelledby="settings-connected-heading">
+          <h2 id="settings-connected-heading" class="staff-settings-panel-title">Connected apps</h2>
+          {% if google_slides_app %}
+          <hr class="staff-settings-divider">
+          <div class="staff-connected-row">
+            <span class="staff-connected-name">{{ google_slides_app.name }}</span>
+            <span class="staff-connected-status">{{ google_slides_app.status }}</span>
+          </div>
+          {% else %}
+          <p class="staff-settings-muted">No connected apps to show for your account.</p>
+          {% endif %}
+        </section>
+        {% elif settings_section == 'billing' %}
+        <section class="staff-settings-panel" aria-labelledby="settings-billing-heading">
+          <h2 id="settings-billing-heading" class="staff-settings-panel-title">Billing</h2>
+          <div class="staff-settings-future" role="note">
+            Billing isn&apos;t set up yet. Your plan is managed by your admin.
+          </div>
+        </section>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

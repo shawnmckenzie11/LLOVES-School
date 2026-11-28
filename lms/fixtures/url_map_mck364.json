@@ -2662,6 +2662,15 @@
       "staff_mock_slides"
     ],
     [
+      "/staff/settings",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "staff_settings"
+    ],
+    [
       "/staff/welcome",
       [
         "GET",

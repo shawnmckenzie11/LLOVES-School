@@ -67,6 +67,28 @@ BASIC_OFF: tuple[str, ...] = tuple(
     key for key, enabled in FEATURE_REGISTRY.items() if not enabled
 )
 
+#: Teacher Settings and admin plan tables (Wonder v1 labels for listed keys).
+FEATURE_DISPLAY_LABELS: dict[str, str] = {
+    "mc_questions": "Multiple choice",
+    "rank_questions": "Ranking",
+    "numeric_questions": "Numeric",
+    "essay_questions": "Written response",
+    "live_slides": "Live slides",
+    "catchup_links": "Catch-up (last class)",
+    "catchup_full": "Catch-up (all classes)",
+    "celebrations": "Celebrations",
+    "gradebook_tracking": "Attendance & participation",
+    "game_show": "Rank game show",
+    "slides_import": "Import Google Slides or PowerPoint",
+    "whiteboard_submit": "Show Your Work",
+    "whiteboard": "Whiteboards",
+    "media": "Media",
+    "team_draw": "Team draw",
+    "group_draw": "Group draw",
+    "portfolio_gdoc": "Portfolio to Google Doc",
+    "news_wire_extras": "News wire extras",
+}
+
 # school_settings key. Set after the first grant so a later boot does not
 # turn every feature on for teachers who joined in between.
 GRANDFATHER_MARKER = "mck345_feature_grandfather_v1"
@@ -124,6 +146,89 @@ OVERRIDE_PLAN = "plan"
 def _now() -> str:
     """Local ISO timestamp without microseconds, matching ``school_db._now``."""
     return datetime.now().replace(microsecond=0).isoformat()
+
+
+def feature_display_label(key: str) -> str:
+    """Return the teacher-facing label for a registry key.
+
+    Unknown keys fall back to the raw key so new flags still render.
+
+    Args:
+        key: Feature key in ``FEATURE_REGISTRY``.
+
+    Returns:
+        Wonder label when defined, else ``key``.
+    """
+    name = str(key or "").strip()
+    return FEATURE_DISPLAY_LABELS.get(name, name)
+
+
+def plan_comparison_rows() -> list[dict[str, Any]]:
+    """Read-only Basic vs Pro rows derived from ``FEATURE_REGISTRY``.
+
+    Pro includes every registry key. Basic follows each registry boolean.
+    The table is plan defaults only; per-teacher overrides are shown separately.
+
+    Returns:
+        Dicts with ``key``, ``label``, ``basic_included``, ``pro_only``.
+    """
+    rows: list[dict[str, Any]] = []
+    for key in FEATURE_KEYS:
+        basic_on = bool(FEATURE_REGISTRY.get(key, False))
+        rows.append(
+            {
+                "key": key,
+                "label": feature_display_label(key),
+                "basic_included": basic_on,
+                "pro_only": not basic_on,
+            }
+        )
+    return rows
+
+
+def feature_override_notes(school: Any, user: Any) -> list[str]:
+    """Short lines for explicit ``user_features`` overrides on Settings.
+
+    Args:
+        school: Open school database.
+        user: Signed-in teacher row.
+
+    Returns:
+        Notes such as ``Whiteboards is on for your account``.
+    """
+    row = _as_user(user)
+    if row is None:
+        return []
+    uid = int(row["id"])
+    plan = str(row.get("plan") or PLAN_BASIC).strip().lower()
+    if not plan:
+        with school._lock:
+            stored = school.conn.execute(
+                "SELECT plan FROM users WHERE id = ?",
+                (uid,),
+            ).fetchone()
+            plan = str(stored["plan"] or PLAN_BASIC).strip().lower() if stored else PLAN_BASIC
+    notes: list[str] = []
+    with school._lock:
+        overrides = school.conn.execute(
+            """
+            SELECT feature_key, enabled FROM user_features
+            WHERE user_id = ?
+            ORDER BY feature_key
+            """,
+            (uid,),
+        ).fetchall()
+    for item in overrides:
+        key = str(item["feature_key"])
+        if key not in FEATURE_REGISTRY:
+            continue
+        enabled = int(item["enabled"]) != 0
+        label = feature_display_label(key)
+        if enabled:
+            notes.append(f"{label} is on for your account")
+        else:
+            notes.append(f"{label} is off for your account")
+    return notes
 
 
 def plan_default(plan: str | None, key: str) -> bool:
