@@ -51678,17 +51678,89 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def present_student_ids_for_live_class(self, class_id: int) -> list[int]:
-        """Roster ids who joined any live session for this class.
+    @staticmethod
+    def _is_catchup_run_key(run_key: str | None) -> bool:
+        """True when a run key is a catch-up board or lock, not a live class."""
+        return "~cu" in str(run_key or "")
+
+    def _live_session_ids_for_run(
+        self,
+        class_id: int,
+        *,
+        session_id: int | None = None,
+        run_key: str | None = None,
+    ) -> list[int]:
+        """Live session ids for one End Class or credit lookup (MCK-541).
+
+        Looks up by exact ``run_key`` or ``session_id``. When both are
+        omitted, uses the class's active session. Catch-up keys
+        (``~cu``) never match. Does not union every session of the class.
 
         Args:
             class_id: Game-show ``classes.id``.
+            session_id: Optional ``live_class_sessions.id``.
+            run_key: Optional ``live_class_sessions.run_key``.
+
+        Returns:
+            Matching session ids, or an empty list.
+        """
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        if key:
+            if self._is_catchup_run_key(key):
+                return []
+            with self._lock:
+                rows = self.conn.execute(
+                    """
+                    SELECT id, run_key FROM live_class_sessions
+                    WHERE class_id = ? AND run_key = ?
+                    """,
+                    (cid, key),
+                ).fetchall()
+            return [
+                int(row["id"])
+                for row in rows
+                if not self._is_catchup_run_key(str(row["run_key"] or ""))
+            ]
+        if session_id is not None:
+            row = self.get_live_session(int(session_id))
+            if row is None or int(row["class_id"]) != cid:
+                return []
+            if self._is_catchup_run_key(str(row.get("run_key") or "")):
+                return []
+            return [int(row["id"])]
+        active = self.get_active_live_session_for_class(cid)
+        if active is None:
+            return []
+        if self._is_catchup_run_key(str(active.get("run_key") or "")):
+            return []
+        return [int(active["id"])]
+
+    def present_student_ids_for_live_class(
+        self,
+        class_id: int,
+        *,
+        session_id: int | None = None,
+        run_key: str | None = None,
+    ) -> list[int]:
+        """Roster ids who joined the ending (or active) live session.
+
+        Looks up that session by ``run_key`` or ``session_id``, not every
+        session of the class. Catch-up runs (``~cu`` in the run key) are
+        omitted. Test students and guests with no roster id are omitted.
+        Ended sessions from earlier days are not unioned in (MCK-541).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: Optional ``live_class_sessions.id`` to read.
+            run_key: Optional ``live_class_sessions.run_key`` to read.
 
         Returns:
             Distinct student ids (may be empty).
         """
-        sessions = self.list_live_sessions_for_class(class_id)
-        session_ids = [int(row["id"]) for row in sessions]
+        session_ids = self._live_session_ids_for_run(
+            int(class_id), session_id=session_id, run_key=run_key
+        )
         found: list[int] = []
         if session_ids:
             placeholders = ",".join("?" * len(session_ids))
@@ -51703,18 +51775,17 @@ class SchoolDB(LovesDB):
                     session_ids,
                 ).fetchall()
             found = [int(row["student_id"]) for row in rows]
-        if found:
-            from participation_real_students import exclude_participation_answer_student_ids
+        from participation_real_students import exclude_participation_answer_student_ids
 
-            excluded = exclude_participation_answer_student_ids(int(class_id), self)
+        excluded = exclude_participation_answer_student_ids(int(class_id), self)
+        if session_ids:
+            # A resolved live session is authoritative, even when empty.
+            # Do not fall back to an earlier game's present flags (MCK-541).
             return [sid for sid in found if sid not in excluded]
         try:
             state = self.game.game_state(int(class_id))
         except Exception:  # noqa: BLE001
             return []
-        from participation_real_students import exclude_participation_answer_student_ids
-
-        excluded = exclude_participation_answer_student_ids(int(class_id), self)
         return [
             int(row["id"])
             for row in (state.get("students") or [])
@@ -51762,21 +51833,30 @@ class SchoolDB(LovesDB):
         return self._qh_credit_key(payload, kind)
 
     def participation_question_credits_for_class(
-        self, class_id: int
+        self,
+        class_id: int,
+        *,
+        session_id: int | None = None,
+        run_key: str | None = None,
     ) -> dict[int, int]:
         """Map student id → distinct individual QH answers this live class.
 
         Meet taps are excluded. Shared-within-Group answers do not
         auto-score participation game points — only Student: Individual.
+        Counts only the ending (or active) session, same scope as
+        attendance (MCK-541). Catch-up runs are omitted.
 
         Args:
             class_id: Game-show ``classes.id``.
+            session_id: Optional ``live_class_sessions.id`` to read.
+            run_key: Optional ``live_class_sessions.run_key`` to read.
 
         Returns:
             One count per student who answered a student-individual QH.
         """
-        sessions = self.list_live_sessions_for_class(class_id)
-        session_ids = [int(row["id"]) for row in sessions]
+        session_ids = self._live_session_ids_for_run(
+            int(class_id), session_id=session_id, run_key=run_key
+        )
         if not session_ids:
             return {}
         placeholders = ",".join("?" * len(session_ids))
@@ -51828,10 +51908,16 @@ class SchoolDB(LovesDB):
         return {sid: len(seen) for sid, seen in keys.items()}
 
     def participation_round_credits_for_class(
-        self, class_id: int
+        self,
+        class_id: int,
+        *,
+        session_id: int | None = None,
+        run_key: str | None = None,
     ) -> dict[int, int]:
         """Map student id → QH counts (alias used by Save and End Class)."""
-        return self.participation_question_credits_for_class(class_id)
+        return self.participation_question_credits_for_class(
+            class_id, session_id=session_id, run_key=run_key
+        )
 
     def _live_game_points_fields(self, session_id: int, class_id: int) -> dict[str, Any]:
         """``game_points`` plus ``game_points_ver`` for the staff ``/state``.
@@ -51930,12 +52016,15 @@ class SchoolDB(LovesDB):
         Args:
             class_id: Game-show ``classes.id``.
         """
-        credits = self.participation_question_credits_for_class(int(class_id))
+        run_key = self._live_class_run_key(int(class_id))
+        credits = self.participation_question_credits_for_class(
+            int(class_id), run_key=run_key
+        )
         try:
             return self.game.write_live_participation(
                 int(class_id),
                 credits,
-                run_key=self._live_class_run_key(int(class_id)),
+                run_key=run_key,
             )
         except Exception:  # noqa: BLE001 — live paint must not fail the answer
             return None
@@ -52766,10 +52855,14 @@ class SchoolDB(LovesDB):
             celebrate = persist is not False
         # End always saves both columns. Quit saves nothing.
         saving = bool(celebrate)
-        present_ids = self.present_student_ids_for_live_class(class_id)
+        present_ids = self.present_student_ids_for_live_class(
+            class_id, run_key=active_key
+        )
         winner = self.snapshot_live_winner(int(class_id)) if celebrate else None
         credits = (
-            self.participation_round_credits_for_class(class_id)
+            self.participation_round_credits_for_class(
+                class_id, run_key=active_key
+            )
             if saving
             else {}
         )
