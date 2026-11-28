@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from features import (
@@ -63,7 +63,10 @@ def feature_admin_label(key: str) -> str:
 
 
 def format_audit_timestamp(iso: str | None) -> str | None:
-    """Format a stored ISO timestamp for America/Toronto display."""
+    """Format a stored ISO timestamp for America/Toronto display.
+
+    Naive values are stored as UTC (Fly ``_now()``); aware values convert in place.
+    """
     raw = str(iso or "").strip()
     if not raw:
         return None
@@ -72,9 +75,8 @@ def format_audit_timestamp(iso: str | None) -> str | None:
     except ValueError:
         return raw
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=TORONTO)
-    else:
-        dt = dt.astimezone(TORONTO)
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(TORONTO)
     hour = dt.strftime("%I").lstrip("0") or "12"
     return (
         f"{dt.strftime('%b')} {dt.day}, {dt.year}, "

@@ -258,5 +258,68 @@ class TeacherPlanConsoleTests(TeacherPlanAdminTests):
         self.assertLess(len(teacher["row_feature_keys"]), len(FEATURE_KEYS))
 
 
+    def test_format_audit_timestamp_naive_as_utc_winter(self) -> None:
+        """Naive UTC stamps display as America/Toronto (EST)."""
+        from feature_admin import format_audit_timestamp
+
+        expected = "Nov 27, 2026, 9:00 PM ET"
+        self.assertEqual(
+            format_audit_timestamp("2026-11-28T02:00:00"), expected
+        )
+
+    def test_format_audit_timestamp_aware_utc_winter(self) -> None:
+        """Aware +00:00 stamps match naive UTC conversion."""
+        from feature_admin import format_audit_timestamp
+
+        expected = "Nov 27, 2026, 9:00 PM ET"
+        self.assertEqual(
+            format_audit_timestamp("2026-11-28T02:00:00+00:00"), expected
+        )
+
+    def test_format_audit_timestamp_summer_edt(self) -> None:
+        """Summer UTC conversion uses daylight offset (shown as ET)."""
+        from feature_admin import format_audit_timestamp
+
+        self.assertEqual(
+            format_audit_timestamp("2026-07-15T18:00:00"),
+            "Jul 15, 2026, 2:00 PM ET",
+        )
+
+    def test_audit_display_timestamps_all_admin_surfaces(self) -> None:
+        """Last changed, history, and audit tab share UTC→Toronto formatting."""
+        from feature_admin import list_teachers_for_plan_admin
+
+        stamp = "2026-11-28T02:00:00"
+        expected = "Nov 27, 2026, 9:00 PM ET"
+        self.school.conn.execute(
+            """
+            INSERT INTO teacher_feature_audit (
+                admin_user_id, teacher_user_id, key, old_value, new_value, created_at
+            ) VALUES (?, ?, 'plan', 'basic', 'pro', ?)
+            """,
+            (self.admin_id, self.teacher_id, stamp),
+        )
+        self.school.conn.commit()
+        tenant_id = self.school.default_tenant_id()
+        teachers = list_teachers_for_plan_admin(self.school, tenant_id)
+        row = next(t for t in teachers if int(t["id"]) == self.teacher_id)
+        self.assertEqual(row["last_changed_display"], expected)
+        history = list_teacher_change_history(
+            self.school, self.admin_id, self.teacher_id
+        )
+        self.assertGreaterEqual(len(history), 1)
+        self.assertEqual(history[0]["when"], expected)
+        audit = list_tenant_feature_audit(self.school, self.admin_id)
+        match = next(
+            (
+                a
+                for a in audit
+                if int(a["teacher_id"]) == self.teacher_id and a["when"] == expected
+            ),
+            None,
+        )
+        self.assertIsNotNone(match)
+
+
 if __name__ == "__main__":
     unittest.main()
