@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Settings · Plan</title>
+  <link rel="stylesheet" href="mock.css">
+  <style>
+    .top-menu { margin-top: 10px; }
+    .page { padding: 12px 24px 10px; }
+    .page-title { margin-bottom: 2px; font-size: 1.4rem; }
+    .page-sub { margin-bottom: 12px; }
+    .compare td { padding: 3px 12px 3px 0; }
+    .compare th { padding-bottom: 6px; }
+    .panel { padding: 14px 22px 8px; }
+    .plan-card { margin-bottom: 10px; padding-bottom: 10px; }
+    .section-label { margin-bottom: 6px; }
+    .plan-name { font-size: 1.15rem; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="top-menu" aria-label="Staff navigation">
+      <span class="top-btn">Dashboard</span>
+      <span class="top-spacer"></span>
+      <span class="top-link">Help</span>
+      <div class="account">
+        <span class="account-btn">Account <span class="caret">▾</span></span>
+      </div>
+    </nav>
+
+    <div class="page">
+      <h1 class="page-title">Settings</h1>
+      <p class="page-sub">Placeholder for Wonder — account and plan for this sign-in.</p>
+
+      <div class="settings-body">
+        <nav class="subnav" aria-label="Settings sections">
+          <a href="#">Profile</a>
+          <a href="#" class="current">Plan</a>
+          <a href="#">Connected apps</a>
+          <a href="#">Billing</a>
+        </nav>
+
+        <section class="panel" aria-label="Plan">
+          <div class="plan-card">
+            <div>
+              <div class="plan-name-row">
+                <h2 class="plan-name">Basic</h2>
+              </div>
+              <p class="plan-note">Placeholder for Wonder — your plan is Basic.</p>
+            </div>
+            <p class="managed">Managed by your admin.<br>To change your plan, ask your admin. <span class="muted">(placeholder for Wonder)</span></p>
+          </div>
+
+          <p class="section-label">What’s included</p>
+          <table class="compare">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th class="col-plan">Basic</th>
+                <th class="col-plan">Pro</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Multiple-choice questions</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Ranking questions</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Numeric answers</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Essay answers</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Live lesson slides</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Catch-up, most recent class</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Catch-up, all past classes <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Celebrations</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Gradebook, attendance, and participation</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Rank game show</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Google Slides / PowerPoint import <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td>Draw and submit</td><td class="col-plan"><span class="check">✓</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Whiteboards <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Media <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Team draw <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Group draw <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">Portfolio to Google Doc <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+              <tr><td><span class="feat">News wire extras <span class="chip chip-pro">Pro</span></span></td><td class="col-plan"><span class="dash">—</span></td><td class="col-plan"><span class="check">✓</span></td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
